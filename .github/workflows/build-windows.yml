@@ -62,7 +62,7 @@ jobs:
       - name: 下载 Firefox bootstrap.py
         working-directory: C:\mozilla-source
         run: |
-          wget https://raw.githubusercontent.com/mozilla-firefox/firefox/refs/heads/main/python/mozboot/bin/bootstrap.py -OutFile bootstrap.py
+          wget https://raw.githubusercontent.com/mozilla-firefox/firefox/refs/heads/main/python/mozboot/bin/bootstrap.py
 
       - name: 运行 bootstrap.py 引导源码和依赖
         working-directory: C:\mozilla-source
