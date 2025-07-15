@@ -13,6 +13,7 @@ jobs:
     timeout-minutes: 180
     env:
       MOZILLA_SOURCE_DIR: C:\mozilla-source
+      CARGO_TERM_COLOR: always
     steps:
       - name: 检出 workflow 仓库
         uses: actions/checkout@v4
