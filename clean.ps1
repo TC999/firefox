@@ -30,7 +30,8 @@ foreach ($path in $toRemove) {
 }
 
 # 卸载 Chocolatey 安装的包（保留 git）
-choco list --local-only | Select-String -Pattern '^[a-zA-Z0-9\.\-]+' | ForEach-Object {
+# 注意：不再使用 --local-only
+choco list | Select-String -Pattern '^[a-zA-Z0-9\.\-]+' | ForEach-Object {
     $pkg = $_.Line.Split('|')[0]
     if ($pkg -notlike "chocolatey*" -and $pkg -notlike "git*") {
         Write-Host "正在卸载 Chocolatey 包：$pkg"
@@ -41,8 +42,18 @@ choco list --local-only | Select-String -Pattern '^[a-zA-Z0-9\.\-]+' | ForEach-O
 # 停止并卸载数据库服务
 Write-Host "正在停止并卸载 PostgreSQL..."
 Stop-Service "postgresql-x64-17" -ErrorAction SilentlyContinue
-& "C:\Program Files\PostgreSQL\17\uninstall-postgresql.exe" --mode unattended
+$pgUninstaller = "C:\Program Files\PostgreSQL\17\uninstall-postgresql.exe"
+if (Test-Path $pgUninstaller) {
+    & $pgUninstaller --mode unattended
+} else {
+    Write-Host "PostgreSQL 卸载器不存在，跳过此步"
+}
 
 Write-Host "正在停止并卸载 MongoDB..."
 Stop-Service "MongoDB" -ErrorAction SilentlyContinue
-& "C:\Program Files\MongoDB\Server\7.0\unins000.exe" /VERYSILENT
+$mongoUninstaller = "C:\Program Files\MongoDB\Server\7.0\unins000.exe"
+if (Test-Path $mongoUninstaller) {
+    & $mongoUninstaller /VERYSILENT
+} else {
+    Write-Host "MongoDB 卸载器不存在，跳过此步"
+}
