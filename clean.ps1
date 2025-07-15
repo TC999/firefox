@@ -50,7 +50,7 @@ if ($pkgs.Count -gt 0) {
 # 停止并卸载数据库服务（先检测文件是否存在，静默卸载）
 Write-Host "正在停止并卸载 PostgreSQL..."
 Stop-Service "postgresql-x64-17" -ErrorAction SilentlyContinue
-$pgUninstaller = "C:\Program Files\PostgreSQL\17\uninstall-postgresql.exe"
+$pgUninstaller = "C:\Program Files\PostgreSQL\*\uninstall-postgresql.exe"
 if (Test-Path $pgUninstaller) {
     & $pgUninstaller --mode unattended
 } else {
