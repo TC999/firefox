@@ -11,6 +11,8 @@ on:
 jobs:
   build_firefox:
     runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
 
     steps:
       - name: 检出源码
