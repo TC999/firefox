@@ -10003,20 +10003,6 @@
   mirror: always
   rust: true
 
-# Is support for :has() enabled?
-- name: layout.css.has-selector.enabled
-  type: RelaxedAtomicBool
-  value: true
-  mirror: always
-  rust: true
-
-# Whether the `:has-slotted` pseudo class is enabled
-- name: layout.css.has-slotted-selector.enabled
-  type: RelaxedAtomicBool
-  value: true
-  mirror: always
-  rust: true
-
 # Is support for CSS hyphenate-limit-chars enabled?
 - name: layout.css.hyphenate-limit-chars.enabled
   type: RelaxedAtomicBool
@@ -14995,6 +14981,15 @@
 - name: network.http.http3.pr_poll_write
   type: RelaxedAtomicBool
   value: true
+  mirror: always
+  rust: true
+
+# Maximum number of UDP segments in a single UDP GSO send. Noop if
+# network.http.http3.use_nspr_for_io is true.
+- name: network.http.http3.max_gso_segments
+  type: RelaxedAtomicUint32
+  # Current industry standard. Likely worth tuning.
+  value: 10
   mirror: always
   rust: true
 
