@@ -28,6 +28,7 @@ choco list --local-only | Select-String -Pattern '^[a-zA-Z0-9\.\-]+' | ForEach-O
     if ($pkg -notlike "chocolatey*" -and $pkg -notlike "git*") {
         choco uninstall $pkg -y --remove-dependencies
     }
+}
 
 # 停止并卸载数据库服务
 Stop-Service "postgresql-x64-17" -ErrorAction SilentlyContinue
