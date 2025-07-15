@@ -62,15 +62,17 @@ jobs:
 
       - name: 拉取最新代码
         run: |
+          cd firefox
           git pull
 
       - name: 编译 Firefox
         run: |
+          cd firefox
           ./mach build
 
       - name: 显示构建结果
         run: |
-          if [ -f "obj-x86_64-pc-linux-gnu/dist/bin/firefox" ]; then
+          if [ -f "firefox/obj-x86_64-pc-linux-gnu/dist/bin/firefox" ]; then
             echo "🎉 Firefox 编译成功！"
           else
             echo "❌ Firefox 编译失败！"
@@ -82,6 +84,6 @@ jobs:
         with:
           name: firefox-build
           path: |
-            obj-*/dist/
-            obj-*/dist/bin/
-            obj-*/dist/bin/firefox*
+            firefox/obj-*/dist/
+            firefox/obj-*/dist/bin/
+            firefox/obj-*/dist/bin/firefox*
