@@ -103,5 +103,5 @@ jobs:
         with:
           name: firefox-build
           path: |
-            C:\mozilla-source\firefox\obj-*\dist\bin\firefox.exe
-            C:\mozilla-source\firefox\obj-*\dist\bin\*.dll
+            C:\mozilla-source\firefox\obj-*\dist
+            C:\mozilla-source\firefox\obj-*\dist
