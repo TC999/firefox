@@ -26,6 +26,10 @@ jobs:
         continue-on-error: true
         run: |
           .\info.ps1
+
+      - name: 分区信息
+        shell: pwsh
+        run: Get-Partition
       
       - name: 下载清理脚本
         run: |
