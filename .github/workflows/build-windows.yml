@@ -1,0 +1,135 @@
+name: Build Firefox on Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-firefox:
+    runs-on: windows-2022
+    timeout-minutes: 180
+    env:
+      MOZILLA_SOURCE_DIR: C:\mozilla-source
+    steps:
+      - name: 检出 workflow 仓库
+        uses: actions/checkout@v4
+
+      - name: 磁盘扩容
+        run: |
+          # 保留 Git，删除常见开发工具和运行时
+          $toRemove = @(
+            "C:\Program Files\Docker",
+            "C:\Miniconda",
+            "C:\msys64",
+            "C:\hostedtoolcache\windows\Python",
+            "C:\hostedtoolcache\windows\Node",
+            "C:\hostedtoolcache\windows\Ruby",
+            "C:\hostedtoolcache\windows\go",
+            "C:\hostedtoolcache\windows\Java_Adopt_jdk*",
+            "C:\hostedtoolcache\windows\Java_Temurin_jdk*",
+            "C:\Android",
+            "C:\Program Files\PostgreSQL",
+            "C:\Program Files\MongoDB",
+            "C:\tools\Apache24",
+            "C:\tools\nginx-*",
+            "C:\vcpkg",
+            "C:\Miniconda",
+            "C:\selenium",
+            "C:\R"
+        )
+
+        foreach ($path in $toRemove) {
+            Get-ChildItem -Path $path -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
+        # 卸载 Chocolatey 安装的包（保留 git）
+        choco list --local-only | Select-String -Pattern '^[a-zA-Z0-9\.\-]+' | ForEach-Object {
+            $pkg = $_.Line.Split('|')[0]
+            if ($pkg -notlike "chocolatey*" -and $pkg -notlike "git*") {
+                choco uninstall $pkg -y --remove-dependencies
+            }
+        }
+
+        # 停止并卸载数据库服务
+        Stop-Service "postgresql-x64-17" -ErrorAction SilentlyContinue
+        & "C:\Program Files\PostgreSQL\17\uninstall-postgresql.exe" --mode unattended
+        Stop-Service "MongoDB" -ErrorAction SilentlyContinue
+        & "C:\Program Files\MongoDB\Server\7.0\unins000.exe" /VERYSILENT
+
+      - name: 安装 Chocolatey（包管理器）
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+
+      - name: 安装 Git、wget、Python3
+        run: |
+          choco install -y git wget python --version=3.11.9
+          refreshenv
+
+      - name: 添加 Python 到 PATH
+        run: |
+          $python311 = "$env:USERPROFILE\AppData\Local\Programs\Python\Python311"
+          $python311scripts = "$python311\Scripts"
+          echo "$python311" | Out-File -Append -Encoding ascii $env:GITHUB_PATH
+          echo "$python311scripts" | Out-File -Append -Encoding ascii $env:GITHUB_PATH
+
+      - name: 验证依赖
+        run: |
+          git --version
+          python --version
+          pip --version
+          wget --version
+
+      - name: 下载并安装 MozillaBuild
+        run: |
+          $url = "https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-Latest.exe"
+          $output = "$env:TEMP\MozillaBuildSetup.exe"
+          Invoke-WebRequest $url -OutFile $output
+          Start-Process -Wait -NoNewWindow -FilePath $output -ArgumentList '/S'
+
+      - name: 创建源码目录
+        run: |
+          New-Item -ItemType Directory -Force -Path "C:\mozilla-source"
+
+      - name: 下载 Firefox bootstrap.py
+        working-directory: C:\mozilla-source
+        run: |
+          wget https://raw.githubusercontent.com/mozilla-firefox/firefox/refs/heads/main/python/mozboot/bin/bootstrap.py -OutFile bootstrap.py
+
+      - name: 运行 bootstrap.py 引导源码和依赖
+        working-directory: C:\mozilla-source
+        run: |
+          python bootstrap.py --no-interactive --application-choice=browser
+
+      - name: 检出 Firefox 源码（central 分支）
+        working-directory: C:\mozilla-source
+        run: |
+          if (-Not (Test-Path "C:\mozilla-source\firefox")) {
+            git clone https://github.com/mozilla/gecko-dev.git firefox
+          }
+          cd firefox
+          git fetch origin
+          git checkout central
+
+      - name: 构建 Firefox
+        working-directory: C:\mozilla-source\firefox
+        run: |
+          C:\mozilla-build\start-shell.bat -c "./mach build"
+
+      - name: 输出构建产物目录
+        working-directory: C:\mozilla-source\firefox
+        run: |
+          dir obj-*\dist\bin
+
+      # 可选: 上传构建产物
+      - name: 上传 Firefox 可执行文件
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-build
+          path: |
+            C:\mozilla-source\firefox\obj-*\dist\bin\firefox.exe
+            C:\mozilla-source\firefox\obj-*\dist\bin\*.dll
