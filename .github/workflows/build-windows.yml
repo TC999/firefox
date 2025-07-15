@@ -29,17 +29,16 @@ jobs:
           [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
           iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
 
-      - name: 安装 Git、wget、Python3
+      - name: 安装 wget
         run: |
-          choco install -y git wget python --version=3.11.9
+          choco install -y wget
           refreshenv
 
-      - name: 添加 Python 到 PATH
-        run: |
-          $python311 = "$env:USERPROFILE\AppData\Local\Programs\Python\Python311"
-          $python311scripts = "$python311\Scripts"
-          echo "$python311" | Out-File -Append -Encoding ascii $env:GITHUB_PATH
-          echo "$python311scripts" | Out-File -Append -Encoding ascii $env:GITHUB_PATH
+      - name: Setup Python
+        uses: actions/setup-python@v5.6.0
+        with:
+          # Version range or exact version of Python or PyPy to use, using SemVer's version range syntax. Reads from .python-version if unset.
+          python-version: 3.11
 
       - name: 验证依赖
         run: |
