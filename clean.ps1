@@ -20,26 +20,34 @@ $toRemove = @(
     "C:\R"
 )
 
+# 并行删除目录，加快清理速度
+$jobs = @()
 foreach ($path in $toRemove) {
-    Write-Host "正在尝试删除：$path"
-    if (Test-Path $path) {
-        Remove-Item $path -Recurse -Force -ErrorAction SilentlyContinue
-    } else {
-        Write-Host "  路径不存在，跳过"
-    }
+    $jobs += Start-Job -ScriptBlock {
+        param($p)
+        Write-Host "正在尝试删除：$p"
+        if (Test-Path $p) {
+            Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
+        } else {
+            Write-Host "  路径不存在，跳过"
+        }
+    } -ArgumentList $path
 }
+# 等待所有后台任务完成
+$jobs | Wait-Job | Out-Null
+$jobs | Remove-Job
 
-# 卸载 Chocolatey 安装的包（保留 git）
+# 卸载 Chocolatey 安装的包（保留 git），批量卸载提升速度
 # 注意：不再使用 --local-only
-choco list | Select-String -Pattern '^[a-zA-Z0-9\.\-]+' | ForEach-Object {
-    $pkg = $_.Line.Split('|')[0]
-    if ($pkg -notlike "chocolatey*" -and $pkg -notlike "git*") {
-        Write-Host "正在卸载 Chocolatey 包：$pkg"
-        choco uninstall $pkg -y --remove-dependencies
-    }
+$pkgs = choco list | Select-String -Pattern '^[a-zA-Z0-9\.\-]+' | ForEach-Object {
+    $_.Line.Split('|')[0]
+} | Where-Object { $_ -notlike "chocolatey*" -and $_ -notlike "git*" }
+if ($pkgs.Count -gt 0) {
+    Write-Host "批量卸载 Chocolatey 包：" ($pkgs -join ', ')
+    choco uninstall $($pkgs -join ' ') -y --remove-dependencies
 }
 
-# 停止并卸载数据库服务
+# 停止并卸载数据库服务（先检测文件是否存在，静默卸载）
 Write-Host "正在停止并卸载 PostgreSQL..."
 Stop-Service "postgresql-x64-17" -ErrorAction SilentlyContinue
 $pgUninstaller = "C:\Program Files\PostgreSQL\17\uninstall-postgresql.exe"
