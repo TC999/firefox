@@ -18,6 +18,7 @@
     "C:\Miniconda",
     "C:\selenium",
     "C:\R"
+(
 
 foreach ($path in $toRemove) {
     Get-ChildItem -Path $path -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
@@ -28,6 +29,7 @@ choco list --local-only | Select-String -Pattern '^[a-zA-Z0-9\.\-]+' | ForEach-O
     if ($pkg -notlike "chocolatey*" -and $pkg -notlike "git*") {
         choco uninstall $pkg -y --remove-dependencies
     }
+}
 }
 
 # 停止并卸载数据库服务
