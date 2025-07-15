@@ -86,7 +86,6 @@ jobs:
           }
           cd firefox
           git fetch origin
-          git checkout central
 
       - name: 构建 Firefox
         working-directory: C:\mozilla-source\firefox
