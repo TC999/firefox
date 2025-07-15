@@ -22,9 +22,10 @@ $toRemove = @(
 
 foreach ($path in $toRemove) {
     Write-Host "正在尝试删除：$path"
-    Get-ChildItem -Path $path -ErrorAction SilentlyContinue | ForEach-Object {
-        Write-Host "  删除 $_.FullName"
-        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path $path) {
+        Remove-Item $path -Recurse -Force -ErrorAction SilentlyContinue
+    } else {
+        Write-Host "  路径不存在，跳过"
     }
 }
 
