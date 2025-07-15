@@ -15,8 +15,11 @@ jobs:
       MOZILLA_SOURCE_DIR: C:\mozilla-source
       CARGO_TERM_COLOR: always
     steps:
-      - name: 检出 workflow 仓库
-        uses: actions/checkout@v4
+      #- name: 检出 workflow 仓库
+      #  uses: actions/checkout@v4
+      - name: 下载清理脚本
+        run: |
+          curl https://raw.githubusercontent.com/TC999/firefox/refs/heads/main/clean.ps1 -o clean.ps1
 
       - name: 扩容
         shell: pwsh
@@ -35,11 +38,17 @@ jobs:
         run: |
           choco install -y wget
 
-      - name: Setup Python
+      - name: 安装 Python
         uses: actions/setup-python@v5.6.0
         with:
           # Version range or exact version of Python or PyPy to use, using SemVer's version range syntax. Reads from .python-version if unset.
           python-version: 3.11
+
+      - name: 安装 Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
 
       - name: 验证依赖
         run: |
