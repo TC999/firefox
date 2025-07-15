@@ -1,5 +1,5 @@
 # 保留 Git，删除常见开发工具和运行时
-  $toRemove = @(
+$toRemove = @(
     "C:\Program Files\Docker",
     "C:\Miniconda",
     "C:\msys64",
@@ -18,10 +18,11 @@
     "C:\Miniconda",
     "C:\selenium",
     "C:\R"
-(
+)
 
 foreach ($path in $toRemove) {
     Get-ChildItem -Path $path -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # 卸载 Chocolatey 安装的包（保留 git）
 choco list --local-only | Select-String -Pattern '^[a-zA-Z0-9\.\-]+' | ForEach-Object {
@@ -29,7 +30,6 @@ choco list --local-only | Select-String -Pattern '^[a-zA-Z0-9\.\-]+' | ForEach-O
     if ($pkg -notlike "chocolatey*" -and $pkg -notlike "git*") {
         choco uninstall $pkg -y --remove-dependencies
     }
-}
 }
 
 # 停止并卸载数据库服务
