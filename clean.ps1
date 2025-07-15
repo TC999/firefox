@@ -21,19 +21,27 @@ $toRemove = @(
 )
 
 foreach ($path in $toRemove) {
-    Get-ChildItem -Path $path -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Host "正在尝试删除：$path"
+    Get-ChildItem -Path $path -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Host "  删除 $_.FullName"
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # 卸载 Chocolatey 安装的包（保留 git）
 choco list --local-only | Select-String -Pattern '^[a-zA-Z0-9\.\-]+' | ForEach-Object {
     $pkg = $_.Line.Split('|')[0]
     if ($pkg -notlike "chocolatey*" -and $pkg -notlike "git*") {
+        Write-Host "正在卸载 Chocolatey 包：$pkg"
         choco uninstall $pkg -y --remove-dependencies
     }
 }
 
 # 停止并卸载数据库服务
+Write-Host "正在停止并卸载 PostgreSQL..."
 Stop-Service "postgresql-x64-17" -ErrorAction SilentlyContinue
 & "C:\Program Files\PostgreSQL\17\uninstall-postgresql.exe" --mode unattended
+
+Write-Host "正在停止并卸载 MongoDB..."
 Stop-Service "MongoDB" -ErrorAction SilentlyContinue
 & "C:\Program Files\MongoDB\Server\7.0\unins000.exe" /VERYSILENT
