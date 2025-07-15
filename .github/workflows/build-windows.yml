@@ -27,9 +27,9 @@ jobs:
         run: |
           .\info.ps1
 
-      - name: 分区信息
-        shell: pwsh
-        run: Get-Partition
+      #- name: 分区信息
+      #  shell: pwsh
+      #  run: Get-Partition
       
       - name: 下载清理脚本
         run: |
@@ -100,11 +100,12 @@ jobs:
           }
           cd firefox
           git fetch origin
+          git pull
 
       - name: 构建 Firefox
         working-directory: C:\mozilla-source\firefox
         run: |
-          C:\mozilla-build\start-shell.bat -c "./mach build"
+          .\mach.cmd build
 
       - name: 输出构建产物目录
         working-directory: C:\mozilla-source\firefox
