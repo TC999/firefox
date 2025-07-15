@@ -17,6 +17,16 @@ jobs:
     steps:
       #- name: 检出 workflow 仓库
       #  uses: actions/checkout@v4
+      - name: 下载查看系统信息脚本
+        run: |
+          curl https://raw.githubusercontent.com/TC999/firefox/refs/heads/main/info.ps1 -o info.ps1
+
+      - name: 查看系统硬件信息
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          .\info.ps1
+      
       - name: 下载清理脚本
         run: |
           curl https://raw.githubusercontent.com/TC999/firefox/refs/heads/main/clean.ps1 -o clean.ps1
