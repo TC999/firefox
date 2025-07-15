@@ -20,6 +20,7 @@ jobs:
 
       - name: 扩容
         shell: pwsh
+        continue-on-error: true
         run: |
           .\clean.ps1
 
