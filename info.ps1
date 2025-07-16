@@ -25,8 +25,8 @@ Get-WmiObject Win32_PhysicalMemory | ForEach-Object {
     $size = Convert-Size $_.Capacity
     Write-Host "容量: $size"
     Write-Host "厂商: $($_.Manufacturer)"
-    Write-Host "部件号: $($_.PartNumber)"
-    Write-Host "速度: $($_.Speed) MHz"
+    #Write-Host "部件号: $($_.PartNumber)"
+    #Write-Host "速度: $($_.Speed) MHz"
     Write-Host "----------------------"
 }
 
@@ -39,7 +39,7 @@ Get-WmiObject Win32_DiskDrive | ForEach-Object {
     Write-Host "容量: $size"
     Write-Host "接口类型: $($_.InterfaceType)"
     Write-Host "分区数: $($_.Partitions)"
-    Write-Host "状态: $($_.Status)"
-    Write-Host "文件系统: $($_.FileSystem)"
+    #Write-Host "状态: $($_.Status)"
+    #Write-Host "文件系统: $($_.FileSystem)"
     Write-Host "----------------------"
 }
