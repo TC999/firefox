@@ -1,0 +1,251 @@
+name: 编译 Firefox
+
+on:
+  workflow_dispatch:
+    inputs:
+      linux:
+        type: boolean
+        description: 'Linux'
+      windows:
+        type: boolean
+        description: 'Windows'
+      release:
+        type: boolean
+        description: '发行'
+
+jobs:
+  Linux:
+    if: ${{ inputs.linux }}
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+      LANG: zh_CN.UTF-8
+      LANGUAGE: zh_CN:zh
+      LC_ALL: zh_CN.UTF-8
+
+    steps:
+      #- name: 检出源码
+      # uses: actions/checkout@v4
+      - name: 汉化
+        run: |
+          sudo apt-get update
+          sudo apt-get install language-pack-zh-hans
+          
+      - name: 显示配置
+        run: |
+          echo "警告⚠"
+          echo "分配的服务器性能有限，若选择的插件过多，务必注意CPU性能！"
+          echo -e "已知CPU型号(降序): 7763，8370C，8272CL，8171M，E5-2673\n"
+          echo "--------------------------CPU信息--------------------------"
+          echo "CPU物理数量: $(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)"
+          echo "CPU核心数量: $(nproc)"
+          echo -e "CPU型号信息:$(cat /proc/cpuinfo | grep -m1 name | awk -F: '{print $2}')\n"
+          echo "--------------------------内存信息--------------------------"
+          echo "已安装内存详细信息:"
+          echo -e "$(sudo lshw -short -C memory | grep GiB)\n"
+          echo "--------------------------硬盘信息--------------------------"
+          echo "硬盘数量: $(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
+
+      - name: 磁盘清理
+        uses: rokibhasansagar/slimhub_actions@v23.44.6
+
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl python3 python3-pip git 
+
+      - name: 引导环境（Bootstrap）
+        run: |
+          curl -LO https://raw.githubusercontent.com/mozilla-firefox/firefox/refs/heads/main/python/mozboot/bin/bootstrap.py
+          python3 bootstrap.py --no-interactive
+
+      - name: Install Rust
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y
+          source $HOME/.cargo/env
+          rustc --version
+          cargo --version
+
+      - name: 拉取最新代码
+        run: |
+          cd firefox
+          git pull
+
+      - name: 编译 Firefox
+        run: |
+          cd firefox
+          ./mach build
+
+      - name: 显示构建结果
+        run: |
+          if [ -f "firefox/obj-x86_64-pc-linux-gnu/dist/bin/firefox" ]; then
+            echo "🎉 Firefox 编译成功！"
+          else
+            echo "❌ Firefox 编译失败！"
+            exit 1
+          fi
+
+      #- name: 压缩为 tar.xz 包
+      #  run: |
+      #    tar cjvf firefox.tar.xz firefox/obj-*/dist/bin
+
+      - name: 上传编译产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-linux-build
+          path: |
+            firefox/obj-*/dist/
+
+  Windows:
+    if: ${{ inputs.windows }}
+    runs-on: windows-2022
+    timeout-minutes: 180
+    env:
+      MOZILLA_SOURCE_DIR: C:\mozilla-source
+      CARGO_TERM_COLOR: always
+    steps:
+      #- name: 检出 workflow 仓库
+      #  uses: actions/checkout@v4
+      - name: 下载查看系统信息脚本
+        run: |
+          curl https://raw.githubusercontent.com/TC999/firefox/refs/heads/main/info.ps1 -o info.ps1
+  
+      - name: 查看系统硬件信息
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          .\info.ps1
+  
+      #- name: 分区信息
+      #  shell: pwsh
+      #  run: Get-Partition
+      
+      - name: 下载清理脚本
+        run: |
+          curl https://raw.githubusercontent.com/TC999/firefox/refs/heads/main/clean.ps1 -o clean.ps1
+  
+      - name: 扩容
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          .\clean.ps1
+  
+      - name: 安装 Chocolatey（包管理器）
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+  
+      - name: 安装 wget
+        continue-on-error: true 
+        run: |
+          choco install -y wget
+  
+      - name: 安装 Python
+        uses: actions/setup-python@v5.6.0
+        with:
+          # Version range or exact version of Python or PyPy to use, using SemVer's version range syntax. Reads from .python-version if unset.
+          python-version: 3.11
+  
+      - name: 安装 Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+  
+      - name: 验证依赖
+        run: |
+          git --version
+          python --version
+          pip --version
+          wget --version
+  
+      - name: 下载并安装 MozillaBuild
+        run: |
+          $url = "https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-Latest.exe"
+          $output = "$env:TEMP\MozillaBuildSetup.exe"
+          Invoke-WebRequest $url -OutFile $output
+          Start-Process -Wait -NoNewWindow -FilePath $output -ArgumentList '/S'
+  
+      - name: 创建源码目录
+        run: |
+          New-Item -ItemType Directory -Force -Path "C:\mozilla-source"
+  
+      - name: 下载 Firefox bootstrap.py
+        working-directory: C:\mozilla-source
+        run: |
+          wget https://raw.githubusercontent.com/mozilla-firefox/firefox/refs/heads/main/python/mozboot/bin/bootstrap.py
+  
+      - name: 运行 bootstrap.py 引导源码和依赖
+        working-directory: C:\mozilla-source
+        run: |
+          python bootstrap.py --no-interactive --application-choice=browser
+  
+      - name: 检出 Firefox 源码（central 分支）
+        working-directory: C:\mozilla-source
+        run: |
+          if (-Not (Test-Path "C:\mozilla-source\firefox")) {
+            git clone https://github.com/mozilla/gecko-dev.git firefox
+          }
+          cd firefox
+          git fetch origin
+          git pull
+  
+      - name: 构建 Firefox
+        working-directory: C:\mozilla-source\firefox
+        run: |
+          .\mach.cmd build
+  
+      - name: 输出构建产物目录
+        working-directory: C:\mozilla-source\firefox
+        run: |
+          dir obj-*\dist\bin
+  
+      # 可选: 上传构建产物
+      - name: 上传 Firefox 可执行文件
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-windows-build
+          path: |
+            C:\mozilla-source\firefox\obj-*\dist
+
+  Release:
+    if: ${{ inputs.release }}
+    needs: [ Linux, Windows ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 下载编译产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 压缩为 tar.xz(Linux)
+        run: |
+          cd artifacts/firefox-linux-build/obj-*/dist
+          mv bin firefox
+          tar cjvf ../../../../firefox-linux.tar.xz firefox
+
+      - name: 压缩为 tar.xz(Windows)
+        run: |
+          cd artifacts/firefox-windows-build/obj-*/dist
+          mv bin firefox
+          tar cjvf ../../../../firefox-windows.tar.xz firefox
+
+      - name: 获取当前时间
+        run: |
+          echo "BUILD_DATE=$( TZ='Asia/Shanghai' date +"%Y%m%d%H%M%S")" >> $GITHUB_ENV
+          echo "编译时间：${{ env.BUILD_DATE }}"
+      
+      - name: 发行
+        uses: softprops/action-gh-release@v2.2.2
+        with:
+          name: ${{ env.BUILD_DATE }}
+          tag_name: ${{ env.BUILD_DATE }}
+          #body: ${{ inputs.release_body }}
+          draft: false
+          #prerelease: ${{ inputs.is_prerelease }}
+          make_latest: true
+          files: |
+            firefox-linux.tar.xz
+            firefox-windows.tar.xz
+
