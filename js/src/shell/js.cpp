@@ -1584,6 +1584,11 @@ static bool SetTimeout(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
+  if (IsCrossCompartmentWrapper(functionRefValue.toObjectOrNull())) {
+    JS_ReportErrorASCII(cx, "functionRef cannot be a CCW");
+    return false;
+  }
+
   int32_t delay;
   if (!JS::ToInt32(cx, delayValue, &delay)) {
     return false;
@@ -13401,6 +13406,8 @@ bool SetContextWasmOptions(JSContext* cx, const OptionParser& op) {
   if (const char* str = op.getStringOption("wasm-compiler")) {
     if (strcmp(str, "none") == 0) {
       enableWasm = false;
+      // Disable asm.js -- no wasm compilers available.
+      enableAsmJS = false;
     } else if (strcmp(str, "baseline") == 0) {
       MOZ_ASSERT(enableWasmBaseline);
       enableWasmOptimizing = false;

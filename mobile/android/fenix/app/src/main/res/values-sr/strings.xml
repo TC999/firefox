@@ -1541,7 +1541,7 @@
   -->
   <string name="create_collection_save_to_collection_tab_selected">%d језичак изабран</string>
   <!-- Text shown in snackbar when multiple tabs have been saved in a collection -->
-  <string name="create_collection_tabs_saved">Језичци сачувани!</string>
+  <string name="create_collection_tabs_saved" tools:ignore="UnusedResources" moz:removedIn="142">Језичци сачувани!</string>
   <!-- Text shown in snackbar when one or multiple tabs have been saved in a new collection -->
   <string name="create_collection_tabs_saved_new_collection">Збирка је сачувана!</string>
   <!-- Text shown in snackbar when one tab has been saved in a collection -->
@@ -1672,7 +1672,7 @@
   -->
   <string name="snackbar_collection_deleted">Збирка обрисана</string>
   <!-- Text shown in snackbar when user renames a collection -->
-  <string name="snackbar_collection_renamed">Збирка преименована</string>
+  <string name="snackbar_collection_renamed" moz:removedIn="141" tools:ignore="UnusedResources">Збирка преименована</string>
   <!-- Text shown in snackbar when user closes a tab -->
   <string name="snackbar_tab_closed">Језичак затворен</string>
   <!-- Text shown in snackbar when user closes all tabs -->
@@ -1711,7 +1711,7 @@
   <!-- Tab collection deletion prompt dialog option to delete the collection -->
   <string name="tab_collection_dialog_positive">Обриши</string>
   <!-- Message for copying the URL via long press on the toolbar -->
-  <string name="url_copied">Адреса копирана</string>
+  <string name="url_copied" tools:ignore="UnusedResources" moz:removedIn="142">Адреса копирана</string>
   <!-- Sample text for accessibility font size -->
   <string name="accessibility_text_size_sample_text_1">Ово је пример текста. Постављен је овде да би вам био дочаран изглед текста када повећавате или смањујете величину коришћењем овог подешавања.</string>
   <!-- Summary for Accessibility Text Size Scaling Preference -->

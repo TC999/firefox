@@ -65,7 +65,6 @@ import mozilla.components.lib.state.ext.flow
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
 import mozilla.telemetry.glean.private.NoExtras
 import org.mozilla.fenix.BrowserDirection
-import org.mozilla.fenix.FeatureFlags
 import org.mozilla.fenix.GleanMetrics.HomeScreen
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.NavGraphDirections
@@ -77,6 +76,7 @@ import org.mozilla.fenix.biometricauthentication.NavigationOrigin
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.browser.tabstrip.TabStrip
 import org.mozilla.fenix.components.Components
+import org.mozilla.fenix.components.HomepageThumbnailIntegration
 import org.mozilla.fenix.components.TabCollectionStorage
 import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.components.appstate.AppAction.ContentRecommendationsAction
@@ -195,26 +195,17 @@ class HomeFragment : Fragment() {
 
     private val collectionStorageObserver = object : TabCollectionStorage.Observer {
         @SuppressLint("NotifyDataSetChanged")
-        override fun onCollectionRenamed(tabCollection: TabCollection, title: String) {
-            showRenamedSnackbar()
-        }
-
-        @SuppressLint("NotifyDataSetChanged")
         override fun onTabsAdded(tabCollection: TabCollection, sessions: List<TabSessionState>) {
             view?.let {
-                val message = if (sessions.size == 1) {
-                    R.string.create_collection_tab_saved
-                } else {
-                    R.string.create_collection_tabs_saved
+                if (sessions.size == 1) {
+                    Snackbar.make(
+                        snackBarParentView = binding.dynamicSnackbarContainer,
+                        snackbarState = SnackbarState(
+                            message = it.context.getString(R.string.create_collection_tab_saved),
+                            duration = SnackbarState.Duration.Preset.Long,
+                        ),
+                    ).show()
                 }
-
-                Snackbar.make(
-                    snackBarParentView = binding.dynamicSnackbarContainer,
-                    snackbarState = SnackbarState(
-                        message = it.context.getString(message),
-                        duration = SnackbarState.Duration.Preset.Long,
-                    ),
-                ).show()
             }
         }
     }
@@ -254,6 +245,7 @@ class HomeFragment : Fragment() {
     private val searchSelectorBinding = ViewBoundFeatureWrapper<SearchSelectorBinding>()
     private val searchSelectorMenuBinding = ViewBoundFeatureWrapper<SearchSelectorMenuBinding>()
     private val homeScreenPopupManager = ViewBoundFeatureWrapper<HomeScreenPopupManager>()
+    private val thumbnailsFeature = ViewBoundFeatureWrapper<HomepageThumbnailIntegration>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // DO NOT ADD ANYTHING ABOVE THIS getProfilerTime CALL!
@@ -429,6 +421,16 @@ class HomeFragment : Fragment() {
             view = binding.root,
         )
 
+        thumbnailsFeature.set(
+            feature = HomepageThumbnailIntegration(
+                context = requireContext(),
+                view = binding.homepageView,
+                store = requireComponents.core.store,
+            ),
+            owner = this,
+            view = binding.homepageView,
+        )
+
         snackbarBinding.set(
             feature = SnackbarBinding(
                 context = requireContext(),
@@ -584,6 +586,7 @@ class HomeFragment : Fragment() {
                     startSearch = bundleArgs.getBoolean(FOCUS_ON_ADDRESS_BAR) ||
                             FxNimbus.features.oneClickSearch.value().enabled,
                     sessionId = args.sessionToStartSearchFor,
+                    source = args.searchAccessPoint,
                 ),
                 tabStripContent = { TabStrip() },
                 searchSuggestionsContent = { toolbarStore, modifier ->
@@ -1110,13 +1113,8 @@ class HomeFragment : Fragment() {
         // We only want this observer live just before we navigate away to the collection creation screen
         requireComponents.core.tabCollectionStorage.unregister(collectionStorageObserver)
 
-        if (FeatureFlags.CUSTOM_REVIEW_PROMPT_ENABLED) {
-            requireComponents.appStore.dispatch(CheckIfEligibleForReviewPrompt)
-        } else {
-            lifecycleScope.launch(IO) {
-                requireComponents.reviewPromptController.promptReview(requireActivity())
-            }
-        }
+        // Trigger review prompt logic and show the appropriate prompt variation if applicable
+        requireComponents.appStore.dispatch(CheckIfEligibleForReviewPrompt)
     }
 
     @VisibleForTesting
@@ -1190,18 +1188,6 @@ class HomeFragment : Fragment() {
 
     private fun registerCollectionStorageObserver() {
         requireComponents.core.tabCollectionStorage.register(collectionStorageObserver, this)
-    }
-
-    private fun showRenamedSnackbar() {
-        view?.let { view ->
-            Snackbar.make(
-                snackBarParentView = binding.dynamicSnackbarContainer,
-                snackbarState = SnackbarState(
-                    message = view.context.getString(R.string.snackbar_collection_renamed),
-                    duration = SnackbarState.Duration.Preset.Long,
-                ),
-            ).show()
-        }
     }
 
     private fun openTabsTray() {

@@ -2106,7 +2106,7 @@
   -->
   <string name="create_collection_save_to_collection_tab_selected">%d بەتكۈچ تاللاندى</string>
   <!-- Text shown in snackbar when multiple tabs have been saved in a collection -->
-  <string name="create_collection_tabs_saved">بەتكۈچ ساقلاندى!</string>
+  <string name="create_collection_tabs_saved" tools:ignore="UnusedResources" moz:removedIn="142">بەتكۈچ ساقلاندى!</string>
   <!-- Text shown in snackbar when one or multiple tabs have been saved in a new collection -->
   <string name="create_collection_tabs_saved_new_collection">يىغقۇچ ساقلاندى!</string>
   <!-- Text shown in snackbar when one tab has been saved in a collection -->
@@ -2241,7 +2241,7 @@
   -->
   <string name="snackbar_collection_deleted">يىغقۇچ ئۆچۈرۈلدى</string>
   <!-- Text shown in snackbar when user renames a collection -->
-  <string name="snackbar_collection_renamed">يىغقۇچ ئىسمى ئۆزگەرتىلدى</string>
+  <string name="snackbar_collection_renamed" moz:removedIn="141" tools:ignore="UnusedResources">يىغقۇچ ئىسمى ئۆزگەرتىلدى</string>
   <!-- Text shown in snackbar when user closes a tab -->
   <string name="snackbar_tab_closed">بەتكۈچ تاقالدى</string>
   <!-- Text shown in snackbar when user closes all tabs -->
@@ -2280,7 +2280,7 @@
   <!-- Tab collection deletion prompt dialog option to delete the collection -->
   <string name="tab_collection_dialog_positive">ئۆچۈر</string>
   <!-- Message for copying the URL via long press on the toolbar -->
-  <string name="url_copied">تور ئادرېسى كۆچۈرۈلدى</string>
+  <string name="url_copied" tools:ignore="UnusedResources" moz:removedIn="142">تور ئادرېسى كۆچۈرۈلدى</string>
   <!-- Sample text for accessibility font size -->
   <string name="accessibility_text_size_sample_text_1">بۇ ئۈلگە تېكىست. بۇ تەڭشەك بىلەن تېكىستنى چوڭايتقاندا ياكى كىچىكلەتكەندە تېكىستنىڭ قانداق كۆرۈلىدىغانلىقىنى كۆرسىتىپ بېرىدۇ.</string>
   <!-- Summary for Accessibility Text Size Scaling Preference -->
@@ -2792,6 +2792,10 @@
   <string name="preferences_addresses_save_and_autofill_addresses_2">ئادرېس ساقلاپ تولدۇرىدۇ</string>
   <!-- Preference summary for saving and filling address data -->
   <string name="preferences_addresses_save_and_autofill_addresses_summary_2">تېلېفون نومۇرى ۋە ئېلخەت ئادرېسىنى ئۆز ئىچىگە ئالىدۇ</string>
+  <!-- Preference option for syncing addresses across devices. This is displayed when the user is not signed into sync -->
+  <string name="preferences_addresses_sync_addresses_across_devices">ئادرېسنى ئۈسكۈنىلەر ئارا قەدەمداشلايدۇ</string>
+  <!-- Preference option for syncing addresses across devices. This is displayed when the user is signed into sync -->
+  <string name="preferences_addresses_sync_addresses">ئادرېسنى قەدەمداشلايدۇ</string>
   <!-- Title of the "Add card" screen -->
   <string name="credit_cards_add_card">كارتا قوش</string>
   <!-- Title of the "Edit card" screen -->

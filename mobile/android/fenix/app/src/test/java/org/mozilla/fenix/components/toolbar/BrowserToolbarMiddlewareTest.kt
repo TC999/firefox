@@ -69,6 +69,7 @@ import mozilla.components.compose.browser.toolbar.store.ProgressBarGravity.Top
 import mozilla.components.concept.engine.EngineSession.LoadUrlFlags
 import mozilla.components.concept.engine.cookiehandling.CookieBannersStorage
 import mozilla.components.concept.engine.permission.SitePermissionsStorage
+import mozilla.components.concept.engine.utils.ABOUT_HOME_URL
 import mozilla.components.concept.storage.BookmarksStorage
 import mozilla.components.feature.session.SessionUseCases
 import mozilla.components.feature.session.TrackingProtectionUseCases
@@ -116,9 +117,9 @@ import org.mozilla.fenix.components.NimbusComponents
 import org.mozilla.fenix.components.UseCases
 import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.components.appstate.AppAction.CurrentTabClosed
+import org.mozilla.fenix.components.appstate.AppAction.SearchAction.SearchEnded
 import org.mozilla.fenix.components.appstate.AppAction.SnackbarAction.SnackbarDismissed
 import org.mozilla.fenix.components.appstate.AppAction.URLCopiedToClipboard
-import org.mozilla.fenix.components.appstate.AppAction.UpdateSearchBeingActiveState
 import org.mozilla.fenix.components.appstate.AppState
 import org.mozilla.fenix.components.appstate.OrientationMode.Landscape
 import org.mozilla.fenix.components.appstate.OrientationMode.Portrait
@@ -143,7 +144,6 @@ import org.mozilla.fenix.components.toolbar.TabCounterInteractions.CloseCurrentT
 import org.mozilla.fenix.components.toolbar.TabCounterInteractions.TabCounterClicked
 import org.mozilla.fenix.components.toolbar.TabCounterInteractions.TabCounterLongClicked
 import org.mozilla.fenix.components.usecases.FenixBrowserUseCases
-import org.mozilla.fenix.components.usecases.FenixBrowserUseCases.Companion.ABOUT_HOME
 import org.mozilla.fenix.ext.isLargeWindow
 import org.mozilla.fenix.ext.nav
 import org.mozilla.fenix.ext.settings
@@ -190,7 +190,7 @@ class BrowserToolbarMiddlewareTest {
     }
     private val settings: Settings = mockk(relaxed = true) {
         every { shouldUseBottomToolbar } returns true
-        every { shouldUseSimpleToolbar } returns true
+        every { shouldUseExpandedToolbar } returns false
         every { isTabStripEnabled } returns false
     }
     private val tabId = "test"
@@ -204,12 +204,12 @@ class BrowserToolbarMiddlewareTest {
     private val bookmarksStorage: BookmarksStorage = mockk(relaxed = true)
 
     @Test
-    fun `WHEN initializing the toolbar THEN update state to display mode`() = runTestOnMain {
+    fun `WHEN initializing the toolbar THEN reset app search state`() = runTestOnMain {
         val middleware = buildMiddleware(appStore = appStore)
 
         val toolbarStore = buildStore(middleware)
 
-        verify { appStore.dispatch(UpdateSearchBeingActiveState(false)) }
+        verify { appStore.dispatch(SearchEnded) }
     }
 
     @Test
@@ -337,7 +337,8 @@ class BrowserToolbarMiddlewareTest {
         )
         assertEqualsOrigin(pageOrigin, toolbarStore.state.displayState.pageOrigin)
 
-        browserStore.dispatch(UpdateUrlAction(sessionId = tab.id, url = ABOUT_HOME)).joinBlocking()
+        browserStore.dispatch(UpdateUrlAction(sessionId = tab.id, url = ABOUT_HOME_URL))
+            .joinBlocking()
         testScheduler.advanceUntilIdle()
 
         assertEqualsOrigin(
@@ -1225,7 +1226,7 @@ class BrowserToolbarMiddlewareTest {
 
     @Test
     fun `WHEN translation is possible THEN show a translate button`() {
-        every { settings.shouldUseSimpleToolbar } returns false
+        every { settings.shouldUseExpandedToolbar } returns true
         val browserScreenStore = buildBrowserScreenStore()
         val middleware = buildMiddleware(appStore, browserScreenStore, browserStore)
         val toolbarStore = buildStore(middleware, browsingModeManager = browsingModeManager, navController = navController)
@@ -1246,7 +1247,7 @@ class BrowserToolbarMiddlewareTest {
 
     @Test
     fun `GIVEN the current page is translated WHEN knowing of this state THEN update the translate button to show this`() {
-        every { settings.shouldUseSimpleToolbar } returns false
+        every { settings.shouldUseExpandedToolbar } returns true
         val browserScreenStore = buildBrowserScreenStore()
         val middleware = buildMiddleware(appStore, browserScreenStore, browserStore)
         val toolbarStore = buildStore(middleware, browsingModeManager = browsingModeManager, navController = navController)
@@ -1281,7 +1282,7 @@ class BrowserToolbarMiddlewareTest {
 
     @Test
     fun `GIVEN translation is possible WHEN tapping on the translate button THEN allow user to choose how to translate`() {
-        every { settings.shouldUseSimpleToolbar } returns false
+        every { settings.shouldUseExpandedToolbar } returns true
         val currentNavDestination: NavDestination = mockk {
             every { id } returns R.id.browserFragment
         }
@@ -1941,7 +1942,7 @@ class BrowserToolbarMiddlewareTest {
 
     @Test
     fun `GIVEN in expanded mode WHEN THEN no browser end actions`() = runTestOnMain {
-        every { settings.shouldUseSimpleToolbar } returns false
+        every { settings.shouldUseExpandedToolbar } returns true
         Dispatchers.setMain(StandardTestDispatcher())
         val middleware = buildMiddleware(browserStore = browserStore)
         val toolbarStore = BrowserToolbarStore(
@@ -1982,7 +1983,7 @@ class BrowserToolbarMiddlewareTest {
 
     @Test
     fun `WHEN initializing the navigation bar AND should not use simple toolbar THEN add navigation bar actions`() = runTestOnMain {
-        every { settings.shouldUseSimpleToolbar } returns false
+        every { settings.shouldUseExpandedToolbar } returns true
         every { appState.orientation } returns Portrait
         Dispatchers.setMain(StandardTestDispatcher())
         val middleware = buildMiddleware(appStore = appStore)
@@ -2008,7 +2009,7 @@ class BrowserToolbarMiddlewareTest {
 
     @Test
     fun `WHEN initializing the navigation bar AND should not use simple toolbar AND in landscape THEN add no navigation bar actions`() = runTestOnMain {
-        every { settings.shouldUseSimpleToolbar } returns false
+        every { settings.shouldUseExpandedToolbar } returns true
         every { appState.orientation } returns Landscape
         Dispatchers.setMain(StandardTestDispatcher())
         val middleware = buildMiddleware(appStore = appStore)

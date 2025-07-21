@@ -57,6 +57,7 @@ import mozilla.components.concept.engine.cookiehandling.CookieBannersStorage
 import mozilla.components.concept.engine.permission.SitePermissions
 import mozilla.components.concept.engine.permission.SitePermissionsStorage
 import mozilla.components.concept.engine.prompt.ShareData
+import mozilla.components.concept.engine.utils.ABOUT_HOME_URL
 import mozilla.components.concept.storage.BookmarksStorage
 import mozilla.components.feature.session.SessionUseCases
 import mozilla.components.feature.session.TrackingProtectionUseCases
@@ -91,9 +92,9 @@ import org.mozilla.fenix.components.NimbusComponents
 import org.mozilla.fenix.components.UseCases
 import org.mozilla.fenix.components.appstate.AppAction.BookmarkAction
 import org.mozilla.fenix.components.appstate.AppAction.CurrentTabClosed
+import org.mozilla.fenix.components.appstate.AppAction.SearchAction.SearchEnded
 import org.mozilla.fenix.components.appstate.AppAction.SnackbarAction.SnackbarDismissed
 import org.mozilla.fenix.components.appstate.AppAction.URLCopiedToClipboard
-import org.mozilla.fenix.components.appstate.AppAction.UpdateSearchBeingActiveState
 import org.mozilla.fenix.components.appstate.OrientationMode
 import org.mozilla.fenix.components.appstate.snackbar.SnackbarState
 import org.mozilla.fenix.components.menu.MenuAccessPoint
@@ -116,7 +117,6 @@ import org.mozilla.fenix.components.toolbar.TabCounterInteractions.AddNewTab
 import org.mozilla.fenix.components.toolbar.TabCounterInteractions.CloseCurrentTab
 import org.mozilla.fenix.components.toolbar.TabCounterInteractions.TabCounterClicked
 import org.mozilla.fenix.components.toolbar.TabCounterInteractions.TabCounterLongClicked
-import org.mozilla.fenix.components.usecases.FenixBrowserUseCases.Companion.ABOUT_HOME
 import org.mozilla.fenix.ext.isLargeWindow
 import org.mozilla.fenix.ext.nav
 import org.mozilla.fenix.ext.navigateSafe
@@ -223,7 +223,7 @@ class BrowserToolbarMiddleware(
             is Init -> {
                 next(action)
 
-                appStore.dispatch(UpdateSearchBeingActiveState(context.store.state.isEditMode()))
+                appStore.dispatch(SearchEnded)
 
                 updateStartPageActions(context.store)
             }
@@ -687,7 +687,7 @@ class BrowserToolbarMiddleware(
             },
             ToolbarActionConfig(ToolbarAction.Translate) {
                 browserScreenStore.state.pageTranslationStatus.isTranslationPossible &&
-                        !settings.shouldUseSimpleToolbar
+                        settings.shouldUseExpandedToolbar
             },
         ).filter { config ->
             config.isVisible()
@@ -697,17 +697,17 @@ class BrowserToolbarMiddleware(
     }
 
     private fun buildEndBrowserActions(): List<Action> {
-        val isSimpleOrLandscape = appStore.state.orientation == OrientationMode.Landscape ||
-                settings.shouldUseSimpleToolbar
+        val isExpandedAndPortrait = settings.shouldUseExpandedToolbar &&
+                appStore.state.orientation == OrientationMode.Portrait
 
         return listOf(
             ToolbarActionConfig(ToolbarAction.NewTab) {
-                !settings.isTabStripEnabled && isSimpleOrLandscape
+                !settings.isTabStripEnabled && !isExpandedAndPortrait
             },
             ToolbarActionConfig(ToolbarAction.TabCounter) {
-                !settings.isTabStripEnabled && isSimpleOrLandscape
+                !settings.isTabStripEnabled && !isExpandedAndPortrait
             },
-            ToolbarActionConfig(ToolbarAction.Menu) { isSimpleOrLandscape },
+            ToolbarActionConfig(ToolbarAction.Menu) { !isExpandedAndPortrait },
         ).filter { config ->
             config.isVisible()
         }.map { config ->
@@ -716,7 +716,7 @@ class BrowserToolbarMiddleware(
     }
 
     private fun buildNavigationActions(isBookmarked: Boolean): List<Action> {
-        val isExpandedAndPortrait = !settings.shouldUseSimpleToolbar &&
+        val isExpandedAndPortrait = settings.shouldUseExpandedToolbar &&
                     appStore.state.orientation == OrientationMode.Portrait
 
         return listOf(
@@ -846,7 +846,7 @@ class BrowserToolbarMiddleware(
         }
 
         val displayUrl = url?.let { originalUrl ->
-            if (originalUrl.toString() == ABOUT_HOME) {
+            if (originalUrl.toString() == ABOUT_HOME_URL) {
                 // Default to showing the toolbar hint when the URL is ABOUT_HOME.
                 ""
             } else {

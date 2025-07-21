@@ -209,22 +209,6 @@ struct nsContentAndOffset {
 #include "nsILineIterator.h"
 #include "prenv.h"
 
-// Utility function to set a nsRect-valued property table entry on aFrame,
-// reusing the existing storage if the property happens to be already set.
-template <typename T>
-static void SetOrUpdateRectValuedProperty(
-    nsIFrame* aFrame, FrameProperties::Descriptor<T> aProperty,
-    const nsRect& aNewValue) {
-  bool found;
-  nsRect* rectStorage = aFrame->GetProperty(aProperty, &found);
-  if (!found) {
-    rectStorage = new nsRect(aNewValue);
-    aFrame->AddProperty(aProperty, rectStorage);
-  } else {
-    *rectStorage = aNewValue;
-  }
-}
-
 FrameDestroyContext::~FrameDestroyContext() {
   for (auto& content : mozilla::Reversed(mAnonymousContent)) {
     mPresShell->NativeAnonymousContentWillBeRemoved(content);
@@ -1454,10 +1438,6 @@ void nsIFrame::DidSetComputedStyle(ComputedStyle* aOldComputedStyle) {
 
 void nsIFrame::HandleLastRememberedSize() {
   MOZ_ASSERT(IsPrimaryFrame());
-  // Storing a last remembered size requires contain-intrinsic-size.
-  if (!StaticPrefs::layout_css_contain_intrinsic_size_enabled()) {
-    return;
-  }
   auto* element = Element::FromNodeOrNull(mContent);
   if (!element) {
     return;
@@ -8348,8 +8328,8 @@ static nsRect ComputeEffectsRect(nsIFrame* aFrame, const nsRect& aOverflowRect,
     // TODO: We could also take account of clipPath and mask to reduce the
     // ink overflow, but that's not essential.
     if (aFrame->StyleEffects()->HasFilters()) {
-      SetOrUpdateRectValuedProperty(aFrame, nsIFrame::PreEffectsBBoxProperty(),
-                                    r);
+      aFrame->SetOrUpdateDeletableProperty(nsIFrame::PreEffectsBBoxProperty(),
+                                           r);
       r = SVGUtils::GetPostFilterInkOverflowRect(aFrame, aOverflowRect);
     }
     return r;
@@ -8387,8 +8367,7 @@ static nsRect ComputeEffectsRect(nsIFrame* aFrame, const nsRect& aOverflowRect,
   // the frame dies.
 
   if (SVGIntegrationUtils::UsingOverflowAffectingEffects(aFrame)) {
-    SetOrUpdateRectValuedProperty(aFrame, nsIFrame::PreEffectsBBoxProperty(),
-                                  r);
+    aFrame->SetOrUpdateDeletableProperty(nsIFrame::PreEffectsBBoxProperty(), r);
     r = SVGIntegrationUtils::ComputePostEffectsInkOverflowRect(aFrame, r);
   }
 
@@ -10822,8 +10801,8 @@ static void ComputeAndIncludeOutlineArea(nsIFrame* aFrame,
   if (innerRect == aFrame->GetRectRelativeToSelf()) {
     aFrame->RemoveProperty(nsIFrame::OutlineInnerRectProperty());
   } else {
-    SetOrUpdateRectValuedProperty(aFrame, nsIFrame::OutlineInnerRectProperty(),
-                                  innerRect);
+    aFrame->SetOrUpdateDeletableProperty(nsIFrame::OutlineInnerRectProperty(),
+                                         innerRect);
   }
 
   nsRect outerRect(innerRect);

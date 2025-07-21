@@ -279,8 +279,6 @@ class MainMenuTestCompose : TestSetup() {
             clickManageExtensionsButtonFromRedesignedMainMenu(composeTestRule)
         }.openDetailedMenuForAddon(recommendedExtensionTitle) {
         }.removeAddon(composeTestRule.activityRule) {
-            verifySnackBarText("Successfully uninstalled $recommendedExtensionTitle")
-            waitUntilSnackbarGone()
         }.goBack {
         }
         browserScreen {
@@ -556,17 +554,26 @@ class MainMenuTestCompose : TestSetup() {
     @SmokeTest
     @Test
     fun verifyTheExtensionInstallationTest() {
+        var recommendedExtensionTitle = ""
         val genericURL = getGenericAsset(mockWebServer, 1)
 
         navigationToolbar {
         }.enterURLAndEnterToBrowser(genericURL.url) {
         }.openThreeDotMenu(composeTestRule) {
         }.openExtensionsFromMainMenu {
-            val recommendedExtensionTitle = getRecommendedExtensionTitle(composeTestRule)
+            recommendedExtensionTitle = getRecommendedExtensionTitle(composeTestRule)
             installRecommendedAddon(recommendedExtensionTitle, composeTestRule)
             acceptPermissionToInstallAddon()
             verifyAddonInstallCompletedPrompt(recommendedExtensionTitle, composeTestRule.activityRule)
             closeAddonInstallCompletePrompt()
+        }
+        browserScreen {
+        }.openThreeDotMenu(composeTestRule) {
+            verifyExtensionsButtonWithInstalledExtension(recommendedExtensionTitle)
+        }.openExtensionsFromMainMenu {
+            verifyDiscoverMoreExtensionsButton(composeTestRule, isDisplayed = false)
+            verifyManageExtensionsButtonFromRedesignedMainMenu(composeTestRule, isDisplayed = true)
+            verifyInstalledExtension(composeTestRule, recommendedExtensionTitle)
         }
     }
 

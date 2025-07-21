@@ -58,6 +58,7 @@ import org.mozilla.fenix.browser.browsingmode.BrowsingMode.Normal
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode.Private
 import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.UseCases
+import org.mozilla.fenix.components.appstate.AppAction.SearchAction.SearchStarted
 import org.mozilla.fenix.components.appstate.OrientationMode
 import org.mozilla.fenix.components.menu.MenuAccessPoint
 import org.mozilla.fenix.ext.nav
@@ -208,7 +209,7 @@ class BrowserToolbarMiddleware(
             }
 
             is OriginClicked -> {
-                context.store.dispatch(ToggleEditMode(true))
+                appStore.dispatch(SearchStarted())
             }
             is PasteFromClipboardClicked -> {
                 openNewTab(searchTerms = clipboard.text)
@@ -252,10 +253,10 @@ class BrowserToolbarMiddleware(
     private fun observeSearchStateUpdates(store: Store<BrowserToolbarState, BrowserToolbarAction>) {
         syncCurrentSearchEngineJob?.cancel()
         syncCurrentSearchEngineJob = appStore.observeWhileActive {
-            distinctUntilChangedBy { it.selectedSearchEngine?.shortcutSearchEngine }
+            distinctUntilChangedBy { it.searchState.selectedSearchEngine?.searchEngine }
                 .collect {
-                    it.selectedSearchEngine?.let {
-                        updateStartPageActions(store, it.shortcutSearchEngine)
+                    it.searchState.selectedSearchEngine?.let {
+                        updateStartPageActions(store, it.searchEngine)
                     }
                 }
         }
@@ -264,7 +265,11 @@ class BrowserToolbarMiddleware(
         observeBrowserSearchStateJob = browserStore.observeWhileActive {
             distinctUntilChangedBy { it.search.searchEngineShortcuts }
                 .collect {
-                    updateStartPageActions(store, it.search.selectedOrDefaultSearchEngine)
+                    updateStartPageActions(
+                        store = store,
+                        selectedSearchEngine = appStore.state.searchState.selectedSearchEngine?.searchEngine
+                            ?: it.search.selectedOrDefaultSearchEngine,
+                    )
                 }
         }
     }
@@ -318,14 +323,14 @@ class BrowserToolbarMiddleware(
 
     private fun buildEndBrowserActions(): List<Action> {
         val environment = environment ?: return emptyList()
-        val isSimpleOrLandScape = environment.context.settings().shouldUseSimpleToolbar ||
-                appStore.state.orientation == OrientationMode.Landscape
+        val isExpandedAndPortrait = environment.context.settings().shouldUseExpandedToolbar &&
+                appStore.state.orientation == OrientationMode.Portrait
 
         return listOf(
             HomeToolbarActionConfig(HomeToolbarAction.TabCounter) {
-                !environment.context.settings().isTabStripEnabled && isSimpleOrLandScape
+                !environment.context.settings().isTabStripEnabled && !isExpandedAndPortrait
             },
-            HomeToolbarActionConfig(HomeToolbarAction.Menu) { isSimpleOrLandScape },
+            HomeToolbarActionConfig(HomeToolbarAction.Menu) { !isExpandedAndPortrait },
         ).filter { config ->
             config.isVisible()
         }.map { config ->
@@ -343,7 +348,7 @@ class BrowserToolbarMiddleware(
 
     private fun buildNavigationActions(): List<Action> {
         val environment = environment ?: return emptyList()
-        val isExpandedAndPortrait = !environment.context.settings().shouldUseSimpleToolbar &&
+        val isExpandedAndPortrait = environment.context.settings().shouldUseExpandedToolbar &&
                 appStore.state.orientation == OrientationMode.Portrait
 
         return listOf(
