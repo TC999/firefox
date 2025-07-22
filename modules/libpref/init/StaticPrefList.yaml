@@ -3628,6 +3628,12 @@
   value: true
   mirror: always
 
+# Enable ParentNode.moveBefore().
+- name: dom.movebefore.enabled
+  type: bool
+  value: @IS_NIGHTLY_BUILD@
+  mirror: always
+
 # Whether to dispatch mutation events.
 - name: dom.mutation_events.enabled
   type: bool
@@ -4618,6 +4624,11 @@
   type: bool
   value: true
   mirror: once
+
+- name: dom.serviceworkers.loadingCachedScriptOnWorkerThread.enabled
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
 
 - name: dom.serviceWorkers.enabled
   type: RelaxedAtomicBool
@@ -16436,12 +16447,6 @@
 - name: security.csp.reporting.limit.count
   type: uint32_t
   value: 100
-  mirror: always
-
-# Time span in seconds for reporting limit.
-- name: security.csp.reporting.limit.timespan
-  type: uint32_t
-  value: 2
   mirror: always
 
 # Enable/disable CSP reporting (report-uri and report-to)
