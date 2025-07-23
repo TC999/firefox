@@ -18,6 +18,11 @@ import { MozLitElement } from "../lit-utils.mjs";
  * @property {string} iconAlignment - How the icon should be aligned. Can be "start", "end", "center".
  */
 export default class MozPromo extends MozLitElement {
+  static queries = {
+    actionsSlot: "slot[name=actions]",
+    supportLinkSlot: "slot[name=support-link]",
+  };
+
   static properties = {
     type: { type: String, reflect: true },
     heading: { type: String, fluent: true },
@@ -63,6 +68,10 @@ export default class MozPromo extends MozLitElement {
         <div class="text-container">
           ${this.headingTemplate()}
           <p class="message">${this.message}</p>
+          <div class="actions-and-support-link-wrapper">
+            <slot name="actions"></slot>
+            <slot name="support-link"></slot>
+          </div>
         </div>
         ${!imageStartAligned ? this.imageTemplate() : ""}
       </div>`;

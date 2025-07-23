@@ -4017,7 +4017,7 @@ pref("extensions.formautofill.addresses.capture.enabled", true);
 #endif
 pref("extensions.formautofill.addresses.ignoreAutocompleteOff", true);
 // Supported countries need to follow ISO 3166-1 to align with "browser.search.region"
-pref("extensions.formautofill.addresses.supportedCountries", "US,CA,GB,FR,DE");
+pref("extensions.formautofill.addresses.supportedCountries", "US,CA,GB,FR,DE,BR,ES,JP");
 pref("extensions.formautofill.creditCards.supported", "on");
 pref("extensions.formautofill.creditCards.enabled", true);
 pref("extensions.formautofill.creditCards.ignoreAutocompleteOff", true);
@@ -4050,11 +4050,6 @@ pref("extensions.formautofill.heuristics.refillOnSiteClearingFields", true);
 pref("extensions.formautofill.heuristics.refillOnSiteClearingFields.timeout", 500);
 
 pref("extensions.formautofill.heuristics.autofillSameOriginWithTop", true);
-
-#ifdef NIGHTLY_BUILD
-  pref("extensions.formautofill.ml.experiment.enabled", true);
-  pref("extensions.formautofill.ml.experiment.modelRevision", "v0.1.3");
-#endif
 
 pref("toolkit.osKeyStore.loglevel", "Warn");
 

@@ -7,17 +7,10 @@
 #ifndef mozilla_a11y_AccessibleWrap_h_
 #define mozilla_a11y_AccessibleWrap_h_
 
-#include "nsCOMPtr.h"
 #include "LocalAccessible.h"
-#include "mozilla/Attributes.h"
-#include "mozilla/mscom/Utils.h"
-#include "mozilla/StaticPtr.h"
-#include "nsXULAppAPI.h"
-#include "Units.h"
 
 namespace mozilla {
 namespace a11y {
-class DocRemoteAccessibleWrap;
 class MsaaAccessible;
 
 /**
@@ -36,11 +29,6 @@ class AccessibleWrap : public LocalAccessible {
   virtual void Shutdown() override;
 
  public:
-  /**
-   * Determine whether this is the root accessible for its HWND.
-   */
-  bool IsRootForHWND();
-
   MsaaAccessible* GetMsaa();
   virtual void GetNativeInterface(void** aOutAccessible) override;
 

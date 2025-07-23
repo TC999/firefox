@@ -7259,6 +7259,11 @@
   value: false
 #endif
 
+# Enable dithering in DrawTargetSkia
+- name: gfx.skia.dithering
+  type: bool
+  value: false
+  mirror: once
 
 # Log severe performance warnings to the error console and profiles.
 # This should be use to quickly find which slow paths are used by test cases.
@@ -9687,6 +9692,19 @@
   mirror: always
   rust: true
 
+# Whether the `-moz-appearance` property is exposed to content.
+- name: layout.css.moz-appearance.enabled
+  type: RelaxedAtomicBool
+  value: true
+  mirror: always
+  rust: true
+
+# Whether the `-moz-appearance` property is exposed to CSSStyleProperties.
+- name: layout.css.moz-appearance.webidl.enabled
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+
 # This pref controls whether the `prefers-color-scheme` value of iframes images
 # reacts to the embedder `color-scheme` in content.
 - name: layout.css.iframe-embedder-prefers-color-scheme.content.enabled
@@ -10024,7 +10042,7 @@
 # Is support for CSS overflow: -moz-hidden-unscrollable enabled
 - name: layout.css.overflow-moz-hidden-unscrollable.enabled
   type: RelaxedAtomicBool
-  value: @IS_NOT_NIGHTLY_BUILD@
+  value: false
   mirror: always
   rust: true
 
