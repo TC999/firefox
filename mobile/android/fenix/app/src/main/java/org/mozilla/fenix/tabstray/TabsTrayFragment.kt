@@ -19,6 +19,7 @@ import androidx.annotation.UiThread
 import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AppCompatDialogFragment
 import androidx.biometric.BiometricManager
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
@@ -55,6 +56,7 @@ import org.mozilla.fenix.databinding.ComponentTabstray3FabBinding
 import org.mozilla.fenix.databinding.FragmentTabTrayDialogBinding
 import org.mozilla.fenix.ext.actualInactiveTabs
 import org.mozilla.fenix.ext.components
+import org.mozilla.fenix.ext.pixelSizeFor
 import org.mozilla.fenix.ext.registerForActivityResult
 import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.ext.runIfFragmentIsAttached
@@ -250,6 +252,8 @@ class TabsTrayFragment : AppCompatDialogFragment() {
             true,
         )
 
+        tabsTrayComposeBinding.root
+            .setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
         tabsTrayComposeBinding.root.setContent {
             FirefoxTheme(theme = Theme.getTheme(allowPrivateTheme = false)) {
                 TabsTray(
@@ -391,6 +395,8 @@ class TabsTrayFragment : AppCompatDialogFragment() {
             }
         }
 
+        fabButtonComposeBinding.root
+            .setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
         fabButtonComposeBinding.root.setContent {
             FirefoxTheme(theme = Theme.getTheme(allowPrivateTheme = false)) {
                 TabsTrayFab(
@@ -581,7 +587,7 @@ class TabsTrayFragment : AppCompatDialogFragment() {
                     R.attr.textOnColorPrimary,
                     requireContext(),
                 ),
-                positiveButtonRadius = (resources.getDimensionPixelSize(R.dimen.tab_corner_radius)).toFloat(),
+                positiveButtonRadius = pixelSizeFor(R.dimen.tab_corner_radius).toFloat(),
             ),
 
             onPositiveButtonClicked = ::onCancelDownloadWarningAccepted,
@@ -608,7 +614,7 @@ class TabsTrayFragment : AppCompatDialogFragment() {
                 true -> getString(R.string.snackbar_private_tab_closed)
                 false -> getString(R.string.snackbar_tab_closed)
             }
-        val pagePosition = if (isPrivate) Page.PrivateTabs.ordinal else Page.NormalTabs.ordinal
+        val page = if (isPrivate) Page.PrivateTabs else Page.NormalTabs
 
         lifecycleScope.allowUndo(
             view = requireView(),
@@ -616,7 +622,7 @@ class TabsTrayFragment : AppCompatDialogFragment() {
             undoActionTitle = getString(R.string.snackbar_deleted_undo),
             onCancel = {
                 requireComponents.useCases.tabsUseCases.undo.invoke()
-                tabsTrayStore.dispatch(TabsTrayAction.PageSelected(Page.positionToPage(pagePosition)))
+                tabsTrayStore.dispatch(TabsTrayAction.PageSelected(page))
             },
             operation = { },
             elevation = ELEVATION,
@@ -637,7 +643,7 @@ class TabsTrayFragment : AppCompatDialogFragment() {
             undoActionTitle = getString(R.string.snackbar_deleted_undo),
             onCancel = {
                 requireComponents.useCases.tabsUseCases.undo.invoke()
-                tabsTrayStore.dispatch(TabsTrayAction.PageSelected(Page.positionToPage(Page.NormalTabs.ordinal)))
+                tabsTrayStore.dispatch(TabsTrayAction.PageSelected(Page.NormalTabs))
             },
             operation = { },
             elevation = ELEVATION,

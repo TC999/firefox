@@ -9,6 +9,8 @@ const BACKUP_STATE_PREF = "sidebar.backupState";
 const VISIBILITY_SETTING_PREF = "sidebar.visibility";
 const SIDEBAR_TOOLS = "sidebar.main.tools";
 const VERTICAL_TABS_PREF = "sidebar.verticalTabs";
+const INSTALLED_EXTENSIONS = "sidebar.installed.extensions";
+const PINNED_PROMO_PREF = "sidebar.verticalTabs.dragToPinPromo.dismissed";
 
 // New panels that are ready to be introduced to new sidebar users should be added to this list;
 // ensure your feature flag is enabled at the same time you do this and that its the same value as
@@ -23,6 +25,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   SidebarState: "moz-src:///browser/components/sidebar/SidebarState.sys.mjs",
 });
 XPCOMUtils.defineLazyPreferenceGetter(lazy, "sidebarNimbus", "sidebar.nimbus");
+
 XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
   "sidebarBackupState",
@@ -48,6 +51,12 @@ XPCOMUtils.defineLazyPreferenceGetter(
 );
 
 XPCOMUtils.defineLazyPreferenceGetter(lazy, "sidebarTools", SIDEBAR_TOOLS, "");
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "sidebarExtensions",
+  INSTALLED_EXTENSIONS,
+  ""
+);
 
 XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
@@ -57,10 +66,18 @@ XPCOMUtils.defineLazyPreferenceGetter(
   () => SidebarManager.updateDefaultTools()
 );
 
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "dragToPinPromoDismissed",
+  PINNED_PROMO_PREF,
+  false
+);
+
 export const SidebarManager = {
   /**
    * Handle startup tasks like telemetry, adding listeners.
    */
+
   init() {
     // Handle nimbus feature pref setting updates on init and enrollment
     const featureId = "sidebar";
@@ -108,6 +125,7 @@ export const SidebarManager = {
       this.updateDefaultTools.bind(this)
     );
     this.updateDefaultTools();
+    this.checkForPinnedTabs();
 
     // if there's no user visibility pref, we may need to update it to the default value for the tab orientation
     const shouldResetVisibility = !Services.prefs.prefHasUserValue(
@@ -117,6 +135,20 @@ export const SidebarManager = {
       lazy.verticalTabsEnabled,
       shouldResetVisibility
     );
+  },
+
+  /**
+   * Ensure the drag-to-pin promo card is not displayed to existing users who already have pinned tabs.
+   */
+  checkForPinnedTabs() {
+    if (!lazy.dragToPinPromoDismissed) {
+      for (let win of lazy.BrowserWindowTracker.getOrderedWindows()) {
+        if (win.gBrowser.pinnedTabCount > 0) {
+          Services.prefs.setBoolPref(PINNED_PROMO_PREF, true);
+          return;
+        }
+      }
+    }
   },
 
   /**
@@ -246,6 +278,42 @@ export const SidebarManager = {
     if (tools.length > lazy.sidebarTools.length) {
       Services.prefs.setStringPref(SIDEBAR_TOOLS, tools);
     }
+  },
+
+  updateToolsPref(toolName, remove = null) {
+    const updatedTools = lazy.sidebarTools ? lazy.sidebarTools.split(",") : [];
+    const index = updatedTools.indexOf(toolName);
+
+    if ((remove && index == -1) || (!remove && index != -1)) {
+      return;
+    }
+
+    if (remove) {
+      updatedTools.splice(index, 1);
+    } else {
+      updatedTools.push(toolName);
+    }
+
+    Services.prefs.setStringPref(SIDEBAR_TOOLS, updatedTools.join());
+  },
+
+  clearExtensionsPref(toolName) {
+    let installedExtensions = lazy.sidebarExtensions
+      ? lazy.sidebarExtensions.split(",")
+      : [];
+    const index = installedExtensions.indexOf(toolName);
+    if (index != -1) {
+      installedExtensions.splice(index, 1);
+      Services.prefs.setStringPref(
+        INSTALLED_EXTENSIONS,
+        installedExtensions.join()
+      );
+    }
+  },
+
+  cleanupPrefs(id) {
+    this.clearExtensionsPref(id);
+    this.updateToolsPref(id, true);
   },
 
   /**

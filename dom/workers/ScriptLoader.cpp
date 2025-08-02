@@ -602,7 +602,10 @@ nsContentPolicyType WorkerScriptLoader::GetContentPolicyType(
   }
   if (aRequest->IsModuleRequest()) {
     if (aRequest->AsModuleRequest()->IsDynamicImport()) {
-      return nsIContentPolicy::TYPE_INTERNAL_MODULE;
+      return aRequest->AsModuleRequest()->mModuleType ==
+                     JS::ModuleType::JavaScript
+                 ? nsIContentPolicy::TYPE_INTERNAL_MODULE
+                 : nsIContentPolicy::TYPE_JSON;
     }
 
     // Implements the destination for Step 14 in
@@ -707,15 +710,11 @@ already_AddRefed<ScriptLoadRequest> WorkerScriptLoader::CreateScriptLoadRequest(
     nsCOMPtr<nsIURI> referrer =
         mWorkerRef->Private()->GetReferrerInfo()->GetOriginalReferrer();
 
-    RefPtr<JS::loader::VisitedURLSet> visitedSet =
-        ModuleLoadRequest::NewVisitedSetForTopLevelImport(
-            uri, JS::ModuleType::JavaScript);
-
     // Part of Step 2. This sets the Top-level flag to true
     request = new ModuleLoadRequest(
         uri, JS::ModuleType::JavaScript, referrerPolicy, fetchOptions,
         SRIMetadata(), referrer, loadContext, ModuleLoadRequest::Kind::TopLevel,
-        moduleLoader, visitedSet, nullptr);
+        moduleLoader, nullptr);
   }
 
   // Set the mURL, it will be used for error handling and debugging.
@@ -1195,7 +1194,8 @@ bool WorkerScriptLoader::EvaluateScript(JSContext* aCx,
     //    relevant global object to fire an event named error at worker.
     //
     // The event will be dispatched in CompileScriptRunnable.
-    if (request->mModuleScript->HasParseError()) {
+    if (request->mModuleScript->HasParseError() ||
+        request->mModuleScript->HasErrorToRethrow()) {
       // Here we assign an error code that is not a JS Exception, so
       // CompileRunnable can dispatch the event.
       mRv.Throw(NS_ERROR_DOM_SYNTAX_ERR);

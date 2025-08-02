@@ -15,6 +15,7 @@
 #include "mozilla/dom/BlobImpl.h"
 #include "mozilla/dom/CustomEvent.h"
 #include "mozilla/dom/Directory.h"
+#include "mozilla/dom/DocumentInlines.h"
 #include "mozilla/dom/DocumentOrShadowRoot.h"
 #include "mozilla/dom/ElementBinding.h"
 #include "mozilla/dom/FileSystemUtils.h"
@@ -33,6 +34,7 @@
 #include "mozilla/Maybe.h"
 #include "mozilla/MouseEvents.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/ServoCSSParser.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_signon.h"
 #include "mozilla/TextUtils.h"
@@ -90,8 +92,6 @@
 
 // input type=radio
 #include "mozilla/dom/RadioGroupContainer.h"
-#include "nsIRadioVisitor.h"
-#include "nsRadioVisitor.h"
 
 // input type=file
 #include "mozilla/dom/FileSystemEntry.h"
@@ -726,6 +726,41 @@ static bool IsPickerBlocked(Document* aDoc) {
   return true;
 }
 
+/**
+ * Parse a CSS color string and convert it to the target colorspace if it
+ * succeeds.
+ * https://html.spec.whatwg.org/#update-a-color-well-control-color
+ *
+ * @param aValue the string to be parsed
+ * @return the parsed result as a HTML compatible form
+ */
+static Maybe<StyleAbsoluteColor> MaybeComputeColor(Document* aDocument,
+                                                   const nsAString& aValue) {
+  // A few steps are ignored given we don't support alpha and colorspace. See
+  // bug 1919718.
+  return ServoCSSParser::ComputeColorWellControlColor(
+      aDocument->EnsureStyleSet().RawData(), NS_ConvertUTF16toUTF8(aValue),
+      StyleColorSpace::Srgb);
+}
+
+/**
+ * https://html.spec.whatwg.org/#serialize-a-color-well-control-color
+ * https://drafts.csswg.org/css-color/#color-serialization-html-compatible-serialization-is-requested
+ *
+ * @param aColor The parsed color
+ * @param aResult The result in the form of #ffffff.
+ */
+static void SerializeColorForHTMLCompatibility(const StyleAbsoluteColor& aColor,
+                                               nsAString& aResult) {
+  // Raw StyleAbsoluteColor can have floats outside of 0-1 range e.g. when
+  // display-p3 color is converted to srgb, and ToColor guarantees to fit the
+  // values within the range.
+  nscolor color = aColor.ToColor();
+  aResult.Truncate();
+  aResult.AppendPrintf("#%02x%02x%02x", NS_GET_R(color), NS_GET_G(color),
+                       NS_GET_B(color));
+}
+
 nsTArray<nsString> HTMLInputElement::GetColorsFromList() {
   RefPtr<HTMLDataListElement> dataList = GetList();
   if (!dataList) {
@@ -742,10 +777,15 @@ nsTArray<nsString> HTMLInputElement::GetColorsFromList() {
       continue;
     }
 
-    nsString value;
+    nsAutoString value;
     option->GetValue(value);
-    if (IsValidSimpleColor(value)) {
-      ToLowerCase(value);
+    // https://html.spec.whatwg.org/#update-a-color-well-control-color
+    // https://html.spec.whatwg.org/#serialize-a-color-well-control-color
+    if (Maybe<StyleAbsoluteColor> result =
+            MaybeComputeColor(OwnerDoc(), value)) {
+      // Serialization step 6: If htmlCompatible is true, then do so with
+      // HTML-compatible serialization requested.
+      SerializeColorForHTMLCompatibility(*result, value);
       colors.AppendElement(value);
     }
   }
@@ -2861,15 +2901,14 @@ void HTMLInputElement::SetLastValueChangeWasInteractive(bool aWasInteractive) {
 }
 
 void HTMLInputElement::SetCheckedChanged(bool aCheckedChanged) {
-  DoSetCheckedChanged(aCheckedChanged, true);
-}
-
-void HTMLInputElement::DoSetCheckedChanged(bool aCheckedChanged, bool aNotify) {
   if (mType == FormControlType::InputRadio) {
     if (mCheckedChanged != aCheckedChanged) {
-      nsCOMPtr<nsIRadioVisitor> visitor =
-          new nsRadioSetCheckedChangedVisitor(aCheckedChanged);
-      VisitGroup(visitor);
+      VisitGroup(
+          [aCheckedChanged](HTMLInputElement* aRadio) {
+            aRadio->SetCheckedChangedInternal(aCheckedChanged);
+            return true;
+          },
+          false);
     }
   } else {
     SetCheckedChangedInternal(aCheckedChanged);
@@ -2895,7 +2934,7 @@ void HTMLInputElement::DoSetChecked(bool aChecked, bool aNotify,
   // value or not, we say the value was changed so that defaultValue don't
   // affect it no more.
   if (aSetValueChanged) {
-    DoSetCheckedChanged(true, aNotify);
+    SetCheckedChanged(true);
   }
 
   // Don't do anything if we're not changing whether it's checked (it would
@@ -2932,10 +2971,8 @@ void HTMLInputElement::RadioSetChecked(bool aNotify, bool aUpdateOtherElement) {
   if (aUpdateOtherElement) {
     // It’s possible for multiple radio input to have their checkedness set to
     // true, so we need to deselect all of them.
-    VisitGroup([self = RefPtr{this}](HTMLInputElement* aRadio) {
-      if (aRadio != self) {
-        aRadio->SetCheckedInternal(false, true);
-      }
+    VisitGroup([](HTMLInputElement* aRadio) {
+      aRadio->SetCheckedInternal(false, true);
       return true;
     });
   }
@@ -3059,8 +3096,7 @@ void HTMLInputElement::SetCheckedInternal(bool aChecked, bool aNotify) {
   // Notify all radios in the group that value has changed, this is to let
   // radios to have the chance to update its states, e.g., :indeterminate.
   if (mType == FormControlType::InputRadio) {
-    nsCOMPtr<nsIRadioVisitor> visitor = new nsRadioUpdateStateVisitor(this);
-    VisitGroup(visitor);
+    UpdateRadioGroupState();
   }
 }
 
@@ -4987,13 +5023,15 @@ void HTMLInputElement::SanitizeValue(nsAString& aValue,
       }
     } break;
     case FormControlType::InputColor: {
-      if (IsValidSimpleColor(aValue)) {
-        ToLowerCase(aValue);
-      } else {
-        // Set default (black) color, if aValue wasn't parsed correctly.
-        aValue.AssignLiteral("#000000");
-      }
-    } break;
+      // https://html.spec.whatwg.org/#update-a-color-well-control-color
+      // https://html.spec.whatwg.org/#serialize-a-color-well-control-color
+      StyleAbsoluteColor color = MaybeComputeColor(OwnerDoc(), aValue)
+                                     .valueOr(StyleAbsoluteColor::BLACK);
+      // Serialization step 6: If htmlCompatible is true, then do so with
+      // HTML-compatible serialization requested.
+      SerializeColorForHTMLCompatibility(color, aValue);
+      break;
+    }
     default:
       break;
   }
@@ -5013,20 +5051,6 @@ Maybe<nscolor> HTMLInputElement::ParseSimpleColor(const nsAString& aColor) {
   }
 
   return Some(color);
-}
-
-bool HTMLInputElement::IsValidSimpleColor(const nsAString& aValue) const {
-  if (aValue.Length() != 7 || aValue.First() != '#') {
-    return false;
-  }
-
-  for (int i = 1; i < 7; ++i) {
-    if (!IsAsciiDigit(aValue[i]) && !(aValue[i] >= 'a' && aValue[i] <= 'f') &&
-        !(aValue[i] >= 'A' && aValue[i] <= 'F')) {
-      return false;
-    }
-  }
-  return true;
 }
 
 bool HTMLInputElement::IsLeapYear(uint32_t aYear) const {
@@ -6417,9 +6441,10 @@ void HTMLInputElement::AddToRadioGroup() {
   //
   bool checkedChanged = mCheckedChanged;
 
-  nsCOMPtr<nsIRadioVisitor> visitor =
-      new nsRadioGetCheckedChangedVisitor(&checkedChanged, this);
-  VisitGroup(visitor);
+  VisitGroup([&checkedChanged](HTMLInputElement* aRadio) {
+    checkedChanged = aRadio->GetCheckedChanged();
+    return false;
+  });
 
   SetCheckedChangedInternal(checkedChanged);
 
@@ -6442,8 +6467,7 @@ void HTMLInputElement::RemoveFromRadioGroup() {
   // longer a selected radio button
   if (mChecked) {
     container->SetCurrentRadioButton(name, nullptr);
-    nsCOMPtr<nsIRadioVisitor> visitor = new nsRadioUpdateStateVisitor(this);
-    VisitGroup(visitor);
+    UpdateRadioGroupState();
   } else {
     AddStates(ElementState::INDETERMINATE);
   }
@@ -6533,23 +6557,12 @@ bool HTMLInputElement::IsHTMLFocusable(IsFocusableFlags aFlags,
   return false;
 }
 
-nsresult HTMLInputElement::VisitGroup(nsIRadioVisitor* aVisitor) {
+template <typename VisitCallback>
+void HTMLInputElement::VisitGroup(VisitCallback&& aCallback, bool aSkipThis) {
   if (auto* container = GetCurrentRadioGroupContainer()) {
     nsAutoString name;
     GetAttr(nsGkAtoms::name, name);
-    return container->WalkRadioGroup(name, aVisitor);
-  }
-
-  aVisitor->Visit(this);
-  return NS_OK;
-}
-
-void HTMLInputElement::VisitGroup(
-    const RadioGroupContainer::VisitCallback& aCallback) {
-  if (auto* container = GetCurrentRadioGroupContainer()) {
-    nsAutoString name;
-    GetAttr(nsGkAtoms::name, name);
-    container->WalkRadioGroup(name, aCallback);
+    container->WalkRadioGroup(name, aCallback, aSkipThis ? this : nullptr);
     return;
   }
 
@@ -6862,9 +6875,12 @@ void HTMLInputElement::UpdateValueMissingValidityStateForRadio(
 
     // nsRadioSetValueMissingState will call ElementStateChanged while visiting.
     nsAutoScriptBlocker scriptBlocker;
-    nsCOMPtr<nsIRadioVisitor> visitor =
-        new nsRadioSetValueMissingState(this, valueMissing);
-    VisitGroup(visitor);
+    VisitGroup([valueMissing](HTMLInputElement* aRadio) {
+      aRadio->SetValidityState(
+          nsIConstraintValidation::VALIDITY_STATE_VALUE_MISSING, valueMissing);
+      aRadio->UpdateValidityElementStates(true);
+      return true;
+    });
   }
 }
 
@@ -7516,6 +7532,14 @@ void HTMLInputElement::MaybeFireInputPasswordRemoved() {
   AsyncEventDispatcher::RunDOMEventWhenSafe(
       *this, u"DOMInputPasswordRemoved"_ns, CanBubble::eNo,
       ChromeOnlyDispatch::eYes);
+}
+
+void HTMLInputElement::UpdateRadioGroupState() {
+  VisitGroup([](HTMLInputElement* aRadio) {
+    aRadio->UpdateIndeterminateState(true);
+    aRadio->UpdateValidityElementStates(true);
+    return true;
+  });
 }
 
 }  // namespace mozilla::dom

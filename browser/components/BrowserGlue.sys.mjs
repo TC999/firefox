@@ -771,6 +771,9 @@ BrowserGlue.prototype = {
       "resource://gre/modules/TelemetryTimestamps.sys.mjs"
     );
     TelemetryTimestamps.add("blankWindowShown");
+    Glean.browserTimings.startupTimeline.blankWindowShown.set(
+      Services.telemetry.msSinceProcessStart()
+    );
 
     function getValue(attr) {
       return Services.xulStore.getValue(
@@ -1641,7 +1644,7 @@ BrowserGlue.prototype = {
     // Use an increasing number to keep track of the current state of the user's
     // profile, so we can move data around as needed as the browser evolves.
     // Completely unrelated to the current Firefox release number.
-    const APP_DATA_VERSION = 158;
+    const APP_DATA_VERSION = 159;
     const PREF = "browser.migration.version";
 
     let profileDataVersion = Services.prefs.getIntPref(PREF, -1);

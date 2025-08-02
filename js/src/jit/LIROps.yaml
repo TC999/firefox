@@ -205,8 +205,13 @@
 
 - name: NewTypedArray
   result_type: WordSized
-  num_temps: 2
+  num_temps: 3
   mir_op: true
+
+- name: NewTypedArrayInline
+  result_type: WordSized
+  num_temps: 1
+  mir_op: NewTypedArray
 
 - name: BindFunction
   result_type: WordSized
@@ -2260,6 +2265,24 @@
   num_temps: 1
   mir_op: StoreTypedArrayElementHole
 
+- name: TypedArrayFill
+  operands:
+    object: WordSized
+    value: WordSized
+    start: WordSized
+    end: WordSized
+  call_instruction: true
+  mir_op: true
+
+- name: TypedArrayFill64
+  operands:
+    object: WordSized
+    value: Int64
+    start: WordSized
+    end: WordSized
+  call_instruction: true
+  mir_op: TypedArrayFill
+
 - name: AtomicIsLockFree
   result_type: WordSized
   operands:
@@ -3127,6 +3150,24 @@
   operands:
     ptr: Int64
     boundsCheckLimit: Int64
+  mir_op: WasmBoundsCheck
+
+- name: WasmBoundsCheckInstanceField
+  result_type: WordSized
+  operands:
+    instance: WordSized
+    ptr: WordSized
+  arguments:
+    offset: uint32_t
+  mir_op: WasmBoundsCheck
+
+- name: WasmBoundsCheckInstanceField64
+  result_type: Int64
+  operands:
+    instance: WordSized
+    ptr: Int64
+  arguments:
+    offset: uint32_t
   mir_op: WasmBoundsCheck
 
 - name: WasmExtendU32Index

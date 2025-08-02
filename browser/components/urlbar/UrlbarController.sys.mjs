@@ -7,9 +7,9 @@ import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  getPlacesSemanticHistoryManager:
-    "resource://gre/modules/PlacesSemanticHistoryManager.sys.mjs",
   Interactions: "moz-src:///browser/components/places/Interactions.sys.mjs",
+  ProviderSemanticHistorySearch:
+    "resource:///modules/UrlbarProviderSemanticHistorySearch.sys.mjs",
   UrlbarPrefs: "resource:///modules/UrlbarPrefs.sys.mjs",
   UrlbarProvidersManager: "resource:///modules/UrlbarProvidersManager.sys.mjs",
   UrlbarTokenizer: "resource:///modules/UrlbarTokenizer.sys.mjs",
@@ -412,6 +412,8 @@ export class UrlbarController {
         let allowTabbingThroughResults =
           this.input.focusedViaMousedown ||
           this.input.searchMode?.isPreview ||
+          this.input.searchMode?.source ==
+            lazy.UrlbarUtils.RESULT_SOURCE.ACTIONS ||
           this.view.selectedElement ||
           (this.input.value &&
             this.input.getAttribute("pageproxystate") != "valid");
@@ -930,9 +932,15 @@ class TelemetryEvent {
       // enter search mode are picked. We should find a generalized way to
       // determine this instead of listing all the cases like this.
       details.isSessionOngoing = !!(
-        ["dismiss", "inaccurate_location", "show_less_frequently"].includes(
-          details.selType
-        ) || details.result?.payload.providesSearchMode
+        [
+          "dismiss",
+          "inaccurate_location",
+          "not_interested",
+          "not_now",
+          "opt_in",
+          "show_less_frequently",
+        ].includes(details.selType) ||
+        details.result?.payload.providesSearchMode
       );
     }
 
@@ -1158,14 +1166,22 @@ class TelemetryEvent {
 
   /**
    * Retrieves available semantic search sources.
+   * Ensure it is the provider initializing the semantic manager, since it
+   * provides the right configuration for the singleton.
    *
    * @returns {Array<string>} Array of found sources, will contain just "none"
    *   if no sources were found.
    */
   #getAvailableSemanticSources() {
     let sources = [];
-    if (lazy.getPlacesSemanticHistoryManager().canUseSemanticSearch) {
-      sources.push("history");
+    try {
+      if (
+        lazy.ProviderSemanticHistorySearch.semanticManager.canUseSemanticSearch
+      ) {
+        sources.push("history");
+      }
+    } catch (e) {
+      lazy.logger.error("Error getting the semantic manager:", e);
     }
     if (!sources.length) {
       sources.push("none");

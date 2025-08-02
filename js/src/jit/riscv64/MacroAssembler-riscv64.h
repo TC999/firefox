@@ -365,6 +365,7 @@ class MacroAssemblerRiscv64 : public Assembler {
   void ma_cmp_set(Register dst, Register lhs, Imm32 imm, Condition c);
 
   void computeScaledAddress(const BaseIndex& address, Register dest);
+  void computeScaledAddress32(const BaseIndex& address, Register dest);
 
   void BranchShort(Label* L);
 
@@ -587,6 +588,17 @@ class MacroAssemblerRiscv64Compat : public MacroAssemblerRiscv64 {
     }
   }
 
+  void computeEffectiveAddress32(const Address& address, Register dest) {
+    ma_add32(dest, address.base, Imm32(address.offset));
+  }
+
+  void computeEffectiveAddress32(const BaseIndex& address, Register dest) {
+    computeScaledAddress32(address, dest);
+    if (address.offset) {
+      ma_add32(dest, dest, Imm32(address.offset));
+    }
+  }
+
   void j(Label* dest) { ma_branch(dest); }
 
   void mov(Register src, Register dest) { addi(dest, src, 0); }
@@ -650,15 +662,9 @@ class MacroAssemblerRiscv64Compat : public MacroAssemblerRiscv64 {
     ma_push(scratch);
   }
   void push(Register reg) { ma_push(reg); }
-  void push(FloatRegister reg) {
-    MOZ_ASSERT(reg.isDouble(), "float32 and simd128 not supported");
-    ma_push(reg);
-  }
+  void push(FloatRegister reg) { ma_push(reg); }
   void pop(Register reg) { ma_pop(reg); }
-  void pop(FloatRegister reg) {
-    MOZ_ASSERT(reg.isDouble(), "float32 and simd128 not supported");
-    ma_pop(reg);
-  }
+  void pop(FloatRegister reg) { ma_pop(reg); }
 
   // Emit a branch that can be toggled to a non-operation. On LOONG64 we use
   // "andi" instruction to toggle the branch.

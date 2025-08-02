@@ -2964,19 +2964,27 @@ var gCSSProperties = {
     inherited: false,
     type: CSS_TYPE_LONGHAND,
     initial_values: ["normal"],
-    other_values: ["inline-size", "size"],
+    other_values: ["inline-size", "size"], // see also "layout.css.scroll-state.enabled" in this file
     invalid_values: [
+      // invalid values should always be invalid
       "none style",
       "none inline-size",
       "inline-size none",
       "style none",
       "style style",
       "inline-size style inline-size",
+      "inline-size normal inline-size",
       "inline-size block-size",
       "block-size",
       "block-size style",
       "size inline-size",
       "size block-size",
+      "size normal",
+      "normal size",
+      "inline-size normal",
+      "normal inline-size",
+      "scroll-state normal",
+      "normal scroll-state",
     ],
   },
   "container-name": {
@@ -9834,14 +9842,6 @@ var gCSSProperties = {
     other_values: ["non-scaling-stroke"],
     invalid_values: ["none non-scaling-stroke"],
   },
-  "-moz-window-dragging": {
-    domProp: "MozWindowDragging",
-    inherited: false,
-    type: CSS_TYPE_LONGHAND,
-    initial_values: ["default"],
-    other_values: ["drag", "no-drag"],
-    invalid_values: ["none"],
-  },
   "accent-color": {
     domProp: "accentColor",
     inherited: true,
@@ -13575,6 +13575,16 @@ if (IsCSSPropertyPrefEnabled("layout.css.anchor-positioning.enabled")) {
       "--foo span-y-start self-block-end",
     ],
   };
+}
+
+if (IsCSSPropertyPrefEnabled("layout.css.scroll-state.enabled")) {
+  gCSSProperties["container-type"].other_values.push(
+    "scroll-state",
+    "size scroll-state",
+    "scroll-state size",
+    "inline-size scroll-state",
+    "scroll-state inline-size"
+  );
 }
 
 gCSSProperties["hyphenate-limit-chars"] = {

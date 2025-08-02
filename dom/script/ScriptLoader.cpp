@@ -385,15 +385,9 @@ static void CollectScriptTelemetry(ScriptLoadRequest* aRequest) {
   }
 }
 
-// Helper method for checking if the script element is an event-handler
-// This means that it has both a for-attribute and a event-attribute.
-// Also, if the for-attribute has a value that matches "\s*window\s*",
-// and the event-attribute matches "\s*onload([ \(].*)?" then it isn't an
-// eventhandler. (both matches are case insensitive).
-// This is how IE seems to filter out a window's onload handler from a
-// <script for=... event=...> element.
-
-static bool IsScriptEventHandler(ScriptKind kind, nsIContent* aScriptElement) {
+/* static */
+bool ScriptLoader::IsScriptEventHandler(ScriptKind kind,
+                                        nsIContent* aScriptElement) {
   if (kind != ScriptKind::eClassic) {
     return false;
   }
@@ -408,6 +402,12 @@ static bool IsScriptEventHandler(ScriptKind kind, nsIContent* aScriptElement) {
     return false;
   }
 
+  return ScriptLoader::IsScriptEventHandler(forAttr, eventAttr);
+}
+
+/* static */
+bool ScriptLoader::IsScriptEventHandler(const nsAString& forAttr,
+                                        const nsAString& eventAttr) {
   const nsAString& for_str =
       nsContentUtils::TrimWhitespace<nsCRT::IsAsciiSpace>(forAttr);
   if (!for_str.LowerCaseEqualsLiteral("window")) {
@@ -1236,7 +1236,7 @@ bool ScriptLoader::ProcessScriptElement(nsIScriptElement* aElement) {
   }
 
   // Step 13. Check that the script is not an eventhandler
-  if (IsScriptEventHandler(scriptKind, scriptContent)) {
+  if (ScriptLoader::IsScriptEventHandler(scriptKind, scriptContent)) {
     return false;
   }
 
@@ -1820,6 +1820,7 @@ void ScriptLoader::CancelAndClearScriptLoadRequests() {
   mOffThreadCompilingRequests.CancelRequestsAndClear();
 
   if (mModuleLoader) {
+    mModuleLoader->CancelFetchingModules();
     mModuleLoader->CancelAndClearDynamicImports();
   }
 
@@ -2392,7 +2393,8 @@ nsresult ScriptLoader::ProcessRequest(ScriptLoadRequest* aRequest) {
       return NS_OK;
     }
 
-    if (request->mModuleScript) {
+    if (request->mModuleScript &&
+        !request->mModuleScript->HasErrorToRethrow()) {
       if (!request->InstantiateModuleGraph()) {
         request->mModuleScript = nullptr;
       }
@@ -4100,8 +4102,6 @@ void ScriptLoader::ReportPreloadErrorsToConsole(ScriptLoadRequest* aRequest) {
     ReportErrorToConsole(
         aRequest, aRequest->GetScriptLoadContext()->mUnreportedPreloadError);
     aRequest->GetScriptLoadContext()->mUnreportedPreloadError = NS_OK;
-    MOZ_ASSERT_IF(aRequest->IsModuleRequest(),
-                  aRequest->AsModuleRequest()->mImports.IsEmpty());
   }
 
   // TODO:
@@ -4394,7 +4394,7 @@ nsresult ScriptLoader::PrepareLoadedRequest(ScriptLoadRequest* aRequest,
       ReferrerPolicy policy =
           nsContentUtils::GetReferrerPolicyFromChannel(httpChannel);
       if (policy != ReferrerPolicy::_empty) {
-        aRequest->UpdateReferrerPolicy(policy);
+        aRequest->AsModuleRequest()->UpdateReferrerPolicy(policy);
       }
     }
 

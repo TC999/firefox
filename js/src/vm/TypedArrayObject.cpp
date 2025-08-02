@@ -1583,73 +1583,97 @@ static bool TypedArrayConstructor(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 template <typename T>
-static bool GetTemplateObjectForNative(JSContext* cx,
-                                       const JS::HandleValueArray args,
-                                       MutableHandleObject res) {
-  if (args.length() == 0) {
+static bool GetTemplateObjectForLength(JSContext* cx, int32_t length,
+                                       MutableHandle<TypedArrayObject*> res) {
+  size_t len = size_t(std::max(length, 0));
+
+  size_t nbytes;
+  if (!js::CalculateAllocSize<T>(len, &nbytes) ||
+      nbytes > TypedArrayObject::ByteLengthLimit) {
     return true;
   }
 
-  HandleValue arg = args[0];
-  if (arg.isInt32()) {
-    uint32_t len = 0;
-    if (arg.toInt32() >= 0) {
-      len = arg.toInt32();
-    }
+  res.set(FixedLengthTypedArrayObjectTemplate<T>::makeTemplateObject(cx, len));
+  return !!res;
+}
 
-    size_t nbytes;
-    if (!js::CalculateAllocSize<T>(len, &nbytes) ||
-        nbytes > TypedArrayObject::ByteLengthLimit) {
-      return true;
-    }
-
-    res.set(
-        FixedLengthTypedArrayObjectTemplate<T>::makeTemplateObject(cx, len));
-    return !!res;
+template <typename T>
+static TypedArrayObject* GetTemplateObjectForBuffer(
+    JSContext* cx, Handle<ArrayBufferObjectMaybeShared*> buffer) {
+  if (buffer->isResizable()) {
+    return ResizableTypedArrayObjectTemplate<T>::makeTemplateObject(cx);
   }
 
-  if (!arg.isObject()) {
-    return true;
-  }
-  auto* obj = &arg.toObject();
-
-  // We don't support wrappers, because of the complicated interaction between
-  // wrapped ArrayBuffers and TypedArrays, see |fromBufferWrapped()|.
-  if (IsWrapper(obj)) {
-    return true;
-  }
-
-  if (obj->is<ArrayBufferObjectMaybeShared>()) {
-    if (obj->as<ArrayBufferObjectMaybeShared>().isResizable()) {
-      res.set(ResizableTypedArrayObjectTemplate<T>::makeTemplateObject(cx));
-      return !!res;
-    }
-
-    if (obj->as<ArrayBufferObjectMaybeShared>().isImmutable()) {
-      res.set(ImmutableTypedArrayObjectTemplate<T>::makeTemplateObject(cx));
-      return !!res;
-    }
+  if (buffer->isImmutable()) {
+    return ImmutableTypedArrayObjectTemplate<T>::makeTemplateObject(cx);
   }
 
   // We don't use the template's length in the object case, so we can create
   // the template typed array with an initial length of zero.
   uint32_t len = 0;
 
-  res.set(FixedLengthTypedArrayObjectTemplate<T>::makeTemplateObject(cx, len));
-  return !!res;
+  return FixedLengthTypedArrayObjectTemplate<T>::makeTemplateObject(cx, len);
 }
 
-/* static */ bool TypedArrayObject::GetTemplateObjectForNative(
-    JSContext* cx, Native native, const JS::HandleValueArray args,
-    MutableHandleObject res) {
+template <typename T>
+static TypedArrayObject* GetTemplateObjectForArrayLike(
+    JSContext* cx, Handle<JSObject*> arrayLike) {
+  MOZ_ASSERT(!arrayLike->is<ArrayBufferObjectMaybeShared>(),
+             "Use GetTemplateObjectForBuffer for array buffer objects");
+  MOZ_ASSERT(!IsWrapper(arrayLike), "Wrappers not supported");
+
+  // We don't use the template's length in the object case, so we can create
+  // the template typed array with an initial length of zero.
+  uint32_t len = 0;
+
+  return FixedLengthTypedArrayObjectTemplate<T>::makeTemplateObject(cx, len);
+}
+
+/* static */ bool TypedArrayObject::GetTemplateObjectForLength(
+    JSContext* cx, Scalar::Type type, int32_t length,
+    MutableHandle<TypedArrayObject*> res) {
   MOZ_ASSERT(!res);
-#define CHECK_TYPED_ARRAY_CONSTRUCTOR(_, T, N)                     \
-  if (native == &TypedArrayObjectTemplate<T>::class_constructor) { \
-    return ::GetTemplateObjectForNative<T>(cx, args, res);         \
+
+  switch (type) {
+#define CREATE_TYPED_ARRAY_TEMPLATE(_, T, N) \
+  case Scalar::N:                            \
+    return ::GetTemplateObjectForLength<T>(cx, length, res);
+    JS_FOR_EACH_TYPED_ARRAY(CREATE_TYPED_ARRAY_TEMPLATE)
+#undef CREATE_TYPED_ARRAY_TEMPLATE
+    default:
+      MOZ_CRASH("Unsupported TypedArray type");
   }
-  JS_FOR_EACH_TYPED_ARRAY(CHECK_TYPED_ARRAY_CONSTRUCTOR)
-#undef CHECK_TYPED_ARRAY_CONSTRUCTOR
-  return true;
+}
+
+/* static */ TypedArrayObject* TypedArrayObject::GetTemplateObjectForBuffer(
+    JSContext* cx, Scalar::Type type,
+    Handle<ArrayBufferObjectMaybeShared*> buffer) {
+  switch (type) {
+#define CREATE_TYPED_ARRAY_TEMPLATE(_, T, N) \
+  case Scalar::N:                            \
+    return ::GetTemplateObjectForBuffer<T>(cx, buffer);
+    JS_FOR_EACH_TYPED_ARRAY(CREATE_TYPED_ARRAY_TEMPLATE)
+#undef CREATE_TYPED_ARRAY_TEMPLATE
+    default:
+      MOZ_CRASH("Unsupported TypedArray type");
+  }
+}
+
+/* static */ TypedArrayObject* TypedArrayObject::GetTemplateObjectForArrayLike(
+    JSContext* cx, Scalar::Type type, Handle<JSObject*> arrayLike) {
+  // We don't support wrappers, because of the complicated interaction between
+  // wrapped ArrayBuffers and TypedArrays, see |fromBufferWrapped()|.
+  MOZ_ASSERT(!IsWrapper(arrayLike));
+
+  switch (type) {
+#define CREATE_TYPED_ARRAY_TEMPLATE(_, T, N) \
+  case Scalar::N:                            \
+    return ::GetTemplateObjectForArrayLike<T>(cx, arrayLike);
+    JS_FOR_EACH_TYPED_ARRAY(CREATE_TYPED_ARRAY_TEMPLATE)
+#undef CREATE_TYPED_ARRAY_TEMPLATE
+    default:
+      MOZ_CRASH("Unsupported TypedArray type");
+  }
 }
 
 static bool LengthGetterImpl(JSContext* cx, const CallArgs& args) {
@@ -1977,6 +2001,42 @@ static bool TypedArray_set(JSContext* cx, const CallArgs& args) {
 static bool TypedArray_set(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
   return CallNonGenericMethod<IsTypedArrayObject, TypedArray_set>(cx, args);
+}
+
+static bool TypedArraySet(TypedArrayObject* target, TypedArrayObject* source,
+                          intptr_t offset) {
+  MOZ_ASSERT(offset >= 0);
+
+  size_t targetLength = target->length().valueOr(0);
+  size_t sourceLength = source->length().valueOr(0);
+
+  switch (target->type()) {
+#define SET_FROM_TYPED_ARRAY(_, T, N)                                       \
+  case Scalar::N:                                                           \
+    return SetFromTypedArray<T>(target, targetLength, source, sourceLength, \
+                                size_t(offset));
+    JS_FOR_EACH_TYPED_ARRAY(SET_FROM_TYPED_ARRAY)
+#undef SET_FROM_TYPED_ARRAY
+    default:
+      break;
+  }
+  MOZ_CRASH("Unsupported TypedArray type");
+}
+
+bool js::TypedArraySet(JSContext* cx, TypedArrayObject* target,
+                       TypedArrayObject* source, intptr_t offset) {
+  if (!::TypedArraySet(target, source, offset)) {
+    ReportOutOfMemory(cx);
+    return false;
+  }
+  return true;
+}
+
+void js::TypedArraySetInfallible(TypedArrayObject* target,
+                                 TypedArrayObject* source, intptr_t offset) {
+  AutoUnsafeCallWithABI unsafe;
+
+  MOZ_ALWAYS_TRUE(::TypedArraySet(target, source, offset));
 }
 
 // ES2020 draft rev dc1e21c454bd316810be1c0e7af0131a2d7f38e9
@@ -2884,8 +2944,8 @@ static bool TypedArray_includes(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 template <typename Ops, typename NativeType>
-static void TypedArrayFill(TypedArrayObject* tarray, NativeType value,
-                           size_t startIndex, size_t endIndex) {
+static void TypedArrayFillLoop(TypedArrayObject* tarray, NativeType value,
+                               size_t startIndex, size_t endIndex) {
   MOZ_RELEASE_ASSERT(startIndex <= endIndex);
   MOZ_RELEASE_ASSERT(endIndex <= tarray->length().valueOr(0));
 
@@ -2940,10 +3000,8 @@ static NativeType ConvertToNativeType(const Value& value) {
 }
 
 template <typename NativeType>
-static void TypedArrayFill(TypedArrayObject* tarray, const Value& value,
+static void TypedArrayFill(TypedArrayObject* tarray, NativeType val,
                            size_t startIndex, size_t endIndex) {
-  NativeType val = ConvertToNativeType<NativeType>(value);
-
   using UnsignedT =
       typename mozilla::UnsignedStdintTypeForSize<sizeof(NativeType)>::Type;
   UnsignedT bits = mozilla::BitwiseCast<UnsignedT>(val);
@@ -2959,16 +3017,23 @@ static void TypedArrayFill(TypedArrayObject* tarray, const Value& value,
       TypedArrayFillAtomicMemset<NativeType>(tarray, uint8_t(bits), startIndex,
                                              endIndex);
     } else {
-      TypedArrayFill<SharedOps>(tarray, val, startIndex, endIndex);
+      TypedArrayFillLoop<SharedOps>(tarray, val, startIndex, endIndex);
     }
   } else {
     if (bits == pattern) {
       TypedArrayFillStdMemset<NativeType>(tarray, uint8_t(bits), startIndex,
                                           endIndex);
     } else {
-      TypedArrayFill<UnsharedOps>(tarray, val, startIndex, endIndex);
+      TypedArrayFillLoop<UnsharedOps>(tarray, val, startIndex, endIndex);
     }
   }
+}
+
+template <typename NativeType>
+static void TypedArrayFill(TypedArrayObject* tarray, const Value& value,
+                           size_t startIndex, size_t endIndex) {
+  NativeType val = ConvertToNativeType<NativeType>(value);
+  TypedArrayFill(tarray, val, startIndex, endIndex);
 }
 
 /**
@@ -3063,6 +3128,96 @@ static bool TypedArray_fill(JSContext* cx, unsigned argc, Value* vp) {
   AutoJSMethodProfilerEntry pseudoFrame(cx, "[TypedArray].prototype", "fill");
   CallArgs args = CallArgsFromVp(argc, vp);
   return CallNonGenericMethod<IsTypedArrayObject, TypedArray_fill>(cx, args);
+}
+
+// Test if `ConvertNumber<To, From>` can be instantiated.
+//
+// For example `ConvertNumber<int64_t, double>` can't be instantiated. This is
+// checked through static assertions in `ConvertNumber`.
+//
+// As a further optimization also avoid generating unreachable code, like for
+// example `ConvertNumber<double, float>`.
+template <typename To, typename From>
+static constexpr bool IsValidForConvertNumber() {
+  if constexpr (!std::numeric_limits<From>::is_integer) {
+    return !std::numeric_limits<To>::is_integer && sizeof(From) >= sizeof(To);
+  } else if constexpr (sizeof(From) == sizeof(int64_t)) {
+    return std::numeric_limits<To>::is_integer && sizeof(From) == sizeof(To);
+  } else {
+    return std::numeric_limits<To>::is_integer && sizeof(From) >= sizeof(To);
+  }
+}
+
+template <typename T>
+static void TypedArrayFillFromJit(TypedArrayObject* obj, T fillValue,
+                                  intptr_t start, intptr_t end) {
+  if constexpr (!std::numeric_limits<T>::is_integer) {
+    MOZ_ASSERT(Scalar::isFloatingType(obj->type()));
+  } else if constexpr (std::is_same_v<T, int64_t>) {
+    MOZ_ASSERT(Scalar::isBigIntType(obj->type()));
+  } else {
+    static_assert(std::is_same_v<T, int32_t>);
+    MOZ_ASSERT(!Scalar::isFloatingType(obj->type()));
+    MOZ_ASSERT(!Scalar::isBigIntType(obj->type()));
+  }
+  MOZ_ASSERT(!obj->hasDetachedBuffer());
+  MOZ_ASSERT(!obj->is<ImmutableTypedArrayObject>());
+  MOZ_ASSERT(!obj->is<ResizableTypedArrayObject>());
+
+  size_t length = obj->length().valueOr(0);
+  size_t startIndex = ToIntegerIndex(start, length);
+  size_t endIndex = ToIntegerIndex(end, length);
+
+  // Return early if the fill range is empty.
+  if (startIndex >= endIndex) {
+    return;
+  }
+
+  switch (obj->type()) {
+#define TYPED_ARRAY_FILL(_, NativeType, Name)                               \
+  case Scalar::Name:                                                        \
+    if constexpr (IsValidForConvertNumber<NativeType, T>()) {               \
+      TypedArrayFill<NativeType>(obj, ConvertNumber<NativeType>(fillValue), \
+                                 startIndex, endIndex);                     \
+      return;                                                               \
+    }                                                                       \
+    break;
+    JS_FOR_EACH_TYPED_ARRAY(TYPED_ARRAY_FILL)
+#undef TYPED_ARRAY_FILL
+    default:
+      MOZ_CRASH("Unsupported TypedArray type");
+  }
+  MOZ_CRASH("Unexpected invalid number conversion");
+}
+
+void js::TypedArrayFillInt32(TypedArrayObject* obj, int32_t fillValue,
+                             intptr_t start, intptr_t end) {
+  AutoUnsafeCallWithABI unsafe;
+  TypedArrayFillFromJit(obj, fillValue, start, end);
+}
+
+void js::TypedArrayFillDouble(TypedArrayObject* obj, double fillValue,
+                              intptr_t start, intptr_t end) {
+  AutoUnsafeCallWithABI unsafe;
+  TypedArrayFillFromJit(obj, fillValue, start, end);
+}
+
+void js::TypedArrayFillFloat32(TypedArrayObject* obj, float fillValue,
+                               intptr_t start, intptr_t end) {
+  AutoUnsafeCallWithABI unsafe;
+  TypedArrayFillFromJit(obj, fillValue, start, end);
+}
+
+void js::TypedArrayFillInt64(TypedArrayObject* obj, int64_t fillValue,
+                             intptr_t start, intptr_t end) {
+  AutoUnsafeCallWithABI unsafe;
+  TypedArrayFillFromJit(obj, fillValue, start, end);
+}
+
+void js::TypedArrayFillBigInt(TypedArrayObject* obj, BigInt* fillValue,
+                              intptr_t start, intptr_t end) {
+  AutoUnsafeCallWithABI unsafe;
+  TypedArrayFillFromJit(obj, BigInt::toInt64(fillValue), start, end);
 }
 
 template <typename Ops, typename NativeType>
@@ -3954,6 +4109,32 @@ static bool TypedArray_subarray(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
   return CallNonGenericMethod<IsTypedArrayObject, TypedArray_subarray>(cx,
                                                                        args);
+}
+
+TypedArrayObject* js::TypedArraySubarray(JSContext* cx,
+                                         Handle<TypedArrayObject*> obj,
+                                         intptr_t start, intptr_t end) {
+  MOZ_ASSERT(!obj->hasDetachedBuffer());
+  MOZ_ASSERT(!obj->is<ResizableTypedArrayObject>());
+  MOZ_ASSERT(HasBuiltinTypedArraySpecies(obj, cx));
+
+  if (!TypedArrayObject::ensureHasBuffer(cx, obj)) {
+    return nullptr;
+  }
+  Rooted<ArrayBufferObjectMaybeShared*> buffer(cx, obj->bufferEither());
+
+  size_t srcLength = obj->length().valueOr(0);
+
+  size_t startIndex = ToIntegerIndex(start, srcLength);
+  size_t endIndex = ToIntegerIndex(end, srcLength);
+
+  size_t newLength = endIndex >= startIndex ? endIndex - startIndex : 0;
+
+  size_t srcByteOffset = obj->byteOffset().valueOr(0);
+  size_t elementSize = TypedArrayElemSize(obj->type());
+  size_t beginByteOffset = srcByteOffset + (startIndex * elementSize);
+
+  return TypedArrayCreateSameType(cx, obj, buffer, beginByteOffset, newLength);
 }
 
 // Byte vector with large enough inline storage to allow constructing small
@@ -5058,11 +5239,11 @@ static bool uint8array_toHex(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 /* static */ const JSFunctionSpec TypedArrayObject::protoFunctions[] = {
-    JS_FN("subarray", TypedArray_subarray, 2, 0),
-    JS_FN("set", TypedArray_set, 1, 0),
+    JS_INLINABLE_FN("subarray", TypedArray_subarray, 2, 0, TypedArraySubarray),
+    JS_INLINABLE_FN("set", TypedArray_set, 1, 0, TypedArraySet),
     JS_FN("copyWithin", TypedArray_copyWithin, 2, 0),
     JS_SELF_HOSTED_FN("every", "TypedArrayEvery", 1, 0),
-    JS_FN("fill", TypedArray_fill, 1, 0),
+    JS_INLINABLE_FN("fill", TypedArray_fill, 1, 0, TypedArrayFill),
     JS_SELF_HOSTED_FN("filter", "TypedArrayFilter", 1, 0),
     JS_SELF_HOSTED_FN("find", "TypedArrayFind", 1, 0),
     JS_SELF_HOSTED_FN("findIndex", "TypedArrayFindIndex", 1, 0),
@@ -5575,6 +5756,21 @@ JSNative js::TypedArrayConstructorNative(Scalar::Type type) {
 #undef TYPED_ARRAY_CONSTRUCTOR_NATIVE
 
   MOZ_CRASH("unexpected typed array type");
+}
+
+Scalar::Type js::TypedArrayConstructorType(const JSFunction* fun) {
+  if (!fun->isNativeFun()) {
+    return Scalar::MaxTypedArrayViewType;
+  }
+
+#define CHECK_TYPED_ARRAY_CONSTRUCTOR(_, T, N)                           \
+  if (fun->native() == TypedArrayObjectTemplate<T>::class_constructor) { \
+    return Scalar::N;                                                    \
+  }
+  JS_FOR_EACH_TYPED_ARRAY(CHECK_TYPED_ARRAY_CONSTRUCTOR)
+#undef CHECK_TYPED_ARRAY_CONSTRUCTOR
+
+  return Scalar::MaxTypedArrayViewType;
 }
 
 bool js::IsBufferSource(JSContext* cx, JSObject* object, bool allowShared,

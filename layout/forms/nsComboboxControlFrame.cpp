@@ -174,7 +174,7 @@ nscoord nsComboboxControlFrame::IntrinsicISize(const IntrinsicSizeInput& aInput,
   }
 
   nscoord displayISize = 0;
-  if (!containISize && !StyleContent()->mContent.IsNone()) {
+  if (!containISize) {
     auto optionType = StyleUIReset()->mFieldSizing == StyleFieldSizing::Content
                           ? Type::Current
                           : Type::Longest;
@@ -238,9 +238,6 @@ void nsComboboxControlFrame::Reflow(nsPresContext* aPresContext,
   }
 
   ButtonControlFrame::Reflow(aPresContext, aDesiredSize, aReflowInput, aStatus);
-  // We're always complete and we don't support overflow containers
-  // so we shouldn't have a next-in-flow ever.
-  aStatus.Reset();
 }
 
 void nsComboboxControlFrame::Init(nsIContent* aContent,
@@ -310,7 +307,7 @@ void nsComboboxControlFrame::GetLabelText(nsAString& aLabel) {
   if (!aLabel.IsEmpty()) {
     return;
   }
-  if (mDisplayedIndex != -1 && !StyleContent()->mContent.IsNone()) {
+  if (mDisplayedIndex != -1) {
     GetOptionText(mDisplayedIndex, aLabel);
   }
   EnsureNonEmptyLabel(aLabel);

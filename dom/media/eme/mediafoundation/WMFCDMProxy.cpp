@@ -317,6 +317,13 @@ void WMFCDMProxy::Shutdown() {
   mIsShutdown = true;
 }
 
+void WMFCDMProxy::Terminated() {
+  MOZ_ASSERT(NS_IsMainThread());
+  if (!mKeys.IsNull()) {
+    mKeys->Terminated();
+  }
+}
+
 void WMFCDMProxy::OnSessionMessage(const nsAString& aSessionId,
                                    dom::MediaKeyMessageType aMessageType,
                                    const nsTArray<uint8_t>& aMessage) {
@@ -356,6 +363,20 @@ void WMFCDMProxy::OnExpirationChange(const nsAString& aSessionId,
     LOG("Notify expiration for session Id=%s",
         NS_ConvertUTF16toUTF8(aSessionId).get());
     session->SetExpiration(static_cast<double>(aExpiryTime));
+  }
+}
+
+void WMFCDMProxy::OnSessionClosed(const nsAString& aSessionId,
+                                  dom::MediaKeySessionClosedReason aReason) {
+  MOZ_ASSERT(NS_IsMainThread());
+  RETURN_IF_SHUTDOWN();
+  if (mKeys.IsNull()) {
+    return;
+  }
+  if (RefPtr<dom::MediaKeySession> session = mKeys->GetSession(aSessionId)) {
+    LOG("Notify closed for session Id=%s",
+        NS_ConvertUTF16toUTF8(aSessionId).get());
+    session->OnClosed(aReason);
   }
 }
 

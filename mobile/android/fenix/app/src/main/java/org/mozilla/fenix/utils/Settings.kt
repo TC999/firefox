@@ -47,8 +47,10 @@ import org.mozilla.fenix.components.toolbar.ToolbarPosition
 import org.mozilla.fenix.debugsettings.addresses.SharedPrefsAddressesDebugLocalesRepository
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.getPreferenceKey
+import org.mozilla.fenix.ext.pixelSizeFor
 import org.mozilla.fenix.home.pocket.ContentRecommendationsFeatureHelper
 import org.mozilla.fenix.home.topsites.TopSitesConfigConstants.TOP_SITES_MAX_COUNT
+import org.mozilla.fenix.iconpicker.AppIcon
 import org.mozilla.fenix.nimbus.CookieBannersSection
 import org.mozilla.fenix.nimbus.FxNimbus
 import org.mozilla.fenix.nimbus.HomeScreenSection
@@ -446,6 +448,12 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         default = false,
     )
 
+    val appIconSelection by lazyFeatureFlagPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_app_icon_selection_enabled),
+        featureFlag = true,
+        default = { FxNimbus.features.appIconSelection.value().enabled },
+    )
+
     var privateBrowsingLockedFeatureEnabled by lazyFeatureFlagPreference(
         key = appContext.getPreferenceKey(R.string.pref_key_private_browsing_locked_enabled),
         featureFlag = true,
@@ -568,10 +576,15 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     // this setting for the duration of the session only, i.e. `SecretDebugMenuTrigger` should never
     // be able to (indirectly) change the value of the shared pref.
     var showSecretDebugMenuThisSession: Boolean = false
-        get() = field || preferences.getBoolean(
-            appContext.getPreferenceKey(R.string.pref_key_persistent_debug_menu),
-            false,
-        )
+        get() = field || isDebugMenuPersistentlyRevealed
+
+    /**
+     * Preference for determining whether the debug menu setting is revealed persistently
+     */
+    val isDebugMenuPersistentlyRevealed: Boolean by booleanPreference(
+        appContext.getPreferenceKey(R.string.pref_key_persistent_debug_menu),
+        Config.channel.isDebug,
+    )
 
     val shouldShowSecurityPinWarningSync: Boolean
         get() = loginsSecureWarningSyncCount.underMaxCount()
@@ -2276,19 +2289,19 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         val isToolbarAtBottom = toolbarPosition == ToolbarPosition.BOTTOM
 
         val microsurveyHeight = if (isMicrosurveyEnabled) {
-            appContext.resources.getDimensionPixelSize(R.dimen.browser_microsurvey_height)
+            appContext.pixelSizeFor(R.dimen.browser_microsurvey_height)
         } else {
             0
         }
 
         val toolbarHeight = if (isToolbarAtBottom) {
-            appContext.resources.getDimensionPixelSize(R.dimen.browser_toolbar_height)
+            browserToolbarHeight
         } else {
             0
         }
 
         val navBarHeight = if (shouldUseExpandedToolbar) {
-            appContext.resources.getDimensionPixelSize(R.dimen.browser_navbar_height)
+            appContext.pixelSizeFor(R.dimen.browser_navbar_height)
         } else {
             0
         }
@@ -2303,16 +2316,27 @@ class Settings(private val appContext: Context) : PreferencesHolder {
      */
     fun getTopToolbarHeight(includeTabStrip: Boolean): Int {
         val isToolbarAtTop = toolbarPosition == ToolbarPosition.TOP
-        val toolbarHeight = appContext.resources.getDimensionPixelSize(R.dimen.browser_toolbar_height)
+        val toolbarHeight = browserToolbarHeight
 
         return if (isToolbarAtTop && includeTabStrip) {
-            toolbarHeight + appContext.resources.getDimensionPixelSize(R.dimen.tab_strip_height)
+            toolbarHeight + appContext.pixelSizeFor(R.dimen.tab_strip_height)
         } else if (isToolbarAtTop) {
             toolbarHeight
         } else {
             0
         }
     }
+
+    /**
+     * Returns the height of the browser toolbar height.
+     */
+    val browserToolbarHeight: Int
+        get() = appContext.pixelSizeFor(
+            when (shouldUseComposableToolbar) {
+                true -> R.dimen.composable_browser_toolbar_height
+                false -> R.dimen.browser_toolbar_height
+            },
+        )
 
     /**
      * Returns the height of the bottom toolbar container.
@@ -2324,13 +2348,13 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         val isMicrosurveyEnabled = shouldShowMicrosurveyPrompt
 
         val microsurveyHeight = if (isMicrosurveyEnabled) {
-            appContext.resources.getDimensionPixelSize(R.dimen.browser_microsurvey_height)
+            appContext.pixelSizeFor(R.dimen.browser_microsurvey_height)
         } else {
             0
         }
 
         val navBarHeight = if (shouldUseExpandedToolbar) {
-            appContext.resources.getDimensionPixelSize(R.dimen.browser_navbar_height)
+            appContext.pixelSizeFor(R.dimen.browser_navbar_height)
         } else {
             0
         }
@@ -2575,11 +2599,28 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     )
 
     /**
+     * Indicates if the user has completed the setup step for installing the search widget.
+     */
+    var hasCompletedSetupStepInstallSearchWidget by booleanPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_setup_step_install_search_widget),
+        default = false,
+    )
+
+    /**
      * Indicates if this is the default browser.
      */
     var isDefaultBrowser by booleanPreference(
         key = appContext.getPreferenceKey(R.string.pref_key_default_browser),
         default = false,
+    )
+
+    /**
+     * Indicates if the sponsored tiles are suppressed.
+     */
+    var suppressSponsoredTopSitesEnabled by lazyFeatureFlagPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_suppress_sponsored_tiles),
+        featureFlag = true,
+        default = { FxNimbus.features.suppressSponsoredTopSites.value().enabled },
     )
 
     /**
@@ -2600,6 +2641,14 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     var distributionId by stringPreference(
         key = appContext.getPreferenceKey(R.string.pref_key_distribution_id),
         default = "",
+    )
+
+    /**
+     * Suffix of the currently selected app icon (launcher alias).
+     */
+    var selectedAppIcon by stringPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_selected_app_icon),
+        default = AppIcon.AppDefault.aliasSuffix,
     )
 
     /**

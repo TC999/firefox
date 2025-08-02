@@ -1126,6 +1126,25 @@ void MacroAssemblerRiscv64::computeScaledAddress(const BaseIndex& address,
   }
 }
 
+void MacroAssemblerRiscv64::computeScaledAddress32(const BaseIndex& address,
+                                                   Register dest) {
+  Register base = address.base;
+  Register index = address.index;
+  int32_t shift = Imm32::ShiftOf(address.scale).value;
+  UseScratchRegisterScope temps(this);
+  if (shift && base == zero) {
+    MOZ_ASSERT(shift <= 4);
+    slliw(dest, index, shift);
+  } else if (shift) {
+    Register tmp = dest == base ? temps.Acquire() : dest;
+    MOZ_ASSERT(shift <= 4);
+    slliw(tmp, index, shift);
+    addw(dest, base, tmp);
+  } else {
+    addw(dest, base, index);
+  }
+}
+
 void MacroAssemblerRiscv64Compat::wasmLoadI64Impl(
     const wasm::MemoryAccessDesc& access, Register memoryBase, Register ptr,
     Register ptrScratch, Register64 output, Register tmp) {
@@ -3476,6 +3495,8 @@ void MacroAssembler::Pop(Register reg) {
 
 void MacroAssembler::Pop(FloatRegister f) {
   pop(f);
+  // See MacroAssemblerRiscv64::ma_pop(FloatRegister) for why we use
+  // sizeof(double).
   adjustFrame(-int32_t(sizeof(double)));
 }
 
@@ -3566,6 +3587,8 @@ void MacroAssembler::Push(const ImmGCPtr ptr) {
 
 void MacroAssembler::Push(FloatRegister f) {
   push(f);
+  // See MacroAssemblerRiscv64::ma_push(FloatRegister) for why we use
+  // sizeof(double).
   adjustFrame(int32_t(sizeof(double)));
 }
 
@@ -3984,29 +4007,31 @@ void MacroAssembler::wasmAtomicFetchOp(const wasm::MemoryAccessDesc& access,
                 valueTemp, offsetTemp, maskTemp, output);
 }
 void MacroAssembler::wasmBoundsCheck32(Condition cond, Register index,
-                                       Register boundsCheckLimit, Label* ok) {
-  ma_b(index, boundsCheckLimit, ok, cond);
+                                       Register boundsCheckLimit,
+                                       Label* label) {
+  ma_b(index, boundsCheckLimit, label, cond);
 }
 
 void MacroAssembler::wasmBoundsCheck32(Condition cond, Register index,
-                                       Address boundsCheckLimit, Label* ok) {
+                                       Address boundsCheckLimit, Label* label) {
   UseScratchRegisterScope temps(this);
   Register scratch2 = temps.Acquire();
   load32(boundsCheckLimit, scratch2);
-  ma_b(index, Register(scratch2), ok, cond);
+  ma_b(index, Register(scratch2), label, cond);
 }
 
 void MacroAssembler::wasmBoundsCheck64(Condition cond, Register64 index,
-                                       Register64 boundsCheckLimit, Label* ok) {
-  ma_b(index.reg, boundsCheckLimit.reg, ok, cond);
+                                       Register64 boundsCheckLimit,
+                                       Label* label) {
+  ma_b(index.reg, boundsCheckLimit.reg, label, cond);
 }
 
 void MacroAssembler::wasmBoundsCheck64(Condition cond, Register64 index,
-                                       Address boundsCheckLimit, Label* ok) {
+                                       Address boundsCheckLimit, Label* label) {
   UseScratchRegisterScope temps(this);
   Register scratch2 = temps.Acquire();
   loadPtr(boundsCheckLimit, scratch2);
-  ma_b(index.reg, scratch2, ok, cond);
+  ma_b(index.reg, scratch2, label, cond);
 }
 
 void MacroAssembler::wasmCompareExchange64(const wasm::MemoryAccessDesc& access,
@@ -5693,13 +5718,26 @@ FaultingCodeOffset MacroAssemblerRiscv64::ma_load(
   return asMasm().ma_load(dest, Address(scratch2, src.offset), size, extension);
 }
 void MacroAssemblerRiscv64::ma_pop(FloatRegister f) {
-  fld(f, StackPointer, 0);
+  if (f.isDouble()) {
+    fld(f, StackPointer, 0);
+  } else {
+    MOZ_ASSERT(f.isSingle(), "simd128 is not supported");
+    flw(f, StackPointer, 0);
+  }
+  // See also MacroAssemblerRiscv64::ma_push -- Free space for double even when
+  // storing a float.
   addi(StackPointer, StackPointer, sizeof(double));
 }
 
 void MacroAssemblerRiscv64::ma_push(FloatRegister f) {
+  // We allocate space for double even when storing a float.
   addi(StackPointer, StackPointer, (int32_t)-sizeof(double));
-  fsd(f, StackPointer, 0);
+  if (f.isDouble()) {
+    fsd(f, StackPointer, 0);
+  } else {
+    MOZ_ASSERT(f.isSingle(), "simd128 is not supported");
+    fsw(f, StackPointer, 0);
+  }
 }
 
 FaultingCodeOffset MacroAssemblerRiscv64::ma_fld_s(FloatRegister ft,

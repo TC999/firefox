@@ -1238,6 +1238,15 @@ export class WebExtStorageStoreInterface {
       throw Error("getBytesInUse not implemented");
     }
     /**
+     * getKeys
+     * @param {string} extId
+     * @returns {Promise<JsonValue>}}
+     */
+    async getKeys(
+        extId) {
+      throw Error("getKeys not implemented");
+    }
+    /**
      * getSyncedChanges
      * @returns {Promise<Array.<SyncedExtensionChange>>}}
      */
@@ -1411,13 +1420,34 @@ export class WebExtStorageStore extends WebExtStorageStoreInterface {
     }
 
     /**
+     * getKeys
+     * @param {string} extId
+     * @returns {Promise<JsonValue>}}
+     */
+    async getKeys(
+        extId) {
+       
+        FfiConverterString.checkType(extId);
+        const result = await UniFFIScaffolding.callAsyncWrapper(
+            110, // uniffi_webext_storage_fn_method_webextstoragestore_get_keys
+            FfiConverterTypeWebExtStorageStore.lowerReceiver(this),
+            FfiConverterString.lower(extId),
+        )
+        return handleRustResult(
+            result,
+            FfiConverterTypeJsonValue.lift.bind(FfiConverterTypeJsonValue),
+            FfiConverterTypeWebExtStorageApiError.lift.bind(FfiConverterTypeWebExtStorageApiError),
+        )
+    }
+
+    /**
      * getSyncedChanges
      * @returns {Promise<Array.<SyncedExtensionChange>>}}
      */
     async getSyncedChanges() {
        
         const result = await UniFFIScaffolding.callAsyncWrapper(
-            110, // uniffi_webext_storage_fn_method_webextstoragestore_get_synced_changes
+            111, // uniffi_webext_storage_fn_method_webextstoragestore_get_synced_changes
             FfiConverterTypeWebExtStorageStore.lowerReceiver(this),
         )
         return handleRustResult(
@@ -1440,7 +1470,7 @@ export class WebExtStorageStore extends WebExtStorageStoreInterface {
         FfiConverterString.checkType(extId);
         FfiConverterTypeJsonValue.checkType(keys);
         const result = await UniFFIScaffolding.callAsyncWrapper(
-            111, // uniffi_webext_storage_fn_method_webextstoragestore_remove
+            112, // uniffi_webext_storage_fn_method_webextstoragestore_remove
             FfiConverterTypeWebExtStorageStore.lowerReceiver(this),
             FfiConverterString.lower(extId),
             FfiConverterTypeJsonValue.lower(keys),
@@ -1465,7 +1495,7 @@ export class WebExtStorageStore extends WebExtStorageStoreInterface {
         FfiConverterString.checkType(extId);
         FfiConverterTypeJsonValue.checkType(val);
         const result = await UniFFIScaffolding.callAsyncWrapper(
-            112, // uniffi_webext_storage_fn_method_webextstoragestore_set
+            113, // uniffi_webext_storage_fn_method_webextstoragestore_set
             FfiConverterTypeWebExtStorageStore.lowerReceiver(this),
             FfiConverterString.lower(extId),
             FfiConverterTypeJsonValue.lower(val),

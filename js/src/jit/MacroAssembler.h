@@ -790,6 +790,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // operations should be emitted while setting arguments.
   void passABIArg(const MoveOperand& from, ABIType type);
   inline void passABIArg(Register reg);
+  inline void passABIArg(Register64 reg);
   inline void passABIArg(FloatRegister reg, ABIType type);
 
   inline void callWithABI(
@@ -3717,16 +3718,18 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // limited to something much larger.
 
   void wasmBoundsCheck32(Condition cond, Register index,
-                         Register boundsCheckLimit, Label* ok) PER_SHARED_ARCH;
+                         Register boundsCheckLimit,
+                         Label* label) PER_SHARED_ARCH;
 
   void wasmBoundsCheck32(Condition cond, Register index,
-                         Address boundsCheckLimit, Label* ok) PER_SHARED_ARCH;
+                         Address boundsCheckLimit,
+                         Label* label) PER_SHARED_ARCH;
 
   void wasmBoundsCheck64(Condition cond, Register64 index,
-                         Register64 boundsCheckLimit, Label* ok) PER_ARCH;
+                         Register64 boundsCheckLimit, Label* label) PER_ARCH;
 
   void wasmBoundsCheck64(Condition cond, Register64 index,
-                         Address boundsCheckLimit, Label* ok) PER_ARCH;
+                         Address boundsCheckLimit, Label* label) PER_ARCH;
 
   // Each wasm load/store instruction appends its own wasm::Trap::OutOfBounds.
   void wasmLoad(const wasm::MemoryAccessDesc& access, Operand srcAddr,
@@ -3902,10 +3905,8 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // null check into the rest of the call instructions.
   void wasmCallIndirect(const wasm::CallSiteDesc& desc,
                         const wasm::CalleeDesc& callee,
-                        Label* boundsCheckFailedLabel,
-                        Label* nullCheckFailedLabel,
-                        mozilla::Maybe<uint32_t> tableSize,
-                        CodeOffset* fastCallOffset, CodeOffset* slowCallOffset);
+                        Label* nullCheckFailedLabel, CodeOffset* fastCallOffset,
+                        CodeOffset* slowCallOffset);
 
   // WasmTableCallIndexReg must contain the index of the indirect call.  This is
   // for wasm calls only.
@@ -3915,9 +3916,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // null check into the rest of the call instructions.
   void wasmReturnCallIndirect(const wasm::CallSiteDesc& desc,
                               const wasm::CalleeDesc& callee,
-                              Label* boundsCheckFailedLabel,
                               Label* nullCheckFailedLabel,
-                              mozilla::Maybe<uint32_t> tableSize,
                               const ReturnCallAdjustmentInfo& retCallInfo);
 
   // This function takes care of loading the callee's instance and address from
@@ -5603,12 +5602,14 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void initGCThing(Register obj, Register temp,
                    const TemplateObject& templateObj, bool initContents = true);
 
-  enum class TypedArrayLength { Fixed, Dynamic };
+  void initTypedArraySlots(Register obj, Register length, Register temp1,
+                           Register temp2, LiveRegisterSet liveRegs,
+                           Label* fail,
+                           const FixedLengthTypedArrayObject* templateObj);
 
-  void initTypedArraySlots(Register obj, Register temp, Register lengthReg,
-                           LiveRegisterSet liveRegs, Label* fail,
-                           FixedLengthTypedArrayObject* templateObj,
-                           TypedArrayLength lengthKind);
+  void initTypedArraySlotsInline(
+      Register obj, Register temp,
+      const FixedLengthTypedArrayObject* templateObj);
 
   void newGCString(Register result, Register temp, gc::Heap initialHeap,
                    Label* fail);

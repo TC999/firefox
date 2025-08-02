@@ -51,6 +51,11 @@ interface FeatureSettingsHelper {
     var isDeleteSitePermissionsEnabled: Boolean
 
     /**
+     * Whether the Unified Trust Panel is enabled or not.
+     */
+    var isUnifiedTrustPanelEnabled: Boolean
+
+    /**
      * The current "Enhanced Tracking Protection" policy.
      * @see ETPPolicy
      */
@@ -95,6 +100,11 @@ interface FeatureSettingsHelper {
      * Enable or disable new crash reporter.
      */
     var isUseNewCrashReporterDialog: Boolean
+
+    /**
+     * Enable or disable the tab swipe CFR.
+     */
+    var isTabSwipeCFREnabled: Boolean
 
     /**
      * Enable or disable the translations prompt after a page that can be translated is loaded.

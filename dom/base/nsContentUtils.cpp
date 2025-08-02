@@ -4294,8 +4294,49 @@ bool nsContentUtils::IsNameWithDash(nsAtom* aName) {
   uint32_t len = aName->GetLength();
   bool hasDash = false;
 
+  // A string name is a valid custom element name if all of the following are
+  // true:
+
+  // name's 0th code point is an ASCII lower alpha;
   if (!len || name[0] < 'a' || name[0] > 'z') {
     return false;
+  }
+
+  if (StaticPrefs::dom_custom_elements_relaxed_names_enabled()) {
+    uint32_t i = 1;
+    while (i < len) {
+      // name does not contain any ASCII upper alphas
+      if (name[i] >= 'A' && name[i] <= 'Z') {
+        return false;
+      }
+
+      // name is a valid element local name;
+      //
+      //   // https://dom.spec.whatwg.org/#valid-element-local-name
+      //   Step 2.1.
+      //   If name contains ASCII whitespace, U+0000 NULL, U+002F (/), or U+003E
+      //   (>), then return false.
+      //
+      //   ASCII whitespace is U+0009 TAB, U+000A LF, U+000C FF, U+000D CR, or
+      //   U+0020 SPACE.
+      if (name[i] == 0x0000 ||  // null
+          name[i] == 0x0009 ||  // tab
+          name[i] == 0x000A ||  // newline
+          name[i] == 0x000C ||  // form feed
+          name[i] == 0x000D ||  // carriage return
+          name[i] == 0x0020 ||  // space
+          name[i] == 0x002F ||  // /
+          name[i] == 0x003E) {  // >
+        return false;
+      }
+
+      if (name[i] == '-') {
+        hasDash = true;
+      }
+
+      i++;
+    }
+    return hasDash;
   }
 
   uint32_t i = 1;
@@ -11748,21 +11789,21 @@ bool nsContentUtils::IsOverridingWindowName(const nsAString& aName) {
 // Unfortunately, we can't unwrap an IDL object using only a concrete type.
 // We need to calculate type data based on the IDL typename. Which means
 // wrapping our templated function in a macro.
-#define EXTRACT_EXN_VALUES(T, ...)                                \
-  ExtractExceptionValues<mozilla::dom::prototypes::id::T,         \
-                         T##_Binding::NativeType, T>(__VA_ARGS__) \
+#define EXTRACT_EXN_VALUES(T, ...)                                    \
+  ExtractExceptionValuesImpl<mozilla::dom::prototypes::id::T,         \
+                             T##_Binding::NativeType, T>(__VA_ARGS__) \
       .isOk()
 
 template <prototypes::ID PrototypeID, class NativeType, typename T>
-static Result<Ok, nsresult> ExtractExceptionValues(
-    JSContext* aCx, JS::Handle<JSObject*> aObj, nsACString& aSourceSpecOut,
+static Result<Ok, nsresult> ExtractExceptionValuesImpl(
+    JSContext* aCx, JS::Handle<JSObject*> aObj, nsACString& aFilename,
     uint32_t* aLineOut, uint32_t* aColumnOut, nsString& aMessageOut) {
   AssertStaticUnwrapOK<PrototypeID>();
   RefPtr<T> exn;
   MOZ_TRY((UnwrapObject<PrototypeID, NativeType>(aObj, exn, nullptr)));
 
-  exn->GetFilename(aCx, aSourceSpecOut);
-  if (!aSourceSpecOut.IsEmpty()) {
+  exn->GetFilename(aCx, aFilename);
+  if (!aFilename.IsEmpty()) {
     *aLineOut = exn->LineNumber(aCx);
     *aColumnOut = exn->ColumnNumber();
   }
@@ -11774,6 +11815,16 @@ static Result<Ok, nsresult> ExtractExceptionValues(
   exn->GetMessageMoz(message);
   aMessageOut.Append(message);
   return Ok();
+}
+
+/* static */
+bool nsContentUtils::ExtractExceptionValues(
+    JSContext* aCx, JS::Handle<JSObject*> aObj, nsACString& aFilename,
+    uint32_t* aLineOut, uint32_t* aColumnOut, nsString& aMessageOut) {
+  return EXTRACT_EXN_VALUES(DOMException, aCx, aObj, aFilename, aLineOut,
+                            aColumnOut, aMessageOut) ||
+         EXTRACT_EXN_VALUES(Exception, aCx, aObj, aFilename, aLineOut,
+                            aColumnOut, aMessageOut);
 }
 
 /* static */
@@ -11789,8 +11840,7 @@ void nsContentUtils::ExtractErrorValues(
     // Try to process as an Error object.  Use the file/line/column values
     // from the Error as they will be more specific to the root cause of
     // the problem.
-    JSErrorReport* err = obj ? JS_ErrorFromException(aCx, obj) : nullptr;
-    if (err) {
+    if (JSErrorReport* err = JS_ErrorFromException(aCx, obj)) {
       // Use xpc to extract the error message only.  We don't actually send
       // this report anywhere.
       RefPtr<xpc::ErrorReport> report = new xpc::ErrorReport();
@@ -11807,15 +11857,9 @@ void nsContentUtils::ExtractErrorValues(
       aMessageOut.Assign(report->mErrorMsg);
     }
 
-    // Next, try to unwrap the rejection value as a DOMException.
-    else if (EXTRACT_EXN_VALUES(DOMException, aCx, obj, aSourceSpecOut,
-                                aLineOut, aColumnOut, aMessageOut)) {
-      return;
-    }
-
-    // Next, try to unwrap the rejection value as an XPC Exception.
-    else if (EXTRACT_EXN_VALUES(Exception, aCx, obj, aSourceSpecOut, aLineOut,
-                                aColumnOut, aMessageOut)) {
+    // Next, try to unwrap the rejection value as a (DOM)Exception.
+    else if (ExtractExceptionValues(aCx, obj, aSourceSpecOut, aLineOut,
+                                    aColumnOut, aMessageOut)) {
       return;
     }
   }
@@ -12464,6 +12508,18 @@ nsIContent* nsContentUtils::AttachDeclarativeShadowRoot(nsIContent* aHost,
     shadowRoot->SetAvailableToElementInternals();
   }
   return shadowRoot;
+}
+
+// https://html.spec.whatwg.org/#the-navigation-must-be-a-replace
+/* static */ bool nsContentUtils::NavigationMustBeAReplace(
+    nsIURI& aURI, const Document& aDocument) {
+  // The navigation must be a replace, given a URL url and a Document document,
+  // if any of the following are true:
+  // - url's scheme is "javascript"; or
+  // - document's is initial about:blank is true.
+  return aURI.SchemeIs("javascript") ||
+         (NS_IsAboutBlank(aDocument.GetDocumentURI()) &&
+          aDocument.IsInitialDocument());
 }
 
 template int32_t nsContentUtils::CompareTreePosition<TreeKind::DOM>(

@@ -202,6 +202,7 @@ export const SpecialMessageActions = {
       "browser.aboutwelcome.didSeeFinalScreen",
       "browser.crashReports.unsubmittedCheck.autoSubmit2",
       "browser.dataFeatureRecommendations.enabled",
+      "browser.ipProtection.enabled",
       "browser.migrate.content-modal.about-welcome-behavior",
       "browser.migrate.content-modal.import-all.enabled",
       "browser.migrate.preferences-entrypoint.enabled",
@@ -217,6 +218,10 @@ export const SpecialMessageActions = {
       "cookiebanners.service.mode.privateBrowsing",
       "cookiebanners.service.detectOnly",
       "datareporting.healthreport.uploadEnabled",
+      "datareporting.policy.currentPolicyVersion",
+      "datareporting.policy.dataSubmissionPolicyAcceptedVersion",
+      "datareporting.policy.dataSubmissionPolicyNotifiedTime",
+      "datareporting.policy.minimumPolicyVersion",
       "messaging-system.askForFeedback",
       "browser.toolbars.bookmarks.visibility",
       "sidebar.verticalTabs",
@@ -226,6 +231,8 @@ export const SpecialMessageActions = {
       "termsofuse.acceptedDate",
       "termsofuse.currentVersion",
       "termsofuse.minimumVersion",
+      "privacy.trackingprotection.allow_list.baseline.enabled",
+      "privacy.trackingprotection.allow_list.convenience.enabled",
     ];
 
     if (

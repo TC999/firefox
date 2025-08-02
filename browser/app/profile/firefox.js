@@ -439,7 +439,7 @@ pref("browser.urlbar.suggest.calculator",           true);
 pref("browser.urlbar.suggest.recentsearches",       true);
 pref("browser.urlbar.suggest.quickactions",         true);
 
-pref("browser.urlbar.deduplication.enabled", false);
+pref("browser.urlbar.deduplication.enabled", true);
 pref("browser.urlbar.deduplication.thresholdDays", 0);
 
 pref("browser.urlbar.scotchBonnet.enableOverride", true);
@@ -754,6 +754,11 @@ pref("browser.urlbar.suggest.wikipedia", true);
 // Enable creating and editing user defined search engines.
 pref("browser.urlbar.update2.engineAliasRefresh", true);
 
+// The minimum prefix length of a market keyword the user must type to trigger
+// the suggestion. 0 means the min length should be taken from Nimbus or remote
+// settings.
+pref("browser.urlbar.market.minKeywordLength", 0);
+
 pref("browser.altClickSave", false);
 
 // Enable logging downloads operations to the Console.
@@ -843,6 +848,9 @@ pref("browser.search.widget.removeAfterDaysUnused", 120);
 // capped at 100.
 pref("browser.search.totalSearches", 0);
 
+// Feature gate for visual search.
+pref("browser.search.visualSearch.featureGate", false);
+
 // Spin the cursor while the page is loading
 pref("browser.spin_cursor_while_busy", false);
 
@@ -876,6 +884,8 @@ pref("permissions.manager.defaultsUrl", "resource://app/defaults/permissions");
 pref("permissions.default.camera", 0);
 pref("permissions.default.microphone", 0);
 pref("permissions.default.geo", 0);
+pref("permissions.default.localhost", 0);
+pref("permissions.default.local-network", 0);
 pref("permissions.default.xr", 0);
 pref("permissions.default.desktop-notification", 0);
 pref("permissions.default.shortcuts", 0);
@@ -1002,10 +1012,12 @@ pref("browser.tabs.hoverPreview.showThumbnails", true);
 pref("browser.tabs.groups.enabled", true);
 
 #ifdef NIGHTLY_BUILD
-pref("browser.tabs.groups.smart.enabled", true);
+pref("browser.tabs.groups.hoverPreview.enabled", true);
 #else
-pref("browser.tabs.groups.smart.enabled", false);
+pref("browser.tabs.groups.hoverPreview.enabled", false);
 #endif
+
+pref("browser.tabs.groups.smart.enabled", true);
 
 // KMEANS_WITH_ANCHOR or NEAREST_NEIGHBOR or LOGISTIC_REGRESSION
 pref("browser.tabs.groups.smart.suggestOtherTabsMethod", "NEAREST_NEIGHBOR");
@@ -1838,8 +1850,6 @@ pref("browser.newtabpage.activity-stream.newtabWallpapers.highlightCtaText", "")
 
 pref("browser.newtabpage.activity-stream.newNewtabExperience.colors", "#004CA4,#009E97,#7550C2,#B63B39,#C96A00,#CA9600,#CC527F");
 
-pref("browser.newtabpage.activity-stream.newtabShortcuts.refresh", true);
-
 // Activity Stream prefs that control to which page to redirect
 #ifndef RELEASE_OR_BETA
   pref("browser.newtabpage.activity-stream.debug", false);
@@ -1998,6 +2008,7 @@ pref("browser.newtabpage.activity-stream.discoverystream.merino-feed-experiment"
 // Allows Pocket story collections to be dismissed.
 pref("browser.newtabpage.activity-stream.discoverystream.isCollectionDismissible", true);
 pref("browser.newtabpage.activity-stream.discoverystream.personalization.enabled", true);
+pref("browser.newtabpage.activity-stream.discoverystream.personalization.override", false);
 // Configurable keys used by personalization.
 pref("browser.newtabpage.activity-stream.discoverystream.personalization.modelKeys", "nb_model_arts_and_entertainment, nb_model_autos_and_vehicles, nb_model_beauty_and_fitness, nb_model_blogging_resources_and_services, nb_model_books_and_literature, nb_model_business_and_industrial, nb_model_computers_and_electronics, nb_model_finance, nb_model_food_and_drink, nb_model_games, nb_model_health, nb_model_hobbies_and_leisure, nb_model_home_and_garden, nb_model_internet_and_telecom, nb_model_jobs_and_education, nb_model_law_and_government, nb_model_online_communities, nb_model_people_and_society, nb_model_pets_and_animals, nb_model_real_estate, nb_model_reference, nb_model_science, nb_model_shopping, nb_model_sports, nb_model_travel");
 // System pref to allow Pocket stories personalization to be turned on/off.
@@ -2012,11 +2023,8 @@ pref("browser.newtabpage.activity-stream.discoverystream.onboardingExperience.en
 // List of locales that get thumbs up/down on recommended stories by default.
 pref("browser.newtabpage.activity-stream.discoverystream.thumbsUpDown.locale-thumbs-config", "en-US, en-GB, en-CA");
 
-#ifdef NIGHTLY_BUILD
-  pref("browser.newtabpage.activity-stream.telemetry.privatePing.enabled", true);
-#else
-  pref("browser.newtabpage.activity-stream.telemetry.privatePing.enabled", false);
-#endif
+pref("browser.newtabpage.activity-stream.telemetry.privatePing.enabled", false);
+
 // Redacts content interaction ids from original New Tab ping once data processing migrated to the Newtab_content private ping
 pref("browser.newtabpage.activity-stream.telemetry.privatePing.redactNewtabPing.enabled", false);
 pref("browser.newtabpage.activity-stream.telemetry.privatePing.maxSubmissionDelayMs", 5000);
@@ -2066,6 +2074,9 @@ pref("browser.newtabpage.trainhopAddon.xpiBaseURL", "https://archive.mozilla.org
 pref("browser.aboutwelcome.enabled", true);
 // Used to set multistage welcome UX
 pref("browser.aboutwelcome.screens", "");
+
+// Disable singleProfile messaging mitigation (Bug 1963213) for multiProfile feature users
+pref("messaging-system.profile.singleProfileMessaging.disable", true);
 
 // Experiment Manager
 // See Console.sys.mjs LOG_LEVELS for all possible values
@@ -2142,11 +2153,14 @@ pref("sidebar.revamp.round-content-area", false);
 pref("sidebar.animation.enabled", true);
 pref("sidebar.animation.duration-ms", 200);
 pref("sidebar.animation.expand-on-hover.duration-ms", 400);
+
 // This pref is used to store user customized tools in the sidebar launcher and shouldn't be changed.
 // See https://firefox-source-docs.mozilla.org/browser/components/sidebar/docs/index.html for ways
 // you can introduce a new tool to the sidebar launcher.
 pref("sidebar.main.tools", "");
+pref("sidebar.installed.extensions", "");
 pref("sidebar.verticalTabs", false);
+pref("sidebar.verticalTabs.dragToPinPromo.dismissed", false);
 pref("sidebar.visibility", "always-show");
 // Sidebar UI state is stored per-window via session restore. Use this pref
 // as a backup to restore the sidebar UI state when a user has PPB mode on
@@ -2189,6 +2203,8 @@ pref("browser.ml.linkPreview.outputSentences", 3);
 pref("browser.ml.linkPreview.recentTypingMs", 1000);
 pref("browser.ml.linkPreview.shift", true);
 pref("browser.ml.linkPreview.shiftAlt", false);
+
+pref("browser.ml.pageAssist.enabled", false);
 
 // Block insecure active content on https pages
 pref("security.mixed_content.block_active_content", true);
@@ -2763,13 +2779,14 @@ pref("screenshots.browser.component.last-saved-method", "download");
 pref("screenshots.browser.component.preventContentEvents", true);
 
 // Determines the default save location for screenshots
-// Valid values are 0, 1, 2 and 3.
+// Valid values are 0, 1, 2, 3 and 4.
 //   0 - Use the desktop as the default save location.
 //   1 - Use the system's downloads folder as the default save location.
 //   2 - Use the folder set in browser.screenshots.dir as the default save location.
 //   3 - Use system's screenshot folder as the default save location.
+//   4 - Use browser.download.folderList
 // Options 2 and 3 will fallback to the system downloads folder if their specified folder is not found.
-pref("browser.screenshots.folderList", 1);
+pref("browser.screenshots.folderList", 4);
 pref("browser.screenshots.dir", "");
 
 // DoH Rollout: whether to clear the mode value at shutdown.
@@ -2898,10 +2915,6 @@ pref("devtools.browsertoolbox.scope", "parent-process");
 
 // This preference will enable watching top-level targets from the server side.
 pref("devtools.target-switching.server.enabled", true);
-
-// In DevTools, create a target for each frame (i.e. not only for top-level document and
-// remote frames).
-pref("devtools.every-frame-target.enabled", true);
 
 // Controls the hability to debug popups from the same DevTools
 // of the original tab the popups are coming from

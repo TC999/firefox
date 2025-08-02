@@ -59,6 +59,7 @@ class HomeActivityTestRule(
         isWallpaperOnboardingEnabled: Boolean = settings.showWallpaperOnboarding,
         isDeleteSitePermissionsEnabled: Boolean = settings.deleteSitePermissions,
         isOpenInAppBannerEnabled: Boolean = settings.shouldShowOpenInAppBanner,
+        isUnifiedTrustPanelEnabled: Boolean = false,
         etpPolicy: ETPPolicy = getETPPolicy(settings),
         isLocationPermissionEnabled: SitePermissionsRules.Action = getFeaturePermission(PhoneFeature.LOCATION, settings),
         isMenuRedesignEnabled: Boolean = false,
@@ -67,6 +68,7 @@ class HomeActivityTestRule(
         isMicrosurveyEnabled: Boolean = settings.microsurveyFeatureEnabled,
         shouldUseBottomToolbar: Boolean = settings.shouldUseBottomToolbar,
         isUseNewCrashReporterDialog: Boolean = false,
+        isTabSwipeCFREnabled: Boolean = false,
     ) : this(initialTouchMode, launchActivity, skipOnboarding) {
         this.isHomepageHeaderEnabled = isHomepageHeaderEnabled
         this.isPocketEnabled = isPocketEnabled
@@ -76,6 +78,7 @@ class HomeActivityTestRule(
         this.isWallpaperOnboardingEnabled = isWallpaperOnboardingEnabled
         this.isDeleteSitePermissionsEnabled = isDeleteSitePermissionsEnabled
         this.isOpenInAppBannerEnabled = isOpenInAppBannerEnabled
+        this.isUnifiedTrustPanelEnabled = isUnifiedTrustPanelEnabled
         this.etpPolicy = etpPolicy
         this.isLocationPermissionEnabled = isLocationPermissionEnabled
         this.isMenuRedesignEnabled = isMenuRedesignEnabled
@@ -84,6 +87,7 @@ class HomeActivityTestRule(
         this.isMicrosurveyEnabled = isMicrosurveyEnabled
         this.shouldUseBottomToolbar = shouldUseBottomToolbar
         this.isUseNewCrashReporterDialog = isUseNewCrashReporterDialog
+        this.isTabSwipeCFREnabled = isTabSwipeCFREnabled
     }
 
     /**
@@ -145,6 +149,7 @@ class HomeActivityTestRule(
             shouldUseBottomToolbar = true,
             isPageLoadTranslationsPromptEnabled = false,
             isUseNewCrashReporterDialog = useNewCrashReporterDialog,
+            isTabSwipeCFREnabled = true,
         )
     }
 }
@@ -178,6 +183,7 @@ class HomeActivityIntentTestRule internal constructor(
         isWallpaperOnboardingEnabled: Boolean = settings.showWallpaperOnboarding,
         isDeleteSitePermissionsEnabled: Boolean = settings.deleteSitePermissions,
         isOpenInAppBannerEnabled: Boolean = settings.shouldShowOpenInAppBanner,
+        isUnifiedTrustPanelEnabled: Boolean = false,
         etpPolicy: ETPPolicy = getETPPolicy(settings),
         isLocationPermissionEnabled: SitePermissionsRules.Action = getFeaturePermission(PhoneFeature.LOCATION, settings),
         isMenuRedesignEnabled: Boolean = false,
@@ -186,6 +192,7 @@ class HomeActivityIntentTestRule internal constructor(
         isMicrosurveyEnabled: Boolean = settings.microsurveyFeatureEnabled,
         shouldUseBottomToolbar: Boolean = settings.shouldUseBottomToolbar,
         onboardingFeatureEnabled: Boolean = true,
+        isTabSwipeCFREnabled: Boolean = false,
     ) : this(initialTouchMode, launchActivity, skipOnboarding) {
         this.isHomepageHeaderEnabled = isHomepageHeaderEnabled
         this.isPocketEnabled = isPocketEnabled
@@ -195,6 +202,7 @@ class HomeActivityIntentTestRule internal constructor(
         this.isWallpaperOnboardingEnabled = isWallpaperOnboardingEnabled
         this.isDeleteSitePermissionsEnabled = isDeleteSitePermissionsEnabled
         this.isOpenInAppBannerEnabled = isOpenInAppBannerEnabled
+        this.isUnifiedTrustPanelEnabled = isUnifiedTrustPanelEnabled
         this.etpPolicy = etpPolicy
         this.isLocationPermissionEnabled = isLocationPermissionEnabled
         this.isMenuRedesignEnabled = isMenuRedesignEnabled
@@ -203,6 +211,7 @@ class HomeActivityIntentTestRule internal constructor(
         this.isMicrosurveyEnabled = isMicrosurveyEnabled
         this.shouldUseBottomToolbar = shouldUseBottomToolbar
         this.onboardingFeatureEnabled = onboardingFeatureEnabled
+        this.isTabSwipeCFREnabled = isTabSwipeCFREnabled
     }
 
     private val longTapUserPreference = getLongPressTimeout()
@@ -266,12 +275,14 @@ class HomeActivityIntentTestRule internal constructor(
         isWallpaperOnboardingEnabled = settings.showWallpaperOnboarding
         isDeleteSitePermissionsEnabled = settings.deleteSitePermissions
         isOpenInAppBannerEnabled = settings.shouldShowOpenInAppBanner
+        isUnifiedTrustPanelEnabled = settings.enableUnifiedTrustPanel
         etpPolicy = getETPPolicy(settings)
         isLocationPermissionEnabled = getFeaturePermission(PhoneFeature.LOCATION, settings)
         isMenuRedesignEnabled = settings.enableMenuRedesign
         isMenuRedesignCFREnabled = settings.shouldShowMenuCFR
         isMicrosurveyEnabled = settings.microsurveyFeatureEnabled
         shouldUseBottomToolbar = settings.shouldUseBottomToolbar
+        isTabSwipeCFREnabled = !settings.hasShownTabSwipeCFR
     }
 
     companion object {
@@ -299,6 +310,7 @@ class HomeActivityIntentTestRule internal constructor(
             // remove with https://bugzilla.mozilla.org/show_bug.cgi?id=1917640
             shouldUseBottomToolbar = true,
             isPageLoadTranslationsPromptEnabled = false,
+            isTabSwipeCFREnabled = true,
         )
     }
 }

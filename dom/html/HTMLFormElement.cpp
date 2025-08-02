@@ -69,7 +69,6 @@
 #include "mozilla/dom/HTMLInputElement.h"
 #include "mozilla/dom/HTMLButtonElement.h"
 #include "mozilla/dom/HTMLSelectElement.h"
-#include "nsIRadioVisitor.h"
 #include "RadioNodeList.h"
 
 #include "nsLayoutUtils.h"
@@ -1422,11 +1421,9 @@ nsresult HTMLFormElement::RemoveElementFromTable(
   return mControls->RemoveElementFromTable(aElement, aName);
 }
 
-already_AddRefed<nsISupports> HTMLFormElement::NamedGetter(
-    const nsAString& aName, bool& aFound) {
-  aFound = true;
-
-  nsCOMPtr<nsISupports> result = DoResolveName(aName);
+already_AddRefed<nsISupports> HTMLFormElement::ResolveName(
+    const nsAString& aName) {
+  nsCOMPtr<nsISupports> result = mControls->NamedItemInternal(aName);
   if (result) {
     AddToPastNamesMap(aName, result);
     return result.forget();
@@ -1439,7 +1436,18 @@ already_AddRefed<nsISupports> HTMLFormElement::NamedGetter(
   }
 
   result = mPastNameLookupTable.GetWeak(aName);
-  if (result) {
+  return result.forget();
+}
+
+already_AddRefed<nsISupports> HTMLFormElement::NamedGetter(
+    const nsAString& aName, bool& aFound) {
+  if (nsCOMPtr<nsISupports> result = ResolveName(aName)) {
+    aFound = true;
+
+    if (HTMLFormElement_Binding::InterfaceHasNonEventHandlerProperty(aName)) {
+      OwnerDoc()->CollectShadowedHTMLFormElementProperty(aName);
+    }
+
     return result.forget();
   }
 
@@ -1449,26 +1457,6 @@ already_AddRefed<nsISupports> HTMLFormElement::NamedGetter(
 
 void HTMLFormElement::GetSupportedNames(nsTArray<nsString>& aRetval) {
   // TODO https://github.com/whatwg/html/issues/1731
-}
-
-already_AddRefed<nsISupports> HTMLFormElement::FindNamedItem(
-    const nsAString& aName, nsWrapperCache** aCache) {
-  // FIXME Get the wrapper cache from DoResolveName.
-
-  bool found;
-  nsCOMPtr<nsISupports> result = NamedGetter(aName, found);
-  if (result) {
-    *aCache = nullptr;
-    return result.forget();
-  }
-
-  return nullptr;
-}
-
-already_AddRefed<nsISupports> HTMLFormElement::DoResolveName(
-    const nsAString& aName) {
-  nsCOMPtr<nsISupports> result = mControls->NamedItemInternal(aName);
-  return result.forget();
 }
 
 void HTMLFormElement::OnSubmitClickBegin() { mDeferSubmission = true; }
