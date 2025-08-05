@@ -41,9 +41,9 @@ class UtilityMediaServiceParent final : public PUtilityMediaServiceParent {
   mozilla::ipc::IPCResult RecvInitVideoBridge(
       Endpoint<PVideoBridgeChild>&& aEndpoint,
       const ContentDeviceData& aContentDeviceData);
-
-  IPCResult RecvUpdateVar(const mozilla::gfx::GfxVarUpdate& aUpdate);
 #endif
+
+  IPCResult RecvUpdateVar(const nsTArray<mozilla::gfx::GfxVarUpdate>& aUpdate);
 
 #ifdef MOZ_WMF_CDM
   IPCResult RecvGetKeySystemCapabilities(
