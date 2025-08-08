@@ -53,6 +53,7 @@
 #include "mozilla/dom/AncestorIterator.h"
 #include "mozilla/dom/Attr.h"
 #include "mozilla/dom/BorrowedAttrInfo.h"
+#include "mozilla/dom/CharacterDataBuffer.h"
 #include "mozilla/dom/DocumentFragment.h"
 #include "mozilla/dom/DocumentInlines.h"
 #include "mozilla/dom/Element.h"
@@ -89,7 +90,6 @@
 #include "nsPrintfCString.h"
 #include "nsPIDOMWindow.h"
 #include "nsStyledElement.h"
-#include "nsTextFragment.h"
 #include "nsUnicharUtils.h"
 
 namespace mozilla {
@@ -4631,7 +4631,7 @@ Result<CreateLineBreakResult, nsresult> HTMLEditor::InsertLineBreak(
           pointToInsert.GetContainer(), pointToInsert.Offset()));
     }
     if (NS_WARN_IF(!newTextNode->TextDataLength() ||
-                   newTextNode->TextFragment().CharAt(0) != '\n')) {
+                   newTextNode->DataBuffer().CharAt(0) != '\n')) {
       return Err(NS_ERROR_EDITOR_UNEXPECTED_DOM_TREE);
     }
     return EditorLineBreak(std::move(newTextNode), 0u);
@@ -4724,17 +4724,18 @@ nsresult HTMLEditor::EnsureNoFollowingUnnecessaryLineBreak(
         return true;
     }
   };
-  const nsTextFragment& textFragment =
-      unnecessaryLineBreak->TextRef().TextFragment();
-  const uint32_t length = textFragment.GetLength();
-  const DebugOnly<const char16_t> lastChar = textFragment.CharAt(length - 1);
+  const CharacterDataBuffer& characterDataBuffer =
+      unnecessaryLineBreak->TextRef().DataBuffer();
+  const uint32_t length = characterDataBuffer.GetLength();
+  const DebugOnly<const char16_t> lastChar =
+      characterDataBuffer.CharAt(length - 1);
   MOZ_ASSERT(lastChar == HTMLEditUtils::kNewLine);
   const bool textNodeHasVisibleChar = [&]() {
     if (length == 1u) {
       return false;
     }
     for (const uint32_t offset : Reversed(IntegerRange(length - 1))) {
-      if (IsVisibleChar(textFragment.CharAt(offset))) {
+      if (IsVisibleChar(characterDataBuffer.CharAt(offset))) {
         return true;
       }
     }

@@ -3452,6 +3452,11 @@ who = "Erich Gubler <erichdongubler@gmail.com>"
 criteria = "safe-to-deploy"
 delta = "0.28.0 -> 0.31.0"
 
+[[audits.libsqlite3-sys]]
+who = "Mark Hammond <mhammond@skippinet.com.au>"
+criteria = "safe-to-deploy"
+delta = "0.31.0 -> 0.35.0"
+
 [[audits.libz-rs-sys]]
 who = "Mike Hommey <mh+mozilla@glandium.org>"
 criteria = "safe-to-deploy"
@@ -4034,9 +4039,12 @@ criteria = "safe-to-deploy"
 delta = "25.0.0 -> 26.0.0"
 
 [[audits.naga]]
-who = "Andy Leiserson <aleiserson@mozilla.com>"
+who = [
+    "Andy Leiserson <aleiserson@mozilla.com>",
+    "Teodor Tanasoaia <ttanasoaia@mozilla.com>",
+]
 criteria = "safe-to-deploy"
-delta = "26.0.0 -> 26.0.0@git:b83c9cfd578837a6163d980130249c245a9c5f8a"
+delta = "26.0.0 -> 26.0.0@git:36ae215e9cfb0defb94f889f55edc18c5b87f150"
 importable = false
 
 [[audits.net2]]
@@ -4445,6 +4453,11 @@ delta = "0.1.1 -> 0.1.4"
 who = "Mike Hommey <mh+mozilla@glandium.org>"
 criteria = "safe-to-deploy"
 delta = "0.1.4 -> 0.1.5"
+
+[[audits.pkcs11-bindings]]
+who = "John M. Schanck <jschanck@mozilla.com>"
+criteria = "safe-to-deploy"
+delta = "0.1.5 -> 0.1.7"
 
 [[audits.pkg-config]]
 who = "Mike Hommey <mh+mozilla@glandium.org>"
@@ -4963,6 +4976,11 @@ notes = "Mostly build and dependency related changes, and bump to sqlite version
 who = "Erich Gubler <erichdongubler@gmail.com>"
 criteria = "safe-to-deploy"
 delta = "0.31.0 -> 0.33.0"
+
+[[audits.rusqlite]]
+who = "Mark Hammond <mhammond@skippinet.com.au>"
+criteria = "safe-to-deploy"
+delta = "0.33.0 -> 0.37.0"
 
 [[audits.rust_cascade]]
 who = "Mike Hommey <mh+mozilla@glandium.org>"
@@ -6455,9 +6473,12 @@ criteria = "safe-to-deploy"
 delta = "25.0.0 -> 26.0.0"
 
 [[audits.wgpu-core]]
-who = "Andy Leiserson <aleiserson@mozilla.com>"
+who = [
+    "Andy Leiserson <aleiserson@mozilla.com>",
+    "Teodor Tanasoaia <ttanasoaia@mozilla.com>",
+]
 criteria = "safe-to-deploy"
-delta = "26.0.0 -> 26.0.0@git:b83c9cfd578837a6163d980130249c245a9c5f8a"
+delta = "26.0.0 -> 26.0.0@git:36ae215e9cfb0defb94f889f55edc18c5b87f150"
 importable = false
 
 [[audits.wgpu-core-deps-apple]]
@@ -6471,9 +6492,12 @@ criteria = "safe-to-deploy"
 delta = "25.0.0 -> 26.0.0"
 
 [[audits.wgpu-core-deps-apple]]
-who = "Andy Leiserson <aleiserson@mozilla.com>"
+who = [
+    "Andy Leiserson <aleiserson@mozilla.com>",
+    "Teodor Tanasoaia <ttanasoaia@mozilla.com>",
+]
 criteria = "safe-to-deploy"
-delta = "26.0.0 -> 26.0.0@git:b83c9cfd578837a6163d980130249c245a9c5f8a"
+delta = "26.0.0 -> 26.0.0@git:36ae215e9cfb0defb94f889f55edc18c5b87f150"
 importable = false
 
 [[audits.wgpu-core-deps-windows-linux-android]]
@@ -6487,9 +6511,12 @@ criteria = "safe-to-deploy"
 delta = "25.0.0 -> 26.0.0"
 
 [[audits.wgpu-core-deps-windows-linux-android]]
-who = "Andy Leiserson <aleiserson@mozilla.com>"
+who = [
+    "Andy Leiserson <aleiserson@mozilla.com>",
+    "Teodor Tanasoaia <ttanasoaia@mozilla.com>",
+]
 criteria = "safe-to-deploy"
-delta = "26.0.0 -> 26.0.0@git:b83c9cfd578837a6163d980130249c245a9c5f8a"
+delta = "26.0.0 -> 26.0.0@git:36ae215e9cfb0defb94f889f55edc18c5b87f150"
 importable = false
 
 [[audits.wgpu-hal]]
@@ -6581,9 +6608,12 @@ criteria = "safe-to-deploy"
 delta = "25.0.0 -> 26.0.0"
 
 [[audits.wgpu-hal]]
-who = "Andy Leiserson <aleiserson@mozilla.com>"
+who = [
+    "Andy Leiserson <aleiserson@mozilla.com>",
+    "Teodor Tanasoaia <ttanasoaia@mozilla.com>",
+]
 criteria = "safe-to-deploy"
-delta = "26.0.0 -> 26.0.0@git:b83c9cfd578837a6163d980130249c245a9c5f8a"
+delta = "26.0.0 -> 26.0.0@git:36ae215e9cfb0defb94f889f55edc18c5b87f150"
 importable = false
 
 [[audits.wgpu-types]]
@@ -6670,9 +6700,12 @@ criteria = "safe-to-deploy"
 delta = "25.0.0 -> 26.0.0"
 
 [[audits.wgpu-types]]
-who = "Andy Leiserson <aleiserson@mozilla.com>"
+who = [
+    "Andy Leiserson <aleiserson@mozilla.com>",
+    "Teodor Tanasoaia <ttanasoaia@mozilla.com>",
+]
 criteria = "safe-to-deploy"
-delta = "26.0.0 -> 26.0.0@git:b83c9cfd578837a6163d980130249c245a9c5f8a"
+delta = "26.0.0 -> 26.0.0@git:36ae215e9cfb0defb94f889f55edc18c5b87f150"
 importable = false
 
 [[audits.whatsys]]
@@ -6864,6 +6897,11 @@ delta = "0.10.2 -> 0.10.4"
 who = "Makoto Kato <m_kato@ga2.so-net.ne.jp>"
 criteria = "safe-to-deploy"
 delta = "0.10.4 -> 0.11.2"
+
+[[audits.zerovec]]
+who = "Makoto Kato <m_kato@ga2.so-net.ne.jp>"
+criteria = "safe-to-deploy"
+delta = "0.11.2 -> 0.11.3"
 
 [[audits.zerovec-derive]]
 who = "Makoto Kato <m_kato@ga2.so-net.ne.jp>"

@@ -14304,19 +14304,6 @@ if (IsCSSPropertyPrefEnabled("layout.css.prefixes.transitions")) {
   });
 }
 
-if (IsCSSPropertyPrefEnabled("layout.css.moz-user-input.enabled")) {
-  Object.assign(gCSSProperties, {
-    "-moz-user-input": {
-      domProp: "MozUserInput",
-      inherited: true,
-      type: CSS_TYPE_LONGHAND,
-      initial_values: ["auto"],
-      other_values: ["none"],
-      invalid_values: [],
-    },
-  });
-}
-
 if (IsCSSPropertyPrefEnabled("layout.css.field-sizing.enabled")) {
   Object.assign(gCSSProperties, {
     "field-sizing": {
@@ -14375,6 +14362,64 @@ if (IsCSSPropertyPrefEnabled("dom.viewTransitions.enabled")) {
         "\\32bounce abc",
       ],
       invalid_values: ["abc none", "10px", "rgb(1, 2, 3)", "default"],
+    },
+  });
+}
+
+if (IsCSSPropertyPrefEnabled("layout.css.text-decoration-trim.enabled")) {
+  Object.assign(gCSSProperties, {
+    "text-decoration-trim": {
+      domProp: "textDecorationTrim",
+      inherited: false,
+      type: CSS_TYPE_LONGHAND,
+      applies_to_first_letter: true,
+      applies_to_first_line: true,
+      applies_to_placeholder: true,
+      applies_to_cue: true,
+      initial_values: ["auto"],
+      other_values: [
+        "0",
+        "-14px",
+        "25px",
+        "100em",
+        "-45em",
+        "-40px",
+        "0 1px",
+        "4em -2px",
+        "100px 2in",
+        "3cm 0",
+        "-1mm -2px",
+        "calc(-1mm + 2em)",
+        "2px calc(2px - 1em)",
+        "calc(0) 0",
+      ],
+      invalid_values: [
+        "13",
+        "-25",
+        "rubbish",
+        ",./!@#$",
+        "from-font",
+        "all",
+        "stretch",
+        "-10%",
+        "43%",
+        "10px5cm",
+        "10px, 5cm",
+        "1em 10%",
+        "0 10%",
+        "50% 50%",
+        "100% 8mm",
+        "100% 0",
+        "0 solid",
+        "auto 7px",
+        "word 9em",
+        "10em auto",
+        "1px 2px 3px",
+        "45em auto 0",
+        "0px 10% 9em",
+        "calc(10% + 1cm)",
+        "0 calc(100% - 10px)",
+      ],
     },
   });
 }

@@ -35,9 +35,9 @@ git = "https://github.com/franziskuskiefer/cose-rust"
 rev = "43c22248d136c8b38fe42ea709d08da6355cf04b"
 replace-with = "vendored-sources"
 
-[source."git+https://github.com/gfx-rs/wgpu?rev=b83c9cfd578837a6163d980130249c245a9c5f8a"]
+[source."git+https://github.com/gfx-rs/wgpu?rev=36ae215e9cfb0defb94f889f55edc18c5b87f150"]
 git = "https://github.com/gfx-rs/wgpu"
-rev = "b83c9cfd578837a6163d980130249c245a9c5f8a"
+rev = "36ae215e9cfb0defb94f889f55edc18c5b87f150"
 replace-with = "vendored-sources"
 
 [source."git+https://github.com/glandium/rust-objc?rev=4de89f5aa9851ceca4d40e7ac1e2759410c04324"]
@@ -65,9 +65,9 @@ git = "https://github.com/jfkthame/mapped_hyph.git"
 rev = "eff105f6ad7ec9b79816cfc1985a28e5340ad14b"
 replace-with = "vendored-sources"
 
-[source."git+https://github.com/mozilla/application-services?rev=09ad5d683b4b09c745011e5b75d76368b1008221"]
+[source."git+https://github.com/mozilla/application-services?rev=724f165c31adb85bad94ada2e3f8621481a74754"]
 git = "https://github.com/mozilla/application-services"
-rev = "09ad5d683b4b09c745011e5b75d76368b1008221"
+rev = "724f165c31adb85bad94ada2e3f8621481a74754"
 replace-with = "vendored-sources"
 
 [source."git+https://github.com/mozilla/audioipc?rev=e6f44a2bd1e57d11dfc737632a9e849077632330"]

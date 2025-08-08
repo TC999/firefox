@@ -14,8 +14,8 @@
 #include "MP4Decoder.h"
 #include "MediaInfo.h"
 #include "VALibWrapper.h"
-#include "VideoUtils.h"
 #include "VPXDecoder.h"
+#include "VideoUtils.h"
 #if LIBAVCODEC_VERSION_MAJOR >= 58
 #  include "libavutil/buffer.h"
 #  include "libavutil/frame.h"
@@ -36,9 +36,9 @@
 #  include "H265.h"
 #endif
 #if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
+#  include "FFmpegVideoFramePool.h"
 #  include "mozilla/gfx/gfxVars.h"
 #  include "mozilla/layers/DMABUFSurfaceImage.h"
-#  include "FFmpegVideoFramePool.h"
 #  include "va/va.h"
 #endif
 
@@ -84,15 +84,14 @@
 #endif
 
 #ifdef MOZ_WIDGET_ANDROID
-#  include "mozilla/layers/TextureClientOGL.h"
-#  include "mozilla/java/GeckoSurfaceWrappers.h"
+#  include "ffvpx/hwcontext_mediacodec.h"
+#  include "ffvpx/mediacodec.h"
 #  include "mozilla/java/CodecProxyWrappers.h"
 #  include "mozilla/java/GeckoSurfaceWrappers.h"
 #  include "mozilla/java/SampleBufferWrappers.h"
 #  include "mozilla/java/SampleWrappers.h"
 #  include "mozilla/java/SurfaceAllocatorWrappers.h"
-#  include "ffvpx/mediacodec.h"
-#  include "ffvpx/hwcontext_mediacodec.h"
+#  include "mozilla/layers/TextureClientOGL.h"
 #endif
 
 #if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
@@ -364,31 +363,26 @@ MediaResult FFmpegVideoDecoder<LIBAV_VER>::InitVAAPIDecoder() {
 
   InitHWCodecContext(ContextType::VAAPI);
 
-  auto releaseVAAPIdecoder = MakeScopeExit([&] {
+  // MOZ_REQUIRES isn't recognized in MakeScopeExit, but InitVAAPIDecoder
+  // already locks sMutex at the start, so just escape thread analysis.
+  auto releaseVAAPIdecoder = MakeScopeExit([&]() MOZ_NO_THREAD_SAFETY_ANALYSIS {
     if (mVAAPIDeviceContext) {
       mLib->av_buffer_unref(&mVAAPIDeviceContext);
     }
-    if (mCodecContext) {
-      mLib->av_freep(&mCodecContext);
-    }
+    ReleaseCodecContext();
   });
 
   if (!CreateVAAPIDeviceContext()) {
-    mLib->av_freep(&mCodecContext);
     FFMPEG_LOG("  Failed to create VA-API device context");
     return NS_ERROR_DOM_MEDIA_FATAL_ERR;
   }
 
   MediaResult ret = AllocateExtraData();
   if (NS_FAILED(ret)) {
-    mLib->av_buffer_unref(&mVAAPIDeviceContext);
-    mLib->av_freep(&mCodecContext);
     return ret;
   }
 
   if (mLib->avcodec_open2(mCodecContext, codec, nullptr) < 0) {
-    mLib->av_buffer_unref(&mVAAPIDeviceContext);
-    mLib->av_freep(&mCodecContext);
     FFMPEG_LOG("  Couldn't initialise VA-API decoder");
     return NS_ERROR_DOM_MEDIA_FATAL_ERR;
   }
@@ -450,20 +444,17 @@ MediaResult FFmpegVideoDecoder<LIBAV_VER>::InitV4L2Decoder() {
   // can't work out the offsets.
   mCodecContext->apply_cropping = 0;
 
-  auto releaseDecoder = MakeScopeExit([&] {
-    if (mCodecContext) {
-      mLib->av_freep(&mCodecContext);
-    }
-  });
+  // MOZ_REQUIRES isn't recognized in MakeScopeExit, but InitV4L2Decoder
+  // already locks sMutex at the start, so just escape thread analysis.
+  auto releaseDecoder = MakeScopeExit(
+      [&]() MOZ_NO_THREAD_SAFETY_ANALYSIS { ReleaseCodecContext(); });
 
   MediaResult ret = AllocateExtraData();
   if (NS_FAILED(ret)) {
-    mLib->av_freep(&mCodecContext);
     return ret;
   }
 
   if (mLib->avcodec_open2(mCodecContext, codec, nullptr) < 0) {
-    mLib->av_freep(&mCodecContext);
     FFMPEG_LOG("  Couldn't initialise V4L2 decoder");
     return NS_ERROR_DOM_MEDIA_FATAL_ERR;
   }
@@ -588,8 +579,8 @@ FFmpegVideoDecoder<LIBAV_VER>::FFmpegVideoDecoder(
     FFmpegLibWrapper* aLib, const VideoInfo& aConfig,
     KnowsCompositor* aAllocator, ImageContainer* aImageContainer,
     bool aLowLatency, bool aDisableHardwareDecoding, bool a8BitOutput,
-    Maybe<TrackingId> aTrackingId)
-    : FFmpegDataDecoder(aLib, GetCodecId(aConfig.mMimeType)),
+    Maybe<TrackingId> aTrackingId, PRemoteCDMActor* aCDM)
+    : FFmpegDataDecoder(aLib, GetCodecId(aConfig.mMimeType), aCDM),
       mImageAllocator(aAllocator),
 #ifdef MOZ_USE_HWDECODE
       mHardwareDecodingDisabled(
@@ -656,6 +647,7 @@ void FFmpegVideoDecoder<LIBAV_VER>::InitHWDecoderIfAllowed() {
 #endif  // MOZ_USE_HWDECODE
 
 RefPtr<MediaDataDecoder::InitPromise> FFmpegVideoDecoder<LIBAV_VER>::Init() {
+  AUTO_PROFILER_LABEL("FFmpegVideoDecoder::Init", MEDIA_PLAYBACK);
   FFMPEG_LOG("FFmpegVideoDecoder, init, IsHardwareAccelerated=%d\n",
              IsHardwareAccelerated());
   // We've finished the HW decoder initialization in the ctor.
@@ -1192,6 +1184,25 @@ MediaResult FFmpegVideoDecoder<LIBAV_VER>::DoDecode(
         nsPrintfCString("FFmpegVideoDecoder(%d)", LIBAVCODEC_VERSION_MAJOR),
         aId, flag);
   });
+
+#if defined(MOZ_WIDGET_ANDROID) && defined(USING_MOZFFVPX)
+  RefPtr<MediaDrmCryptoInfo> cryptoInfo;
+  if (aSample->mCrypto.IsEncrypted()) {
+    if (NS_WARN_IF(!mCDM)) {
+      return MediaResult(NS_ERROR_DOM_MEDIA_DECODE_ERR,
+                         RESULT_DETAIL("Missing CDM for encrypted sample"));
+    }
+
+    cryptoInfo = mCDM->CreateCryptoInfo(aSample);
+    if (NS_WARN_IF(!cryptoInfo)) {
+      return MediaResult(
+          NS_ERROR_DOM_MEDIA_DECODE_ERR,
+          RESULT_DETAIL("Failed to create CryptoInfo for encrypted sample"));
+    }
+
+    packet->moz_ndk_crypto_info = cryptoInfo->GetNdkCryptoInfo();
+  }
+#endif
 
 #ifdef MOZ_FFMPEG_USE_INPUT_INFO_MAP
 #  ifdef MOZ_WIDGET_ANDROID
@@ -2160,10 +2171,10 @@ MediaResult FFmpegVideoDecoder<LIBAV_VER>::InitD3D11VADecoder() {
   mCodecContext->opaque = this;
   InitHWCodecContext(ContextType::D3D11VA);
 
-  auto releaseResources = MakeScopeExit([&] {
-    if (mCodecContext) {
-      mLib->av_freep(&mCodecContext);
-    }
+  // MOZ_REQUIRES isn't recognized in MakeScopeExit, but InitD3D11VADecoder
+  // already locks sMutex at the start, so just escape thread analysis.
+  auto releaseResources = MakeScopeExit([&]() MOZ_NO_THREAD_SAFETY_ANALYSIS {
+    ReleaseCodecContext();
     if (mD3D11VADeviceContext) {
       AVHWDeviceContext* hwctx =
           reinterpret_cast<AVHWDeviceContext*>(mD3D11VADeviceContext->data);
@@ -2343,10 +2354,10 @@ MediaResult FFmpegVideoDecoder<LIBAV_VER>::InitMediaCodecDecoder() {
   mCodecContext->opaque = this;
   InitHWCodecContext(ContextType::MediaCodec);
 
-  auto releaseResources = MakeScopeExit([&] {
-    if (mCodecContext) {
-      mLib->av_freep(&mCodecContext);
-    }
+  // MOZ_REQUIRES isn't recognized in MakeScopeExit, but InitMediaCodecDecoder
+  // already locks sMutex at the start, so just escape thread analysis.
+  auto releaseResources = MakeScopeExit([&]() MOZ_NO_THREAD_SAFETY_ANALYSIS {
+    ReleaseCodecContext();
     if (mMediaCodecDeviceContext) {
       mLib->av_buffer_unref(&mMediaCodecDeviceContext);
     }

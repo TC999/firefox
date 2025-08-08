@@ -551,6 +551,7 @@ class Longhand(Property):
             "SVGStrokeDashArray",
             "SVGWidth",
             "TextDecorationLength",
+            "TextDecorationTrim",
             "TextIndent",
             "WordSpacing",
         }
@@ -660,7 +661,6 @@ class Longhand(Property):
                 "TouchAction",
                 "TransformStyle",
                 "UserFocus",
-                "UserInput",
                 "UserSelect",
                 "VectorEffect",
                 "WordBreak",

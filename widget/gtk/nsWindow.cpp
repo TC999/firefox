@@ -24,6 +24,7 @@
 #include "gfxUtils.h"
 #include "GLContextProvider.h"
 #include "GLContext.h"
+#include "GSettings.h"
 #include "GtkCompositorWidget.h"
 #include "imgIContainer.h"
 #include "InputData.h"
@@ -83,7 +84,6 @@
 #include "nsGfxCIID.h"
 #include "nsGtkUtils.h"
 #include "nsIFile.h"
-#include "nsIGSettingsService.h"
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsImageToPixbuf.h"
 #include "nsINode.h"
@@ -2872,10 +2872,7 @@ void nsWindow::SetSizeMode(nsSizeMode aMode) {
   mLastSizeModeRequest = aMode;
 }
 
-#define kDesktopMutterSchema "org.gnome.mutter"_ns
-#define kDesktopDynamicWorkspacesKey "dynamic-workspaces"_ns
-
-static bool WorkspaceManagementDisabled(GdkScreen* screen) {
+static bool WorkspaceManagementDisabled() {
   if (Preferences::GetBool("widget.disable-workspace-management", false)) {
     return true;
   }
@@ -2886,19 +2883,9 @@ static bool WorkspaceManagementDisabled(GdkScreen* screen) {
   if (IsGnomeDesktopEnvironment()) {
     // Gnome uses dynamic workspaces by default so disable workspace management
     // in that case.
-    bool usesDynamicWorkspaces = true;
-    nsCOMPtr<nsIGSettingsService> gsettings =
-        do_GetService(NS_GSETTINGSSERVICE_CONTRACTID);
-    if (gsettings) {
-      nsCOMPtr<nsIGSettingsCollection> mutterSettings;
-      gsettings->GetCollectionForSchema(kDesktopMutterSchema,
-                                        getter_AddRefs(mutterSettings));
-      if (mutterSettings) {
-        mutterSettings->GetBoolean(kDesktopDynamicWorkspacesKey,
-                                   &usesDynamicWorkspaces);
-      }
-    }
-    return usesDynamicWorkspaces;
+    return widget::GSettings::GetBoolean("org.gnome.mutter"_ns,
+                                         "dynamic-workspaces"_ns)
+        .valueOr(false);
   }
 
   const auto& desktop = GetDesktopEnvironmentIdentifier();
@@ -2922,7 +2909,7 @@ void nsWindow::GetWorkspaceID(nsAString& workspaceID) {
     return;
   }
 
-  if (WorkspaceManagementDisabled(gdk_window_get_screen(gdk_window))) {
+  if (WorkspaceManagementDisabled()) {
     LOG("  WorkspaceManagementDisabled, quit.");
     return;
   }
@@ -10034,4 +10021,63 @@ UniquePtr<WaylandSurfaceLock> nsWindow::LockSurface() {
 #else
   return nullptr;
 #endif
+}
+
+using GdkWaylandWindowExported = void (*)(GdkWindow* window, const char* handle,
+                                          gpointer user_data);
+
+RefPtr<nsWindow::ExportHandlePromise> nsWindow::ExportHandle() {
+  auto promise = MakeRefPtr<ExportHandlePromise::Private>(__func__);
+  auto* toplevel = GetToplevelGdkWindow();
+#ifdef MOZ_WAYLAND
+  if (GdkIsWaylandDisplay()) {
+    static auto sGdkWaylandWindowExportHandle = (gboolean(*)(
+        const GdkWindow*, GdkWaylandWindowExported, gpointer,
+        GDestroyNotify))dlsym(RTLD_DEFAULT, "gdk_wayland_window_export_handle");
+    if (!sGdkWaylandWindowExportHandle || !toplevel) {
+      promise->Reject(false, __func__);
+    }
+    const bool success = sGdkWaylandWindowExportHandle(
+        toplevel,
+        [](GdkWindow*, const char* handle, gpointer promise) {
+          // NOTE: This addrefs, the releaser destroys.
+          RefPtr self = static_cast<ExportHandlePromise::Private*>(promise);
+          self->Resolve(nsPrintfCString("wayland:%s", handle), __func__);
+        },
+        promise.get(),
+        [](gpointer promise) {
+          RefPtr self =
+              dont_AddRef(static_cast<ExportHandlePromise::Private*>(promise));
+          // NOTE: This gets ignored if not pending.
+          self->Reject(false, __func__);
+        });
+    if (success) {
+      // Transfer ownership to the callback.
+      promise.get()->AddRef();
+    } else {
+      promise->Reject(false, __func__);
+    }
+    return promise.forget();
+  }
+#endif
+#ifdef MOZ_X11
+  if (GdkIsX11Display()) {
+    promise->Resolve(
+        nsPrintfCString("x11:%lx", gdk_x11_window_get_xid(toplevel)), __func__);
+    return promise.forget();
+  }
+#endif
+  MOZ_ASSERT_UNREACHABLE("how?");
+  promise->Reject(false, __func__);
+  return promise.forget();
+}
+
+void nsWindow::UnexportHandle() {
+  static auto sGdkWaylandWindowUnexportHandle = (void (*)(GdkWindow*))dlsym(
+      RTLD_DEFAULT, "gdk_wayland_window_unexport_handle");
+  if (GdkIsWaylandDisplay() && sGdkWaylandWindowUnexportHandle) {
+    if (auto* toplevel = GetToplevelGdkWindow()) {
+      sGdkWaylandWindowUnexportHandle(toplevel);
+    }
+  }
 }

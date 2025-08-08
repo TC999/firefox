@@ -31,7 +31,7 @@ class ReviewPromptMiddlewareTest {
         middlewares = listOf(
             ReviewPromptMiddleware(
                 settings = settings,
-                {
+                createJexlHelper = {
                     object : NimbusMessagingHelperInterface {
                         override fun evalJexl(expression: String) = assertUnused()
                         override fun getUuid(template: String) = assertUnused()
@@ -207,6 +207,42 @@ class ReviewPromptMiddlewareTest {
         )
     }
 
+    @Test
+    fun `WHEN evalJexl returns false THEN createdAtLeastOneBookmark returns false`() {
+        val jexlHelper = FakeNimbusMessagingHelperInterface(false)
+
+        val result = createdAtLeastOneBookmark(jexlHelper)
+
+        assertEquals(jexlHelper.evalJexlValue, result)
+    }
+
+    @Test
+    fun `WHEN evalJexl returns true THEN createdAtLeastOneBookmark returns true`() {
+        val jexlHelper = FakeNimbusMessagingHelperInterface(true)
+
+        val result = createdAtLeastOneBookmark(jexlHelper)
+
+        assertEquals(jexlHelper.evalJexlValue, result)
+    }
+
+    @Test
+    fun `WHEN evalJexl returns false THEN isDefaultBrowserTrigger returns false`() {
+        val jexlHelper = FakeNimbusMessagingHelperInterface(false)
+
+        val result = isDefaultBrowserTrigger(jexlHelper)
+
+        assertFalse(result)
+    }
+
+    @Test
+    fun `WHEN evalJexl returns true THEN isDefaultBrowserTrigger returns true`() {
+        val jexlHelper = FakeNimbusMessagingHelperInterface(true)
+
+        val result = isDefaultBrowserTrigger(jexlHelper)
+
+        assertTrue(result)
+    }
+
     private fun assertNoOp(action: ReviewPromptAction) {
         val withoutMiddleware = AppStore()
         withoutMiddleware.dispatch(action).joinBlocking()
@@ -224,5 +260,12 @@ class ReviewPromptMiddlewareTest {
 
     private companion object {
         const val TEST_TIME_NOW = 1598416882805L
+    }
+
+    private class FakeNimbusMessagingHelperInterface(val evalJexlValue: Boolean) :
+        NimbusMessagingHelperInterface {
+        override fun evalJexl(expression: String): Boolean = evalJexlValue
+        override fun getUuid(template: String): String? = null
+        override fun stringFormat(template: String, uuid: String?): String = ""
     }
 }

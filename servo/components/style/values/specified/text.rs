@@ -9,11 +9,12 @@ use crate::properties::longhands::writing_mode::computed_value::T as SpecifiedWr
 use crate::values::computed;
 use crate::values::computed::text::TextEmphasisStyle as ComputedTextEmphasisStyle;
 use crate::values::computed::{Context, ToComputedValue};
-use crate::values::generics::NumberOrAuto;
 use crate::values::generics::text::{
-    GenericHyphenateLimitChars, GenericInitialLetter, GenericTextDecorationLength, GenericTextIndent,
+    GenericHyphenateLimitChars, GenericInitialLetter, GenericTextDecorationLength,
+    GenericTextDecorationTrim, GenericTextIndent,
 };
-use crate::values::specified::length::LengthPercentage;
+use crate::values::generics::NumberOrAuto;
+use crate::values::specified::length::{Length, LengthPercentage};
 use crate::values::specified::{AllowQuirks, Integer, Number};
 use crate::Zero;
 use cssparser::Parser;
@@ -69,10 +70,11 @@ impl ToComputedValue for LetterSpacing {
         if computed.0.is_zero() {
             return LetterSpacing(Spacing::Normal);
         }
-        LetterSpacing(Spacing::Value(ToComputedValue::from_computed_value(&computed.0)))
+        LetterSpacing(Spacing::Value(ToComputedValue::from_computed_value(
+            &computed.0,
+        )))
     }
 }
-
 
 /// A specified value for the `word-spacing` property.
 #[derive(Clone, Debug, MallocSizeOf, Parse, PartialEq, SpecifiedValueInfo, ToCss, ToShmem)]
@@ -89,7 +91,9 @@ impl ToComputedValue for WordSpacing {
     }
 
     fn from_computed_value(computed: &Self::ComputedValue) -> Self {
-        WordSpacing(Spacing::Value(ToComputedValue::from_computed_value(computed)))
+        WordSpacing(Spacing::Value(ToComputedValue::from_computed_value(
+            computed,
+        )))
     }
 }
 
@@ -125,8 +129,12 @@ impl Parse for HyphenateLimitChars {
         type IntegerOrAuto = NumberOrAuto<Integer>;
 
         let total_word_length = IntegerOrAuto::parse(context, input)?;
-        let pre_hyphen_length = input.try_parse(|i| IntegerOrAuto::parse(context, i)).unwrap_or(IntegerOrAuto::Auto);
-        let post_hyphen_length = input.try_parse(|i| IntegerOrAuto::parse(context, i)).unwrap_or(pre_hyphen_length);
+        let pre_hyphen_length = input
+            .try_parse(|i| IntegerOrAuto::parse(context, i))
+            .unwrap_or(IntegerOrAuto::Auto);
+        let post_hyphen_length = input
+            .try_parse(|i| IntegerOrAuto::parse(context, i))
+            .unwrap_or(pre_hyphen_length);
         Ok(Self {
             total_word_length,
             pre_hyphen_length,
@@ -274,14 +282,17 @@ impl ToCss for TextOverflow {
     ToResolvedValue,
     ToShmem,
 )]
-#[cfg_attr(feature = "gecko", css(bitflags(
-    single = "none,spelling-error,grammar-error",
-    mixed = "underline,overline,line-through,blink",
-)))]
-#[cfg_attr(not(feature = "gecko"), css(bitflags(
-    single = "none",
-    mixed = "underline,overline,line-through,blink",
-)))]
+#[cfg_attr(
+    feature = "gecko",
+    css(bitflags(
+        single = "none,spelling-error,grammar-error",
+        mixed = "underline,overline,line-through,blink",
+    ))
+)]
+#[cfg_attr(
+    not(feature = "gecko"),
+    css(bitflags(single = "none", mixed = "underline,overline,line-through,blink",))
+)]
 #[repr(C)]
 /// Specified keyword values for the text-decoration-line property.
 pub struct TextDecorationLine(u8);
@@ -371,16 +382,22 @@ pub enum TextTransformCase {
     ToResolvedValue,
     ToShmem,
 )]
-#[cfg_attr(feature = "gecko", css(bitflags(
-    single = "none,math-auto",
-    mixed = "uppercase,lowercase,capitalize,full-width,full-size-kana",
-    validate_mixed = "Self::validate_mixed_flags",
-)))]
-#[cfg_attr(not(feature = "gecko"), css(bitflags(
-    single = "none",
-    mixed = "uppercase,lowercase,capitalize,full-width,full-size-kana",
-    validate_mixed = "Self::validate_mixed_flags",
-)))]
+#[cfg_attr(
+    feature = "gecko",
+    css(bitflags(
+        single = "none,math-auto",
+        mixed = "uppercase,lowercase,capitalize,full-width,full-size-kana",
+        validate_mixed = "Self::validate_mixed_flags",
+    ))
+)]
+#[cfg_attr(
+    not(feature = "gecko"),
+    css(bitflags(
+        single = "none",
+        mixed = "uppercase,lowercase,capitalize,full-width,full-size-kana",
+        validate_mixed = "Self::validate_mixed_flags",
+    ))
+)]
 #[repr(C)]
 /// Specified value for the text-transform property.
 /// (The spec grammar gives
@@ -1032,6 +1049,38 @@ impl TextDecorationLength {
     #[inline]
     pub fn is_auto(&self) -> bool {
         matches!(*self, GenericTextDecorationLength::Auto)
+    }
+}
+
+/// Implements type for `text-decoration-trim` property
+pub type TextDecorationTrim = GenericTextDecorationTrim<Length>;
+
+impl TextDecorationTrim {
+    /// `Auto` value.
+    #[inline]
+    pub fn auto() -> Self {
+        GenericTextDecorationTrim::Auto
+    }
+
+    /// Whether this is the `Auto` value.
+    #[inline]
+    pub fn is_auto(&self) -> bool {
+        matches!(*self, GenericTextDecorationTrim::Auto)
+    }
+}
+
+impl Parse for TextDecorationTrim {
+    fn parse<'i, 't>(
+        ctx: &ParserContext,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<Self, ParseError<'i>> {
+        if let Ok(start) = input.try_parse(|i| Length::parse(ctx, i)) {
+            let end = input.try_parse(|i| Length::parse(ctx, i));
+            let end = end.unwrap_or_else(|_| start.clone());
+            return Ok(TextDecorationTrim::Length{start, end});
+        }
+        input.expect_ident_matching("auto")?;
+        Ok(TextDecorationTrim::Auto)
     }
 }
 

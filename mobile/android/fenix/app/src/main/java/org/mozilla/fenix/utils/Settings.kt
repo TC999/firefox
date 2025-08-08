@@ -2000,7 +2000,7 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     var shouldUseComposableToolbar by lazyFeatureFlagPreference(
         key = appContext.getPreferenceKey(R.string.pref_key_enable_composable_toolbar),
         default = { FxNimbus.features.composableToolbar.value().enabled },
-        featureFlag = true,
+        featureFlag = FeatureFlags.composableToolbar,
     )
 
     /**
@@ -2468,15 +2468,6 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     var crashPullDontShowBefore by longPreference(
         appContext.getPreferenceKey(R.string.pref_key_crash_pull_dont_show_before),
         default = 0,
-    )
-
-    /**
-     * Indicates whether or not we should use the new bookmarks UI.
-     */
-    var useNewBookmarks by lazyFeatureFlagPreference(
-        key = appContext.getPreferenceKey(R.string.pref_key_use_new_bookmarks_ui),
-        default = { true },
-        featureFlag = true,
     )
 
     var bookmarkListSortOrder by stringPreference(

@@ -155,6 +155,7 @@ import org.mozilla.fenix.bindings.FindInPageBinding
 import org.mozilla.fenix.biometricauthentication.AuthenticationStatus
 import org.mozilla.fenix.biometricauthentication.BiometricAuthenticationManager
 import org.mozilla.fenix.biometricauthentication.NavigationOrigin
+import org.mozilla.fenix.bookmarks.friendlyRootTitle
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.browser.readermode.DefaultReaderModeController
 import org.mozilla.fenix.browser.readermode.ReaderModeController
@@ -169,6 +170,7 @@ import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.components.appstate.AppAction.MessagingAction
 import org.mozilla.fenix.components.appstate.AppAction.MessagingAction.MicrosurveyAction
 import org.mozilla.fenix.components.metrics.MetricsUtils
+import org.mozilla.fenix.components.metrics.MetricsUtils.BookmarkAction.Source
 import org.mozilla.fenix.components.toolbar.BottomToolbarContainerIntegration
 import org.mozilla.fenix.components.toolbar.BottomToolbarContainerView
 import org.mozilla.fenix.components.toolbar.BrowserNavigationBar
@@ -210,7 +212,6 @@ import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.ext.tabClosedUndoMessage
 import org.mozilla.fenix.ext.updateMicrosurveyPromptForConfigurationChange
 import org.mozilla.fenix.home.HomeScreenViewModel
-import org.mozilla.fenix.library.bookmarks.friendlyRootTitle
 import org.mozilla.fenix.lifecycle.observePrivateModeLock
 import org.mozilla.fenix.messaging.FenixMessageSurfaceId
 import org.mozilla.fenix.messaging.MessagingFeature
@@ -2091,7 +2092,7 @@ abstract class BaseBrowserFragment :
                     position = null,
                 )
 
-                MetricsUtils.recordBookmarkMetrics(MetricsUtils.BookmarkAction.ADD, METRIC_SOURCE)
+                MetricsUtils.recordBookmarkAddMetric(Source.PAGE_ACTION_MENU, requireComponents.nimbus.events)
                 showBookmarkSavedSnackbar(
                     message = getString(
                         R.string.bookmark_saved_in_folder_snackbar,
@@ -2100,7 +2101,7 @@ abstract class BaseBrowserFragment :
                     onClick = {
                         MetricsUtils.recordBookmarkMetrics(
                             MetricsUtils.BookmarkAction.EDIT,
-                            TOAST_METRIC_SOURCE,
+                            Source.ADD_BOOKMARK_TOAST,
                         )
                         findNavController().navigateWithBreadcrumb(
                             directions = BrowserFragmentDirections.actionGlobalBookmarkEditFragment(
@@ -2347,8 +2348,6 @@ abstract class BaseBrowserFragment :
         private const val REQUEST_CODE_DOWNLOAD_PERMISSIONS = 1
         private const val REQUEST_CODE_PROMPT_PERMISSIONS = 2
         private const val REQUEST_CODE_APP_PERMISSIONS = 3
-        private const val METRIC_SOURCE = "page_action_menu"
-        private const val TOAST_METRIC_SOURCE = "add_bookmark_toast"
         private const val LAST_SAVED_GENERATED_PASSWORD = "last_saved_generated_password"
 
         val onboardingLinksList: List<String> = listOf(
