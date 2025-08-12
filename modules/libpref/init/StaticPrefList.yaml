@@ -3319,6 +3319,15 @@
   mirror: once
 #endif
 
+#if defined(XP_DARWIN)
+# Whether or not to use the mach-based IPC backend on macOS/iOS.
+# Only read once at startup by IOThreadParent's constructor.
+- name: dom.ipc.backend.mach
+  type: bool
+  value: @IS_IOS@
+  mirror: never
+#endif
+
 #ifdef MOZ_WIDGET_GTK
 #
 # Avoid the use of GTK in content processes if possible, by running
@@ -5741,12 +5750,6 @@
 - name: dom.resize_observer.support_fragments
   type: bool
   value: false
-  mirror: always
-
-# Whether allowing using <tab> to move focus to root elements
-- name: dom.disable_tab_focus_to_root_element
-  type: bool
-  value: true
   mirror: always
 
 # Whether or not the `Origin-Agent-Cluster` HTTP header is enabled.
@@ -10286,6 +10289,13 @@
   value: false
   mirror: always
 
+# Is support for CSS text-autospace property enabled?
+# https://drafts.csswg.org/css-text-4/#text-autospace-property
+- name: layout.css.text-autospace.enabled
+  type: bool
+  value: false
+  mirror: always
+
 # Maximum number of lines to try balancing.
 - name: layout.css.text-wrap-balance.limit
   type: int32_t
@@ -10699,7 +10709,7 @@
 # Is support for the ::details-content pseudo-element enabled?
 - name: layout.css.details-content.enabled
   type: RelaxedAtomicBool
-  value: false
+  value: true
   mirror: always
   rust: true
 
@@ -10840,7 +10850,7 @@
 # The modern behavior is 'false', i.e. not forcing it to be a block.
 - name: layout.details.force-block-layout
   type: bool
-  value: @IS_NOT_NIGHTLY_BUILD@
+  value: false
   mirror: always
 
 # Whether table cells can generate scroll boxes.
@@ -14159,7 +14169,7 @@
 # a revalidation in the background.
 - name: network.dnsCacheExpirationGracePeriod
   type: RelaxedAtomicUint32
-  value: 60
+  value: 600
   mirror: always
 
 # This preference can be used to turn off DNS prefetch.
@@ -15103,6 +15113,22 @@
 # Whether to enable Zlib for H3/QUIC certificate compression.
 # Has no effect unless security.tls.enable_certificate_compression_zlib is true.
 - name: network.http.http3.enable_certificate_compression_zlib
+  type: RelaxedAtomicBool
+  value: true
+  mirror: always
+  rust: true
+
+# Whether to enable Zstd for H3/QUIC certificate compression.
+# Has no effect unless security.tls.enable_certificate_compression_zstd is true.
+- name: network.http.http3.enable_certificate_compression_zstd
+  type: RelaxedAtomicBool
+  value: true
+  mirror: always
+  rust: true
+
+# Whether to enable Brotli for H3/QUIC certificate compression.
+# Has no effect unless security.tls.enable_certificate_compression_brotli is true.
+- name: network.http.http3.enable_certificate_compression_brotli
   type: RelaxedAtomicBool
   value: true
   mirror: always
@@ -16916,21 +16942,6 @@
   value: 10
   mirror: always
 
-# security.pki.netscape_step_up_policy controls how the platform handles the
-# id-Netscape-stepUp OID in extended key usage extensions of CA certificates.
-# 0: id-Netscape-stepUp is always considered equivalent to id-kp-serverAuth
-# 1: it is considered equivalent when the notBefore is before 23 August 2016
-# 2: similarly, but for 23 August 2015
-# 3: it is never considered equivalent
-- name: security.pki.netscape_step_up_policy
-  type: RelaxedAtomicUint32
-#ifdef RELEASE_OR_BETA
-  value: 1
-#else
-  value: 2
-#endif
-  mirror: always
-
 # Configures Certificate Transparency support mode:
 # 0: Fully disabled.
 # 1: Only collect telemetry. CT qualification checks are not performed.
@@ -17995,6 +18006,15 @@
   type: RelaxedAtomicBool
   value: false
   mirror: always
+
+# Enable classification for safebrowsing and anti-tracking
+# 0 -> disabled, 1 -> anti-tracking only, 2 -> safe-browsing only, 3 -> enabled
+# see netwerk/base/nsNetUtil.cpp for C++ enum
+- name: urlclassifier.enabled_mode
+  type: RelaxedAtomicUint32
+  value: 3
+  mirror: always
+
 #---------------------------------------------------------------------------
 # Prefs starting with "view_source."
 #---------------------------------------------------------------------------

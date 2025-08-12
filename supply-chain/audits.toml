@@ -52,6 +52,20 @@ start = "2021-06-21"
 end = "2024-04-21"
 notes = "No unsafe code, rather straight-forward parser."
 
+[[wildcard-audits.chardetng]]
+who = "Henri Sivonen <hsivonen@hsivonen.fi>"
+criteria = "safe-to-deploy"
+user-id = 4484 # Henri Sivonen (hsivonen)
+start = "2019-06-12"
+end = "2026-08-06"
+
+[[wildcard-audits.chardetng_c]]
+who = "Henri Sivonen <hsivonen@hsivonen.fi>"
+criteria = "safe-to-deploy"
+user-id = 4484 # Henri Sivonen (hsivonen)
+start = "2019-12-05"
+end = "2026-08-06"
+
 [[wildcard-audits.clubcard]]
 who = "John M. Schanck <jschanck@mozilla.com>"
 criteria = "safe-to-deploy"
@@ -1241,11 +1255,23 @@ who = "Bobby Holley <bobbyholley@gmail.com>"
 criteria = "safe-to-deploy"
 delta = "0.1.9 -> 0.1.9@git:3484d3e3ebdc8931493aa5df4d7ee9360a90e76b"
 
+[[audits.chardetng]]
+who = "Henri Sivonen <hsivonen@hsivonen.fi>"
+criteria = "safe-to-deploy"
+delta = "0.1.17 -> 0.1.17@git:a07d20273ce36146adaf76bd667dd57bd7b3508b"
+importable = false
+
 [[audits.chardetng_c]]
 who = "Henri Sivonen <hsivonen@hsivonen.fi>"
 criteria = "safe-to-deploy"
 version = "0.1.2"
 notes = "I, Henri Sivonen, wrote this crate for Gecko even though it is published via crates.io. The buffer input assumes Rust slice constraints for the start pointer. In Gecko, this is taken care of by mozilla::Span, but the C API doesn't conform to idiomatic C constraints on this point."
+
+[[audits.chardetng_c]]
+who = "Henri Sivonen <hsivonen@hsivonen.fi>"
+criteria = "safe-to-deploy"
+delta = "0.1.2 -> 0.1.2@git:2f0aba284677d098de14f91ffe5a9e5b9a4922c2"
+importable = false
 
 [[audits.chardetng_c]]
 who = "Bobby Holley <bobbyholley@gmail.com>"
@@ -4042,9 +4068,10 @@ delta = "25.0.0 -> 26.0.0"
 who = [
     "Andy Leiserson <aleiserson@mozilla.com>",
     "Teodor Tanasoaia <ttanasoaia@mozilla.com>",
+    "Erich Gubler <erichdongubler@gmail.com>",
 ]
 criteria = "safe-to-deploy"
-delta = "26.0.0 -> 26.0.0@git:36ae215e9cfb0defb94f889f55edc18c5b87f150"
+delta = "26.0.0 -> 26.0.0@git:1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7"
 importable = false
 
 [[audits.net2]]
@@ -4092,6 +4119,12 @@ libc, but the usage looks correct.
 who = "Alex Franchuk <afranchuk@mozilla.com>"
 criteria = "safe-to-deploy"
 delta = "0.28.0 -> 0.29.0"
+
+[[audits.nix]]
+who = "Gabriele Svelto <gsvelto@mozilla.com>"
+criteria = "safe-to-deploy"
+delta = "0.29.0 -> 0.30.1"
+notes = "Some new wrappers, support for minor platforms and lots of work around type safety that reduces the unsafe surafce."
 
 [[audits.nom]]
 who = "Mike Hommey <mh+mozilla@glandium.org>"
@@ -6476,9 +6509,10 @@ delta = "25.0.0 -> 26.0.0"
 who = [
     "Andy Leiserson <aleiserson@mozilla.com>",
     "Teodor Tanasoaia <ttanasoaia@mozilla.com>",
+    "Erich Gubler <erichdongubler@gmail.com>",
 ]
 criteria = "safe-to-deploy"
-delta = "26.0.0 -> 26.0.0@git:36ae215e9cfb0defb94f889f55edc18c5b87f150"
+delta = "26.0.0 -> 26.0.0@git:1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7"
 importable = false
 
 [[audits.wgpu-core-deps-apple]]
@@ -6495,9 +6529,10 @@ delta = "25.0.0 -> 26.0.0"
 who = [
     "Andy Leiserson <aleiserson@mozilla.com>",
     "Teodor Tanasoaia <ttanasoaia@mozilla.com>",
+    "Erich Gubler <erichdongubler@gmail.com>",
 ]
 criteria = "safe-to-deploy"
-delta = "26.0.0 -> 26.0.0@git:36ae215e9cfb0defb94f889f55edc18c5b87f150"
+delta = "26.0.0 -> 26.0.0@git:1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7"
 importable = false
 
 [[audits.wgpu-core-deps-windows-linux-android]]
@@ -6514,9 +6549,10 @@ delta = "25.0.0 -> 26.0.0"
 who = [
     "Andy Leiserson <aleiserson@mozilla.com>",
     "Teodor Tanasoaia <ttanasoaia@mozilla.com>",
+    "Erich Gubler <erichdongubler@gmail.com>",
 ]
 criteria = "safe-to-deploy"
-delta = "26.0.0 -> 26.0.0@git:36ae215e9cfb0defb94f889f55edc18c5b87f150"
+delta = "26.0.0 -> 26.0.0@git:1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7"
 importable = false
 
 [[audits.wgpu-hal]]
@@ -6611,9 +6647,10 @@ delta = "25.0.0 -> 26.0.0"
 who = [
     "Andy Leiserson <aleiserson@mozilla.com>",
     "Teodor Tanasoaia <ttanasoaia@mozilla.com>",
+    "Erich Gubler <erichdongubler@gmail.com>",
 ]
 criteria = "safe-to-deploy"
-delta = "26.0.0 -> 26.0.0@git:36ae215e9cfb0defb94f889f55edc18c5b87f150"
+delta = "26.0.0 -> 26.0.0@git:1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7"
 importable = false
 
 [[audits.wgpu-types]]
@@ -6703,9 +6740,10 @@ delta = "25.0.0 -> 26.0.0"
 who = [
     "Andy Leiserson <aleiserson@mozilla.com>",
     "Teodor Tanasoaia <ttanasoaia@mozilla.com>",
+    "Erich Gubler <erichdongubler@gmail.com>",
 ]
 criteria = "safe-to-deploy"
-delta = "26.0.0 -> 26.0.0@git:36ae215e9cfb0defb94f889f55edc18c5b87f150"
+delta = "26.0.0 -> 26.0.0@git:1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7"
 importable = false
 
 [[audits.whatsys]]

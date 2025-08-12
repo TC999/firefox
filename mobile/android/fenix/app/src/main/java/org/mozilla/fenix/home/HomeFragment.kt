@@ -74,7 +74,6 @@ import org.mozilla.fenix.R
 import org.mozilla.fenix.addons.showSnackBar
 import org.mozilla.fenix.biometricauthentication.AuthenticationStatus
 import org.mozilla.fenix.biometricauthentication.BiometricAuthenticationManager
-import org.mozilla.fenix.biometricauthentication.NavigationOrigin
 import org.mozilla.fenix.browser.BrowserFragmentDirections
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.browser.tabstrip.TabStrip
@@ -138,7 +137,7 @@ import org.mozilla.fenix.home.topsites.TopSitesConfigConstants.AMAZON_SPONSORED_
 import org.mozilla.fenix.home.topsites.TopSitesConfigConstants.EBAY_SPONSORED_TITLE
 import org.mozilla.fenix.home.topsites.getTopSitesConfig
 import org.mozilla.fenix.home.ui.Homepage
-import org.mozilla.fenix.lifecycle.observePrivateModeLock
+import org.mozilla.fenix.home.ui.MiddleSearchHomepage
 import org.mozilla.fenix.messaging.DefaultMessageController
 import org.mozilla.fenix.messaging.FenixMessageSurfaceId
 import org.mozilla.fenix.messaging.MessagingFeature
@@ -147,6 +146,8 @@ import org.mozilla.fenix.microsurvey.ui.ext.MicrosurveyUIData
 import org.mozilla.fenix.microsurvey.ui.ext.toMicrosurveyUIData
 import org.mozilla.fenix.nimbus.FxNimbus
 import org.mozilla.fenix.onboarding.WidgetPinnedReceiver
+import org.mozilla.fenix.pbmlock.NavigationOrigin
+import org.mozilla.fenix.pbmlock.observePrivateModeLock
 import org.mozilla.fenix.perf.MarkersFragmentLifecycleCallbacks
 import org.mozilla.fenix.perf.StartupTimeline
 import org.mozilla.fenix.reviewprompt.ReviewPromptState
@@ -157,7 +158,6 @@ import org.mozilla.fenix.search.toolbar.DefaultSearchSelectorController
 import org.mozilla.fenix.search.toolbar.SearchSelectorMenu
 import org.mozilla.fenix.snackbar.FenixSnackbarDelegate
 import org.mozilla.fenix.snackbar.SnackbarBinding
-import org.mozilla.fenix.tabstray.DefaultTabManagementFeatureHelper
 import org.mozilla.fenix.tabstray.Page
 import org.mozilla.fenix.tabstray.TabsTrayAccessPoint
 import org.mozilla.fenix.termsofuse.shouldShowTermsOfUsePrompt
@@ -179,7 +179,6 @@ class HomeFragment : Fragment() {
     internal var _binding: FragmentHomeBinding? = null
     internal val binding get() = _binding!!
     private val snackbarBinding = ViewBoundFeatureWrapper<SnackbarBinding>()
-    private val qrScannerBinding = ViewBoundFeatureWrapper<QrScannerBinding>()
 
     private val homeViewModel: HomeScreenViewModel by activityViewModels()
 
@@ -454,20 +453,6 @@ class HomeFragment : Fragment() {
             view = binding.root,
         )
 
-        qrScannerBinding.set(
-            feature = QrScannerBinding(
-                appStore = requireContext().components.appStore,
-                qrScannerDelegate = QrScannerDelegate(
-                    activity = requireActivity() as AppCompatActivity,
-                    browserStore = requireContext().components.core.store,
-                    appStore = requireContext().components.appStore,
-                    settings = requireContext().settings(),
-                ),
-            ),
-            owner = this,
-            view = binding.root,
-        )
-
         _sessionControlController = DefaultSessionControlController(
             activityRef = WeakReference(activity),
             settings = components.settings,
@@ -514,6 +499,7 @@ class HomeFragment : Fragment() {
                 selectTabUseCase = components.useCases.tabsUseCases.selectTab,
                 navController = findNavController(),
                 appStore = components.appStore,
+                settings = components.settings,
             ),
             recentSyncedTabController = DefaultRecentSyncedTabController(
                 fenixBrowserUseCases = requireComponents.useCases.fenixBrowserUseCases,
@@ -916,6 +902,10 @@ class HomeFragment : Fragment() {
             }
         }
 
+        if (requireContext().settings().shouldUseComposableToolbar) {
+            QrScannerBinding.register(this)
+        }
+
         (toolbarView as? HomeToolbarView)?.let {
             searchSelectorBinding.set(
                 feature = SearchSelectorBinding(
@@ -969,22 +959,36 @@ class HomeFragment : Fragment() {
                         }.collectAsState(state)
                     }
 
-                    Homepage(
-                        state = HomepageState.build(
-                            appState = appState.value,
-                            settings = settings,
-                            browsingModeManager = browsingModeManager,
-                        ),
-                        interactor = sessionControlInteractor,
-                        onMiddleSearchBarVisibilityChanged = { isVisible ->
-                            // Hide the main address bar in the toolbar when the middle search is
-                            // visible (and vice versa)
-                            toolbarView.updateAddressBarVisibility(!isVisible)
-                        },
-                        onTopSitesItemBound = {
-                            StartupTimeline.onTopSitesItemBound(activity = (requireActivity() as HomeActivity))
-                        },
-                    )
+                    if (settings.enableHomepageSearchBar) {
+                        MiddleSearchHomepage(
+                            state = HomepageState.build(
+                                appState = appState.value,
+                                settings = settings,
+                                browsingModeManager = browsingModeManager,
+                            ),
+                            interactor = sessionControlInteractor,
+                            onMiddleSearchBarVisibilityChanged = { isVisible ->
+                                // Hide the main address bar in the toolbar when the middle search is
+                                // visible (and vice versa)
+                                toolbarView.updateAddressBarVisibility(!isVisible)
+                            },
+                            onTopSitesItemBound = {
+                                StartupTimeline.onTopSitesItemBound(activity = (requireActivity() as HomeActivity))
+                            },
+                        )
+                    } else {
+                        Homepage(
+                            state = HomepageState.build(
+                                appState = appState.value,
+                                settings = settings,
+                                browsingModeManager = browsingModeManager,
+                            ),
+                            interactor = sessionControlInteractor,
+                            onTopSitesItemBound = {
+                                StartupTimeline.onTopSitesItemBound(activity = (requireActivity() as HomeActivity))
+                            },
+                        )
+                    }
 
                     LaunchedEffect(Unit) {
                         onFirstHomepageFrameDrawn()
@@ -1234,7 +1238,7 @@ class HomeFragment : Fragment() {
     }
 
     private fun openTabsTray() {
-        if (DefaultTabManagementFeatureHelper.enhancementsEnabled) {
+        if (requireContext().settings().tabManagerEnhancementsEnabled) {
             findNavController().nav(
                 R.id.homeFragment,
                 HomeFragmentDirections.actionGlobalTabManagementFragment(

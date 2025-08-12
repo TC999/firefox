@@ -807,9 +807,10 @@ dependencies = [
 
 [[package]]
 name = "chardetng"
-version = "0.1.9"
-source = "git+https://github.com/hsivonen/chardetng?rev=3484d3e3ebdc8931493aa5df4d7ee9360a90e76b#3484d3e3ebdc8931493aa5df4d7ee9360a90e76b"
+version = "0.1.17"
+source = "git+https://github.com/hsivonen/chardetng?rev=a07d20273ce36146adaf76bd667dd57bd7b3508b#a07d20273ce36146adaf76bd667dd57bd7b3508b"
 dependencies = [
+ "cfg-if",
  "encoding_rs",
  "memchr",
 ]
@@ -817,7 +818,7 @@ dependencies = [
 [[package]]
 name = "chardetng_c"
 version = "0.1.2"
-source = "git+https://github.com/hsivonen/chardetng_c?rev=ed8a4c6f900a90d4dbc1d64b856e61490a1c3570#ed8a4c6f900a90d4dbc1d64b856e61490a1c3570"
+source = "git+https://github.com/hsivonen/chardetng_c?rev=2f0aba284677d098de14f91ffe5a9e5b9a4922c2#2f0aba284677d098de14f91ffe5a9e5b9a4922c2"
 dependencies = [
  "chardetng",
  "encoding_rs",
@@ -1151,7 +1152,7 @@ dependencies = [
  "anyhow",
  "crash_helper_common",
  "minidump-writer",
- "nix",
+ "nix 0.30.1",
  "num-derive",
  "num-traits",
  "rust_minidump_writer_linux",
@@ -1163,7 +1164,7 @@ name = "crash_helper_common"
 version = "0.1.0"
 dependencies = [
  "minidump-writer",
- "nix",
+ "nix 0.30.1",
  "num-derive",
  "num-traits",
  "thiserror 2.0.12",
@@ -1187,7 +1188,7 @@ dependencies = [
  "mozannotation_server",
  "mozbuild",
  "mozilla-central-workspace-hack",
- "nix",
+ "nix 0.30.1",
  "num-derive",
  "num-traits",
  "once_cell",
@@ -4150,7 +4151,7 @@ dependencies = [
  "memmap2",
  "memoffset 0.9.0",
  "minidump-common",
- "nix",
+ "nix 0.29.0",
  "procfs-core",
  "scroll",
  "serde",
@@ -4617,7 +4618,7 @@ checksum = "a2983372caf4480544083767bf2d27defafe32af49ab4df3a0b7fc90793a3664"
 [[package]]
 name = "naga"
 version = "26.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=36ae215e9cfb0defb94f889f55edc18c5b87f150#36ae215e9cfb0defb94f889f55edc18c5b87f150"
+source = "git+https://github.com/gfx-rs/wgpu?rev=1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7#1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -4799,8 +4800,15 @@ checksum = "e4a24736216ec316047a1fc4252e27dabb04218aa4a3f37c6e7ddbf1f9782b54"
 [[package]]
 name = "nix"
 version = "0.29.0"
+dependencies = [
+ "nix 0.30.1",
+]
+
+[[package]]
+name = "nix"
+version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
+checksum = "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6"
 dependencies = [
  "bitflags 2.9.0",
  "cfg-if",
@@ -7610,7 +7618,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "26.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=36ae215e9cfb0defb94f889f55edc18c5b87f150#36ae215e9cfb0defb94f889f55edc18c5b87f150"
+source = "git+https://github.com/gfx-rs/wgpu?rev=1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7#1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -7640,7 +7648,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-apple"
 version = "26.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=36ae215e9cfb0defb94f889f55edc18c5b87f150#36ae215e9cfb0defb94f889f55edc18c5b87f150"
+source = "git+https://github.com/gfx-rs/wgpu?rev=1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7#1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7"
 dependencies = [
  "wgpu-hal",
 ]
@@ -7648,7 +7656,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-windows-linux-android"
 version = "26.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=36ae215e9cfb0defb94f889f55edc18c5b87f150#36ae215e9cfb0defb94f889f55edc18c5b87f150"
+source = "git+https://github.com/gfx-rs/wgpu?rev=1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7#1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7"
 dependencies = [
  "wgpu-hal",
 ]
@@ -7656,7 +7664,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "26.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=36ae215e9cfb0defb94f889f55edc18c5b87f150#36ae215e9cfb0defb94f889f55edc18c5b87f150"
+source = "git+https://github.com/gfx-rs/wgpu?rev=1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7#1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -7693,7 +7701,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "26.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=36ae215e9cfb0defb94f889f55edc18c5b87f150#36ae215e9cfb0defb94f889f55edc18c5b87f150"
+source = "git+https://github.com/gfx-rs/wgpu?rev=1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7#1bf1671ed877a6a9ccf5f1a349ec167cd28af3d7"
 dependencies = [
  "bitflags 2.9.0",
  "bytemuck",

@@ -155,6 +155,13 @@ static Operand toWOperand(const LAllocation* a) {
   return Operand(toWRegister(a));
 }
 
+static Operand toXOperand(const LAllocation* a) {
+  if (a->isConstant()) {
+    return Operand(ToIntPtr(a));
+  }
+  return Operand(toXRegister(a));
+}
+
 static Operand toXOperand(const LInt64Allocation& a) {
   if (IsConstant(a)) {
     return Operand(ToInt64(a));
@@ -911,6 +918,44 @@ void CodeGenerator::visitShiftI(LShiftI* ins) {
           masm.Cmp(dest, Operand(0));
           bailoutIf(Assembler::LessThan, ins->snapshot());
         }
+        break;
+      default:
+        MOZ_CRASH("Unexpected shift op");
+    }
+  }
+}
+
+void CodeGenerator::visitShiftIntPtr(LShiftIntPtr* ins) {
+  ARMRegister lhs = toXRegister(ins->lhs());
+  const LAllocation* rhs = ins->rhs();
+  ARMRegister dest = toXRegister(ins->output());
+
+  if (rhs->isConstant()) {
+    int32_t shift = ToIntPtr(rhs) & 0x3F;
+    switch (ins->bitop()) {
+      case JSOp::Lsh:
+        masm.Lsl(dest, lhs, shift);
+        break;
+      case JSOp::Rsh:
+        masm.Asr(dest, lhs, shift);
+        break;
+      case JSOp::Ursh:
+        masm.Lsr(dest, lhs, shift);
+        break;
+      default:
+        MOZ_CRASH("Unexpected shift op");
+    }
+  } else {
+    ARMRegister rhsreg = toXRegister(rhs);
+    switch (ins->bitop()) {
+      case JSOp::Lsh:
+        masm.Lsl(dest, lhs, rhsreg);
+        break;
+      case JSOp::Rsh:
+        masm.Asr(dest, lhs, rhsreg);
+        break;
+      case JSOp::Ursh:
+        masm.Lsr(dest, lhs, rhsreg);
         break;
       default:
         MOZ_CRASH("Unexpected shift op");
@@ -2026,6 +2071,64 @@ void CodeGenerator::visitShiftI64(LShiftI64* lir) {
       default:
         MOZ_CRASH("Unexpected shift op");
     }
+  }
+}
+
+void CodeGenerator::visitAddIntPtr(LAddIntPtr* ins) {
+  ARMRegister lhs = toXRegister(ins->lhs());
+  Operand rhs = toXOperand(ins->rhs());
+  ARMRegister dest = toXRegister(ins->output());
+
+  masm.Add(dest, lhs, rhs);
+}
+
+void CodeGenerator::visitSubIntPtr(LSubIntPtr* ins) {
+  ARMRegister lhs = toXRegister(ins->lhs());
+  Operand rhs = toXOperand(ins->rhs());
+  ARMRegister dest = toXRegister(ins->output());
+
+  masm.Sub(dest, lhs, rhs);
+}
+
+void CodeGenerator::visitMulIntPtr(LMulIntPtr* ins) {
+  ARMRegister lhs = toXRegister(ins->lhs());
+  const LAllocation* rhs = ins->rhs();
+  ARMRegister dest = toXRegister(ins->output());
+
+  if (rhs->isConstant()) {
+    intptr_t constant = ToIntPtr(rhs);
+
+    switch (constant) {
+      case -1:
+        masm.Neg(dest, lhs);
+        return;
+      case 0:
+        masm.Mov(dest, xzr);
+        return;
+      case 1:
+        if (!dest.Is(lhs)) {
+          masm.Mov(dest, lhs);
+        }
+        return;
+      case 2:
+        masm.Add(dest, lhs, lhs);
+        return;
+    }
+
+    // Use shift if constant is a power of 2.
+    if (constant > 0 && mozilla::IsPowerOfTwo(uintptr_t(constant))) {
+      uint32_t shift = mozilla::FloorLog2(constant);
+      masm.Lsl(dest, lhs, shift);
+      return;
+    }
+
+    vixl::UseScratchRegisterScope temps(&masm.asVIXL());
+    vixl::Register scratch = temps.AcquireX();
+
+    masm.Mov(scratch, constant);
+    masm.Mul(dest, lhs, scratch);
+  } else {
+    masm.Mul(dest, lhs, toXRegister(rhs));
   }
 }
 

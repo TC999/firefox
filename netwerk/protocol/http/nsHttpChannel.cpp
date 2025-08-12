@@ -6300,7 +6300,11 @@ nsresult nsHttpChannel::ContinueProcessRedirectionAfterFallback(nsresult rv) {
                              nullptr,  // aLoadGroup
                              nullptr,  // aCallbacks
                              nsIRequest::LOAD_NORMAL, ioService);
-  NS_ENSURE_SUCCESS(rv, rv);
+  // If this fails, it usually means that the URI was invalid. Treat this as if
+  // it were a CreateNewURI failure.
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return NS_ERROR_CORRUPTED_CONTENT;
+  }
 
   rv = SetupReplacementChannel(mRedirectURI, newChannel, !rewriteToGET,
                                redirectFlags);
@@ -8172,6 +8176,12 @@ nsHttpChannel::GetEssentialDomainCategory(nsCString& domain) {
 }
 
 nsresult nsHttpChannel::ProcessLNAActions() {
+  if (!mTransaction) {
+    // this could happen with rcwn enabled.
+    // We have hit network and have detected LNA, meanwhile cache won and reset
+    // the transaction in ReadFromCache
+    return NS_ERROR_LOCAL_NETWORK_ACCESS_DENIED;
+  }
   // Suspend to block any notification to the channel.
   // This will get resumed in
   // nsHttpChannel::OnPermissionPromptResult

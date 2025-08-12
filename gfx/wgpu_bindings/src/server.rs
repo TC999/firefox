@@ -748,6 +748,64 @@ pub extern "C" fn wgpu_server_buffer_unmap(
     }
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn wgpu_server_device_create_texture(
+    global: &Global,
+    device_id: id::DeviceId,
+    id_in: id::TextureId,
+    desc: &wgt::TextureDescriptor<Option<&nsACString>, crate::FfiSlice<wgt::TextureFormat>>,
+    mut error_buf: ErrorBuffer,
+) {
+    let desc = desc.map_label_and_view_formats(|l| wgpu_string(*l), |v| v.as_slice().to_vec());
+    let (_, err) = global.device_create_texture(device_id, &desc, Some(id_in));
+    if let Some(err) = err {
+        error_buf.init(err, device_id);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn wgpu_server_texture_destroy(global: &Global, id: id::TextureId) {
+    global.texture_destroy(id);
+}
+
+#[no_mangle]
+pub extern "C" fn wgpu_server_texture_drop(global: &Global, id: id::TextureId) {
+    global.texture_drop(id);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn wgpu_server_texture_create_view(
+    global: &Global,
+    device_id: id::DeviceId,
+    texture_id: id::TextureId,
+    id_in: id::TextureViewId,
+    desc: &crate::TextureViewDescriptor,
+    mut error_buf: ErrorBuffer,
+) {
+    let desc = wgc::resource::TextureViewDescriptor {
+        label: wgpu_string(desc.label),
+        format: desc.format.cloned(),
+        dimension: desc.dimension.cloned(),
+        range: wgt::ImageSubresourceRange {
+            aspect: desc.aspect,
+            base_mip_level: desc.base_mip_level,
+            mip_level_count: desc.mip_level_count.map(|ptr| *ptr),
+            base_array_layer: desc.base_array_layer,
+            array_layer_count: desc.array_layer_count.map(|ptr| *ptr),
+        },
+        usage: None,
+    };
+    let (_, err) = global.texture_create_view(texture_id, &desc, Some(id_in));
+    if let Some(err) = err {
+        error_buf.init(err, device_id);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn wgpu_server_texture_view_drop(global: &Global, id: id::TextureViewId) {
+    global.texture_view_drop(id).unwrap();
+}
+
 #[allow(unused_variables)]
 #[no_mangle]
 #[cfg(target_os = "windows")]
@@ -1198,6 +1256,19 @@ extern "C" {
     #[cfg(target_os = "macos")]
     fn wgpu_server_get_external_io_surface_id(parent: WebGPUParentPtr, id: id::TextureId) -> u32;
     fn wgpu_server_remove_shared_texture(parent: WebGPUParentPtr, id: id::TextureId);
+    fn wgpu_parent_external_texture_source_get_external_texture_descriptor<'a>(
+        parent: WebGPUParentPtr,
+        id: crate::ExternalTextureSourceId,
+        dest_color_space: crate::PredefinedColorSpace,
+    ) -> crate::ExternalTextureDescriptorFromSource<'a>;
+    fn wgpu_parent_destroy_external_texture_source(
+        parent: WebGPUParentPtr,
+        id: crate::ExternalTextureSourceId,
+    );
+    fn wgpu_parent_drop_external_texture_source(
+        parent: WebGPUParentPtr,
+        id: crate::ExternalTextureSourceId,
+    );
     fn wgpu_server_dealloc_buffer_shmem(parent: WebGPUParentPtr, id: id::BufferId);
     fn wgpu_server_pre_device_drop(parent: WebGPUParentPtr, id: id::DeviceId);
     fn wgpu_server_set_buffer_map_data(
@@ -1952,6 +2023,66 @@ impl Global {
                     error_buf.init(err, device_id);
                 }
             }
+            DeviceAction::CreateExternalTexture(id, desc) => {
+                // Obtain the descriptor from the source. A source ID of `None`
+                // indicates the client-side encountered an error when
+                // importing the source.
+                let source_desc = desc.source.and_then(|source| {
+                    let source_desc = unsafe {
+                        wgpu_parent_external_texture_source_get_external_texture_descriptor(
+                            self.owner,
+                            source,
+                            desc.color_space,
+                        )
+                    };
+                    let planes = unsafe { source_desc.planes.as_slice() };
+                    // The source having no planes indicates we encountered an
+                    // error on the server side when importing the source
+                    if planes.is_empty() {
+                        None
+                    } else {
+                        Some(source_desc)
+                    }
+                });
+                match source_desc {
+                    Some(source_desc) => {
+                        let planes = unsafe { source_desc.planes.as_slice() };
+                        let desc = wgt::ExternalTextureDescriptor {
+                            label: desc.label,
+                            width: source_desc.width,
+                            height: source_desc.height,
+                            format: source_desc.format,
+                            yuv_conversion_matrix: source_desc.yuv_conversion_matrix,
+                            gamut_conversion_matrix: source_desc.gamut_conversion_matrix,
+                            src_transfer_function: source_desc.src_transfer_function,
+                            dst_transfer_function: source_desc.dst_transfer_function,
+                            sample_transform: source_desc.sample_transform,
+                            load_transform: source_desc.load_transform,
+                        };
+                        let (_, error) =
+                            self.device_create_external_texture(device_id, &desc, planes, Some(id));
+                        if let Some(err) = error {
+                            error_buf.init(err, device_id);
+                        }
+                    }
+                    None => {
+                        // Create the external texture in an error state.
+                        let desc = wgt::ExternalTextureDescriptor {
+                            label: desc.label,
+                            width: 0,
+                            height: 0,
+                            format: wgt::ExternalTextureFormat::Rgba,
+                            yuv_conversion_matrix: Default::default(),
+                            gamut_conversion_matrix: Default::default(),
+                            src_transfer_function: Default::default(),
+                            dst_transfer_function: Default::default(),
+                            sample_transform: Default::default(),
+                            load_transform: Default::default(),
+                        };
+                        self.create_external_texture_error(Some(id), &desc);
+                    }
+                }
+            }
             DeviceAction::CreateSampler(id, desc) => {
                 let (_, error) = self.device_create_sampler(device_id, &desc, Some(id));
                 if let Some(err) = error {
@@ -2657,6 +2788,9 @@ unsafe fn process_message(
             wgpu_server_remove_shared_texture(global.owner, id);
             global.texture_destroy(id)
         }
+        Message::DestroyExternalTextureSource(id) => {
+            wgpu_parent_destroy_external_texture_source(global.owner, id)
+        }
         Message::DestroyDevice(id) => global.device_destroy(id),
 
         Message::DropAdapter(id) => global.adapter_drop(id),
@@ -2683,6 +2817,10 @@ unsafe fn process_message(
             global.texture_drop(id);
         }
         Message::DropTextureView(id) => global.texture_view_drop(id).unwrap(),
+        Message::DropExternalTexture(id) => global.external_texture_drop(id),
+        Message::DropExternalTextureSource(id) => {
+            wgpu_parent_drop_external_texture_source(global.owner, id)
+        }
         Message::DropSampler(id) => global.sampler_drop(id),
         Message::DropQuerySet(id) => global.query_set_drop(id),
     }
@@ -2749,6 +2887,24 @@ pub unsafe extern "C" fn wgpu_server_encoder_copy_texture_to_buffer(
     if let Err(err) =
         global.command_encoder_copy_texture_to_buffer(self_id, source, &destination, size)
     {
+        error_buf.init(err, device_id);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn wgpu_server_queue_write_texture(
+    global: &Global,
+    device_id: id::DeviceId,
+    queue_id: id::QueueId,
+    destination: &wgt::TexelCopyTextureInfo<id::TextureId>,
+    data: FfiSlice<u8>,
+    data_layout: &crate::TexelCopyBufferLayout,
+    size: &wgt::Extent3d,
+    mut error_buf: ErrorBuffer,
+) {
+    let data = data.as_slice();
+    let data_layout = data_layout.into_wgt();
+    if let Err(err) = global.queue_write_texture(queue_id, destination, data, &data_layout, size) {
         error_buf.init(err, device_id);
     }
 }

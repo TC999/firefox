@@ -172,6 +172,24 @@ void CodeGenerator::visitAddI(LAddI* ins) {
   }
 }
 
+void CodeGenerator::visitAddIntPtr(LAddIntPtr* ins) {
+  const LAllocation* lhs = ins->lhs();
+  const LAllocation* rhs = ins->rhs();
+  const LDefinition* dest = ins->output();
+
+  ScratchRegisterScope scratch(masm);
+
+  if (rhs->isConstant()) {
+    masm.ma_add(ToRegister(lhs), Imm32(ToInt32(rhs)), ToRegister(dest), scratch,
+                LeaveCC);
+  } else if (rhs->isGeneralReg()) {
+    masm.ma_add(ToRegister(lhs), ToRegister(rhs), ToRegister(dest), LeaveCC);
+  } else {
+    masm.ma_add(ToRegister(lhs), Operand(ToAddress(rhs)), ToRegister(dest),
+                LeaveCC);
+  }
+}
+
 void CodeGenerator::visitAddI64(LAddI64* lir) {
   LInt64Allocation lhs = lir->lhs();
   LInt64Allocation rhs = lir->rhs();
@@ -205,6 +223,24 @@ void CodeGenerator::visitSubI(LSubI* ins) {
 
   if (ins->snapshot()) {
     bailoutIf(Assembler::Overflow, ins->snapshot());
+  }
+}
+
+void CodeGenerator::visitSubIntPtr(LSubIntPtr* ins) {
+  const LAllocation* lhs = ins->lhs();
+  const LAllocation* rhs = ins->rhs();
+  const LDefinition* dest = ins->output();
+
+  ScratchRegisterScope scratch(masm);
+
+  if (rhs->isConstant()) {
+    masm.ma_sub(ToRegister(lhs), Imm32(ToInt32(rhs)), ToRegister(dest), scratch,
+                LeaveCC);
+  } else if (rhs->isGeneralReg()) {
+    masm.ma_sub(ToRegister(lhs), ToRegister(rhs), ToRegister(dest), LeaveCC);
+  } else {
+    masm.ma_sub(ToRegister(lhs), Operand(ToAddress(rhs)), ToRegister(dest),
+                LeaveCC);
   }
 }
 
@@ -347,6 +383,45 @@ void CodeGenerator::visitMulI(LMulI* ins) {
 
       masm.bind(&done);
     }
+  }
+}
+
+void CodeGenerator::visitMulIntPtr(LMulIntPtr* ins) {
+  const LAllocation* lhs = ins->lhs();
+  const LAllocation* rhs = ins->rhs();
+  const LDefinition* dest = ins->output();
+
+  if (rhs->isConstant()) {
+    intptr_t constant = ToIntPtr(rhs);
+
+    switch (constant) {
+      case -1:
+        masm.as_rsb(ToRegister(dest), ToRegister(lhs), Imm8(0), LeaveCC);
+        return;
+      case 0:
+        masm.ma_mov(Imm32(0), ToRegister(dest));
+        return;
+      case 1:
+        masm.ma_mov(ToRegister(lhs), ToRegister(dest));
+        return;
+      case 2:
+        masm.ma_add(ToRegister(lhs), ToRegister(lhs), ToRegister(dest),
+                    LeaveCC);
+        return;
+    }
+
+    // Use shift if constant is a power of 2.
+    if (constant > 0 && mozilla::IsPowerOfTwo(uintptr_t(constant))) {
+      uint32_t shift = mozilla::FloorLog2(constant);
+      masm.ma_lsl(Imm32(shift), ToRegister(lhs), ToRegister(dest));
+      return;
+    }
+
+    ScratchRegisterScope scratch(masm);
+    masm.ma_mul(ToRegister(lhs), Imm32(ToInt32(rhs)), ToRegister(dest),
+                scratch);
+  } else {
+    masm.ma_mul(ToRegister(lhs), ToRegister(rhs), ToRegister(dest));
   }
 }
 
@@ -940,6 +1015,60 @@ void CodeGenerator::visitShiftI(LShiftI* ins) {
           masm.as_cmp(dest, Imm8(0));
           bailoutIf(Assembler::LessThan, ins->snapshot());
         }
+        break;
+      default:
+        MOZ_CRASH("Unexpected shift op");
+    }
+  }
+}
+
+void CodeGenerator::visitShiftIntPtr(LShiftIntPtr* ins) {
+  Register lhs = ToRegister(ins->lhs());
+  const LAllocation* rhs = ins->rhs();
+  Register dest = ToRegister(ins->output());
+
+  if (rhs->isConstant()) {
+    int32_t shift = ToIntPtr(rhs) & 0x1F;
+    switch (ins->bitop()) {
+      case JSOp::Lsh:
+        if (shift) {
+          masm.ma_lsl(Imm32(shift), lhs, dest);
+        } else {
+          masm.ma_mov(lhs, dest);
+        }
+        break;
+      case JSOp::Rsh:
+        if (shift) {
+          masm.ma_asr(Imm32(shift), lhs, dest);
+        } else {
+          masm.ma_mov(lhs, dest);
+        }
+        break;
+      case JSOp::Ursh:
+        if (shift) {
+          masm.ma_lsr(Imm32(shift), lhs, dest);
+        } else {
+          masm.ma_mov(lhs, dest);
+        }
+        break;
+      default:
+        MOZ_CRASH("Unexpected shift op");
+    }
+  } else {
+    // The shift amounts should be AND'ed into the 0-31 range since arm
+    // shifts by the lower byte of the register (it will attempt to shift by
+    // 250 if you ask it to).
+    masm.as_and(dest, ToRegister(rhs), Imm8(0x1F));
+
+    switch (ins->bitop()) {
+      case JSOp::Lsh:
+        masm.ma_lsl(dest, lhs, dest);
+        break;
+      case JSOp::Rsh:
+        masm.ma_asr(dest, lhs, dest);
+        break;
+      case JSOp::Ursh:
+        masm.ma_lsr(dest, lhs, dest);
         break;
       default:
         MOZ_CRASH("Unexpected shift op");

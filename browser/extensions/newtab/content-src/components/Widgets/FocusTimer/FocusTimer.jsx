@@ -5,6 +5,17 @@
 import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useSelector, batch } from "react-redux";
+import { useIntersectionObserver } from "../../../lib/utils";
+
+const USER_ACTION_TYPES = {
+  TIMER_SET: "timer_set",
+  TIMER_PLAY: "timer_play",
+  TIMER_PAUSE: "timer_pause",
+  TIMER_RESET: "timer_reset",
+  TIMER_END: "timer_end",
+  TIMER_TOGGLE_FOCUS: "timer_toggle_focus",
+  TIMER_TOGGLE_BREAK: "timer_toggle_break",
+};
 
 /**
  * Calculates the remaining time (in seconds) by subtracting elapsed time from the original duration
@@ -91,6 +102,16 @@ export const FocusTimer = ({ dispatch }) => {
     timerData[timerType];
   const initialTimerDuration = timerData[timerType].initialDuration;
 
+  const handleIntersection = useCallback(() => {
+    dispatch(
+      ac.AlsoToMain({
+        type: at.WIDGETS_TIMER_USER_IMPRESSION,
+      })
+    );
+  }, [dispatch]);
+
+  const timerRef = useIntersectionObserver(handleIntersection);
+
   const resetProgressCircle = useCallback(() => {
     if (arcRef?.current) {
       arcRef.current.style.clipPath = "polygon(50% 50%)";
@@ -98,6 +119,10 @@ export const FocusTimer = ({ dispatch }) => {
     }
     setProgress(0);
   }, [arcRef]);
+
+  const prefs = useSelector(state => state.Prefs.values);
+  const showSystemNotifications =
+    prefs["widgets.focusTimer.showSystemNotifications"];
 
   // If the timer is running, set the progress visibility to true
   // This helps persist progressbar visibility on refresh/opening a new tab
@@ -117,16 +142,25 @@ export const FocusTimer = ({ dispatch }) => {
         if (remaining <= 0) {
           clearInterval(interval);
 
-          dispatch(
-            ac.AlsoToMain({
-              type: at.WIDGETS_TIMER_END,
-              data: {
-                timerType,
-                duration: initialTimerDuration,
-                initialDuration: initialTimerDuration,
-              },
-            })
-          );
+          batch(() => {
+            dispatch(
+              ac.AlsoToMain({
+                type: at.WIDGETS_TIMER_END,
+                data: {
+                  timerType,
+                  duration: initialTimerDuration,
+                  initialDuration: initialTimerDuration,
+                },
+              })
+            );
+
+            dispatch(
+              ac.OnlyToMain({
+                type: at.WIDGETS_TIMER_USER_EVENT,
+                data: { userAction: USER_ACTION_TYPES.TIMER_END },
+              })
+            );
+          });
 
           // animate the progress circle to turn solid green
           setProgress(1);
@@ -142,14 +176,29 @@ export const FocusTimer = ({ dispatch }) => {
               setProgressVisible(false);
 
               // switch over to the other timer type
-              dispatch(
-                ac.AlsoToMain({
-                  type: at.WIDGETS_TIMER_SET_TYPE,
-                  data: {
-                    timerType: timerType === "focus" ? "break" : "focus",
-                  },
-                })
-              );
+              // eslint-disable-next-line max-nested-callbacks
+              batch(() => {
+                dispatch(
+                  ac.AlsoToMain({
+                    type: at.WIDGETS_TIMER_SET_TYPE,
+                    data: {
+                      timerType: timerType === "focus" ? "break" : "focus",
+                    },
+                  })
+                );
+
+                dispatch(
+                  ac.OnlyToMain({
+                    type: at.WIDGETS_TIMER_USER_EVENT,
+                    data: {
+                      userAction:
+                        timerType === "focus"
+                          ? USER_ACTION_TYPES.TIMER_TOGGLE_BREAK
+                          : USER_ACTION_TYPES.TIMER_TOGGLE_FOCUS,
+                    },
+                  })
+                );
+              });
             }, 1500);
           }, 1500);
         }
@@ -214,12 +263,20 @@ export const FocusTimer = ({ dispatch }) => {
       totalSeconds > 0 &&
       totalSeconds !== duration
     ) {
-      dispatch(
-        ac.AlsoToMain({
-          type: at.WIDGETS_TIMER_SET_DURATION,
-          data: { timerType, duration: totalSeconds },
-        })
-      );
+      batch(() => {
+        dispatch(
+          ac.AlsoToMain({
+            type: at.WIDGETS_TIMER_SET_DURATION,
+            data: { timerType, duration: totalSeconds },
+          })
+        );
+        dispatch(
+          ac.OnlyToMain({
+            type: at.WIDGETS_TIMER_USER_EVENT,
+            data: { userAction: USER_ACTION_TYPES.TIMER_SET },
+          })
+        );
+      });
     }
   };
 
@@ -228,36 +285,60 @@ export const FocusTimer = ({ dispatch }) => {
     if (!isRunning && duration > 0) {
       setProgressVisible(true);
 
-      dispatch(
-        ac.AlsoToMain({
-          type: at.WIDGETS_TIMER_PLAY,
-          data: { timerType },
-        })
-      );
+      batch(() => {
+        dispatch(
+          ac.AlsoToMain({
+            type: at.WIDGETS_TIMER_PLAY,
+            data: { timerType },
+          })
+        );
+        dispatch(
+          ac.OnlyToMain({
+            type: at.WIDGETS_TIMER_USER_EVENT,
+            data: { userAction: USER_ACTION_TYPES.TIMER_PLAY },
+          })
+        );
+      });
     } else if (isRunning) {
       // calculated to get the new baseline of the timer when it starts or resumes
       const remaining = calculateTimeRemaining(duration, startTime);
-
-      dispatch(
-        ac.AlsoToMain({
-          type: at.WIDGETS_TIMER_PAUSE,
-          data: {
-            timerType,
-            duration: remaining,
-          },
-        })
-      );
+      batch(() => {
+        dispatch(
+          ac.AlsoToMain({
+            type: at.WIDGETS_TIMER_PAUSE,
+            data: {
+              timerType,
+              duration: remaining,
+            },
+          })
+        );
+        dispatch(
+          ac.OnlyToMain({
+            type: at.WIDGETS_TIMER_USER_EVENT,
+            data: { userAction: USER_ACTION_TYPES.TIMER_PAUSE },
+          })
+        );
+      });
     }
   };
 
   // reset timer function
   const resetTimer = () => {
-    dispatch(
-      ac.AlsoToMain({
-        type: at.WIDGETS_TIMER_RESET,
-        data: { timerType },
-      })
-    );
+    batch(() => {
+      dispatch(
+        ac.AlsoToMain({
+          type: at.WIDGETS_TIMER_RESET,
+          data: { timerType },
+        })
+      );
+
+      dispatch(
+        ac.OnlyToMain({
+          type: at.WIDGETS_TIMER_USER_EVENT,
+          data: { userAction: USER_ACTION_TYPES.TIMER_RESET },
+        })
+      );
+    });
 
     // Reset progress value and gradient arc on the progress circle
     resetProgressCircle();
@@ -284,12 +365,31 @@ export const FocusTimer = ({ dispatch }) => {
         })
       );
 
+      dispatch(
+        ac.OnlyToMain({
+          type: at.WIDGETS_TIMER_USER_EVENT,
+          data: { userAction: USER_ACTION_TYPES.TIMER_PAUSE },
+        })
+      );
+
       // Sets the current timer type so it persists when opening a new tab
       dispatch(
         ac.AlsoToMain({
           type: at.WIDGETS_TIMER_SET_TYPE,
           data: {
             timerType: type,
+          },
+        })
+      );
+
+      dispatch(
+        ac.OnlyToMain({
+          type: at.WIDGETS_TIMER_USER_EVENT,
+          data: {
+            userAction:
+              type === "focus"
+                ? USER_ACTION_TYPES.TIMER_TOGGLE_FOCUS
+                : USER_ACTION_TYPES.TIMER_TOGGLE_BREAK,
           },
         })
       );
@@ -345,15 +445,23 @@ export const FocusTimer = ({ dispatch }) => {
       // calculated to get the new baseline of the timer when it starts or resumes
       const remaining = calculateTimeRemaining(duration, startTime);
 
-      dispatch(
-        ac.AlsoToMain({
-          type: at.WIDGETS_TIMER_PAUSE,
-          data: {
-            timerType,
-            duration: remaining,
-          },
-        })
-      );
+      batch(() => {
+        dispatch(
+          ac.AlsoToMain({
+            type: at.WIDGETS_TIMER_PAUSE,
+            data: {
+              timerType,
+              duration: remaining,
+            },
+          })
+        );
+        dispatch(
+          ac.OnlyToMain({
+            type: at.WIDGETS_TIMER_USER_EVENT,
+            data: { userAction: USER_ACTION_TYPES.TIMER_PAUSE },
+          })
+        );
+      });
     }
 
     // highlight entire text when focused on the time.
@@ -368,19 +476,82 @@ export const FocusTimer = ({ dispatch }) => {
     }
   };
 
+  function handleLearnMore() {
+    dispatch(
+      ac.OnlyToMain({
+        type: at.OPEN_LINK,
+        data: {
+          url: "https://support.mozilla.org/kb/firefox-new-tab-widgets",
+        },
+      })
+    );
+  }
+
+  function handlePrefUpdate(prefName, prefValue) {
+    dispatch(
+      ac.OnlyToMain({
+        type: at.SET_PREF,
+        data: {
+          name: prefName,
+          value: prefValue,
+        },
+      })
+    );
+  }
+
   return timerData ? (
-    <article className="focus-timer">
+    <article
+      className="focus-timer"
+      ref={el => {
+        timerRef.current = [el];
+      }}
+    >
       <div className="focus-timer-tabs">
-        <moz-button
-          type={timerType === "focus" ? "primary" : "ghost"}
-          data-l10n-id="newtab-widget-timer-mode-focus"
-          onClick={() => toggleType("focus")}
-        />
-        <moz-button
-          type={timerType === "break" ? "primary" : "ghost"}
-          data-l10n-id="newtab-widget-timer-mode-break"
-          onClick={() => toggleType("break")}
-        />
+        <div className="focus-timer-tabs-buttons">
+          <moz-button
+            type={timerType === "focus" ? "primary" : "ghost"}
+            data-l10n-id="newtab-widget-timer-mode-focus"
+            onClick={() => toggleType("focus")}
+          />
+          <moz-button
+            type={timerType === "break" ? "primary" : "ghost"}
+            data-l10n-id="newtab-widget-timer-mode-break"
+            onClick={() => toggleType("break")}
+          />
+        </div>
+        <div className="focus-timer-context-menu-wrapper">
+          <moz-button
+            className="focus-timer-context-menu-button"
+            iconSrc="chrome://global/skin/icons/more.svg"
+            menuId="focus-timer-context-menu"
+            type="ghost"
+          />
+          <panel-list id="focus-timer-context-menu">
+            <panel-item
+              data-l10n-id={
+                showSystemNotifications
+                  ? "newtab-widget-timer-menu-notifications"
+                  : "newtab-widget-timer-menu-notifications-on"
+              }
+              onClick={() => {
+                handlePrefUpdate(
+                  "widgets.focusTimer.showSystemNotifications",
+                  !showSystemNotifications
+                );
+              }}
+            />
+            <panel-item
+              data-l10n-id="newtab-widget-timer-menu-hide"
+              onClick={() => {
+                handlePrefUpdate("widgets.focusTimer.enabled", false);
+              }}
+            />
+            <panel-item
+              data-l10n-id="newtab-widget-timer-menu-learn-more"
+              onClick={handleLearnMore}
+            />
+          </panel-list>
+        </div>
       </div>
 
       <div

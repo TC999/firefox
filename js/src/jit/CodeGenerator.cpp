@@ -11087,6 +11087,26 @@ void CodeGenerator::visitArrayBufferViewElements(
   masm.loadPtr(Address(obj, ArrayBufferViewObject::dataOffset()), out);
 }
 
+void CodeGenerator::visitArrayBufferViewElementsWithOffset(
+    LArrayBufferViewElementsWithOffset* lir) {
+  Register object = ToRegister(lir->object());
+  Register out = ToRegister(lir->output());
+  Scalar::Type elementType = lir->mir()->elementType();
+
+  masm.loadPtr(Address(object, ArrayBufferViewObject::dataOffset()), out);
+
+  if (lir->offset()->isConstant()) {
+    Address source = ToAddress(out, lir->offset(), elementType);
+    if (source.offset != 0) {
+      masm.computeEffectiveAddress(source, out);
+    }
+  } else {
+    BaseIndex source(out, ToRegister(lir->offset()),
+                     ScaleFromScalarType(elementType));
+    masm.computeEffectiveAddress(source, out);
+  }
+}
+
 void CodeGenerator::visitTypedArrayElementSize(LTypedArrayElementSize* lir) {
   Register obj = ToRegister(lir->object());
   Register out = ToRegister(lir->output());
@@ -11247,14 +11267,69 @@ void CodeGenerator::visitTypedArraySet(LTypedArraySet* lir) {
   }
 }
 
+void CodeGenerator::visitTypedArraySetFromSubarray(
+    LTypedArraySetFromSubarray* lir) {
+  Register target = ToRegister(lir->target());
+  Register source = ToRegister(lir->source());
+  Register offset = ToRegister(lir->offset());
+  Register sourceOffset = ToRegister(lir->sourceOffset());
+  Register sourceLength = ToRegister(lir->sourceLength());
+
+  // Bit-wise copying is infallible because it doesn't need to allocate any
+  // temporary memory, even if the underlying buffers are the same.
+  if (lir->mir()->canUseBitwiseCopy()) {
+    masm.setupAlignedABICall();
+    masm.passABIArg(target);
+    masm.passABIArg(source);
+    masm.passABIArg(offset);
+    masm.passABIArg(sourceOffset);
+    masm.passABIArg(sourceLength);
+
+    using Fn = void (*)(TypedArrayObject*, TypedArrayObject*, intptr_t,
+                        intptr_t, intptr_t);
+    masm.callWithABI<Fn, js::TypedArraySetFromSubarrayInfallible>();
+  } else {
+    pushArg(sourceLength);
+    pushArg(sourceOffset);
+    pushArg(offset);
+    pushArg(source);
+    pushArg(target);
+
+    using Fn = bool (*)(JSContext*, TypedArrayObject*, TypedArrayObject*,
+                        intptr_t, intptr_t, intptr_t);
+    callVM<Fn, js::TypedArraySetFromSubarray>(lir);
+  }
+}
+
 void CodeGenerator::visitTypedArraySubarray(LTypedArraySubarray* lir) {
-  pushArg(ToRegister(lir->end()));
+  pushArg(ToRegister(lir->length()));
   pushArg(ToRegister(lir->start()));
   pushArg(ToRegister(lir->object()));
 
   using Fn = TypedArrayObject* (*)(JSContext*, Handle<TypedArrayObject*>,
                                    intptr_t, intptr_t);
-  callVM<Fn, js::TypedArraySubarray>(lir);
+  callVM<Fn, js::TypedArraySubarrayWithLength>(lir);
+}
+
+void CodeGenerator::visitToIntegerIndex(LToIntegerIndex* lir) {
+  Register index = ToRegister(lir->index());
+  Register length = ToRegister(lir->length());
+  Register output = ToRegister(lir->output());
+
+  masm.movePtr(index, output);
+
+  Label done, notNegative;
+  masm.branchTestPtr(Assembler::NotSigned, index, index, &notNegative);
+  {
+    masm.branchAddPtr(Assembler::NotSigned, length, output, &done);
+    masm.movePtr(ImmWord(0), output);
+    masm.jump(&done);
+  }
+  masm.bind(&notNegative);
+  {
+    masm.cmpPtrMovePtr(Assembler::GreaterThan, index, length, length, output);
+  }
+  masm.bind(&done);
 }
 
 void CodeGenerator::visitGuardNumberToIntPtrIndex(
@@ -11297,13 +11372,37 @@ void CodeGenerator::visitMinMaxI(LMinMaxI* ins) {
       ins->mir()->isMax() ? Assembler::GreaterThan : Assembler::LessThan;
 
   if (ins->second()->isConstant()) {
+    auto second = Imm32(ToInt32(ins->second()));
+
     Label done;
-    masm.branch32(cond, first, Imm32(ToInt32(ins->second())), &done);
-    masm.move32(Imm32(ToInt32(ins->second())), output);
+    masm.branch32(cond, first, second, &done);
+    masm.move32(second, output);
     masm.bind(&done);
   } else {
     Register second = ToRegister(ins->second());
     masm.cmp32Move32(cond, second, first, second, output);
+  }
+}
+
+void CodeGenerator::visitMinMaxIntPtr(LMinMaxIntPtr* ins) {
+  Register first = ToRegister(ins->first());
+  Register output = ToRegister(ins->output());
+
+  MOZ_ASSERT(first == output);
+
+  Assembler::Condition cond =
+      ins->mir()->isMax() ? Assembler::GreaterThan : Assembler::LessThan;
+
+  if (ins->second()->isConstant()) {
+    auto second = ImmWord(ToIntPtr(ins->second()));
+
+    Label done;
+    masm.branchPtr(cond, first, second, &done);
+    masm.movePtr(second, output);
+    masm.bind(&done);
+  } else {
+    Register second = ToRegister(ins->second());
+    masm.cmpPtrMovePtr(cond, second, first, second, output);
   }
 }
 

@@ -4,10 +4,13 @@
 
 package org.mozilla.fenix.bookmarks
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.content.getSystemService
@@ -25,22 +28,26 @@ import mozilla.components.compose.browser.toolbar.store.EnvironmentCleared
 import mozilla.components.compose.browser.toolbar.store.EnvironmentRehydrated
 import mozilla.components.compose.browser.toolbar.store.Mode
 import mozilla.components.concept.engine.EngineSession
+import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
 import org.mozilla.fenix.BrowserDirection
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.NavGraphDirections
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.StoreProvider
+import org.mozilla.fenix.components.VoiceSearchFeature
 import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
+import org.mozilla.fenix.components.appstate.qrScanner.QrScannerBinding
 import org.mozilla.fenix.components.metrics.MetricsUtils
 import org.mozilla.fenix.components.search.BOOKMARKS_SEARCH_ENGINE_ID
 import org.mozilla.fenix.components.toolbar.BrowserToolbarEnvironment
 import org.mozilla.fenix.ext.bookmarkStorage
+import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.hideToolbar
 import org.mozilla.fenix.ext.nav
 import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.ext.settings
-import org.mozilla.fenix.lifecycle.registerForVerification
-import org.mozilla.fenix.lifecycle.verifyUser
+import org.mozilla.fenix.pbmlock.registerForVerification
+import org.mozilla.fenix.pbmlock.verifyUser
 import org.mozilla.fenix.search.BrowserStoreToFenixSearchMapperMiddleware
 import org.mozilla.fenix.search.BrowserToolbarSearchMiddleware
 import org.mozilla.fenix.search.BrowserToolbarSearchStatusSyncMiddleware
@@ -50,10 +57,10 @@ import org.mozilla.fenix.search.SearchFragmentAction
 import org.mozilla.fenix.search.SearchFragmentState
 import org.mozilla.fenix.search.SearchFragmentStore
 import org.mozilla.fenix.search.createInitialSearchFragmentState
-import org.mozilla.fenix.tabstray.DefaultTabManagementFeatureHelper
 import org.mozilla.fenix.tabstray.Page
 import org.mozilla.fenix.theme.FirefoxTheme
 import org.mozilla.fenix.utils.lastSavedFolderCache
+import kotlin.getValue
 
 /**
  * The screen that displays the user's bookmark list in their Library.
@@ -62,6 +69,14 @@ import org.mozilla.fenix.utils.lastSavedFolderCache
 class BookmarkFragment : Fragment() {
 
     private val verificationResultLauncher = registerForVerification()
+
+    private val voiceSearchFeature by lazy(LazyThreadSafetyMode.NONE) {
+        ViewBoundFeatureWrapper<VoiceSearchFeature>()
+    }
+    private val voiceSearchLauncher: ActivityResultLauncher<Intent> =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            voiceSearchFeature.get()?.handleVoiceSearchResult(result.resultCode, result.data)
+        }
 
     @Suppress("LongMethod")
     override fun onCreateView(
@@ -189,6 +204,22 @@ class BookmarkFragment : Fragment() {
             }
     }
 
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        if (requireContext().settings().shouldUseComposableToolbar) {
+            QrScannerBinding.register(this)
+            voiceSearchFeature.set(
+                feature = VoiceSearchFeature(
+                    context = requireContext(),
+                    appStore = requireContext().components.appStore,
+                    voiceSearchLauncher = voiceSearchLauncher,
+                ),
+                owner = viewLifecycleOwner,
+                view = view,
+            )
+        }
+    }
+
     private fun buildToolbarStore() = when (requireComponents.settings.shouldUseComposableToolbar) {
         false -> {
             // Default empty store. This is not used without the composable toolbar.
@@ -287,7 +318,7 @@ class BookmarkFragment : Fragment() {
     }
 
     private fun showTabTray(openInPrivate: Boolean = false) {
-        val directions = if (DefaultTabManagementFeatureHelper.enhancementsEnabled) {
+        val directions = if (requireContext().settings().tabManagerEnhancementsEnabled) {
             BookmarkFragmentDirections.actionGlobalTabManagementFragment(
                 page = if (openInPrivate) {
                     Page.PrivateTabs

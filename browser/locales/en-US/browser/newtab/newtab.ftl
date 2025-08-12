@@ -610,5 +610,12 @@ newtab-widget-timer-pause =
 newtab-widget-timer-reset =
     .title = Reset
 newtab-widget-timer-menu-notifications = Turn off notifications
+newtab-widget-timer-menu-notifications-on = Turn on notifications
 newtab-widget-timer-menu-hide = Hide timer
 newtab-widget-timer-menu-learn-more = Learn more
+
+# Strings for the default promo card
+
+newtab-promo-card-title = Support { -brand-product-name }
+newtab-promo-card-body = Our sponsors support our mission to build a better web
+newtab-promo-card-cta = Learn more

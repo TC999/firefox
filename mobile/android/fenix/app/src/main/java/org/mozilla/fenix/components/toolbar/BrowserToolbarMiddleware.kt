@@ -4,6 +4,7 @@
 
 package org.mozilla.fenix.components.toolbar
 
+import android.content.Context
 import android.os.Build
 import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.Lifecycle.State.RESUMED
@@ -98,7 +99,6 @@ import org.mozilla.fenix.components.appstate.AppAction.SearchAction.SearchEnded
 import org.mozilla.fenix.components.appstate.AppAction.SearchAction.SearchStarted
 import org.mozilla.fenix.components.appstate.AppAction.SnackbarAction.SnackbarDismissed
 import org.mozilla.fenix.components.appstate.AppAction.URLCopiedToClipboard
-import org.mozilla.fenix.components.appstate.OrientationMode
 import org.mozilla.fenix.components.appstate.snackbar.SnackbarState
 import org.mozilla.fenix.components.menu.MenuAccessPoint
 import org.mozilla.fenix.components.metrics.MetricsUtils
@@ -125,14 +125,14 @@ import org.mozilla.fenix.ext.nav
 import org.mozilla.fenix.ext.navigateSafe
 import org.mozilla.fenix.nimbus.FxNimbus
 import org.mozilla.fenix.settings.quicksettings.protections.cookiebanners.getCookieBannerUIMode
-import org.mozilla.fenix.tabstray.DefaultTabManagementFeatureHelper
 import org.mozilla.fenix.tabstray.Page
-import org.mozilla.fenix.tabstray.TabManagementFeatureHelper
 import org.mozilla.fenix.tabstray.ext.isActiveDownload
 import org.mozilla.fenix.utils.Settings
 import org.mozilla.fenix.utils.lastSavedFolderCache
 import mozilla.components.lib.state.Action as MVIAction
 import mozilla.components.ui.icons.R as iconsR
+
+private const val TALL_SCREEN_HEIGHT_DP = 480
 
 @VisibleForTesting
 internal sealed class DisplayActions : BrowserToolbarEvent {
@@ -177,6 +177,20 @@ internal sealed class PageEndActionsInteractions : BrowserToolbarEvent {
 }
 
 /**
+ * Helper function to determine whether the app's current window height
+ * is at least more than [TALL_SCREEN_HEIGHT_DP].
+ *
+ * This is useful when navigation bar should only be enabled on
+ * taller screens (e.g., to avoid crowding content vertically).
+ *
+ * @return true if the window height size is more than [TALL_SCREEN_HEIGHT_DP].
+ */
+@VisibleForTesting
+internal fun Context.isTallWindow(): Boolean {
+    return resources.configuration.screenHeightDp > TALL_SCREEN_HEIGHT_DP
+}
+
+/**
  * [Middleware] responsible for configuring and handling interactions with the composable toolbar.
  *
  * @param appStore [AppStore] allowing to integrate with other features of the applications.
@@ -192,7 +206,6 @@ internal sealed class PageEndActionsInteractions : BrowserToolbarEvent {
  * @param publicSuffixList [PublicSuffixList] used to obtain the base domain of the current site.
  * @param settings [Settings] for accessing user preferences.
  * @param sessionUseCases [SessionUseCases] for interacting with the current session.
- * @param tabManagementFeatureHelper Feature flag helper for the tab management UI.
  * @param bookmarksStorage [BookmarksStorage] to read and write bookmark data related to the current site.
  */
 @Suppress("LargeClass", "LongParameterList", "TooManyFunctions")
@@ -209,7 +222,6 @@ class BrowserToolbarMiddleware(
     private val publicSuffixList: PublicSuffixList,
     private val settings: Settings,
     private val sessionUseCases: SessionUseCases = SessionUseCases(browserStore),
-    private val tabManagementFeatureHelper: TabManagementFeatureHelper = DefaultTabManagementFeatureHelper,
     private val bookmarksStorage: BookmarksStorage,
 ) : Middleware<BrowserToolbarState, BrowserToolbarAction> {
     @VisibleForTesting
@@ -281,7 +293,7 @@ class BrowserToolbarMiddleware(
                 runWithinEnvironment {
                     thumbnailsFeature?.requestScreenshot()
 
-                    if (tabManagementFeatureHelper.enhancementsEnabled) {
+                    if (settings.tabManagerEnhancementsEnabled) {
                         navController.nav(
                             R.id.browserFragment,
                             BrowserFragmentDirections.actionGlobalTabManagementFragment(
@@ -694,9 +706,9 @@ class BrowserToolbarMiddleware(
 
     private fun buildStartBrowserActions(): List<Action> {
         val environment = environment ?: return emptyList()
-        val isLargeWindow = environment.context.isLargeWindow()
-        val isLandscape = appStore.state.orientation == OrientationMode.Landscape
-        val shouldNavigationButtonBeVisible = isLargeWindow || (settings.shouldUseExpandedToolbar && isLandscape)
+        val isWideScreen = environment.context.isLargeWindow()
+        val isShortScreen = !environment.context.isTallWindow()
+        val shouldNavigationButtonBeVisible = isWideScreen || (settings.shouldUseExpandedToolbar && isShortScreen)
 
         return listOf(
             ToolbarActionConfig(ToolbarAction.Back) { shouldNavigationButtonBeVisible },
@@ -710,8 +722,10 @@ class BrowserToolbarMiddleware(
     }
 
     private fun buildEndPageActions(): List<Action> {
-        val isLargeWindowOrLandscape = environment?.context?.isLargeWindow() == true ||
-            appStore.state.orientation == OrientationMode.Landscape
+        val isWideOrShortScreen = environment?.context?.isLargeWindow() == true ||
+                environment?.context?.isTallWindow() == false
+        val isExpandedAndTallScreen = settings.shouldUseExpandedToolbar &&
+                environment?.context?.isTallWindow() == true
 
         return listOf(
             ToolbarActionConfig(ToolbarAction.ReaderMode) {
@@ -719,11 +733,11 @@ class BrowserToolbarMiddleware(
             },
             ToolbarActionConfig(ToolbarAction.Translate) {
                 browserScreenStore.state.pageTranslationStatus.isTranslationPossible &&
-                    (settings.shouldUseExpandedToolbar || isLargeWindowOrLandscape) &&
+                    (settings.shouldUseExpandedToolbar || isWideOrShortScreen) &&
                     FxNimbus.features.translations.value().mainFlowToolbarEnabled
             },
             ToolbarActionConfig(ToolbarAction.Share) {
-                isLargeWindowOrLandscape && !settings.isTabStripEnabled && !settings.shouldUseExpandedToolbar
+                isWideOrShortScreen && !settings.isTabStripEnabled && !isExpandedAndTallScreen
             },
         ).filter { config ->
             config.isVisible()
@@ -733,22 +747,22 @@ class BrowserToolbarMiddleware(
     }
 
     private fun buildEndBrowserActions(): List<Action> {
-        val isLargeWindowOrLandscape = environment?.context?.isLargeWindow() == true ||
-                appStore.state.orientation == OrientationMode.Landscape
-        val isExpandedAndPortrait = settings.shouldUseExpandedToolbar &&
-                appStore.state.orientation == OrientationMode.Portrait
+        val isWideOrShortScreen = environment?.context?.isLargeWindow() == true ||
+                environment?.context?.isTallWindow() == false
+        val isExpandedAndTallScreen = settings.shouldUseExpandedToolbar &&
+                environment?.context?.isTallWindow() == true
 
         return listOf(
             ToolbarActionConfig(ToolbarAction.NewTab) {
-                !settings.isTabStripEnabled && !isExpandedAndPortrait
+                !settings.isTabStripEnabled && !isExpandedAndTallScreen
             },
             ToolbarActionConfig(ToolbarAction.TabCounter) {
-                !settings.isTabStripEnabled && !isExpandedAndPortrait
+                !settings.isTabStripEnabled && !isExpandedAndTallScreen
             },
             ToolbarActionConfig(ToolbarAction.Share) {
-                isLargeWindowOrLandscape && settings.isTabStripEnabled && !settings.shouldUseExpandedToolbar
+                isWideOrShortScreen && settings.isTabStripEnabled && !isExpandedAndTallScreen
             },
-            ToolbarActionConfig(ToolbarAction.Menu) { !isExpandedAndPortrait },
+            ToolbarActionConfig(ToolbarAction.Menu) { !isExpandedAndTallScreen },
         ).filter { config ->
             config.isVisible()
         }.map { config ->
@@ -757,20 +771,20 @@ class BrowserToolbarMiddleware(
     }
 
     private fun buildNavigationActions(isBookmarked: Boolean): List<Action> {
-        val isExpandedAndPortrait = settings.shouldUseExpandedToolbar &&
-                    appStore.state.orientation == OrientationMode.Portrait
+        val isExpandedAndTallScreen = settings.shouldUseExpandedToolbar &&
+                environment?.context?.isTallWindow() == true
 
         return listOf(
             ToolbarActionConfig(ToolbarAction.Bookmark) {
-                isExpandedAndPortrait && !isBookmarked
+                isExpandedAndTallScreen && !isBookmarked
             },
             ToolbarActionConfig(ToolbarAction.EditBookmark) {
-                isExpandedAndPortrait && isBookmarked
+                isExpandedAndTallScreen && isBookmarked
             },
-            ToolbarActionConfig(ToolbarAction.Share) { isExpandedAndPortrait },
-            ToolbarActionConfig(ToolbarAction.NewTab) { isExpandedAndPortrait },
-            ToolbarActionConfig(ToolbarAction.TabCounter) { isExpandedAndPortrait },
-            ToolbarActionConfig(ToolbarAction.Menu) { isExpandedAndPortrait },
+            ToolbarActionConfig(ToolbarAction.Share) { isExpandedAndTallScreen },
+            ToolbarActionConfig(ToolbarAction.NewTab) { isExpandedAndTallScreen },
+            ToolbarActionConfig(ToolbarAction.TabCounter) { isExpandedAndTallScreen },
+            ToolbarActionConfig(ToolbarAction.Menu) { isExpandedAndTallScreen },
         ).filter { config ->
             config.isVisible()
         }.map { config ->

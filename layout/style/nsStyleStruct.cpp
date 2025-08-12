@@ -43,6 +43,7 @@
 #include "nsString.h"
 #include "nsStyleConsts.h"
 #include "nsStyleStructInlines.h"
+#include "nsStyleStructList.h"
 #include "nsStyleUtil.h"
 
 using namespace mozilla;
@@ -64,12 +65,12 @@ struct AssertSizeIsLessThan {
   static constexpr bool instantiate = true;
 };
 
-#define STYLE_STRUCT(name_)                                                  \
+#define ASSERT_SIZE(name_)                                                   \
   static_assert(AssertSizeIsLessThan<nsStyle##name_, sizeof(nsStyle##name_), \
                                      kStyleStructSizeLimit>::instantiate,    \
                 "");
-#include "nsStyleStructList.h"
-#undef STYLE_STRUCT
+FOR_EACH_STYLE_STRUCT(ASSERT_SIZE, ASSERT_SIZE)
+#undef ASSERT_SIZE
 
 bool StyleCssUrlData::operator==(const StyleCssUrlData& aOther) const {
   // This very intentionally avoids comparing LoadData and such.
@@ -2918,7 +2919,8 @@ nsStyleTextReset::nsStyleTextReset()
       mInitialLetter{0, 0},
       mTextDecorationColor(StyleColor::CurrentColor()),
       mTextDecorationThickness(StyleTextDecorationLength::Auto()),
-      mTextDecorationTrim(StyleTextDecorationTrim::Auto()) {
+      mTextDecorationTrim(StyleTextDecorationTrim::Length(
+          StyleLength::Zero(), StyleLength::Zero())) {
   MOZ_COUNT_CTOR(nsStyleTextReset);
 }
 
@@ -3040,7 +3042,8 @@ nsStyleText::nsStyleText(const nsStyleText& aSource)
       mHyphenateCharacter(aSource.mHyphenateCharacter),
       mHyphenateLimitChars(aSource.mHyphenateLimitChars),
       mWebkitTextSecurity(aSource.mWebkitTextSecurity),
-      mTextWrapStyle(aSource.mTextWrapStyle) {
+      mTextWrapStyle(aSource.mTextWrapStyle),
+      mTextAutospace(aSource.mTextAutospace) {
   MOZ_COUNT_CTOR(nsStyleText);
 }
 
@@ -3076,7 +3079,8 @@ nsChangeHint nsStyleText::CalcDifference(const nsStyleText& aNewData) const {
       (mHyphenateCharacter != aNewData.mHyphenateCharacter) ||
       (mHyphenateLimitChars != aNewData.mHyphenateLimitChars) ||
       (mWebkitTextSecurity != aNewData.mWebkitTextSecurity) ||
-      (mTextWrapStyle != aNewData.mTextWrapStyle)) {
+      (mTextWrapStyle != aNewData.mTextWrapStyle) ||
+      (mTextAutospace != aNewData.mTextAutospace)) {
     return NS_STYLE_HINT_REFLOW;
   }
 

@@ -12,6 +12,9 @@ const val WAITING_TIME_MS = 1000L
 
 fun UiDevice.clearPackageData(packageName: String) {
     executeShellCommand("pm clear $packageName")
+}
+
+fun UiDevice.revokeNotificationPermission(packageName: String) {
     executeShellCommand("pm revoke $packageName android.permission.POST_NOTIFICATIONS")
 }
 
@@ -78,7 +81,7 @@ fun UiDevice.openTabsTray(useNewToolbar: Boolean) {
 
 fun UiDevice.openNewPrivateTabOnTabsTray() {
     val pbmButton = findObject(
-        UiSelector().text("Private")
+        UiSelector().descriptionStartsWith("Private Tabs Open:")
     )
     pbmButton.waitForExists(WAITING_TIME_MS)
     pbmButton.click()
