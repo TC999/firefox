@@ -239,6 +239,34 @@ add_task(async function test_tabGroupCollapseWhileSelected() {
   await removeTabGroup(group);
 });
 
+/**
+ * Bug 1979067 - The collapsed tab group's overflow counter should be included in the bounds
+ * calculations that determine whether the tabstrip scroll button is enabled.
+ */
+add_task(async function test_tabGroupOverflowCounterScrollable() {
+  let win = await BrowserTestUtils.openNewBrowserWindow();
+  await BrowserTestUtils.overflowTabs(null, win, {
+    overflowAtStart: false,
+    overflowTabFactor: 3,
+  });
+  let group = win.gBrowser.addTabGroup([
+    win.gBrowser.tabs.at(-2),
+    win.gBrowser.tabs.at(-1),
+  ]);
+  win.gBrowser.selectedTab = win.gBrowser.tabs.at(-2);
+  // collapse and expand once to place grouped tab at end of tabstrip
+  await TabGroupTestUtils.toggleCollapsed(group);
+  await TabGroupTestUtils.toggleCollapsed(group);
+  // collapsing again here causes the overflow counter to be placed off screen
+  await TabGroupTestUtils.toggleCollapsed(group);
+  Assert.ok(
+    !win.gBrowser.tabContainer.arrowScrollbox.hasAttribute("scrolledtoend"),
+    "Scrollbox correctly overflows at end"
+  );
+  await TabGroupTestUtils.removeTabGroup(group);
+  BrowserTestUtils.closeWindow(win);
+});
+
 add_task(async function test_multiselectedTabsInTabGroupDeselectedOnCollapse() {
   let tabInGroup = BrowserTestUtils.addTab(gBrowser, "about:blank");
   let secondTabInGroup = BrowserTestUtils.addTab(gBrowser, "about:blank");
@@ -947,6 +975,10 @@ add_task(async function test_saveAndCloseGroupViaMiddleClick() {
   Assert.ok(SessionStore.getSavedTabGroup(group.id), "Group is in savedGroups");
 
   SessionStore.forgetSavedTabGroup(group.id);
+  // Move the mouse off the tab strip to prevent conflicts in subsequent tests.
+  EventUtils.synthesizeMouseAtCenter(document.documentElement, {
+    type: "mouseover",
+  });
 });
 
 add_task(async function test_pinningInteractionsWithTabGroups() {

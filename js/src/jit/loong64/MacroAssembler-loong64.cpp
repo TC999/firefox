@@ -41,7 +41,7 @@ void MacroAssembler::clampDoubleToUint8(FloatRegister input, Register output) {
 }
 
 bool MacroAssemblerLOONG64Compat::buildOOLFakeExitFrame(void* fakeReturnAddr) {
-  asMasm().PushFrameDescriptor(FrameType::IonJS);  // descriptor_
+  asMasm().Push(FrameDescriptor(FrameType::IonJS));  // descriptor_
   asMasm().Push(ImmPtr(fakeReturnAddr));
   asMasm().Push(FramePointer);
   return true;
@@ -521,6 +521,20 @@ void MacroAssemblerLOONG64::ma_add_d(Register rd, Register rj, Imm32 imm) {
   }
 }
 
+void MacroAssemblerLOONG64::ma_add_d(Register rd, Register rj, ImmWord imm) {
+  if (is_intN(imm.value, 12)) {
+    as_addi_d(rd, rj, imm.value);
+  } else if (rd != rj) {
+    ma_li(rd, imm);
+    as_add_d(rd, rj, rd);
+  } else {
+    ScratchRegisterScope scratch(asMasm());
+    MOZ_ASSERT(rj != scratch);
+    ma_li(scratch, imm);
+    as_add_d(rd, rj, scratch);
+  }
+}
+
 void MacroAssemblerLOONG64::ma_add32TestOverflow(Register rd, Register rj,
                                                  Register rk, Label* overflow) {
   ScratchRegisterScope scratch(asMasm());
@@ -676,8 +690,46 @@ void MacroAssemblerLOONG64::ma_addPtrTestCarry(Condition cond, Register rd,
   }
 }
 
+void MacroAssemblerLOONG64::ma_addPtrTestSigned(Condition cond, Register rd,
+                                                Register rj, Register rk,
+                                                Label* taken) {
+  MOZ_ASSERT(cond == Assembler::Signed || cond == Assembler::NotSigned);
+
+  as_add_d(rd, rj, rk);
+  ma_b(rd, rd, taken, cond);
+}
+
+void MacroAssemblerLOONG64::ma_addPtrTestSigned(Condition cond, Register rd,
+                                                Register rj, Imm32 imm,
+                                                Label* taken) {
+  MOZ_ASSERT(cond == Assembler::Signed || cond == Assembler::NotSigned);
+
+  ma_add_d(rd, rj, imm);
+  ma_b(rd, rd, taken, cond);
+}
+
+void MacroAssemblerLOONG64::ma_addPtrTestSigned(Condition cond, Register rd,
+                                                Register rj, ImmWord imm,
+                                                Label* taken) {
+  MOZ_ASSERT(cond == Assembler::Signed || cond == Assembler::NotSigned);
+
+  SecondScratchRegisterScope scratch2(asMasm());
+  ma_li(scratch2, imm);
+  ma_addPtrTestSigned(cond, rd, rj, scratch2, taken);
+}
+
 // Subtract.
 void MacroAssemblerLOONG64::ma_sub_d(Register rd, Register rj, Imm32 imm) {
+  if (is_intN(-imm.value, 12)) {
+    as_addi_d(rd, rj, -imm.value);
+  } else {
+    ScratchRegisterScope scratch(asMasm());
+    ma_li(scratch, imm);
+    as_sub_d(rd, rj, scratch);
+  }
+}
+
+void MacroAssemblerLOONG64::ma_sub_d(Register rd, Register rj, ImmWord imm) {
   if (is_intN(-imm.value, 12)) {
     as_addi_d(rd, rj, -imm.value);
   } else {
@@ -734,6 +786,14 @@ void MacroAssemblerLOONG64::ma_subPtrTestOverflow(Register rd, Register rj,
 }
 
 void MacroAssemblerLOONG64::ma_mul_d(Register rd, Register rj, Imm32 imm) {
+  // li handles the relocation.
+  ScratchRegisterScope scratch(asMasm());
+  MOZ_ASSERT(rj != scratch);
+  ma_li(scratch, imm);
+  as_mul_d(rd, rj, scratch);
+}
+
+void MacroAssemblerLOONG64::ma_mul_d(Register rd, Register rj, ImmWord imm) {
   // li handles the relocation.
   ScratchRegisterScope scratch(asMasm());
   MOZ_ASSERT(rj != scratch);
@@ -1303,13 +1363,26 @@ FaultingCodeOffset MacroAssemblerLOONG64::ma_fst_d(FloatRegister src,
 }
 
 void MacroAssemblerLOONG64::ma_pop(FloatRegister f) {
-  as_fld_d(f, StackPointer, 0);
+  if (f.isDouble()) {
+    as_fld_d(f, StackPointer, 0);
+  } else {
+    MOZ_ASSERT(f.isSingle(), "simd128 is not supported");
+    as_fld_s(f, StackPointer, 0);
+  }
+  // See also MacroAssemblerLOONG64::ma_push -- Free space for double even when
+  // storing a float.
   as_addi_d(StackPointer, StackPointer, sizeof(double));
 }
 
 void MacroAssemblerLOONG64::ma_push(FloatRegister f) {
+  // We allocate space for double even when storing a float.
   as_addi_d(StackPointer, StackPointer, -int32_t(sizeof(double)));
-  as_fst_d(f, StackPointer, 0);
+  if (f.isDouble()) {
+    as_fst_d(f, StackPointer, 0);
+  } else {
+    MOZ_ASSERT(f.isSingle(), "simd128 is not supported");
+    as_fst_s(f, StackPointer, 0);
+  }
 }
 
 void MacroAssemblerLOONG64::ma_li(Register dest, ImmGCPtr ptr) {
@@ -2092,6 +2165,40 @@ void MacroAssemblerLOONG64::compareFloatingPoint(FloatFormat fmt,
   }
 }
 
+void MacroAssemblerLOONG64::minMaxPtr(Register lhs, Register rhs, Register dest,
+                                      bool isMax) {
+  ScratchRegisterScope scratch(asMasm());
+  SecondScratchRegisterScope scratch2(asMasm());
+
+  as_slt(scratch, rhs, lhs);
+  if (isMax) {
+    as_masknez(scratch2, rhs, scratch);
+    as_maskeqz(dest, lhs, scratch);
+  } else {
+    as_masknez(scratch2, lhs, scratch);
+    as_maskeqz(dest, rhs, scratch);
+  }
+  as_or(dest, dest, scratch2);
+}
+
+void MacroAssemblerLOONG64::minMaxPtr(Register lhs, ImmWord rhs, Register dest,
+                                      bool isMax) {
+  ScratchRegisterScope scratch(asMasm());
+  SecondScratchRegisterScope scratch2(asMasm());
+
+  ma_li(scratch2, rhs);
+
+  as_slt(scratch, scratch2, lhs);
+  if (isMax) {
+    as_masknez(scratch2, scratch2, scratch);
+    as_maskeqz(dest, lhs, scratch);
+  } else {
+    as_maskeqz(scratch2, scratch2, scratch);
+    as_masknez(dest, lhs, scratch);
+  }
+  as_or(dest, dest, scratch2);
+}
+
 void MacroAssemblerLOONG64::minMaxDouble(FloatRegister srcDest,
                                          FloatRegister second, bool handleNaN,
                                          bool isMax) {
@@ -2629,6 +2736,8 @@ void MacroAssembler::Push(const ImmGCPtr ptr) {
 
 void MacroAssembler::Push(FloatRegister f) {
   push(f);
+  // See MacroAssemblerLOONG64::ma_push(FloatRegister) for why we use
+  // sizeof(double).
   adjustFrame(int32_t(sizeof(double)));
 }
 
@@ -2645,6 +2754,8 @@ void MacroAssembler::Pop(Register reg) {
 
 void MacroAssembler::Pop(FloatRegister f) {
   pop(f);
+  // See MacroAssemblerLOONG64::ma_pop(FloatRegister) for why we use
+  // sizeof(double).
   adjustFrame(-int32_t(sizeof(double)));
 }
 

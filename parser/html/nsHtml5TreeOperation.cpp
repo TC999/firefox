@@ -209,6 +209,8 @@ nsHtml5TreeOperation::~nsHtml5TreeOperation() {
 
     void operator()(const opEnableEncodingMenu& aOperation) {}
 
+    void operator()(const opMicrotaskCheckpoint& aOperation) {}
+
     void operator()(const uninitialized& aOperation) {
       NS_WARNING("Uninitialized tree op.");
     }
@@ -346,7 +348,8 @@ void nsHtml5TreeOperation::Detach(nsIContent* aNode,
   nsCOMPtr<nsINode> parent = aNode->GetParentNode();
   if (parent) {
     nsHtml5OtherDocUpdate update(parent->OwnerDoc(), aBuilder->GetDocument());
-    parent->RemoveChildNode(aNode, true);
+    parent->RemoveChildNode(aNode, true, nullptr, nullptr,
+                            MutationEffectOnScript::KeepTrustWorthiness);
   }
 }
 
@@ -359,7 +362,8 @@ nsresult nsHtml5TreeOperation::AppendChildrenToNewParent(
   bool didAppend = false;
   while (aNode->HasChildren()) {
     nsCOMPtr<nsIContent> child = aNode->GetFirstChild();
-    aNode->RemoveChildNode(child, true);
+    aNode->RemoveChildNode(child, true, nullptr, nullptr,
+                           MutationEffectOnScript::KeepTrustWorthiness);
 
     ErrorResult rv;
     aParent->AppendChildTo(child, false, rv);
@@ -948,7 +952,8 @@ nsresult nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
           *aOperation.mHost, aOperation.mShadowRootMode,
           aOperation.mShadowRootIsClonable,
           aOperation.mShadowRootIsSerializable,
-          aOperation.mShadowRootDelegatesFocus);
+          aOperation.mShadowRootDelegatesFocus,
+          aOperation.mShadowRootReferenceTarget);
       if (root) {
         *aOperation.mFragHandle = root;
         return NS_OK;
@@ -1240,6 +1245,12 @@ nsresult nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
     nsresult operator()(const opEnableEncodingMenu& aOperation) {
       Document* doc = mBuilder->GetDocument();
       doc->EnableEncodingMenu();
+      return NS_OK;
+    }
+
+    nsresult operator()(const opMicrotaskCheckpoint& aOperation) {
+      nsHtml5AutoPauseUpdate autoPauseContentUpdate(mBuilder);
+      nsAutoMicroTask mt;
       return NS_OK;
     }
 

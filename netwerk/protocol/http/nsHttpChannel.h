@@ -125,7 +125,6 @@ class nsHttpChannel final : public HttpBaseChannel,
                                       nsProxyInfo* aProxyInfo,
                                       uint32_t aProxyResolveFlags,
                                       nsIURI* aProxyURI, uint64_t aChannelId,
-                                      ExtContentPolicyType aContentPolicyType,
                                       nsILoadInfo* aLoadInfo) override;
 
   static bool IsRedirectStatus(uint32_t status);
@@ -310,6 +309,9 @@ class nsHttpChannel final : public HttpBaseChannel,
   // end server host name.
   ProxyDNSStrategy GetProxyDNSStrategy();
 
+  // Add Sec-Fetch-Storage-Access headers based on cookie partitioning
+  void AddStorageAccessHeadersToRequest();
+
   // We might synchronously or asynchronously call BeginConnect,
   // which includes DNS prefetch and speculative connection, according to
   // whether an async tracker lookup is required. If the tracker lookup
@@ -339,6 +341,7 @@ class nsHttpChannel final : public HttpBaseChannel,
   nsresult OnPermissionPromptResult(bool aGranted, const nsACString& aType);
   LNAPermission UpdateLocalNetworkAccessPermissions(
       const nsACString& aPermissionType);
+  void MaybeUpdateDocumentIPAddressSpaceFromCache();
   nsresult ProcessLNAActions();
 
  public:
@@ -863,6 +866,10 @@ class nsHttpChannel final : public HttpBaseChannel,
 
   // Permissions for the request to make local network access
   LNAPerms mLNAPermission{};
+
+  // Track if we are waiting for OnPermissionPromptResult callback
+  // Used to handle cancellation while suspended waiting for LNA permission
+  bool mWaitingForLNAPermission{false};
 
  protected:
   virtual void DoNotifyListenerCleanup() override;

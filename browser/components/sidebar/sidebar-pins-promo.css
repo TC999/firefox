@@ -9,6 +9,7 @@
   --promo-dark-text: var(--color-violet-0);
   --promo-light-icon-border: var(--color-violet-50);
   --promo-dark-icon-border: var(--color-violet-0);
+  --icon-height: 52px;
 }
 
 .promo-card {
@@ -27,6 +28,12 @@
     outline-color: var(--border-color);
   }
 
+  @media (forced-colors) {
+    background-color: ButtonFace;
+    color: ButtonText;
+    outline-color: ButtonText;
+  }
+
   &[dragactive] {
     outline-style: solid;
   }
@@ -43,10 +50,6 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-medium);
-
-  @container (max-width: 160px) {
-    display: none;
-  }
 }
 
 .icon-cell {
@@ -54,29 +57,13 @@
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  width: 52px;
-  height: 52px;
+  flex: 1;
+  height: calc(var(--icon-height) + (2 * var(--border-width)));
   border: var(--border-width) dashed light-dark(var(--promo-light-icon-border), var(--promo-dark-icon-border));
   border-radius: var(--border-radius-medium);
 
   @media (prefers-contrast) {
     border-color: var(--border-color);
-  }
-
-  &.foxylight {
-    display: flex;
-
-    @media (prefers-color-scheme: dark) {
-      display: none;
-    }
-  }
-
-  &.foxydark {
-    display: none;
-
-    @media (prefers-color-scheme: dark) {
-      display: flex;
-    }
   }
 
   > img {
@@ -86,6 +73,37 @@
     @media (prefers-contrast) {
       fill: currentColor;
     }
+  }
+
+  /* Start hiding icons as the sidebar width shrinks. */
+  &.icon-slack {
+    @container (max-width: 220px) {
+      display: none;
+    }
+  }
+
+  &.icon-gmail {
+    @container (max-width: 180px) {
+      display: none;
+    }
+  }
+
+  &.icon-firefox {
+    @container (max-width: 140px) {
+      display: none;
+    }
+  }
+}
+
+.icon-foxy {
+  > img {
+    -moz-context-properties: fill, stroke;
+    fill: light-dark(#c7b2ff, #623ac3);
+    stroke: light-dark(#9059ff, #7844f0);
+  }
+
+  @media not (prefers-contrast) {
+    background-color: light-dark(#c7b2ff, #623ac3);
   }
 }
 
@@ -97,5 +115,17 @@
 
   @media not (prefers-contrast) {
     color: light-dark(var(--promo-light-text), var(--promo-dark-text));
+  }
+
+  @media (forced-colors) {
+    background-color: ButtonFace;
+    color: ButtonText;
+  }
+
+  &:hover {
+    @media (forced-colors) {
+      background-color: SelectedItem;
+      color: SelectedItemText;
+    }
   }
 }

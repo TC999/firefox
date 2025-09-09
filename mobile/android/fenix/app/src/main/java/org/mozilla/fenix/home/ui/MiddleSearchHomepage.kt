@@ -4,7 +4,8 @@
 
 package org.mozilla.fenix.home.ui
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -16,9 +17,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -26,13 +24,16 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.dp
+import org.mozilla.fenix.home.fake.FakeHomepagePreview
 import org.mozilla.fenix.home.interactor.HomepageInteractor
 import org.mozilla.fenix.home.pocket.ui.PocketSection
 import org.mozilla.fenix.home.store.HomepageState
+import org.mozilla.fenix.home.topsites.TopSiteColors
 import org.mozilla.fenix.home.ui.HomepageTestTag.HOMEPAGE
-
-private const val MIDDLE_SEARCH_SCROLL_THRESHOLD_PX = 10
+import org.mozilla.fenix.theme.FirefoxTheme
+import org.mozilla.fenix.wallpapers.WallpaperState
 
 /**
  * Top level composable for the middle search homepage.
@@ -73,12 +74,16 @@ internal fun MiddleSearchHomepage(
                 .verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             if (state.firstFrameDrawn) {
                 with(state) {
                     when (this) {
                         is HomepageState.Private -> {
+                            LaunchedEffect(key1 = state) {
+                                onMiddleSearchBarVisibilityChanged(false)
+                            }
+
                             Box(modifier = Modifier.padding(horizontal = horizontalMargin)) {
                                 PrivateBrowsingDescription(
                                     onLearnMoreClick = interactor::onLearnMoreClicked,
@@ -98,21 +103,11 @@ internal fun MiddleSearchHomepage(
 
                             Spacer(modifier = Modifier.weight(1f))
 
-                            if (searchBarEnabled) {
-                                val atTopOfList by remember {
-                                    derivedStateOf {
-                                        scrollState.value < MIDDLE_SEARCH_SCROLL_THRESHOLD_PX
-                                    }
-                                }
+                            LaunchedEffect(key1 = searchBarEnabled, key2 = searchBarVisible) {
+                                onMiddleSearchBarVisibilityChanged(searchBarEnabled && searchBarVisible)
+                            }
 
-                                LaunchedEffect(atTopOfList) {
-                                    onMiddleSearchBarVisibilityChanged(atTopOfList)
-                                }
-
-                                val alpha by animateFloatAsState(
-                                    targetValue = if (showSearchBar && atTopOfList) 1f else 0f,
-                                )
-
+                            if (searchBarEnabled && searchBarVisible) {
                                 SearchBar(
                                     modifier = Modifier
                                         .padding(horizontal = horizontalMargin)
@@ -120,6 +115,7 @@ internal fun MiddleSearchHomepage(
                                     onClick = interactor::onNavigateSearch,
                                 )
                             }
+
                             Spacer(modifier = Modifier.weight(1f))
 
                             if (showPocketStories) {
@@ -138,5 +134,61 @@ internal fun MiddleSearchHomepage(
                 }
             }
         }
+
+        if (state.isSearchInProgress) {
+            Scrim(onDismiss = interactor::onHomeContentFocusedWhileSearchIsActive)
+        }
+    }
+}
+
+@Composable
+private fun Scrim(onDismiss: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .background(FirefoxTheme.colors.layerScrim.copy(alpha = 0.75f))
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { onDismiss() })
+            },
+    )
+}
+
+@Composable
+@PreviewLightDark
+private fun MiddleSearchHomepagePreview() {
+    FirefoxTheme {
+        MiddleSearchHomepage(
+            HomepageState.Normal(
+                nimbusMessage = null,
+                topSites = FakeHomepagePreview.topSites(),
+                recentTabs = FakeHomepagePreview.recentTabs(),
+                syncedTab = FakeHomepagePreview.recentSyncedTab(),
+                bookmarks = FakeHomepagePreview.bookmarks(),
+                recentlyVisited = FakeHomepagePreview.recentHistory(),
+                collectionsState = FakeHomepagePreview.collectionState(),
+                pocketState = FakeHomepagePreview.pocketState(),
+                showTopSites = true,
+                showRecentTabs = false,
+                showRecentSyncedTab = false,
+                showBookmarks = false,
+                showRecentlyVisited = true,
+                showPocketStories = true,
+                showCollections = true,
+                showHeader = false,
+                searchBarVisible = true,
+                searchBarEnabled = true,
+                firstFrameDrawn = true,
+                setupChecklistState = null,
+                topSiteColors = TopSiteColors.colors(),
+                cardBackgroundColor = WallpaperState.default.cardBackgroundColor,
+                buttonTextColor = WallpaperState.default.buttonTextColor,
+                buttonBackgroundColor = WallpaperState.default.buttonBackgroundColor,
+                bottomSpacerHeight = 188.dp,
+                isSearchInProgress = false,
+            ),
+            interactor = FakeHomepagePreview.homepageInteractor,
+            onTopSitesItemBound = {},
+            onMiddleSearchBarVisibilityChanged = {},
+        )
     }
 }

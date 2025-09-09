@@ -10,8 +10,6 @@ export {
   TOP_SITES_MAX_SITES_PER_ROW,
 } from "resource:///modules/topsites/constants.mjs";
 
-const PREF_COLLECTION_DISMISSIBLE = "discoverystream.isCollectionDismissible";
-
 const dedupe = new Dedupe(site => site && site.url);
 
 export const INITIAL_STATE = {
@@ -65,7 +63,6 @@ export const INITIAL_STATE = {
   },
   Sections: [],
   Pocket: {
-    isUserLoggedIn: null,
     pocketCta: {},
     waitingForSpoc: true,
   },
@@ -74,8 +71,6 @@ export const INITIAL_STATE = {
     // This is a JSON-parsed copy of the discoverystream.config pref value.
     config: { enabled: false },
     layout: [],
-    isPrivacyInfoModalVisible: false,
-    isCollectionDismissible: false,
     topicsLoading: false,
     feeds: {
       data: {
@@ -106,9 +101,6 @@ export const INITIAL_STATE = {
       utmCampaign: undefined,
       utmContent: undefined,
     },
-    recentSavesData: [],
-    isUserLoggedIn: false,
-    recentSavesEnabled: false,
     showTopicSelection: false,
     report: {
       visible: false,
@@ -185,7 +177,7 @@ export const INITIAL_STATE = {
     // Default state of an empty task list
     lists: {
       taskList: {
-        label: "Task List",
+        label: "",
         tasks: [],
         completed: [],
       },
@@ -614,8 +606,6 @@ function Pocket(prevState = INITIAL_STATE.Pocket, action) {
   switch (action.type) {
     case at.POCKET_WAITING_FOR_SPOC:
       return { ...prevState, waitingForSpoc: action.data };
-    case at.POCKET_LOGGED_IN:
-      return { ...prevState, isUserLoggedIn: !!action.data };
     case at.POCKET_CTA:
       return {
         ...prevState,
@@ -744,11 +734,6 @@ function DiscoveryStream(prevState = INITIAL_STATE.DiscoveryStream, action) {
         ...prevState,
         layout: action.data.layout || [],
       };
-    case at.DISCOVERY_STREAM_COLLECTION_DISMISSIBLE_TOGGLE:
-      return {
-        ...prevState,
-        isCollectionDismissible: action.data.value,
-      };
     case at.DISCOVERY_STREAM_TOPICS_LOADING:
       return {
         ...prevState,
@@ -757,9 +742,6 @@ function DiscoveryStream(prevState = INITIAL_STATE.DiscoveryStream, action) {
     case at.DISCOVERY_STREAM_PREFS_SETUP:
       return {
         ...prevState,
-        recentSavesEnabled: action.data.recentSavesEnabled,
-        pocketButtonEnabled: action.data.pocketButtonEnabled,
-        saveToPocketCard: action.data.saveToPocketCard,
         hideDescriptions: action.data.hideDescriptions,
         compactImages: action.data.compactImages,
         imageGradient: action.data.imageGradient,
@@ -768,25 +750,9 @@ function DiscoveryStream(prevState = INITIAL_STATE.DiscoveryStream, action) {
         descLines: action.data.descLines,
         readTime: action.data.readTime,
       };
-    case at.DISCOVERY_STREAM_RECENT_SAVES:
-      return {
-        ...prevState,
-        recentSavesData: action.data.recentSaves,
-      };
-    case at.DISCOVERY_STREAM_POCKET_STATE_SET:
-      return {
-        ...prevState,
-        isUserLoggedIn: action.data.isUserLoggedIn,
-      };
-    case at.HIDE_PRIVACY_INFO:
-      return {
-        ...prevState,
-        isPrivacyInfoModalVisible: false,
-      };
     case at.SHOW_PRIVACY_INFO:
       return {
         ...prevState,
-        isPrivacyInfoModalVisible: true,
       };
     case at.DISCOVERY_STREAM_LAYOUT_RESET:
       return { ...INITIAL_STATE.DiscoveryStream, config: prevState.config };
@@ -916,14 +882,6 @@ function DiscoveryStream(prevState = INITIAL_STATE.DiscoveryStream, action) {
         ? prevState
         : nextState(items => items.map(removeBookmarkInfo));
     }
-    case at.PREF_CHANGED:
-      if (action.data.name === PREF_COLLECTION_DISMISSIBLE) {
-        return {
-          ...prevState,
-          isCollectionDismissible: action.data.value,
-        };
-      }
-      return prevState;
     case at.TOPIC_SELECTION_SPOTLIGHT_OPEN:
       return {
         ...prevState,
@@ -1160,8 +1118,9 @@ function TimerWidget(prevState = INITIAL_STATE.TimerWidget, action) {
       return {
         ...prevState,
         [timerType]: {
-          duration: 0,
-          initialDuration: 0,
+          ...prevState[timerType],
+          duration: action.data.duration,
+          initialDuration: action.data.duration,
           startTime: null,
           isRunning: false,
         },

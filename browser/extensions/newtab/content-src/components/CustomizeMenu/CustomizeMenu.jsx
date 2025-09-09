@@ -75,12 +75,14 @@ export class _CustomizeMenu extends React.PureComponent {
             data-l10n-id="newtab-settings-dialog-label"
           >
             <div className="close-button-wrapper">
-              <button
+              <moz-button
                 onClick={() => this.props.onClose()}
-                className="close-button"
-                data-l10n-id="newtab-custom-close-button"
+                id="close-button"
+                type="icon ghost"
+                data-l10n-id="newtab-custom-close-menu-button"
+                iconsrc="chrome://global/skin/icons/close.svg"
                 ref={c => (this.closeButton = c)}
-              />
+              ></moz-button>
             </div>
             <ContentSection
               openPreferences={this.props.openPreferences}
@@ -94,7 +96,6 @@ export class _CustomizeMenu extends React.PureComponent {
               mayHaveInferredPersonalization={
                 this.props.mayHaveInferredPersonalization
               }
-              mayHaveRecentSaves={this.props.DiscoveryStream.recentSavesEnabled}
               mayHaveWeather={this.props.mayHaveWeather}
               mayHaveTrendingSearch={this.props.mayHaveTrendingSearch}
               mayHaveWidgets={this.props.mayHaveWidgets}

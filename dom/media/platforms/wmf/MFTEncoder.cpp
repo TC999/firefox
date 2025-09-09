@@ -780,6 +780,12 @@ MFTEncoder::SetBitrate(UINT32 aBitsPerSec) {
   return mConfig->SetValue(&CODECAPI_AVEncCommonMeanBitRate, &var);
 }
 
+bool MFTEncoder::IsHardwareAccelerated() const {
+  MOZ_ASSERT(mscom::IsCurrentThreadMTA());
+
+  return mFactory && mFactory->mProvider != MFTEncoder::Factory::Provider::SW;
+}
+
 template <typename T, typename E, bool IsExclusive = true>
 static auto ResultToPromise(Result<T, E>&& aResult) {
   if (aResult.isErr()) {
@@ -1077,7 +1083,7 @@ RefPtr<MFTEncoder::EncodePromise> MFTEncoder::EncodeWithAsyncCallback(
         self->MaybeResolveOrRejectEncodePromise();
       },
       TimeDuration::FromMilliseconds(20), nsITimer::TYPE_ONE_SHOT,
-      "EncodingProgressChecker", GetCurrentSerialEventTarget());
+      "EncodingProgressChecker"_ns, GetCurrentSerialEventTarget());
   if (timerResult.isErr()) {
     MFT_ENC_LOGE(
         "Failed to set an encoding progress checker. Resolve encode promise "

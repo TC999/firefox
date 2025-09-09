@@ -18,6 +18,7 @@
 #include "mozilla/Components.h"
 #include "mozilla/EventStateManager.h"
 #include "mozilla/IMEStateManager.h"
+#include "mozilla/Logging.h"
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MiscEvents.h"
@@ -169,7 +170,8 @@ using namespace mozilla::gfx;
 
 using mozilla::LazyLogModule;
 
-extern mozilla::LazyLogModule gSHIPBFCacheLog;
+extern LazyLogModule gBCWebProgressLog;
+extern LazyLogModule gSHIPBFCacheLog;
 
 LazyLogModule gBrowserFocusLog("BrowserFocus");
 
@@ -1451,13 +1453,23 @@ void BrowserParent::UpdateVsyncParentVsyncDispatcher() {
 }
 
 void BrowserParent::MouseEnterIntoWidget() {
-  if (nsCOMPtr<nsIWidget> widget = GetWidget()) {
+  if (const nsCOMPtr<nsIWidget> widget = GetWidget()) {
     // When we mouseenter the remote target, the remote target's cursor should
     // become the current cursor.  When we mouseexit, we stop.
     mRemoteTargetSetsCursor = true;
+    MOZ_LOG_DEBUG_ONLY(
+        EventStateManager::MouseCursorUpdateLogRef(), LogLevel::Debug,
+        ("BrowserParent::MouseEnterIntoWidget(): Got the rights to update "
+         "cursor (%p, widget=%p)",
+         this, widget.get()));
     if (!EventStateManager::CursorSettingManagerHasLockedCursor()) {
       widget->SetCursor(mCursor);
       EventStateManager::ClearCursorSettingManager();
+      MOZ_LOG_DEBUG_ONLY(EventStateManager::MouseCursorUpdateLogRef(),
+                         LogLevel::Info,
+                         ("BrowserParent::MouseEnterIntoWidget(): Updated "
+                          "cursor to the pending one (%p, widget=%p)",
+                          this, widget.get()));
     }
   }
 
@@ -1491,17 +1503,44 @@ void BrowserParent::SendRealMouseEvent(WidgetMouseEvent& aEvent) {
 
   aEvent.mRefPoint = TransformParentToChild(aEvent);
 
-  if (nsCOMPtr<nsIWidget> widget = GetWidget()) {
+  if (const nsCOMPtr<nsIWidget> widget = GetWidget()) {
     // When we mouseenter the remote target, the remote target's cursor should
     // become the current cursor.  When we mouseexit, we stop.
+    // XXX We update cursor even for non-mouse pointer moves in
+    // EventStateManager.  Thus, we might not be able to manage it only with
+    // eMouseEnterIntoWidget and eMouseExitFromWidget.
     if (eMouseEnterIntoWidget == aEvent.mMessage) {
       mRemoteTargetSetsCursor = true;
+      MOZ_LOG_DEBUG_ONLY(
+          EventStateManager::MouseCursorUpdateLogRef(), LogLevel::Debug,
+          ("BrowserParent::SendRealMouseEvent(aEvent={pointerId=%u, source=%s, "
+           "message=%s, reason=%s}): Got the rights to update cursor (%p, "
+           "widget=%p)",
+           aEvent.pointerId, InputSourceToString(aEvent.mInputSource).get(),
+           ToChar(aEvent.mMessage), RealOrSynthesized(aEvent.IsReal()), this,
+           widget.get()));
       if (!EventStateManager::CursorSettingManagerHasLockedCursor()) {
         widget->SetCursor(mCursor);
         EventStateManager::ClearCursorSettingManager();
+        MOZ_LOG_DEBUG_ONLY(
+            EventStateManager::MouseCursorUpdateLogRef(), LogLevel::Info,
+            ("BrowserParent::SendRealMouseEvent(aEvent={pointerId=%u, "
+             "source=%s, message=%s, reason=%s): Updated cursor to the pending "
+             "one (%p, widget=%p)",
+             aEvent.pointerId, InputSourceToString(aEvent.mInputSource).get(),
+             ToChar(aEvent.mMessage), RealOrSynthesized(aEvent.IsReal()), this,
+             widget.get()));
       }
     } else if (eMouseExitFromWidget == aEvent.mMessage) {
       mRemoteTargetSetsCursor = false;
+      MOZ_LOG_DEBUG_ONLY(
+          EventStateManager::MouseCursorUpdateLogRef(), LogLevel::Debug,
+          ("BrowserParent::SendRealMouseEvent(aEvent={pointerId=%u, source=%s, "
+           "message=%s, reason=%s}): Lost the rights to update cursor (%p, "
+           "widget=%p)",
+           aEvent.pointerId, InputSourceToString(aEvent.mInputSource).get(),
+           ToChar(aEvent.mMessage), RealOrSynthesized(aEvent.IsReal()), this,
+           widget.get()));
     }
   }
   if (!mIsReadyToHandleInputEvents) {
@@ -1756,7 +1795,16 @@ mozilla::ipc::IPCResult BrowserParent::RecvDispatchKeyboardEvent(
 
 mozilla::ipc::IPCResult BrowserParent::RecvDispatchTouchEvent(
     const mozilla::WidgetTouchEvent& aEvent) {
-  NS_ENSURE_TRUE(xpc::IsInAutomation(), IPC_FAIL(this, "Unexpected event"));
+  // This is used by DevTools to emulate touch events from mouse events in the
+  // responsive design mode.  Therefore, we should accept the IPC messages even
+  // if it's not in the automation mode but the browsing context is in RDM pane.
+  // And the IPC message could be just delayed after closing the responsive
+  // design mode.  Therefore, we shouldn't return IPC_FAIL since doing it makes
+  // the tab crash.
+  if (!xpc::IsInAutomation()) {
+    NS_ENSURE_TRUE(mBrowsingContext, IPC_OK());
+    NS_ENSURE_TRUE(mBrowsingContext->Top()->GetInRDMPane(), IPC_OK());
+  }
 
   nsCOMPtr<nsIWidget> widget = GetWidget();
   if (!widget) {
@@ -1949,16 +1997,7 @@ mozilla::ipc::IPCResult BrowserParent::RecvSynthesizeNativeTouchPoint(
     const uint32_t& aPointerId, const TouchPointerState& aPointerState,
     const LayoutDeviceIntPoint& aPoint, const double& aPointerPressure,
     const uint32_t& aPointerOrientation, const Maybe<uint64_t>& aCallbackId) {
-  // This is used by DevTools to emulate touch events from mouse events in the
-  // responsive design mode.  Therefore, we should accept the IPC messages even
-  // if it's not in the automation mode but the browsing context is in RDM pane.
-  // And the IPC message could be just delayed after closing the responsive
-  // design mode.  Therefore, we shouldn't return IPC_FAIL since doing it makes
-  // the tab crash.
-  if (!xpc::IsInAutomation()) {
-    NS_ENSURE_TRUE(mBrowsingContext, IPC_OK());
-    NS_ENSURE_TRUE(mBrowsingContext->Top()->GetInRDMPane(), IPC_OK());
-  }
+  NS_ENSURE_TRUE(xpc::IsInAutomation(), IPC_FAIL(this, "Unexpected event"));
 
   nsCOMPtr<nsISynthesizedEventCallback> callback =
       SynthesizedEventCallback::MaybeCreate(this, aCallbackId);
@@ -2291,12 +2330,12 @@ mozilla::ipc::IPCResult BrowserParent::RecvSynthesizedEventResponse(
 
 mozilla::ipc::IPCResult BrowserParent::RecvSyncMessage(
     const nsString& aMessage, const ClonedMessageData& aData,
-    nsTArray<StructuredCloneData>* aRetVal) {
+    nsTArray<UniquePtr<ipc::StructuredCloneData>>* aRetVal) {
   AUTO_PROFILER_LABEL_DYNAMIC_LOSSY_NSSTRING("BrowserParent::RecvSyncMessage",
                                              OTHER, aMessage);
   MMPrinter::Print("BrowserParent::RecvSyncMessage", aMessage, aData);
 
-  StructuredCloneData data;
+  ipc::StructuredCloneData data;
   ipc::UnpackClonedMessageData(aData, data);
 
   if (!ReceiveMessage(aMessage, true, &data, aRetVal)) {
@@ -2324,7 +2363,7 @@ mozilla::ipc::IPCResult BrowserParent::RecvSetCursor(
     const nsCursor& aCursor, Maybe<IPCImage>&& aCustomCursor,
     const float& aResolutionX, const float& aResolutionY,
     const uint32_t& aHotspotX, const uint32_t& aHotspotY, const bool& aForce) {
-  nsCOMPtr<nsIWidget> widget = GetWidget();
+  const nsCOMPtr<nsIWidget> widget = GetWidget();
   if (!widget) {
     return IPC_OK();
   }
@@ -2352,14 +2391,28 @@ mozilla::ipc::IPCResult BrowserParent::RecvSetCursor(
                               aHotspotY,
                               {aResolutionX, aResolutionY}};
   if (!mRemoteTargetSetsCursor) {
+    MOZ_LOG_DEBUG_ONLY(
+        EventStateManager::MouseCursorUpdateLogRef(), LogLevel::Debug,
+        ("BrowserParent::RecvSetCursor(): Stopped updating the cursor "
+         "due to no rights (%p, widget=%p)",
+         this, widget.get()));
     return IPC_OK();
   }
 
   if (EventStateManager::CursorSettingManagerHasLockedCursor()) {
+    MOZ_LOG_DEBUG_ONLY(
+        EventStateManager::MouseCursorUpdateLogRef(), LogLevel::Debug,
+        ("BrowserParent::RecvSetCursor(): Stopped updating the cursor "
+         "due to during a lock (%p, widget=%p)",
+         this, widget.get()));
     return IPC_OK();
   }
 
   widget->SetCursor(mCursor);
+  MOZ_LOG_DEBUG_ONLY(
+      EventStateManager::MouseCursorUpdateLogRef(), LogLevel::Info,
+      ("BrowserParent::RecvSetCursor(): Updated the cursor (%p, widget=%p)",
+       this, widget.get()));
   return IPC_OK();
 }
 
@@ -3119,7 +3172,8 @@ bool BrowserParent::ReceiveProgressListenerData(
 
   // Look up the BrowsingContext which this notification was fired for.
   if (aWebProgressData.browsingContext().IsNullOrDiscarded()) {
-    NS_WARNING("WebProgress Ignored: BrowsingContext is null or discarded");
+    MOZ_LOG(gBCWebProgressLog, LogLevel::Warning,
+            ("WebProgress Ignored: BrowsingContext is null or discarded"));
     return false;
   }
   RefPtr<CanonicalBrowsingContext> browsingContext =
@@ -3132,7 +3186,8 @@ bool BrowserParent::ReceiveProgressListenerData(
   if (browsingContext != mBrowsingContext) {
     WindowGlobalParent* embedder = browsingContext->GetParentWindowContext();
     if (!embedder || embedder->GetBrowserParent() != this) {
-      NS_WARNING("WebProgress Ignored: wrong embedder process");
+      MOZ_LOG(gBCWebProgressLog, LogLevel::Warning,
+              ("WebProgress Ignored: wrong embedder process"));
       return false;
     }
   }
@@ -3143,7 +3198,8 @@ bool BrowserParent::ReceiveProgressListenerData(
   if (RefPtr<WindowGlobalParent> current =
           browsingContext->GetCurrentWindowGlobal();
       current && current->GetBrowserParent() != this) {
-    NS_WARNING("WebProgress Ignored: no longer current window global");
+    MOZ_LOG(gBCWebProgressLog, LogLevel::Warning,
+            ("WebProgress Ignored: no longer current window global"));
     return false;
   }
 
@@ -3447,9 +3503,9 @@ mozilla::ipc::IPCResult BrowserParent::RecvSetInputContext(
   return IPC_OK();
 }
 
-bool BrowserParent::ReceiveMessage(const nsString& aMessage, bool aSync,
-                                   StructuredCloneData* aData,
-                                   nsTArray<StructuredCloneData>* aRetVal) {
+bool BrowserParent::ReceiveMessage(
+    const nsString& aMessage, bool aSync, ipc::StructuredCloneData* aData,
+    nsTArray<UniquePtr<ipc::StructuredCloneData>>* aRetVal) {
   // If we're for an oop iframe, don't deliver messages to the wrong place.
   if (mBrowserBridgeParent) {
     return true;

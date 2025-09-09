@@ -29,14 +29,19 @@ describe("<Lists>", () => {
   let wrapper;
   let sandbox;
   let dispatch;
+  let handleUserInteraction;
 
   beforeEach(() => {
     sandbox = sinon.createSandbox();
     dispatch = sandbox.stub();
+    handleUserInteraction = sandbox.stub();
 
     wrapper = mount(
       <WrapWithProvider state={mockState}>
-        <Lists dispatch={dispatch} />
+        <Lists
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
       </WrapWithProvider>
     );
   });
@@ -77,12 +82,15 @@ describe("<Lists>", () => {
   });
 
   it("should toggle task completion", () => {
+    const taskItem = wrapper.find(".task-item").at(0);
     const checkbox = wrapper.find("input[type='checkbox']").at(0);
     checkbox.simulate("change", { target: { checked: true } });
-
+    // dispatch not called until transition has ended
+    assert.equal(dispatch.callCount, 0);
+    taskItem.simulate("transitionEnd", { propertyName: "opacity" });
+    assert.ok(dispatch.calledTwice);
     const [action] = dispatch.getCall(0).args;
     assert.equal(action.type, at.WIDGETS_LISTS_UPDATE);
-    console.log(`CONSOLE: `, action.data.lists["test-list"]);
     assert.ok(action.data.lists["test-list"].completed[0].completed);
   });
 
@@ -216,7 +224,10 @@ describe("<Lists>", () => {
 
     wrapper = mount(
       <WrapWithProvider state={mockState}>
-        <Lists dispatch={dispatch} />
+        <Lists
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
       </WrapWithProvider>
     );
 
@@ -271,7 +282,10 @@ describe("<Lists>", () => {
 
     wrapper = mount(
       <WrapWithProvider state={mockState}>
-        <Lists dispatch={dispatch} />
+        <Lists
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
       </WrapWithProvider>
     );
 
@@ -304,5 +318,180 @@ describe("<Lists>", () => {
     assert.ok(dispatch.calledOnce);
     const [action] = dispatch.getCall(0).args;
     assert.equal(action.type, at.OPEN_LINK);
+  });
+
+  it("disables Create new list action (in the panel list) when at the max lists limit", () => {
+    // Set temporary maximum list limit
+    const stateAtMax = {
+      ...mockState,
+      Prefs: {
+        ...INITIAL_STATE.Prefs,
+        values: {
+          ...INITIAL_STATE.Prefs.values,
+          "widgets.lists.maxLists": 1,
+        },
+      },
+    };
+
+    const localWrapper = mount(
+      <WrapWithProvider state={stateAtMax}>
+        <Lists
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
+      </WrapWithProvider>
+    );
+
+    const createListBtn = localWrapper.find("panel-item.create-list").at(0);
+    assert.strictEqual(createListBtn.prop("disabled"), true);
+  });
+
+  it("overrides `widgets.lists.maxLists` pref when below `1` value", () => {
+    const state = {
+      ...mockState,
+      Prefs: {
+        ...mockState.Prefs,
+        values: {
+          ...mockState.Prefs.values,
+          "widgets.lists.maxLists": 0,
+        },
+      },
+    };
+    const localWrapper = mount(
+      <WrapWithProvider state={state}>
+        <Lists
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
+      </WrapWithProvider>
+    );
+    const createListBtn = localWrapper.find("panel-item.create-list").at(0);
+    // with 1 existing list, and maxLists coerced to 1, it should be disabled
+    assert.strictEqual(createListBtn.prop("disabled"), true);
+  });
+
+  it("disables Create List option when at the maximum lists limit", () => {
+    const state = {
+      ...mockState,
+      ListsWidget: {
+        ...mockState.ListsWidget,
+        lists: {
+          "list-1": { label: "A", tasks: [], completed: [] },
+          "list-2": { label: "B", tasks: [], completed: [] },
+        },
+      },
+      Prefs: {
+        ...mockState.Prefs,
+        values: {
+          ...mockState.Prefs.values,
+          "widgets.lists.maxLists": 2,
+        },
+      },
+    };
+    const localWrapper = mount(
+      <WrapWithProvider state={state}>
+        <Lists
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
+      </WrapWithProvider>
+    );
+    const createListBtn = localWrapper.find("panel-item.create-list").at(0);
+    // with 2 existing lists, and maxLists is set to 2, it should be disabled
+    assert.strictEqual(createListBtn.prop("disabled"), true);
+  });
+
+  it("disables add-task input when at maximum list items limit", () => {
+    // total items = tasks + completed = 3
+    const state = {
+      ...mockState,
+      ListsWidget: {
+        selected: "test-list",
+        lists: {
+          "test-list": {
+            label: "test",
+            tasks: [
+              { id: "1", value: "task 1", completed: false, isUrl: false },
+              { id: "2", value: "task 2", completed: false, isUrl: false },
+            ],
+            completed: [
+              { id: "c1", value: "done", completed: true, isUrl: false },
+            ],
+          },
+        },
+      },
+      Prefs: {
+        ...mockState.Prefs,
+        values: {
+          ...mockState.Prefs?.values,
+          // At limit (3), so input should be disabled and icon greyed
+          "widgets.lists.maxListItems": 3,
+        },
+      },
+    };
+
+    const localWrapper = mount(
+      <WrapWithProvider state={state}>
+        <Lists
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
+      </WrapWithProvider>
+    );
+
+    const input = localWrapper.find("input.add-task-input").at(0);
+    const addIcon = localWrapper
+      .find(".add-task-container .icon.icon-add")
+      .at(0);
+
+    assert.strictEqual(
+      input.prop("disabled"),
+      true,
+      "Expected add-task input to be disabled at the maximum list items limit"
+    );
+    assert.strictEqual(
+      addIcon.hasClass("icon-disabled"),
+      true,
+      "Expected add icon to have icon-disabled class at the maximum list items limit"
+    );
+  });
+
+  it("enables add-task input when at maximum list items limit", () => {
+    // with 3 items in current list, and maxLists coerced to 1, it should be enabled
+    const state = {
+      ...mockState,
+      Prefs: {
+        ...mockState.Prefs,
+        values: {
+          ...mockState.Prefs?.values,
+          "widgets.lists.maxListItems": 5,
+        },
+      },
+    };
+
+    const localWrapper = mount(
+      <WrapWithProvider state={state}>
+        <Lists
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
+      </WrapWithProvider>
+    );
+
+    const input = localWrapper.find("input.add-task-input").at(0);
+    const addIcon = localWrapper
+      .find(".add-task-container .icon.icon-add")
+      .at(0);
+
+    assert.strictEqual(
+      input.prop("disabled"),
+      false,
+      "Expected input to be enabled when under limit"
+    );
+    assert.strictEqual(
+      addIcon.hasClass("icon-disabled"),
+      false,
+      "Expected add icon not to be greyed when under limit"
+    );
   });
 });

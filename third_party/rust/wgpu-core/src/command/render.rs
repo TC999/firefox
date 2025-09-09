@@ -638,9 +638,9 @@ impl WebGpuError for ColorAttachmentError {
 pub enum AttachmentError {
     #[error("The format of the depth-stencil attachment ({0:?}) is not a depth-or-stencil format")]
     InvalidDepthStencilAttachmentFormat(wgt::TextureFormat),
-    #[error("Read-only attachment with load")]
+    #[error("LoadOp must be None for read-only attachments")]
     ReadOnlyWithLoad,
-    #[error("Read-only attachment with store")]
+    #[error("StoreOp must be None for read-only attachments")]
     ReadOnlyWithStore,
     #[error("Attachment without load")]
     NoLoad,
@@ -2695,13 +2695,6 @@ fn multi_draw_indirect(
     );
 
     state.is_ready(family)?;
-
-    if count != 1 {
-        state
-            .general
-            .device
-            .require_features(wgt::Features::MULTI_DRAW_INDIRECT)?;
-    }
 
     state
         .general

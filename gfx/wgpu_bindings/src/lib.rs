@@ -269,6 +269,7 @@ enum Message<'a> {
         id::QueueId,
         Cow<'a, [id::CommandBufferId]>,
         Cow<'a, [id::TextureId]>,
+        Cow<'a, [crate::ExternalTextureSourceId]>,
     ),
     QueueOnSubmittedWorkDone(id::QueueId),
 
@@ -297,6 +298,7 @@ enum Message<'a> {
 
     DestroyBuffer(id::BufferId),
     DestroyTexture(id::TextureId),
+    DestroyExternalTexture(id::ExternalTextureId),
     DestroyExternalTextureSource(crate::ExternalTextureSourceId),
     DestroyDevice(id::DeviceId),
 
@@ -305,6 +307,9 @@ enum Message<'a> {
     DropQueue(id::QueueId),
     DropBuffer(id::BufferId),
     DropCommandEncoder(id::CommandEncoderId),
+    DropRenderPassEncoder(id::RenderPassEncoderId),
+    DropComputePassEncoder(id::ComputePassEncoderId),
+    DropRenderBundleEncoder(id::RenderBundleEncoderId),
     DropCommandBuffer(id::CommandBufferId),
     DropRenderBundle(id::RenderBundleId),
     DropBindGroupLayout(id::BindGroupLayoutId),

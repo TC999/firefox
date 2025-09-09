@@ -1493,9 +1493,10 @@ void nsGlobalWindowOuter::ClearControllers() {
     while (count--) {
       nsCOMPtr<nsIController> controller;
       mControllers->GetControllerAt(count, getter_AddRefs(controller));
-
-      nsCOMPtr<nsIControllerContext> context = do_QueryInterface(controller);
-      if (context) context->SetCommandContext(nullptr);
+      if (nsCOMPtr<nsBaseCommandController> context =
+              do_QueryInterface(controller)) {
+        context->SetContext(nullptr);
+      }
     }
 
     mControllers = nullptr;
@@ -2030,7 +2031,9 @@ static nsresult CreateNativeGlobalForInner(
       options, principal->IsSystemPrincipal(), aIsSecureContext,
       aDocument->ShouldResistFingerprinting(RFPTarget::JSDateTimeUTC),
       aDocument->ShouldResistFingerprinting(RFPTarget::JSMathFdlibm),
-      aDocument->ShouldResistFingerprinting(RFPTarget::JSLocale));
+      aDocument->ShouldResistFingerprinting(RFPTarget::JSLocale),
+      aDocument->GetBrowsingContext()->Top()->GetLanguageOverride(),
+      aDocument->GetBrowsingContext()->Top()->GetTimezoneOverride());
 
   // Determine if we need the Components object.
   bool needComponents = principal->IsSystemPrincipal();
@@ -3314,7 +3317,7 @@ nsIControllers* nsGlobalWindowOuter::GetControllersOuter(ErrorResult& aError) {
     }
 
     mControllers->InsertControllerAt(0, commandController);
-    commandController->SetCommandContext(static_cast<nsIDOMWindow*>(this));
+    commandController->SetContext(this);
   }
 
   return mControllers;
@@ -5158,23 +5161,29 @@ Nullable<WindowProxyHolder> nsGlobalWindowOuter::Print(
     }
   }
 
-  // When using window.print() with the new UI, we usually want to block until
-  // the print dialog is hidden. But we can't really do that if we have print
-  // callbacks, because we are inside a sync operation, and we want to run
-  // microtasks / etc that the print callbacks may create. It is really awkward
-  // to have this subtle behavior difference...
-  //
-  // We also want to do this for fuzzing, so that they can test window.print().
+  // Check whether we're in a case where we need to block in order for
+  // window.print() to function properly:
   const bool shouldBlock = [&] {
     if (aForWindowDotPrint == IsForWindowDotPrint::No) {
+      // We're not doing window.print; no need to block.
       return false;
     }
-    if (aIsPreview == IsPreview::Yes) {
+
+    // When window.print() spawns a print dialog (either our own tab-modal
+    // dialog or the system-print dialog), we usually want window.print() to
+    // block until the print dialog is hidden. But we can't really do that if
+    // we have print callbacks (mozPrintCallback), because we are inside a sync
+    // operation, and we want to run microtasks / etc that the print callbacks
+    // may create. It is really awkward to have this subtle behavior
+    // difference...
+    if (aIsPreview == IsPreview::Yes ||
+        StaticPrefs::print_prefer_system_dialog()) {
       return !hasPrintCallbacks;
     }
-    if (StaticPrefs::print_prefer_system_dialog()) {
-      return true;
-    }
+
+    // We also want to allow window.print() to block for fuzzing, so that
+    // fuzzers can test either behavior without needing to interact with a
+    // dialog.
     return StaticPrefs::dom_window_print_fuzzing_block_while_printing();
   }();
 
@@ -6442,31 +6451,29 @@ Location* nsGlobalWindowOuter::GetLocation() {
 }
 
 void nsGlobalWindowOuter::SetIsBackground(bool aIsBackground) {
-  bool changed = aIsBackground != IsBackground();
+  const bool changed = aIsBackground != IsBackground();
   SetIsBackgroundInternal(aIsBackground);
 
   nsGlobalWindowInner* inner = GetCurrentInnerWindowInternal(this);
-
-  if (inner && changed) {
-    inner->UpdateBackgroundState();
-  }
-
-  if (aIsBackground) {
-    // Notify gamepadManager we are at the background window,
-    // we need to stop vibrate.
-    // Stop the vr telemery time spent when it switches to
-    // the background window.
-    if (inner && changed) {
-      inner->StopGamepadHaptics();
-      inner->StopVRActivity();
-    }
+  if (!inner) {
     return;
   }
 
-  if (inner) {
-    inner->SyncGamepadState();
-    inner->StartVRActivity();
+  if (changed) {
+    inner->UpdateBackgroundState();
+    if (aIsBackground) {
+      // Notify gamepadManager we are at the background window,
+      // we need to stop vibrate.
+      // Stop the vr telemery time spent when it switches to
+      // the background window.
+      inner->StopGamepadHaptics();
+      inner->StopVRActivity();
+      return;
+    }
   }
+  // FIXME: Why doing this even if not changed?
+  inner->SyncGamepadState();
+  inner->StartVRActivity();
 }
 
 void nsGlobalWindowOuter::SetIsBackgroundInternal(bool aIsBackground) {

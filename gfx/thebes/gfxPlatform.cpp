@@ -88,7 +88,7 @@
 #  include "gfxAndroidPlatform.h"
 #endif
 #if defined(MOZ_WIDGET_ANDROID)
-#  include "mozilla/jni/Utils.h"  // for IsFennec
+#  include "mozilla/java/HardwareCodecCapabilityUtilsWrappers.h"
 #endif
 
 #ifdef XP_WIN
@@ -1909,13 +1909,12 @@ bool gfxPlatform::IsKnownIconFontFamily(const nsAtom* aFamilyName) const {
       aFamilyName);
 }
 
-gfxFontEntry* gfxPlatform::LookupLocalFont(nsPresContext* aPresContext,
-                                           const nsACString& aFontName,
-                                           WeightRange aWeightForEntry,
-                                           StretchRange aStretchForEntry,
-                                           SlantStyleRange aStyleForEntry) {
+gfxFontEntry* gfxPlatform::LookupLocalFont(
+    FontVisibilityProvider* aFontVisibilityProvider,
+    const nsACString& aFontName, WeightRange aWeightForEntry,
+    StretchRange aStretchForEntry, SlantStyleRange aStyleForEntry) {
   return gfxPlatformFontList::PlatformFontList()->LookupLocalFont(
-      aPresContext, aFontName, aWeightForEntry, aStretchForEntry,
+      aFontVisibilityProvider, aFontName, aWeightForEntry, aStretchForEntry,
       aStyleForEntry);
 }
 
@@ -3107,6 +3106,11 @@ void gfxPlatform::InitHardwareVideoConfig() {
   CODEC_HW_FEATURE_SETUP(HEVC)
 #endif
 
+#ifdef MOZ_WIDGET_ANDROID
+  gfxVars::SetVP9HwDecodeIsAccelerated(
+      java::HardwareCodecCapabilityUtils::HasHWVP9(false /* aIsEncoder */));
+#endif
+
 #undef CODEC_HW_FEATURE_SETUP
 }
 
@@ -3245,31 +3249,30 @@ void gfxPlatform::InitWebGPUConfig() {
     return;
   }
 
-  FeatureState& feature = gfxConfig::GetFeature(Feature::WEBGPU);
-  feature.EnableByDefault();
+  FeatureState& featureWebGPU = gfxConfig::GetFeature(Feature::WEBGPU);
+  featureWebGPU.EnableByDefault();
 
   nsCString message;
   nsCString failureId;
   if (!IsGfxInfoStatusOkay(nsIGfxInfo::FEATURE_WEBGPU, &message, failureId)) {
     if (StaticPrefs::gfx_webgpu_ignore_blocklist_AtStartup()) {
-      feature.UserForceEnable(
+      featureWebGPU.UserForceEnable(
           "Ignoring blocklist entry because gfx.webgpu.ignore-blocklist is "
           "true.");
     }
-
-    feature.Disable(FeatureStatus::Blocklisted, message.get(), failureId);
+    featureWebGPU.Disable(FeatureStatus::Blocklisted, message.get(), failureId);
   }
 
   // When this condition changes, be sure to update the `run-if`
   // conditions in `dom/webgpu/tests/mochitest/*.toml` accordingly.
 #if !(defined(NIGHTLY_BUILD) || defined(XP_WIN))
-  feature.ForceDisable(
+  featureWebGPU.ForceDisable(
       FeatureStatus::Blocked,
       "WebGPU cannot be enabled unless in Nightly or on Windows.",
       "WEBGPU_DISABLE_RELEASE_OR_NON_WINDOWS"_ns);
 #endif
 
-  gfxVars::SetAllowWebGPU(feature.IsEnabled());
+  gfxVars::SetAllowWebGPU(featureWebGPU.IsEnabled());
 
   if (StaticPrefs::dom_webgpu_allow_present_without_readback()
 #if XP_WIN
@@ -3278,6 +3281,24 @@ void gfxPlatform::InitWebGPUConfig() {
   ) {
     gfxVars::SetAllowWebGPUPresentWithoutReadback(true);
   }
+
+  FeatureState& featureExternalTexture =
+      gfxConfig::GetFeature(Feature::WEBGPU_EXTERNAL_TEXTURE);
+  featureExternalTexture.SetDefaultFromPref(
+      StaticPrefs::GetPrefName_dom_webgpu_external_texture_enabled(), true,
+      StaticPrefs::GetPrefDefault_dom_webgpu_external_texture_enabled());
+  if (!IsGfxInfoStatusOkay(nsIGfxInfo::FEATURE_WEBGPU_EXTERNAL_TEXTURE,
+                           &message, failureId)) {
+    featureExternalTexture.Disable(FeatureStatus::Blocklisted, message.get(),
+                                   failureId);
+  }
+#if !defined(XP_WIN) && !defined(XP_MACOSX)
+  featureExternalTexture.ForceDisable(
+      FeatureStatus::Blocked,
+      "WebGPU external textures are not supported on this Operating System",
+      "WEBGPU_EXTERNAL_TEXTURE_UNSUPPORTED_OS"_ns);
+#endif
+  gfxVars::SetAllowWebGPUExternalTexture(featureExternalTexture.IsEnabled());
 }
 
 #ifdef XP_WIN

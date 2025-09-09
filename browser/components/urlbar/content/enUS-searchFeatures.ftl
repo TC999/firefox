@@ -62,13 +62,6 @@ firefox-suggest-dismissal-acknowledgment-one-yelp = Thanks for your feedback. Yo
 # A message that replaces a result when the user dismisses all Yelp suggestions.
 firefox-suggest-dismissal-acknowledgment-all-yelp = Thanks for your feedback. You won’t see { -yelp-brand-name } suggestions anymore.
 
-# A message that replaces a result when the user dismisses a single Fakespot
-# suggestion.
-firefox-suggest-dismissal-acknowledgment-one-fakespot = Thanks for your feedback. You won’t see this { -fakespot-brand-name } suggestion again.
-
-# A message that replaces a result when the user dismisses all Fakespot suggestions.
-firefox-suggest-dismissal-acknowledgment-all-fakespot = Thanks for your feedback. You won’t see { -fakespot-brand-name } suggestions anymore.
-
 ## These strings are used for urlbar weather suggestions in the "simpler" and
 ## "full" weather UIs.
 
@@ -111,8 +104,6 @@ firefox-suggest-command-not-relevant =
   .label = Not relevant
 firefox-suggest-command-not-interested =
   .label = Not interested
-firefox-suggest-command-manage-fakespot =
-  .label = Manage { -fakespot-brand-name } suggestions
 firefox-suggest-command-dont-show-this-suggestion =
   .label = Don’t show this suggestion
 firefox-suggest-command-dont-show-any-suggestions =
@@ -140,33 +131,6 @@ firefox-suggest-yelp-service-title = Top results for { $service }
 # This string is shown in Yelp suggestions and indicates the suggestion is for
 # Yelp.
 firefox-suggest-yelp-bottom-text = Yelp · Sponsored
-
-## These strings are used for Fakespot suggestions in the urlbar.
-
-# This string displays inside of the badge in Fakespot suggestion.
-firefox-suggest-fakespot-badge = RELIABLE REVIEWS
-
-## This string displays rating and total reviews as a label.
-## Variables:
-##  $rating (number) - The number of rating for the suggestion.
-##  $totalReviews (number) - The number of total reviews for the suggestion.
-
-# Show the exact number of reviews.
-firefox-suggest-fakespot-rating-and-total-reviews =
-  { $totalReviews ->
-     [one] { $rating } · ({ $totalReviews } review)
-    *[other] { $rating } · ({ $totalReviews } reviews)
-  }
-# Show an approximate number of reviews (e.g. 100,000+ reviews).
-firefox-suggest-fakespot-rating-and-total-reviews-overflow =
-  { $totalReviews ->
-     [one] { $rating } · ({ $totalReviews }+ review)
-    *[other] { $rating } · ({ $totalReviews }+ reviews)
-  }
-
-# This string is shown in Fakespot suggestion and indicates the suggestion is
-# sponsored.
-firefox-suggest-fakespot-sponsored = { -fakespot-brand-name } · Sponsored
 
 # These strings are used for a toggle switch in the settings UI that opts the
 # user into "online" Firefox Suggest, allowing them to receive suggestions from
@@ -281,43 +245,20 @@ urlbar-search-mode-tabs-en = Tabs
 urlbar-search-mode-history-en = History
 urlbar-search-mode-actions-en = Actions
 
-## These strings are used for the important-dates features and will be
-## moved when they are finalized.
+## These strings are used for Yelp realtime suggestions in the urlbar.
+## Yelp realtime suggestions shows shops, places information etc nearby.
+## NOTE: Yelp is a service name, so please use this word as-is when translating.
 
-# Shows the number of days until an event.
-# Variables:
-#   $name (string) - The name of the event.
-#   $daysUntilStart (integer) - The number of days until the event starts.
-urlbar-result-dates-countdown =
-    { $daysUntilStart ->
-        [one] { $name } · In { $daysUntilStart } day
-        *[other] { $name } · In { $daysUntilStart } days
-    }
+# This string is shown as title when Yelp realtime suggestion are disabled.
+urlbar-result-yelp-realtime-opt-in-title = Find great places nearby and more
 
-# Shows the number of days until a multiple day long event starts.
-# Variables:
-#   $name (string) - The name of the event.
-#   $daysUntilStart (integer) - The number of days until the event starts.
-urlbar-result-dates-countdown-range =
-    { $daysUntilStart ->
-        [one] { $name } · Starts in { $daysUntilStart } day
-        *[other] { $name } · Starts in { $daysUntilStart } days
-    }
+# This string is shown as description when Yelp realtime suggestion are disabled.
+urlbar-result-yelp-realtime-opt-in-description = Get suggestions for nearby places and services — plus updates on stocks, sports scores, and more from our partners by sharing search query data with { -vendor-short-name }. <a data-l10n-name="learn-more-link">Learn more</a>
 
-# Shows the number of days until a multiple day long event ends.
-# Variables:
-#   $name (string) - The name of the event.
-#   $daysUntilEnd (integer) - The number of days until the event ends.
-urlbar-result-dates-ongoing =
-    { $daysUntilEnd ->
-        [one] { $name } · Ends in { $daysUntilEnd } day
-        *[other] { $name } · Ends in { $daysUntilEnd } days
-    }
+# This string is shown in the result menu.
+urlbar-result-menu-dont-show-yelp-realtime =
+  .label = Don’t show Yelp suggestions
 
-# Shows that an event happens today.
-#   $name (string) - The name of the event.
-urlbar-result-dates-today = { $name } · Today
-
-# Shows that a multiple day long event ends today.
-#   $name (string) - The name of the event.
-urlbar-result-dates-ends-today = { $name } · Ends today
+# A message that replaces a result when the user dismisses Yelp realtime
+# suggestions.
+urlbar-result-dismissal-acknowledgment-yelp-realtime = Thanks for your feedback. You won’t see Yelp suggestions anymore.

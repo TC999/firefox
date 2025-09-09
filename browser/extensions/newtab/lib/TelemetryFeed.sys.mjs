@@ -41,7 +41,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
   NewTabContentPing: "resource://newtab/lib/NewTabContentPing.sys.mjs",
   NewTabUtils: "resource://gre/modules/NewTabUtils.sys.mjs",
   NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
-  pktApi: "chrome://pocket/content/pktApi.sys.mjs",
 });
 
 XPCOMUtils.defineLazyPreferenceGetter(
@@ -240,7 +239,9 @@ export class TelemetryFeed {
   }
 
   browserOpenNewtabStart() {
-    let now = Cu.now();
+    // This shim can be removed once Firefox 144 makes it to the release
+    // channel.
+    let now = ChromeUtils.now?.() || Cu.now();
     this._browserOpenNewtabStart = Math.round(this.processStartTs + now);
 
     ChromeUtils.addProfilerMarker(
@@ -462,7 +463,9 @@ export class TelemetryFeed {
     }
 
     if (session.perf.visibility_event_rcvd_ts) {
-      let absNow = this.processStartTs + Cu.now();
+      // @backward-compat { version 144 } This newtab train-hop compatibility
+      // shim can be removed once Firefox 144 makes it to the release channel.
+      let absNow = this.processStartTs + (ChromeUtils.now?.() || Cu.now());
       session.session_duration = Math.round(
         absNow - session.perf.visibility_event_rcvd_ts
       );
@@ -640,6 +643,7 @@ export class TelemetryFeed {
           newtab_visit_id: session.session_id,
           is_sponsored: false,
           position: action.data.position,
+          is_pinned: !!action.data.isPinned,
         });
         break;
 
@@ -648,6 +652,7 @@ export class TelemetryFeed {
           newtab_visit_id: session.session_id,
           is_sponsored: false,
           position: action.data.position,
+          is_pinned: !!action.data.isPinned,
         });
         break;
 
@@ -706,15 +711,12 @@ export class TelemetryFeed {
   }
 
   handleDiscoveryStreamUserEvent(action) {
-    const pocket_logged_in_status = lazy.pktApi.isUserLoggedIn();
-    Glean.pocket.isSignedIn.set(pocket_logged_in_status);
     this.handleUserEvent({
       ...action,
       data: {
         ...(action.data || {}),
         value: {
           ...(action.data?.value || {}),
-          pocket_logged_in_status,
         },
       },
     });
@@ -735,6 +737,7 @@ export class TelemetryFeed {
           format,
           is_list_card,
           is_section_followed,
+          layout_name,
           matches_selected_topic,
           received_rank,
           recommendation_id,
@@ -772,6 +775,7 @@ export class TelemetryFeed {
                   section,
                   section_position,
                   is_section_followed,
+                  layout_name,
                 }
               : {}),
             matches_selected_topic,
@@ -1283,6 +1287,33 @@ export class TelemetryFeed {
       case at.WIDGETS_TIMER_USER_EVENT:
       case at.WIDGETS_TIMER_USER_IMPRESSION:
         this.handleWidgetsUserEvent(action);
+        break;
+      case at.PROMO_CARD_CLICK:
+      case at.PROMO_CARD_DISMISS:
+      case at.PROMO_CARD_IMPRESSION:
+        this.handlePromoCardUserEvent(action);
+        break;
+    }
+  }
+
+  handlePromoCardUserEvent(action) {
+    const session = this.sessions.get(au.getPortIdOfSender(action));
+    if (session) {
+      const payload = {
+        newtab_visit_id: session.visit_id,
+      };
+
+      switch (action.type) {
+        case at.PROMO_CARD_CLICK:
+          Glean.newtab.promoCardClick.record(payload);
+          break;
+        case at.PROMO_CARD_DISMISS:
+          Glean.newtab.promoCardDismiss.record(payload);
+          break;
+        case at.PROMO_CARD_IMPRESSION:
+          Glean.newtab.promoCardImpression.record(payload);
+          break;
+      }
     }
   }
 
@@ -1421,8 +1452,13 @@ export class TelemetryFeed {
   handleCardSectionUserEvent(action) {
     const session = this.sessions.get(au.getPortIdOfSender(action));
     if (session) {
-      const { section, section_position, event_source, is_section_followed } =
-        action.data;
+      const {
+        section,
+        section_position,
+        event_source,
+        is_section_followed,
+        layout_name,
+      } = action.data;
       const gleanDataForPrivatePing = {
         section,
         section_position,
@@ -1464,6 +1500,7 @@ export class TelemetryFeed {
               section,
               section_position,
               is_section_followed,
+              layout_name,
             })
           );
           if (this.privatePingEnabled) {
@@ -1789,6 +1826,7 @@ export class TelemetryFeed {
                 section: tile.section,
                 section_position: tile.section_position,
                 is_section_followed: tile.is_section_followed,
+                layout_name: tile.layout_name,
               }
             : {}),
           position: tile.pos,
@@ -1906,7 +1944,6 @@ export class TelemetryFeed {
       const fullPrefName = ACTIVITY_STREAM_PREF_BRANCH + pref;
       this._setNewtabPrefMetrics(fullPrefName, false);
     }
-    Glean.pocket.isSignedIn.set(lazy.pktApi.isUserLoggedIn());
 
     Services.prefs.addObserver(TOP_SITES_BLOCKED_SPONSORS_PREF, this);
     this._setBlockedSponsorsMetrics();

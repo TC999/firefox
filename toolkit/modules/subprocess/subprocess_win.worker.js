@@ -235,7 +235,10 @@ class InputPipe extends Pipe {
       this.overlapped.address()
     );
 
-    if (!ok && (!this.process.handle || libc.winLastError)) {
+    if (
+      !ok &&
+      (!this.process.handle || ctypes.winLastError !== win32.ERROR_IO_PENDING)
+    ) {
       this.onError();
     } else {
       io.updatePollEvents();
@@ -332,7 +335,7 @@ class OutputPipe extends Pipe {
       this.overlapped.address()
     );
 
-    if (!ok && libc.winLastError) {
+    if (!ok && ctypes.winLastError !== win32.ERROR_IO_PENDING) {
       this.onError();
     } else {
       io.updatePollEvents();
@@ -758,11 +761,18 @@ io = {
 
   updatePollEvents() {
     let shouldPoll = false;
-    if (this.processes.size) {
+    for (const process of this.processes.values()) {
       // As long as the process is alive, it may notify IOCP.
-      // When the process exits, we'll remove it from io.processes.
-      shouldPoll = true;
-    } else {
+      // When the process exits, process.handle is cleared by its wait(), which
+      // calls updatePollEvents(), but before it is removed from io.processes.
+      // To ensure that we immediately stop polling if it was the last process,
+      // check if process.handle is set.
+      if (process.handle) {
+        shouldPoll = true;
+        break;
+      }
+    }
+    if (!shouldPoll) {
       for (let pipe of this.pipes.values()) {
         if (pipe.hasPendingIO()) {
           shouldPoll = true;

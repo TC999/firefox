@@ -307,6 +307,12 @@ class PresShell final : public nsStubDocumentObserver,
 
   nsPresContext* GetPresContext() const { return mPresContext; }
 
+  /**
+   * Return the corresponding in-process root PresShell which is associated with
+   * the root nsPresContext of mPresContext.
+   */
+  PresShell* GetRootPresShell() const;
+
   nsViewManager* GetViewManager() const { return mViewManager; }
 
   nsRefreshDriver* GetRefreshDriver() const;
@@ -753,6 +759,13 @@ class PresShell final : public nsStubDocumentObserver,
                                const nsIFrame* aPositionedFrame) const;
   void AddAnchorPosAnchor(const nsAtom* aName, nsIFrame* aFrame);
   void RemoveAnchorPosAnchor(const nsAtom* aName, nsIFrame* aFrame);
+  enum class AnchorPosUpdateResult {
+    NotApplicable,
+    Flushed,
+    NeedReflow,
+  };
+  AnchorPosUpdateResult UpdateAnchorPosLayout();
+  void UpdateAnchorPosLayoutForScroll(ScrollContainerFrame* aScrollContainer);
 
   inline void AddAnchorPosPositioned(nsIFrame* aFrame) {
     if (!mAnchorPosPositioned.Contains(aFrame)) {
@@ -3123,8 +3136,6 @@ class PresShell final : public nsStubDocumentObserver,
     static TimeStamp sLastInputProcessed;
     static StaticRefPtr<dom::Element> sLastKeyDownEventTargetElement;
   };
-
-  PresShell* GetRootPresShell() const;
 
   bool IsTransparentContainerElement() const;
   ColorScheme DefaultBackgroundColorScheme() const;

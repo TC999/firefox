@@ -5,9 +5,38 @@
 @namespace html url("http://www.w3.org/1999/xhtml");
 
 :root {
+  --urlbar-container-min-width: 310px;
   --urlbar-container-padding: 1px;
   --urlbar-margin-inline: 5px;
   --urlbar-padding-block: 4px;
+
+  @media (max-width: 770px) {
+    --urlbar-container-min-width: 240px;
+  }
+  @media (max-width: 550px) {
+    --urlbar-container-min-width: 176px;
+  }
+  &[taskbartab] {
+    /* Taskbar tab windows are more size-constrained due to window controls
+       being in the nav bar, so we use the smaller not-yet-default value from
+       below as if the trust panel was enabled. */
+    --urlbar-container-min-width: 275px;
+  }
+  /* Enabling the trust panel saves up to two icons in the front part of the
+     address bar.
+     Vertical tab mode is more size-constrained due to window controls being in
+     the nav bar, so we use the smaller not-yet-default value as if the trust
+     panel was enabled. */
+  /* stylelint-disable-next-line media-query-no-invalid */
+  @media -moz-pref("sidebar.verticalTabs") or -moz-pref("browser.urlbar.trustPanel.featureGate") {
+    --urlbar-container-min-width: 275px;
+    @media (max-width: 770px) {
+      --urlbar-container-min-width: 205px;
+    }
+    @media (max-width: 550px) {
+      --urlbar-container-min-width: 140px;
+    }
+  }
 }
 
 #urlbar[actiontype="switchtab"][action-override] > .urlbar-input-container > #urlbar-label-box,
@@ -17,8 +46,7 @@
 .urlbar-input-container[pageproxystate="invalid"] > #page-action-buttons > .urlbar-page-action,
 #identity-box.chromeUI ~ #page-action-buttons > .urlbar-page-action:not(#star-button-box),
 #urlbar[usertyping] > .urlbar-input-container > #page-action-buttons > #urlbar-zoom-button,
-#urlbar:not([usertyping]) > .urlbar-input-container > .urlbar-go-button,
-#urlbar:not([focused]) > .urlbar-input-container > .urlbar-go-button,
+.urlbar:is(:not([usertyping]), :not([focused])) > .urlbar-input-container > .urlbar-go-button,
 .urlbar-revert-button-container {
   display: none;
 }
@@ -32,8 +60,7 @@
   }
 }
 
-#urlbar-container,
-#search-container {
+.urlbar-container {
   padding-block: var(--urlbar-padding-block);
   margin-inline: var(--urlbar-margin-inline);
 
@@ -42,7 +69,7 @@
   }
 }
 
-#urlbar {
+.urlbar {
   display: flex;
   flex-direction: row;
   flex: 1;
@@ -60,7 +87,7 @@
   background-color: initial;
 }
 
-#urlbar,
+.urlbar,
 #searchbar {
   /* Setting a min-width to let the location & search bars maintain a constant
    * width in case they haven't been resized manually. (bug 965772) */
@@ -82,7 +109,7 @@
   }
 }
 
-#urlbar[focused],
+.urlbar[focused],
 #searchbar:focus-within {
   :root[lwt-toolbar-field-focus="light"] & {
     color-scheme: light;
@@ -139,23 +166,23 @@
     text-align: right !important;
   }
 
-  #urlbar:not([focused])[domaindir="ltr"] > .urlbar-input-container > .urlbar-input-box > & {
+  .urlbar:not([focused])[domaindir="ltr"] > .urlbar-input-container > .urlbar-input-box > & {
     direction: ltr;
     unicode-bidi: embed;
   }
 
   /* The following rules apply overflow masks to the unfocused urlbar
      This mask may be overriden when a Contextual Feature Recommendation is shown. */
-  #urlbar:not([focused])[textoverflow="both"] > .urlbar-input-container > .urlbar-input-box > & {
+  .urlbar:not([focused])[textoverflow="both"] > .urlbar-input-container > .urlbar-input-box > & {
     mask-image: linear-gradient(to right, transparent, black 3ch, black calc(100% - 3ch), transparent);
   }
-  #urlbar:not([focused])[textoverflow="right"] > .urlbar-input-container > .urlbar-input-box > & {
+  .urlbar:not([focused])[textoverflow="right"] > .urlbar-input-container > .urlbar-input-box > & {
     mask-image: linear-gradient(to left, transparent, black 3ch);
   }
-  #urlbar:not([focused])[textoverflow="left"] > .urlbar-input-container > .urlbar-input-box > & {
+  .urlbar:not([focused])[textoverflow="left"] > .urlbar-input-container > .urlbar-input-box > & {
     mask-image: linear-gradient(to right, transparent, black 3ch);
   }
-  #urlbar:not([focused])[textoverflow="left"][domaindir="rtl"] > .urlbar-input-container > .urlbar-input-box > & {
+  .urlbar:not([focused])[textoverflow="left"][domaindir="rtl"] > .urlbar-input-container > .urlbar-input-box > & {
     mask-image: linear-gradient(to right, transparent var(--urlbar-scheme-size), black calc(var(--urlbar-scheme-size) + 3ch));
   }
 }
@@ -206,12 +233,12 @@
   }
 }
 
-#urlbar:is([focused], [open]),
+.urlbar:is([focused], [open]),
 #searchbar:focus-within {
   color: var(--toolbar-field-focus-color);
 }
 
-:is([focused], [open]) > .urlbar-background,
+.urlbar:is([focused], [open]) > .urlbar-background,
 #searchbar:focus-within {
   background-color: var(--toolbar-field-focus-background-color);
 }
@@ -240,7 +267,7 @@
   }
 }
 
-#urlbar:not([focused]) {
+.urlbar:not([focused]) {
   caret-color: transparent;
 }
 
@@ -250,7 +277,7 @@
  * the bounds of the urlbar.
  */
 
-#urlbar,
+.urlbar,
 .urlbar-input-container,
 .urlbarView {
   position: relative;
@@ -269,11 +296,11 @@
   min-width: 0;
 }
 
-#urlbar-container[breakout] {
+.urlbar-container[breakout] {
   min-height: var(--urlbar-container-height);
 }
 
-#urlbar[breakout] {
+.urlbar[breakout] {
   display: block;
   /* This is technically not needed, because popover takes care of it, but
    * helps for clarity. */
@@ -287,12 +314,12 @@
   }
 }
 
-#urlbar:not([open]) > .urlbarView,
-#urlbar:not([breakout]) > .urlbarView {
+.urlbar:not([open]) > .urlbarView,
+.urlbar:not([breakout]) > .urlbarView {
   display: none;
 }
 
-#urlbar[breakout][breakout-extend] {
+.urlbar[breakout][breakout-extend] {
   height: auto;
   margin-left: calc(-1 * var(--urlbar-margin-inline));
   width: calc(var(--urlbar-width) + 2 * var(--urlbar-margin-inline));
@@ -342,30 +369,30 @@
 
 #urlbar-container {
   align-items: center;
-  /* We leave 310px plus whatever space the download and unified extensions
+  /* We leave a base width plus whatever space the download and unified extensions
    * buttons will need when they *both* appear. Normally, for each button, this
    * should be 16px for the icon, plus 2 * 2px padding plus the
    * toolbarbutton-inner-padding. We're adding 4px to ensure things like rounding
    * on hidpi don't accidentally result in the buttons going into overflow.
    */
-  width: calc(310px + 2 * (24px + 2 * var(--toolbarbutton-inner-padding)));
+  width: calc(var(--urlbar-container-min-width) + 2 * (24px + 2 * var(--toolbarbutton-inner-padding)));
 
   /* When the download button OR the unified extensions button is shown, we leave
-   * 310px plus the space needed for a single button as described above. */
+   * the base width plus the space needed for a single button as described above. */
   #nav-bar:is([downloadsbuttonshown], [unifiedextensionsbuttonshown]) & {
-    width: calc(310px + 24px + 2 * var(--toolbarbutton-inner-padding));
+    width: calc(var(--urlbar-container-min-width) + 24px + 2 * var(--toolbarbutton-inner-padding));
   }
 
   /* When both the download and unified extensions buttons are visible, we use
    * the base min-width value. */
   #nav-bar[downloadsbuttonshown][unifiedextensionsbuttonshown] & {
-    width: 310px;
+    width: var(--urlbar-container-min-width);
   }
 
   /* Customize mode is difficult to use at moderate window width if the Urlbar
-   * remains 310px wide. */
+   * remains as wide. */
   :root[customizing] & {
-    width: 280px;
+    width: calc(var(--urlbar-container-min-width) - 30px);
   }
 }
 
@@ -384,18 +411,6 @@
 }
 
 @media (max-width: 770px) {
-  #urlbar-container {
-    width: calc(240px + 2 * (24px + 2 * var(--toolbarbutton-inner-padding)));
-  }
-  #nav-bar:is([downloadsbuttonshown], [unifiedextensionsbuttonshown]) #urlbar-container {
-    width: calc(240px + 24px + 2 * var(--toolbarbutton-inner-padding));
-  }
-  #nav-bar[downloadsbuttonshown][unifiedextensionsbuttonshown] #urlbar-container {
-    width: 240px;
-  }
-  :root[customizing] #urlbar-container {
-    width: 245px;
-  }
   #identity-icon-box {
     max-width: 80px;
   }
@@ -435,16 +450,6 @@
 }
 
 @media (max-width: 550px) {
-  #urlbar-container {
-    width: calc(176px + 2 * (24px + 2 * var(--toolbarbutton-inner-padding)));
-  }
-  #nav-bar[downloadsbuttonshown] #urlbar-container,
-  #nav-bar[unifiedextensionsbuttonshown] #urlbar-container {
-    width: calc(176px + 24px + 2 * var(--toolbarbutton-inner-padding));
-  }
-  #nav-bar[downloadsbuttonshown][unifiedextensionsbuttonshown] #urlbar-container {
-    width: 176px;
-  }
   #identity-icon-box {
     max-width: 70px;
   }
@@ -829,7 +834,7 @@
   }
 }
 
-#urlbar[persistsearchterms] > .urlbar-input-container {
+.urlbar[persistsearchterms] > .urlbar-input-container {
   > .urlbar-revert-button-container {
     display: inherit;
   }
@@ -898,7 +903,7 @@
 #translations-button-locale {
   background-color: var(--toolbarbutton-icon-fill-attention);
   color: var(--toolbarbutton-icon-fill-attention-text);
-  border-radius: 4px;
+  border-radius: var(--border-radius-small);
   font-size: 0.8em;
   height: 20px;
   min-width: 20px;
@@ -1022,6 +1027,19 @@
   }
 }
 
+/* stylelint-disable-next-line media-query-no-invalid */
+@media not -moz-pref("browser.search.widget.new") {
+  #searchbar-new {
+    display: none;
+  }
+}
+/* stylelint-disable-next-line media-query-no-invalid */
+@media -moz-pref("browser.search.widget.new") {
+  #searchbar {
+    display: none;
+  }
+}
+
 .search-go-button {
   margin-inline: 1px;
 }
@@ -1115,11 +1133,11 @@
   }
 
   /* No need space if page information icons such as lock and shield is shown */
-  #urlbar[pageproxystate="valid"] & {
+  .urlbar[pageproxystate="valid"] & {
     margin-inline-end: 0;
   }
 
-  #urlbar[searchmode] & {
+  .urlbar[searchmode] & {
     background-color: var(--urlbar-box-bgcolor);
     margin-inline-end: 0;
     border-start-end-radius: 0;
@@ -1127,7 +1145,7 @@
   }
 
   /* The background rule should match to .searchmode-switcher-chicklet */
-  #urlbar[focused] & {
+  .urlbar[focused] & {
     background-color: var(--urlbar-box-focus-bgcolor);
   }
 
@@ -1159,12 +1177,12 @@
 
   /* stylelint-disable-next-line media-query-no-invalid */
   @media -moz-pref("browser.urlbar.searchModeSwitcher.featureGate") or -moz-pref("browser.urlbar.scotchBonnet.enableOverride") {
-    #urlbar[searchmode] & {
+    .urlbar[searchmode] & {
       display: inline-flex;
     }
   }
 
-  #urlbar[focused] & {
+  .urlbar[focused] & {
     background-color: var(--urlbar-box-focus-bgcolor);
   }
 }
@@ -1187,13 +1205,13 @@
   pointer-events: all;
   margin-inline: var(--urlbar-searchmodeswitcher-inline-padding);
 
-  #urlbar[searchmode] & {
+  .urlbar[searchmode] & {
     display: inline-flex;
   }
 }
 
 .searchmode-switcher-dropmarker {
-  #urlbar[searchmode] & {
+  .urlbar[searchmode] & {
     display: none;
   }
   .urlbar-searchmode-switcher[open] & {
@@ -1242,7 +1260,7 @@
   @media not -moz-pref("browser.urlbar.unifiedSearchButton.always") {
     .searchmode-switcher {
       background-color: var(--urlbar-box-bgcolor);
-      #urlbar:not([unifiedsearchbutton-available]) > .urlbar-input-container > & {
+      .urlbar:not([unifiedsearchbutton-available]) > .urlbar-input-container > & {
         /* Display as off-screen to get focus */
         position: fixed;
         top: -999px;

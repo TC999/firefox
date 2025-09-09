@@ -182,6 +182,17 @@ spidermonkey
 Spidermonkey tasks check out the full gecko source tree, then compile only the
 spidermonkey portion.  Each task runs specific tests after the build.
 
+mochitest
+---------
+
+See the :doc:`test kind documentation <kinds/test>` for more info.
+
+.. toctree::
+   :hidden:
+
+   kinds/test
+
+
 test
 ----
 
@@ -891,9 +902,9 @@ generate-baseline-profile-firebase
 ----------------------------------
 Run baseline profile generation for Android on Firebase TestLab.
 
-update
-------------
-Run tests to see if the executable can be updated to the latest release.
+update-test
+-----------
+Run tests to see if the Firefox executable can be updated to the latest release.
 
 run-macrobenchmark-firebase
 ---------------------------

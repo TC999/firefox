@@ -622,6 +622,13 @@ nsresult nsXMLContentSink::CloseElement(nsIContent* aContent) {
     // script element being adding to the tree.
     FlushTags();
 
+    // https://html.spec.whatwg.org/#parsing-xhtml-documents
+    // When the element's end tag is subsequently parsed, the user agent must
+    // perform a microtask checkpoint, and then prepare the script element.
+    {
+      nsAutoMicroTask mt;
+    }
+
     // Now tell the script that it's ready to go. This may execute the script
     // or return true, or neither if the script doesn't need executing.
     bool block = sele->AttemptToExecute();
@@ -906,11 +913,27 @@ bool nsXMLContentSink::SetDocElement(int32_t aNameSpaceID, nsAtom* aTagName,
     return true;
   }
 
-  if (!mDocumentChildren.IsEmpty()) {
-    for (nsIContent* child : mDocumentChildren) {
-      mDocument->AppendChildTo(child, false, IgnoreErrors());
+  auto documentChildren = std::move(mDocumentChildren);
+  MOZ_ASSERT(mDocumentChildren.IsEmpty());
+  for (nsIContent* child : documentChildren) {
+    auto* linkStyle = LinkStyle::FromNode(*child);
+    if (linkStyle) {
+      linkStyle->DisableUpdates();
     }
-    mDocumentChildren.Clear();
+    mDocument->AppendChildTo(child, false, IgnoreErrors());
+    if (linkStyle) {
+      auto updateOrError = linkStyle->EnableUpdatesAndUpdateStyleSheet(
+          mRunsToCompletion ? nullptr : this);
+      if (updateOrError.isErr()) {
+        continue;
+      }
+      auto update = updateOrError.unwrap();
+      // Successfully started a stylesheet load
+      if (update.ShouldBlock() && !mRunsToCompletion) {
+        ++mPendingSheetCount;
+        mScriptLoader->AddParserBlockingScriptExecutionBlocker();
+      }
+    }
   }
 
   // check for root elements that needs special handling for
@@ -1222,9 +1245,8 @@ nsXMLContentSink::HandleProcessingInstruction(const char16_t* aTarget,
   RefPtr<ProcessingInstruction> node =
       NS_NewXMLProcessingInstruction(mNodeInfoManager, target, data);
 
-  auto* linkStyle = LinkStyle::FromNode(*node);
-  if (linkStyle) {
-    linkStyle->DisableUpdates();
+  if (LinkStyle::FromNode(*node)) {
+    // TODO(emilio): can we move this check to SetDocElement?
     mPrettyPrintXML = false;
   }
 
@@ -1239,26 +1261,6 @@ nsXMLContentSink::HandleProcessingInstruction(const char16_t* aTarget,
     CSP_ApplyMetaCSPToDoc(*mDocument, data);
   }
 
-  if (linkStyle) {
-    // This is an xml-stylesheet processing instruction... but it might not be
-    // a CSS one if the type is set to something else.
-    auto updateOrError = linkStyle->EnableUpdatesAndUpdateStyleSheet(
-        mRunsToCompletion ? nullptr : this);
-    if (updateOrError.isErr()) {
-      return updateOrError.unwrapErr();
-    }
-
-    auto update = updateOrError.unwrap();
-    if (update.WillNotify()) {
-      // Successfully started a stylesheet load
-      if (update.ShouldBlock() && !mRunsToCompletion) {
-        ++mPendingSheetCount;
-        mScriptLoader->AddParserBlockingScriptExecutionBlocker();
-      }
-      return NS_OK;
-    }
-  }
-
   // Check whether this is a CSS stylesheet PI.  Make sure the type
   // handling here matches
   // XMLStylesheetProcessingInstruction::GetStyleSheetInfo.
@@ -1270,8 +1272,8 @@ nsXMLContentSink::HandleProcessingInstruction(const char16_t* aTarget,
   if (mState != eXMLContentSinkState_InProlog ||
       !target.EqualsLiteral("xml-stylesheet") || mimeType.IsEmpty() ||
       mimeType.LowerCaseEqualsLiteral("text/css")) {
-    // Either not a useful stylesheet PI, or a CSS stylesheet PI that
-    // got handled above by the "ssle" bits.  We're done here.
+    // Either not a useful stylesheet PI, or a regular CSS stylesheet PI that
+    // will get handled when appending mDocumentChildren.
     return DidProcessATokenImpl();
   }
 

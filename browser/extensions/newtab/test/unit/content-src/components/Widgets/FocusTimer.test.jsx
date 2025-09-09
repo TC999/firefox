@@ -45,15 +45,20 @@ describe("<FocusTimer>", () => {
   let sandbox;
   let dispatch;
   let clock; // for use with the sinon fake timers api
+  let handleUserInteraction;
 
   beforeEach(() => {
     sandbox = sinon.createSandbox();
     dispatch = sandbox.stub();
     clock = sandbox.useFakeTimers();
+    handleUserInteraction = sandbox.stub();
 
     wrapper = mount(
       <WrapWithProvider state={mockState}>
-        <FocusTimer dispatch={dispatch} />
+        <FocusTimer
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
       </WrapWithProvider>
     );
   });
@@ -87,7 +92,10 @@ describe("<FocusTimer>", () => {
 
     wrapper = mount(
       <WrapWithProvider state={breakState}>
-        <FocusTimer dispatch={dispatch} />
+        <FocusTimer
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
       </WrapWithProvider>
     );
 
@@ -124,7 +132,10 @@ describe("<FocusTimer>", () => {
 
     wrapper = mount(
       <WrapWithProvider state={runningState}>
-        <FocusTimer dispatch={dispatch} />
+        <FocusTimer
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
       </WrapWithProvider>
     );
 
@@ -144,13 +155,15 @@ describe("<FocusTimer>", () => {
     resetBtn.props().onClick();
     assert.equal(dispatch.getCall(0).args[0].type, at.WIDGETS_TIMER_RESET);
 
+    const initialUserDuration = 12 * 60;
+
     const resetState = {
       ...mockState,
       TimerWidget: {
         ...mockState.TimerWidget,
         focus: {
-          duration: 0,
-          initialDuration: 0,
+          duration: initialUserDuration,
+          initialDuration: initialUserDuration,
           startTime: null,
           isRunning: false,
         },
@@ -159,7 +172,10 @@ describe("<FocusTimer>", () => {
 
     wrapper = mount(
       <WrapWithProvider state={resetState}>
-        <FocusTimer dispatch={dispatch} />
+        <FocusTimer
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
       </WrapWithProvider>
     );
 
@@ -167,7 +183,7 @@ describe("<FocusTimer>", () => {
 
     const minutes = wrapper.find(".timer-set-minutes").text();
     const seconds = wrapper.find(".timer-set-seconds").text();
-    assert.equal(minutes, "00");
+    assert.equal(minutes, "12");
     assert.equal(seconds, "00");
   });
 
@@ -242,7 +258,10 @@ describe("<FocusTimer>", () => {
 
     wrapper = mount(
       <WrapWithProvider state={endState}>
-        <FocusTimer dispatch={dispatch} />
+        <FocusTimer
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
       </WrapWithProvider>
     );
 
@@ -291,7 +310,10 @@ describe("<FocusTimer>", () => {
 
     wrapper = mount(
       <WrapWithProvider state={endState}>
-        <FocusTimer dispatch={dispatch} />
+        <FocusTimer
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
       </WrapWithProvider>
     );
 
@@ -334,7 +356,10 @@ describe("<FocusTimer>", () => {
 
     const activeWrapper = mount(
       <WrapWithProvider state={activeState}>
-        <FocusTimer dispatch={dispatch} />
+        <FocusTimer
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
       </WrapWithProvider>
     );
 
@@ -367,7 +392,10 @@ describe("<FocusTimer>", () => {
 
     wrapper = mount(
       <WrapWithProvider state={endState}>
-        <FocusTimer dispatch={dispatch} />
+        <FocusTimer
+          dispatch={dispatch}
+          handleUserInteraction={handleUserInteraction}
+        />
       </WrapWithProvider>
     );
 
@@ -450,7 +478,10 @@ describe("<FocusTimer>", () => {
 
       wrapper = mount(
         <WrapWithProvider state={noNotificationsState}>
-          <FocusTimer dispatch={dispatch} />
+          <FocusTimer
+            dispatch={dispatch}
+            handleUserInteraction={handleUserInteraction}
+          />
         </WrapWithProvider>
       );
 

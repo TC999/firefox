@@ -16,7 +16,6 @@ const REMOTE_SETTINGS_RECORDS = [
             payload: {
               dates: ["2025-03-05", "2026-02-18"],
               name: "Event 1",
-              notes: "Always the first Monday in January.",
             },
           },
         },
@@ -38,6 +37,46 @@ const REMOTE_SETTINGS_RECORDS = [
       },
     ],
   },
+  {
+    type: "dynamic-suggestions",
+    suggestion_type: "other_suggestions",
+    attachment: [
+      {
+        keywords: [["event", [" 2"]]],
+        data: {
+          result: {
+            isBestMatch: true,
+            payload: {
+              title: "Top Pick Suggestion 1",
+              url: "https://foo.com/",
+              description:
+                "A suggestion that just so happens to have the same keyword",
+            },
+          },
+        },
+      },
+    ],
+  },
+  {
+    type: "dynamic-suggestions",
+    suggestion_type: "other_suggestions",
+    attachment: [
+      {
+        keywords: [["event", [" 3"]]],
+        data: {
+          result: {
+            isBestMatch: true,
+            payload: {
+              title: "Top Pick Suggestion 2",
+              url: "https://foo.com/",
+              description:
+                "Another suggestion that just so happens to have the same keyword",
+            },
+          },
+        },
+      },
+    ],
+  },
 ];
 
 let SystemDate;
@@ -46,15 +85,88 @@ add_setup(async function () {
   await QuickSuggestTestUtils.ensureQuickSuggestInit({
     remoteSettingsRecords: REMOTE_SETTINGS_RECORDS,
     prefs: [
-      ["quicksuggest.dynamicSuggestionTypes", "important_dates"],
-      ["suggest.quicksuggest.nonsponsored", true],
-      ["suggest.quicksuggest.sponsored", true],
-      ["quicksuggest.ampTopPickCharThreshold", 0],
+      ["importantDates.featureGate", true],
+      ["quicksuggest.dynamicSuggestionTypes", "other_suggestions"],
     ],
   });
   await Services.search.init();
 
   SystemDate = Cu.getGlobalForObject(QuickSuggestTestUtils).Date;
+});
+
+add_task(async function telemetryType() {
+  Assert.equal(
+    QuickSuggest.getFeature(
+      "ImportantDatesSuggestions"
+    ).getSuggestionTelemetryType({}),
+    "important_dates",
+    "Telemetry type should be 'important_dates'"
+  );
+});
+
+// Important dates should respect the `importantDates.featureGate` and
+// `suggest.importantDates` prefs.
+add_task(async function enablingPrefs() {
+  setTime("2025-03-01T00:00");
+
+  let query = "event 1";
+  let expected = makeExpectedResult({
+    date: "Wednesday, March 5, 2025",
+    descriptionL10n: {
+      id: "urlbar-result-dates-countdown",
+      args: { name: "Event 1", daysUntilStart: 4 },
+    },
+  });
+
+  for (let pref of ["importantDates.featureGate", "suggest.importantDates"]) {
+    info("Doing enabling-pref test: " + pref);
+
+    // First make sure the result is matched.
+    await checkDatesResults(query, expected);
+
+    // Now disable the pref and do another search.
+    UrlbarPrefs.set(pref, false);
+    await checkDatesResults(query, null);
+
+    // Clean up.
+    UrlbarPrefs.set(pref, true);
+    await QuickSuggestTestUtils.forceSync();
+  }
+});
+
+// Important dates are considered "utility" suggestions and not part of the
+// Suggest brand, so they should be enabled regardless of the sponsored and
+// nonsponsored Suggest prefs.
+add_task(async function neitherSponsoredNorNonsponsored() {
+  setTime("2025-03-01T00:00");
+
+  let query = "event 1";
+  let expected = makeExpectedResult({
+    date: "Wednesday, March 5, 2025",
+    descriptionL10n: {
+      id: "urlbar-result-dates-countdown",
+      args: { name: "Event 1", daysUntilStart: 4 },
+    },
+  });
+
+  for (let sponsored of [true, false]) {
+    for (let nonsponsored of [true, false]) {
+      info(
+        "Doing sponsored/nonsponsored test: " +
+          JSON.stringify({ sponsored, nonsponsored })
+      );
+
+      UrlbarPrefs.set("suggest.quicksuggest.sponsored", sponsored);
+      UrlbarPrefs.set("suggest.quicksuggest.nonsponsored", nonsponsored);
+      await QuickSuggestTestUtils.forceSync();
+
+      await checkDatesResults(query, expected);
+    }
+  }
+
+  UrlbarPrefs.clear("suggest.quicksuggest.sponsored");
+  UrlbarPrefs.clear("suggest.quicksuggest.nonsponsored");
+  await QuickSuggestTestUtils.forceSync();
 });
 
 add_task(async function fourDaysBefore() {
@@ -156,6 +268,59 @@ add_task(async function lastDayDuringMultiDay() {
   await checkDatesResults(query, expected);
 });
 
+// Test whether the date suggestion is before the other
+// isBestMatch suggestion.
+add_task(async function testTwoSuggestions() {
+  // `other_suggestions` is nonsponsored so it depends on the nonsponsored pref.
+  UrlbarPrefs.set("suggest.quicksuggest.nonsponsored", true);
+  await QuickSuggestTestUtils.forceSync();
+
+  setTime("2025-03-01T00:00");
+
+  // 1 date suggestion and 2 other suggestions match this, but
+  // one of the two other suggestions should be deduped.
+  let query = "event";
+  let expectedDateSuggestion = makeExpectedResult({
+    date: "Wednesday, March 5, 2025",
+    descriptionL10n: {
+      id: "urlbar-result-dates-countdown",
+      args: { daysUntilStart: 4, name: "Event 1" },
+      cacheable: true,
+      excludeArgsFromCacheKey: true,
+    },
+  });
+
+  let expectedOtherSuggestion = {
+    type: UrlbarUtils.RESULT_TYPE.URL,
+    source: UrlbarUtils.RESULT_SOURCE.SEARCH,
+    heuristic: false,
+    isBestMatch: true,
+    isRichSuggestion: true,
+    suggestedIndex: 1,
+    payload: {
+      source: "rust",
+      provider: "Dynamic",
+      suggestionType: "other_suggestions",
+      title: "Top Pick Suggestion 1",
+      url: "https://foo.com/",
+      telemetryType: "other_suggestions",
+      displayUrl: "foo.com",
+      description: "A suggestion that just so happens to have the same keyword",
+      isManageable: true,
+      isSponsored: false,
+      helpUrl: QuickSuggest.HELP_URL,
+    },
+  };
+
+  await checkDatesResults(query, [
+    expectedDateSuggestion,
+    expectedOtherSuggestion,
+  ]);
+
+  UrlbarPrefs.clear("suggest.quicksuggest.nonsponsored");
+  await QuickSuggestTestUtils.forceSync();
+});
+
 /**
  * Stubs the Date object of the system global to use timeStr
  * when the constructor is called without arguments.
@@ -193,7 +358,7 @@ async function checkDatesResults(query, expected) {
       providers: [UrlbarProviderQuickSuggest.name],
       isPrivate: false,
     }),
-    matches: expected ? [expected] : [],
+    matches: expected ? [expected].flat() : [],
   });
 }
 
@@ -207,14 +372,17 @@ function makeExpectedResult({
 }) {
   let name = description ?? descriptionL10n.args.name;
   return {
-    type: UrlbarUtils.RESULT_TYPE.URL,
+    type: UrlbarUtils.RESULT_TYPE.SEARCH,
     source: UrlbarUtils.RESULT_SOURCE.SEARCH,
     heuristic: false,
     isBestMatch,
+    suggestedIndex: 1,
     isRichSuggestion,
     payload: {
       title: date,
-      url: Services.search.defaultEngine.getSubmission(name).uri.spec,
+      engine: Services.search.defaultEngine.name,
+      query: name,
+      lowerCaseSuggestion: name.toLocaleLowerCase(),
       description,
       descriptionL10n: descriptionL10n
         ? { cacheable: true, excludeArgsFromCacheKey: true, ...descriptionL10n }
@@ -223,10 +391,11 @@ function makeExpectedResult({
       telemetryType: "important_dates",
       source: "rust",
       provider: "Dynamic",
+      suggestionType: "important_dates",
       isManageable: true,
       isBlockable: true,
       helpUrl: QuickSuggest.HELP_URL,
-      icon: "chrome://global/skin/icons/search-glass.svg",
+      icon: "chrome://browser/skin/calendar-24.svg",
     },
   };
 }

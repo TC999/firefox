@@ -1047,11 +1047,6 @@ void CycleCollectedJSRuntime::NoteGCThingXPCOMChildren(
         static_cast<const RemoteObjectProxyBase*>(js::GetProxyHandler(obj));
     return handler->NoteChildren(obj, aCb);
   }
-
-  JS::Value value = js::MaybeGetScriptPrivate(obj);
-  if (!value.isUndefined()) {
-    aCb.NoteXPCOMChild(static_cast<nsISupports*>(value.toPrivate()));
-  }
 }
 
 void CycleCollectedJSRuntime::TraverseGCThing(
@@ -1211,7 +1206,8 @@ struct GCMajorMarker : public BaseMarkerType<GCMajorMarker> {
 
   using MS = MarkerSchema;
   static constexpr MS::PayloadField PayloadFields[] = {
-      {"timings", MS::InputType::CString, "GC timings"}};
+      {"timings", MS::InputType::CString, "GC timings", MS::Format::String,
+       MS::PayloadFlags::Hidden}};
 
   static constexpr MS::Location Locations[] = {MS::Location::MarkerChart,
                                                MS::Location::MarkerTable,

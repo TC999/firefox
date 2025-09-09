@@ -10,15 +10,29 @@
   padding-block: var(--space-large);
   max-height: var(--newtab-card-height);
   box-shadow: var(--box-shadow-card);
+  position: relative;
+
+  .confetti-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1; /* adjust as needed to sit above background but below UI */
+  }
 
   .select-wrapper {
     padding-inline: var(--space-large);
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     position: relative;
+    align-items: center;
+    gap: var(--space-medium);
 
     moz-button {
       visibility: hidden;
+      margin-inline-start: auto;
     }
   }
 
@@ -44,6 +58,10 @@
       inset-block-start: 50%;
       transform: translateY(-50%);
       inset-inline-start: var(--space-xlarge);
+
+      &.icon-disabled {
+        fill: var(--text-color-disabled);
+      }
     }
 
     .add-task-input {
@@ -62,6 +80,12 @@
       &:focus::placeholder {
         color: var(--newtab-text-primary-color);
       }
+
+      &:disabled {
+        background-color: var(--button-background-color-ghost);
+        color: var(--text-color-disabled);
+        outline: var(--border-width) solid var(--border-color-interactive-disabled);
+      }
     }
   }
 
@@ -69,7 +93,7 @@
     padding: 0 var(--space-medium);
     margin: 0 var(--space-xsmall);
     border: none;
-    overflow-y: scroll;
+    overflow-y: auto;
     max-height: 165px;
   }
 
@@ -81,6 +105,13 @@
     display: flex;
     justify-content: space-between;
     margin-block-end: var(--space-small);
+    transition: opacity 300ms ease;
+
+    @media (prefers-reduced-motion: no-preference) {
+      &.exiting {
+        opacity: 0;
+      }
+    }
 
     .checkbox-wrapper {
       display: flex;
@@ -151,7 +182,9 @@
   }
 
   .empty-list-text {
+    height: var(--space-xlarge);
     color: var(--text-color-deemphasized);
+    font-size: var(--font-size-small);
   }
 
   .completed-task-wrapper summary {
@@ -164,7 +197,7 @@
       &::after {
         content: '';
         -moz-context-properties: fill;
-        fill: var(--text-color-deemphasized);
+        fill: var(--button-icon-fill);
         background-image: url('chrome://global/skin/icons/arrow-right.svg');
         height: var(--space-large);
         width: var(--space-large);

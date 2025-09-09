@@ -460,11 +460,14 @@ class _QuickSuggestTestUtils {
     blockId = 1,
     advertiser = "Amp",
     iabCategory = "22 - Shopping",
+    // Note that many callers use -1 here because they test without
+    // the search suggestion provider.
     suggestedIndex = 0,
     isSuggestedIndexRelativeToGroup = true,
     isBestMatch = false,
     requestId = undefined,
     descriptionL10n = { id: "urlbar-result-action-sponsored" },
+    categories = [],
   } = {}) {
     let result = {
       suggestedIndex,
@@ -510,6 +513,7 @@ class _QuickSuggestTestUtils {
         blockId,
         advertiser,
         iabCategory,
+        categories,
         impressionUrl,
         clickUrl,
         rawClickUrl: clickUrl,
@@ -1016,7 +1020,8 @@ class _QuickSuggestTestUtils {
     provider = "Yelp",
     isTopPick = false,
     // The default Yelp suggestedIndex is 0, unlike most other Suggest
-    // suggestion types, which use -1.
+    // suggestion types, which use -1. Note that many callers still use
+    // -1 here because they test without the search suggestion provider.
     suggestedIndex = 0,
     isSuggestedIndexRelativeToGroup = true,
     originalUrl = undefined,

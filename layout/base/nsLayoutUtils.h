@@ -388,7 +388,7 @@ class nsLayoutUtils {
 
   static int32_t CompareTreePosition(
       const nsIFrame* aFrame1, const nsIFrame* aFrame2,
-      nsTArray<const nsIFrame*>& aFrame2Ancestors,
+      const nsTArray<const nsIFrame*>& aFrame2Ancestors,
       const nsIFrame* aCommonAncestor = nullptr) {
     return DoCompareTreePosition(aFrame1, aFrame2, aFrame2Ancestors,
                                  aCommonAncestor);
@@ -403,7 +403,7 @@ class nsLayoutUtils {
                                        const nsIFrame* aCommonAncestor);
   static int32_t DoCompareTreePosition(
       const nsIFrame* aFrame1, const nsIFrame* aFrame2,
-      nsTArray<const nsIFrame*>& aFrame2Ancestors,
+      const nsTArray<const nsIFrame*>& aFrame2Ancestors,
       const nsIFrame* aCommonAncestor);
 
   /**
@@ -1102,7 +1102,7 @@ class nsLayoutUtils {
    * smaller rect than necessary.
    */
   static nsRegion RoundedRectIntersectRect(const nsRect& aRoundedRect,
-                                           const nscoord aRadii[8],
+                                           const nsRectCornerRadii&,
                                            const nsRect& aContainedRect);
   static nsIntRegion RoundedRectIntersectIntRect(
       const nsIntRect& aRoundedRect, const RectCornerRadii& aCornerRadii,
@@ -1114,7 +1114,7 @@ class nsLayoutUtils {
    * enum HalfCorner constants in gfx/2d/Types.h). This is precise.
    */
   static bool RoundedRectIntersectsRect(const nsRect& aRoundedRect,
-                                        const nscoord aRadii[8],
+                                        const nsRectCornerRadii&,
                                         const nsRect& aTestRect);
 
   enum class PaintFrameFlags : uint32_t {

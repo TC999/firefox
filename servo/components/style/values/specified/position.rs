@@ -12,6 +12,7 @@ use crate::selector_map::PrecomputedHashMap;
 use crate::str::HTML_SPACE_CHARACTERS;
 use crate::values::computed::LengthPercentage as ComputedLengthPercentage;
 use crate::values::computed::{Context, Percentage, ToComputedValue};
+use crate::values::generics::length::GenericAnchorSizeFunction;
 use crate::values::generics::position::Position as GenericPosition;
 use crate::values::generics::position::PositionComponent as GenericPositionComponent;
 use crate::values::generics::position::PositionOrAuto as GenericPositionOrAuto;
@@ -325,8 +326,8 @@ impl<S: Side> ToComputedValue for PositionComponent<S> {
                 // We represent `<end-side> <length>` as `calc(100% - <length>)`.
                 ComputedLengthPercentage::hundred_percent_minus(length, AllowedNumericType::All)
             },
-            PositionComponent::Side(_, Some(ref length)) |
-            PositionComponent::Length(ref length) => length.to_computed_value(context),
+            PositionComponent::Side(_, Some(ref length))
+            | PositionComponent::Length(ref length) => length.to_computed_value(context),
         }
     }
 
@@ -909,35 +910,35 @@ impl PositionAreaKeyword {
     pub fn is_horizontal(&self) -> bool {
         matches!(
             self,
-            Self::Left |
-                Self::Right |
-                Self::SpanLeft |
-                Self::SpanRight |
-                Self::XStart |
-                Self::XEnd |
-                Self::SpanXStart |
-                Self::SpanXEnd |
-                Self::XSelfStart |
-                Self::XSelfEnd |
-                Self::SpanXSelfStart |
-                Self::SpanXSelfEnd
+            Self::Left
+                | Self::Right
+                | Self::SpanLeft
+                | Self::SpanRight
+                | Self::XStart
+                | Self::XEnd
+                | Self::SpanXStart
+                | Self::SpanXEnd
+                | Self::XSelfStart
+                | Self::XSelfEnd
+                | Self::SpanXSelfStart
+                | Self::SpanXSelfEnd
         )
     }
     pub fn is_vertical(&self) -> bool {
         matches!(
             self,
-            Self::Top |
-                Self::Bottom |
-                Self::SpanTop |
-                Self::SpanBottom |
-                Self::YStart |
-                Self::YEnd |
-                Self::SpanYStart |
-                Self::SpanYEnd |
-                Self::YSelfStart |
-                Self::YSelfEnd |
-                Self::SpanYSelfStart |
-                Self::SpanYSelfEnd
+            Self::Top
+                | Self::Bottom
+                | Self::SpanTop
+                | Self::SpanBottom
+                | Self::YStart
+                | Self::YEnd
+                | Self::SpanYStart
+                | Self::SpanYEnd
+                | Self::YSelfStart
+                | Self::YSelfEnd
+                | Self::SpanYSelfStart
+                | Self::SpanYSelfEnd
         )
     }
 
@@ -957,19 +958,19 @@ impl PositionAreaKeyword {
     pub fn is_self_block(&self) -> bool {
         matches!(
             self,
-            Self::SelfBlockStart |
-                Self::SelfBlockEnd |
-                Self::SpanSelfBlockStart |
-                Self::SpanSelfBlockEnd
+            Self::SelfBlockStart
+                | Self::SelfBlockEnd
+                | Self::SpanSelfBlockStart
+                | Self::SpanSelfBlockEnd
         )
     }
     pub fn is_self_inline(&self) -> bool {
         matches!(
             self,
-            Self::SelfInlineStart |
-                Self::SelfInlineEnd |
-                Self::SpanSelfInlineStart |
-                Self::SpanSelfInlineEnd
+            Self::SelfInlineStart
+                | Self::SelfInlineEnd
+                | Self::SpanSelfInlineStart
+                | Self::SpanSelfInlineEnd
         )
     }
 
@@ -1111,11 +1112,11 @@ impl PositionArea {
 
         // Normalize by applying the shortest serialization principle:
         // https://drafts.csswg.org/cssom/#serializing-css-values
-        if first.is_inferred_logical() ||
-            second.is_inferred_logical() ||
-            first.is_self_inferred_logical() ||
-            second.is_self_inferred_logical() ||
-            (first.is_common() && second.is_common())
+        if first.is_inferred_logical()
+            || second.is_inferred_logical()
+            || first.is_self_inferred_logical()
+            || second.is_self_inferred_logical()
+            || (first.is_common() && second.is_common())
         {
             // In these cases we must not change the order of the keywords
             // since their meaning is inferred from their order. However, if
@@ -1131,12 +1132,12 @@ impl PositionArea {
             // Same here, but the non-superfluous keyword must come first.
             first = second;
             second = PositionAreaKeyword::None;
-        } else if first.is_vertical() ||
-            second.is_horizontal() ||
-            first.is_inline() ||
-            second.is_block() ||
-            first.is_self_inline() ||
-            second.is_self_block()
+        } else if first.is_vertical()
+            || second.is_horizontal()
+            || first.is_inline()
+            || second.is_block()
+            || first.is_self_inline()
+            || second.is_self_block()
         {
             // Canonical order is horizontal before vertical, block before inline.
             std::mem::swap(&mut first, &mut second);
@@ -1482,8 +1483,8 @@ impl TemplateAreasParser {
             match self.area_indices.entry(name) {
                 Entry::Occupied(ref e) => {
                     let index = *e.get();
-                    if self.areas[index].columns.start != column ||
-                        self.areas[index].rows.end != self.row
+                    if self.areas[index].columns.start != column
+                        || self.areas[index].rows.end != self.row
                     {
                         return Err(());
                     }
@@ -1655,12 +1656,12 @@ impl<'a> Iterator for TemplateAreasTokenizer<'a> {
 }
 
 fn is_name_code_point(c: char) -> bool {
-    c >= 'A' && c <= 'Z' ||
-        c >= 'a' && c <= 'z' ||
-        c >= '\u{80}' ||
-        c == '_' ||
-        c >= '0' && c <= '9' ||
-        c == '-'
+    c >= 'A' && c <= 'Z'
+        || c >= 'a' && c <= 'z'
+        || c >= '\u{80}'
+        || c == '_'
+        || c >= '0' && c <= '9'
+        || c == '-'
 }
 
 /// This property specifies named grid areas.
@@ -1769,10 +1770,36 @@ impl Inset {
             },
             Err(_) => (),
         };
+        Self::parse_anchor_functions_quirky(context, input, allow_quirks)
+    }
+
+    fn parse_as_anchor_function_fallback<'i, 't>(
+        context: &ParserContext,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<Self, ParseError<'i>> {
+        if let Ok(l) =
+            input.try_parse(|i| LengthPercentage::parse_quirky(context, i, AllowQuirks::No))
+        {
+            return Ok(Self::LengthPercentage(l));
+        }
+        Self::parse_anchor_functions_quirky(context, input, AllowQuirks::No)
+    }
+
+    fn parse_anchor_functions_quirky<'i, 't>(
+        context: &ParserContext,
+        input: &mut Parser<'i, 't>,
+        allow_quirks: AllowQuirks,
+    ) -> Result<Self, ParseError<'i>> {
+        debug_assert!(
+            static_prefs::pref!("layout.css.anchor-positioning.enabled"),
+            "How are we parsing with pref off?"
+        );
         if let Ok(inner) = input.try_parse(|i| AnchorFunction::parse(context, i)) {
             return Ok(Self::AnchorFunction(Box::new(inner)));
         }
-        if let Ok(inner) = input.try_parse(|i| specified::AnchorSizeFunction::parse(context, i)) {
+        if let Ok(inner) =
+            input.try_parse(|i| GenericAnchorSizeFunction::<Inset>::parse(context, i))
+        {
             return Ok(Self::AnchorSizeFunction(Box::new(inner)));
         }
         Ok(Self::AnchorContainingCalcFunction(input.try_parse(
@@ -1791,7 +1818,7 @@ impl Parse for Inset {
 }
 
 /// A specified value for `anchor()` function.
-pub type AnchorFunction = GenericAnchorFunction<specified::Percentage, LengthPercentage>;
+pub type AnchorFunction = GenericAnchorFunction<specified::Percentage, Inset>;
 
 impl Parse for AnchorFunction {
     fn parse<'i, 't>(
@@ -1813,7 +1840,7 @@ impl Parse for AnchorFunction {
             let fallback = i
                 .try_parse(|i| {
                     i.expect_comma()?;
-                    LengthPercentage::parse(context, i)
+                    Inset::parse_as_anchor_function_fallback(context, i)
                 })
                 .ok();
             Ok(Self {

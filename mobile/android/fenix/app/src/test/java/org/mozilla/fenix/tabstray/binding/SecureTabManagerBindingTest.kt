@@ -10,7 +10,6 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import mozilla.components.support.test.libstate.ext.waitUntilIdle
 import mozilla.components.support.test.rule.MainCoroutineRule
 import org.junit.Before
@@ -103,5 +102,23 @@ class SecureTabManagerBindingTest {
         tabsTrayStore.waitUntilIdle()
 
         verify(exactly = 0) { fragment.removeSecure() }
+    }
+
+    @Test
+    fun `GIVEN in Normal browsing mode WHEN fragment is stopped THEN set fragment to un-secure`() {
+        every { settings.lastKnownMode.isPrivate } returns false
+        val tabsTrayStore = TabsTrayStore(TabsTrayState())
+        val secureTabManagerBinding = SecureTabManagerBinding(
+            store = tabsTrayStore,
+            settings = settings,
+            fragment = fragment,
+        )
+
+        secureTabManagerBinding.start()
+        tabsTrayStore.dispatch(TabsTrayAction.PageSelected(Page.NormalTabs))
+        tabsTrayStore.waitUntilIdle()
+        secureTabManagerBinding.stop()
+
+        verify { fragment.removeSecure() }
     }
 }

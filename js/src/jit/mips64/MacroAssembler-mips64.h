@@ -116,6 +116,7 @@ class MacroAssemblerMIPS64 : public MacroAssemblerMIPSShared {
   // arithmetic based ops
   // add
   void ma_daddu(Register rd, Register rs, Imm32 imm);
+  void ma_daddu(Register rd, Register rs, ImmWord imm);
   void ma_daddu(Register rd, Register rs);
   void ma_daddu(Register rd, Imm32 imm);
   void ma_add32TestOverflow(Register rd, Register rs, Register rt,
@@ -134,8 +135,15 @@ class MacroAssemblerMIPS64 : public MacroAssemblerMIPSShared {
                           Label* overflow);
   void ma_addPtrTestCarry(Condition cond, Register rd, Register rs, ImmWord imm,
                           Label* overflow);
+  void ma_addPtrTestSigned(Condition cond, Register rd, Register rj,
+                           Register rk, Label* taken);
+  void ma_addPtrTestSigned(Condition cond, Register rd, Register rj, Imm32 imm,
+                           Label* taken);
+  void ma_addPtrTestSigned(Condition cond, Register rd, Register rj,
+                           ImmWord imm, Label* taken);
   // subtract
   void ma_dsubu(Register rd, Register rs, Imm32 imm);
+  void ma_dsubu(Register rd, Register rs, ImmWord imm);
   void ma_dsubu(Register rd, Register rs);
   void ma_dsubu(Register rd, Imm32 imm);
   void ma_sub32TestOverflow(Register rd, Register rs, Register rt,
@@ -146,7 +154,8 @@ class MacroAssemblerMIPS64 : public MacroAssemblerMIPSShared {
                              Label* overflow);
 
   // multiplies.  For now, there are only few that we care about.
-  void ma_dmult(Register rs, Imm32 imm);
+  void ma_dmulu(Register rd, Register rs, Register rt);
+  void ma_dmulu(Register rd, Register rs, ImmWord imm);
   void ma_mulPtrTestOverflow(Register rd, Register rs, Register rt,
                              Label* overflow);
 

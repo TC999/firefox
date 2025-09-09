@@ -14,6 +14,7 @@ import {
 
 const PREF_LISTS_ENABLED = "widgets.lists.enabled";
 const PREF_SYSTEM_LISTS_ENABLED = "widgets.system.lists.enabled";
+const PREF_WIDGETS_LISTS_MAX_LISTS = "widgets.lists.maxLists";
 const CACHE_KEY = "lists_widget";
 
 /**
@@ -34,6 +35,13 @@ export class ListsFeed {
   async init() {
     this.initialized = true;
     await this.syncLists(true);
+  }
+
+  isOverMaximumListCount(lists) {
+    const prefs = this.store.getState()?.Prefs.values;
+    const maxListsCount = prefs?.[PREF_WIDGETS_LISTS_MAX_LISTS];
+    const currentListsCount = Object.keys(lists).length;
+    return currentListsCount > maxListsCount;
   }
 
   async syncLists(isStartup = false) {
@@ -63,6 +71,13 @@ export class ListsFeed {
           list.completed = list.completed.concat(completedTasks);
         }
       }
+
+      // Bug 1981722 — Only trigger if the user has manually created more lists
+      // than allowed. Throwing here prevents lists from syncing.
+      if (this.isOverMaximumListCount(lists)) {
+        throw new Error(`Over the maximum list count`);
+      }
+
       this.update({ lists }, isStartup);
     }
 
@@ -112,18 +127,6 @@ export class ListsFeed {
       case at.WIDGETS_LISTS_UPDATE:
         await this.cache.set("lists", action.data.lists);
         this.update(action.data);
-        // The current tab stores a temporary version of lists, where
-        // the completed task isn't moved to the
-        // completed section until a reload or next tab is open
-        this.store.dispatch(
-          ac.OnlyToOneContent(
-            {
-              type: at.WIDGETS_LISTS_SET,
-              data: action.data.localLists || action.data.lists,
-            },
-            action.meta.fromTarget
-          )
-        );
         break;
       case at.WIDGETS_LISTS_CHANGE_SELECTED:
         await this.cache.set("selected", action.data);

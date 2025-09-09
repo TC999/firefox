@@ -76,6 +76,15 @@ describe("<DSCard>", () => {
     );
   });
 
+  it("should pass isSponsored=false when flightId is not provided", () => {
+    assert.propertyVal(wrapper.children().at(0).props(), "isSponsored", false);
+  });
+
+  it("should pass isSponsored=true when flightId is provided", () => {
+    wrapper.setProps({ flightId: "12345" });
+    assert.propertyVal(wrapper.children().at(0).props(), "isSponsored", true);
+  });
+
   it("should render DSLinkMenu", () => {
     // Note: <DSLinkMenu> component moved from a direct child element of `.ds-card`. See Bug 1893936
     const default_link_menu = wrapper.find(DSLinkMenu);
@@ -785,6 +794,18 @@ describe("<DSCard>", () => {
     });
   });
 
+  describe("DSCard standard sizes", () => {
+    it("should render grid with correct image sizes", async () => {
+      const standardImageSize = {
+        mediaMatcher: "default",
+        width: 296,
+        height: 148,
+      };
+      const image = wrapper.find(DSImage);
+      assert.deepEqual(image.props().sizes[0], standardImageSize);
+    });
+  });
+
   describe("DSCard medium rectangle format", () => {
     it("should pass an empty sizes array to the DSImage", async () => {
       wrapper.setProps({ format: "rectangle" });
@@ -843,7 +864,10 @@ describe("<DSCard>", () => {
       setWrapperIsSeen();
 
       const image = wrapper.find(DSImage);
-      assert.deepEqual(image.props().secureImage, true);
+      assert.deepEqual(image.at(0).props().secureImage, true);
+      assert.deepEqual(image.at(1).props().secureImage, true);
+      assert.deepEqual(image.at(2).props().secureImage, true);
+      assert.deepEqual(image.at(3).props().secureImage, true);
 
       const defaultMeta = wrapper.find(DefaultMeta);
       assert.equal(
@@ -864,7 +888,10 @@ describe("<DSCard>", () => {
       setWrapperIsSeen();
 
       let image = wrapper.find(DSImage);
-      assert.deepEqual(image.props().secureImage, false);
+      assert.deepEqual(image.at(0).props().secureImage, false);
+      assert.deepEqual(image.at(1).props().secureImage, false);
+      assert.deepEqual(image.at(2).props().secureImage, false);
+      assert.deepEqual(image.at(3).props().secureImage, false);
 
       wrapper = mountWithOptions({
         props: {
@@ -877,7 +904,10 @@ describe("<DSCard>", () => {
       setWrapperIsSeen();
 
       image = wrapper.find(DSImage);
-      assert.deepEqual(image.props().secureImage, true);
+      assert.deepEqual(image.at(0).props().secureImage, true);
+      assert.deepEqual(image.at(1).props().secureImage, true);
+      assert.deepEqual(image.at(2).props().secureImage, true);
+      assert.deepEqual(image.at(3).props().secureImage, true);
     });
 
     it("should not set secureImage or icon_src for top stories", async () => {
@@ -889,7 +919,10 @@ describe("<DSCard>", () => {
       setWrapperIsSeen();
 
       let image = wrapper.find(DSImage);
-      assert.deepEqual(image.props().secureImage, false);
+      assert.deepEqual(image.at(0).props().secureImage, false);
+      assert.deepEqual(image.at(1).props().secureImage, false);
+      assert.deepEqual(image.at(2).props().secureImage, false);
+      assert.deepEqual(image.at(3).props().secureImage, false);
 
       let defaultMeta = wrapper.find(DefaultMeta);
       assert.equal(defaultMeta.props().icon_src, DEFAULT_PROPS.icon_src);
@@ -905,7 +938,10 @@ describe("<DSCard>", () => {
       setWrapperIsSeen();
 
       image = wrapper.find(DSImage);
-      assert.deepEqual(image.props().secureImage, true);
+      assert.deepEqual(image.at(0).props().secureImage, true);
+      assert.deepEqual(image.at(1).props().secureImage, true);
+      assert.deepEqual(image.at(2).props().secureImage, true);
+      assert.deepEqual(image.at(3).props().secureImage, true);
 
       defaultMeta = wrapper.find(DefaultMeta);
       assert.equal(
@@ -920,6 +956,79 @@ describe("<DSCard>", () => {
       dsCardInstance.onIdleCallback();
       wrapper.update();
       assert.equal(dsCardInstance.state.isSeen, false);
+    });
+  });
+
+  describe("DSCard section images sizes", () => {
+    it("should render sections with correct image sizes", async () => {
+      const cardSizes = {
+        small: {
+          width: 110,
+          height: 117,
+        },
+        medium: {
+          width: 300,
+          height: 150,
+        },
+        large: {
+          width: 190,
+          height: 250,
+        },
+      };
+
+      const mediaMatcher = {
+        1: "default",
+        2: "(min-width: 724px)",
+        3: "(min-width: 1122px)",
+        4: "(min-width: 1390px)",
+      };
+
+      wrapper.setProps({
+        Prefs: {
+          values: {
+            "discoverystream.sections.enabled": true,
+          },
+        },
+        sectionsCardImageSizes: {
+          1: "medium",
+          2: "large",
+          3: "small",
+          4: "large",
+        },
+      });
+      const image = wrapper.find(DSImage);
+      assert.lengthOf(image, 4);
+
+      assert.equal(
+        image.at(0).props().sizes[0].mediaMatcher,
+        mediaMatcher["1"]
+      );
+      assert.equal(
+        image.at(0).props().sizes[0].height,
+        cardSizes.medium.height
+      );
+      assert.equal(image.at(0).props().sizes[0].width, cardSizes.medium.width);
+
+      assert.equal(
+        image.at(1).props().sizes[0].mediaMatcher,
+        mediaMatcher["2"]
+      );
+      assert.equal(image.at(1).props().sizes[0].height, cardSizes.large.height);
+      assert.equal(image.at(1).props().sizes[0].width, cardSizes.large.width);
+
+      assert.deepEqual(
+        image.at(2).props().sizes[0].mediaMatcher,
+        mediaMatcher["3"]
+      );
+      assert.equal(image.at(2).props().sizes[0].height, cardSizes.small.height);
+      assert.equal(image.at(2).props().sizes[0].width, cardSizes.small.width);
+
+      assert.equal(
+        image.at(3).props().sizes[0].mediaMatcher,
+        mediaMatcher["4"]
+      );
+      assert.equal(image.at(3).props().sizes[0].height, cardSizes.large.height);
+      assert.equal(image.at(3).props().sizes[0].width, cardSizes.large.width);
     });
   });
 });

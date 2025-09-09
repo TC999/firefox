@@ -3,11 +3,22 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
-import { html, classMap } from "chrome://global/content/vendor/lit.all.mjs";
-import { LINKS } from "chrome://browser/content/ipprotection/ipprotection-constants.mjs";
+import {
+  html,
+  classMap,
+  ifDefined,
+} from "chrome://global/content/vendor/lit.all.mjs";
+import {
+  LINKS,
+  ERRORS,
+} from "chrome://browser/content/ipprotection/ipprotection-constants.mjs";
 
 // eslint-disable-next-line import/no-unassigned-import
 import "chrome://browser/content/ipprotection/ipprotection-header.mjs";
+// eslint-disable-next-line import/no-unassigned-import
+import "chrome://browser/content/ipprotection/ipprotection-flag.mjs";
+// eslint-disable-next-line import/no-unassigned-import
+import "chrome://browser/content/ipprotection/ipprotection-message-bar.mjs";
 // eslint-disable-next-line import/no-unassigned-import
 import "chrome://browser/content/ipprotection/ipprotection-signedout.mjs";
 // eslint-disable-next-line import/no-unassigned-import
@@ -19,6 +30,7 @@ export default class IPProtectionContentElement extends MozLitElement {
   static queries = {
     headerEl: "ipprotection-header",
     signedOutEl: "ipprotection-signedout",
+    messagebarEl: "ipprotection-message-bar",
     statusCardEl: "#status-card",
     animationEl: "#status-card-animation",
     connectionToggleEl: "#connection-toggle",
@@ -30,7 +42,7 @@ export default class IPProtectionContentElement extends MozLitElement {
   };
 
   static properties = {
-    state: { type: Object },
+    state: { type: Object, attribute: false },
     showAnimation: { type: Boolean, state: true },
     /**
      * _timeString is the current value shown on the panel,
@@ -38,6 +50,9 @@ export default class IPProtectionContentElement extends MozLitElement {
      * protectionEnabledSince to calculate what _timeString should be.
      */
     _timeString: { type: String, state: true },
+    _showMessageBar: { type: Boolean, state: true },
+    _messageDismissed: { type: Boolean, state: true },
+    _enabled: { type: Boolean, state: true },
   };
 
   constructor() {
@@ -46,15 +61,23 @@ export default class IPProtectionContentElement extends MozLitElement {
     this.state = {};
 
     this.keyListener = this.#keyListener.bind(this);
+    this.messageBarListener = this.#messageBarListener.bind(this);
+    this._showMessageBar = false;
+    this._messageDismissed = false;
     this.showAnimation = false;
     this._timeString = "";
     this._connectionTimeInterval = null;
+    this._enabled = null;
   }
 
   connectedCallback() {
     super.connectedCallback();
     this.dispatchEvent(new CustomEvent("IPProtection:Init", { bubbles: true }));
     this.addEventListener("keydown", this.keyListener, { capture: true });
+    this.addEventListener(
+      "ipprotection-message-bar:user-dismissed",
+      this.#messageBarListener
+    );
 
     // If we're able to show the time string right away, do it.
     if (this.canShowConnectionTime) {
@@ -68,6 +91,11 @@ export default class IPProtectionContentElement extends MozLitElement {
     super.disconnectedCallback();
 
     this.removeEventListener("keydown", this.keyListener, { capture: true });
+    this.removeEventListener(
+      "ipprotection-message-bar:user-dismissed",
+      this.#messageBarListener
+    );
+
     this.#stopTimer();
   }
 
@@ -78,6 +106,10 @@ export default class IPProtectionContentElement extends MozLitElement {
       this.state.protectionEnabledSince &&
       this.state.isSignedIn
     );
+  }
+
+  get #hasErrors() {
+    return !this.state || this.state.error !== "";
   }
 
   #startTimerIfUnset() {
@@ -101,14 +133,14 @@ export default class IPProtectionContentElement extends MozLitElement {
   /**
    * Returns the formatted connection duration time string as HH:MM:SS (hours, minutes, seconds).
    *
-   * @param {Date} startMS
+   * @param {number} startMS
    *  The timestamp in milliseconds since a connection to the proxy was made.
    * @returns {string}
    *  The formatted time in HH:MM:SS.
    */
   #getFormattedTime(startMS) {
     let duration = window.Temporal.Duration.from({
-      milliseconds: Date.now() - startMS,
+      milliseconds: Math.ceil(ChromeUtils.now() - startMS),
     }).round({ smallestUnit: "seconds", largestUnit: "hours" });
 
     let formatter = new Intl.DurationFormat("en-US", {
@@ -123,6 +155,7 @@ export default class IPProtectionContentElement extends MozLitElement {
     const win = event.target.ownerGlobal;
 
     if (event.target === this.supportLinkEl) {
+      event.preventDefault();
       win.openWebLinkIn(LINKS.PRODUCT_URL, "tab");
       this.dispatchEvent(
         new CustomEvent("IPProtection:Close", { bubbles: true })
@@ -142,6 +175,8 @@ export default class IPProtectionContentElement extends MozLitElement {
         new CustomEvent("IPProtection:UserDisable", { bubbles: true })
       );
     }
+
+    this._enabled = isEnabled;
   }
 
   handleUpgrade(event) {
@@ -149,8 +184,10 @@ export default class IPProtectionContentElement extends MozLitElement {
     win.openWebLinkIn(LINKS.PRODUCT_URL + "#pricing", "tab");
     // Close the panel
     this.dispatchEvent(
-      new CustomEvent("IPProtection:Close", { bubbles: true })
+      new CustomEvent("IPProtection:ClickUpgrade", { bubbles: true })
     );
+
+    Glean.ipprotection.clickUpgradeButton.record();
   }
 
   handleDownload(event) {
@@ -194,12 +231,31 @@ export default class IPProtectionContentElement extends MozLitElement {
     }
   }
 
+  #messageBarListener(event) {
+    if (event.type === "ipprotection-message-bar:user-dismissed") {
+      this._showMessageBar = false;
+      this._messageDismissed = true;
+      this.state.error = "";
+    }
+  }
+
   updated(changedProperties) {
     super.updated(changedProperties);
 
     // If the only updates are time string changes, ignore them.
     if (changedProperties.size == 1 && changedProperties.has("_timeString")) {
       return;
+    }
+
+    // Set the toggle to the protection enabled state, if it hasn't just changed.
+    if (!changedProperties.has("_enabled")) {
+      this._enabled = this.state.isProtectionEnabled;
+    }
+
+    // Clear hiding messages and disable the toggle when if there is an error.
+    if (this.state.error) {
+      this._messageDismissed = false;
+      this._enabled = false;
     }
 
     /**
@@ -220,12 +276,30 @@ export default class IPProtectionContentElement extends MozLitElement {
     }
   }
 
-  descriptionTemplate() {
-    // TODO: add icon (Bug 1976769), this is just a placeholder element
+  messageBarTemplate() {
+    // Fallback to a generic error
     return html`
-      <img id="location-icon" src="chrome://global/skin/icons/folder.svg" />
-      <span id="location-name">${this.state.location}</span>
+      <ipprotection-message-bar
+        class="vpn-top-content"
+        type=${ERRORS.GENERIC}
+      ></ipprotection-message-bar>
     `;
+  }
+
+  descriptionTemplate() {
+    return this.state.location
+      ? html`
+          <ipprotection-flag
+            .location=${this.state.location}
+          ></ipprotection-flag>
+        `
+      : null;
+  }
+
+  animationRingsTemplate() {
+    return html` <div id="status-card-animation">
+      <div id="animation-rings"></div>
+    </div>`;
   }
 
   statusCardTemplate() {
@@ -244,12 +318,8 @@ export default class IPProtectionContentElement extends MozLitElement {
     let time =
       this.canShowConnectionTime && this._timeString ? this._timeString : "";
 
-    return html`<moz-box-group class="vpn-status-group">
-      ${this.showAnimation
-        ? html` <div id="status-card-animation">
-            <div id="animation-rings"></div>
-          </div>`
-        : null}
+    return html` <moz-box-group class="vpn-status-group">
+      ${this.showAnimation ? this.animationRingsTemplate() : null}
       <moz-box-item
         id="status-card"
         class=${classMap({
@@ -264,7 +334,7 @@ export default class IPProtectionContentElement extends MozLitElement {
           id="connection-toggle"
           data-l10n-id=${toggleL10nId}
           @click=${this.handleToggleConnect}
-          ?pressed=${this.state.isProtectionEnabled}
+          ?pressed=${ifDefined(this._enabled)}
           slot="actions"
         ></moz-toggle>
       </moz-box-item>
@@ -349,6 +419,13 @@ export default class IPProtectionContentElement extends MozLitElement {
   }
 
   render() {
+    if (this.#hasErrors && !this._messageDismissed) {
+      this._showMessageBar = true;
+    }
+
+    const messageBar = this._showMessageBar ? this.messageBarTemplate() : null;
+    const content = html`${messageBar}${this.mainContentTemplate()}`;
+
     // TODO: Conditionally render post-upgrade subview within #ipprotection-content-wrapper - Bug 1973813
     return html`
       <link
@@ -357,7 +434,7 @@ export default class IPProtectionContentElement extends MozLitElement {
       />
       <ipprotection-header titleId="ipprotection-title"></ipprotection-header>
       <hr />
-      <div id="ipprotection-content-wrapper">${this.mainContentTemplate()}</div>
+      <div id="ipprotection-content-wrapper">${content}</div>
     `;
   }
 }

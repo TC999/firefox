@@ -4,7 +4,6 @@
 
 package org.mozilla.fenix.components
 
-import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
 import androidx.compose.runtime.Composable
@@ -20,6 +19,7 @@ import mozilla.components.feature.autofill.AutofillConfiguration
 import mozilla.components.lib.crash.store.CrashAction
 import mozilla.components.lib.crash.store.CrashMiddleware
 import mozilla.components.lib.publicsuffixlist.PublicSuffixList
+import mozilla.components.support.base.android.DefaultProcessInfoProvider
 import mozilla.components.support.base.android.NotificationsDelegate
 import mozilla.components.support.base.worker.Frequency
 import mozilla.components.support.remotesettings.DefaultRemoteSettingsSyncScheduler
@@ -70,6 +70,7 @@ import org.mozilla.fenix.perf.StartupStateProvider
 import org.mozilla.fenix.perf.StrictModeManager
 import org.mozilla.fenix.perf.lazyMonitored
 import org.mozilla.fenix.reviewprompt.ReviewPromptMiddleware
+import org.mozilla.fenix.termsofuse.TermsOfUseManager
 import org.mozilla.fenix.utils.Settings
 import org.mozilla.fenix.utils.isLargeScreenSize
 import org.mozilla.fenix.wifi.WifiConnectionMonitor
@@ -218,7 +219,6 @@ class Components(private val context: Context) {
         )
     }
 
-    @delegate:SuppressLint("NewApi")
     val autofillConfiguration by lazyMonitored {
         AutofillConfiguration(
             storage = core.passwordsStorage,
@@ -231,7 +231,11 @@ class Components(private val context: Context) {
         )
     }
 
-    val appStartReasonProvider by lazyMonitored { AppStartReasonProvider() }
+    val appStartReasonProvider by lazyMonitored {
+        AppStartReasonProvider(
+            processInfoProvider = DefaultProcessInfoProvider(),
+        )
+    }
     val startupActivityLog by lazyMonitored { StartupActivityLog() }
     val startupStateProvider by lazyMonitored { StartupStateProvider(startupActivityLog, appStartReasonProvider) }
 
@@ -331,6 +335,10 @@ class Components(private val context: Context) {
             legacyDistributionProviderChecker = LegacyDistributionProviderChecker(context),
             distributionSettings = DefaultDistributionSettings(settings),
         )
+    }
+
+    val termsOfUseManager by lazyMonitored {
+        TermsOfUseManager(settings)
     }
 }
 

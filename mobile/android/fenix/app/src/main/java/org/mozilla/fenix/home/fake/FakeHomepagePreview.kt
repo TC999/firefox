@@ -10,6 +10,7 @@ import androidx.compose.ui.res.stringResource
 import mozilla.components.browser.state.state.ContentState
 import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.browser.state.state.recover.RecoverableTab
+import mozilla.components.compose.base.SelectableChipColors
 import mozilla.components.concept.engine.Engine
 import mozilla.components.concept.sync.DeviceType
 import mozilla.components.feature.tab.collections.Tab
@@ -31,7 +32,6 @@ import org.mozilla.fenix.components.appstate.AppState
 import org.mozilla.fenix.components.appstate.setup.checklist.ChecklistItem
 import org.mozilla.fenix.compose.MessageCardColors
 import org.mozilla.fenix.compose.MessageCardState
-import org.mozilla.fenix.compose.SelectableChipColors
 import org.mozilla.fenix.home.bookmarks.Bookmark
 import org.mozilla.fenix.home.bookmarks.interactor.BookmarksInteractor
 import org.mozilla.fenix.home.collections.CollectionColors
@@ -39,6 +39,7 @@ import org.mozilla.fenix.home.collections.CollectionsState
 import org.mozilla.fenix.home.interactor.HomepageInteractor
 import org.mozilla.fenix.home.pocket.PocketRecommendedStoriesCategory
 import org.mozilla.fenix.home.pocket.PocketState
+import org.mozilla.fenix.home.pocket.interactor.PocketStoriesInteractor
 import org.mozilla.fenix.home.privatebrowsing.interactor.PrivateBrowsingInteractor
 import org.mozilla.fenix.home.recentsyncedtabs.RecentSyncedTab
 import org.mozilla.fenix.home.recentsyncedtabs.interactor.RecentSyncedTabInteractor
@@ -50,8 +51,8 @@ import org.mozilla.fenix.home.recentvisits.RecentlyVisitedItem.RecentHistoryHigh
 import org.mozilla.fenix.home.recentvisits.interactor.RecentVisitsInteractor
 import org.mozilla.fenix.home.search.HomeSearchInteractor
 import org.mozilla.fenix.home.sessioncontrol.CollectionInteractor
-import org.mozilla.fenix.home.sessioncontrol.TopSiteInteractor
 import org.mozilla.fenix.home.store.NimbusMessageState
+import org.mozilla.fenix.home.topsites.interactor.TopSiteInteractor
 import org.mozilla.fenix.search.toolbar.SearchSelectorMenu
 import org.mozilla.fenix.theme.FirefoxTheme
 import org.mozilla.fenix.wallpapers.WallpaperState
@@ -75,7 +76,8 @@ internal object FakeHomepagePreview {
             BookmarksInteractor by bookmarksInteractor,
             RecentVisitsInteractor by recentVisitsInteractor,
             HomeSearchInteractor by homeSearchInteractor,
-            CollectionInteractor by collectionInteractor {
+            CollectionInteractor by collectionInteractor,
+            PocketStoriesInteractor by storiesInteractor {
             override fun reportSessionMetrics(state: AppState) { /* no op */ }
 
             override fun onPasteAndGo(clipboardText: String) { /* no op */ }
@@ -88,6 +90,19 @@ internal object FakeHomepagePreview {
 
             override fun onMessageClosedClicked(message: Message) { /* no op */ }
 
+            override fun onMenuItemTapped(item: SearchSelectorMenu.Item) { /* no op */ }
+
+            override fun showWallpapersOnboardingDialog(state: WallpaperState): Boolean {
+                return false
+            }
+
+            override fun onChecklistItemClicked(item: ChecklistItem) { /* no op */ }
+
+            override fun onRemoveChecklistButtonClicked() { /* no op */ }
+        }
+
+    internal val storiesInteractor
+        get() = object : PocketStoriesInteractor {
             override fun onStoryShown(
                 storyShown: PocketStory,
                 storyPosition: Triple<Int, Int, Int>,
@@ -102,15 +117,7 @@ internal object FakeHomepagePreview {
                 storyPosition: Triple<Int, Int, Int>,
             ) { /* no op */ }
 
-            override fun onMenuItemTapped(item: SearchSelectorMenu.Item) { /* no op */ }
-
-            override fun showWallpapersOnboardingDialog(state: WallpaperState): Boolean {
-                return false
-            }
-
-            override fun onChecklistItemClicked(item: ChecklistItem) { /* no op */ }
-
-            override fun onRemoveChecklistButtonClicked() { /* no op */ }
+            override fun onDiscoverMoreClicked() { /* no op */ }
         }
 
     internal val privateBrowsingInteractor
@@ -139,6 +146,8 @@ internal object FakeHomepagePreview {
             override fun onSponsorPrivacyClicked() { /* no op */ }
 
             override fun onTopSiteLongClicked(topSite: TopSite) { /* no op */ }
+
+            override fun onShowAllTopSitesClicked() { /* no op */ }
         }
 
     internal val recentTabInteractor
@@ -396,6 +405,7 @@ internal object FakeHomepagePreview {
         categoryColors = SelectableChipColors.buildColors(),
         textColor = FirefoxTheme.colors.textPrimary,
         linkTextColor = FirefoxTheme.colors.textAccent,
+        showDiscoverMoreButton = false,
     )
 
     internal fun contentRecommendation(index: Int = 0): ContentRecommendation =
@@ -442,7 +452,7 @@ internal object FakeHomepagePreview {
 
     internal fun sponsoredContent(index: Int = 0) = SponsoredContent(
         url = "https://sponsored-story$index.com",
-        title = "This is a ${"very ".repeat(index)} long title",
+        title = "This is a ${"very ".repeat(index)}long title",
         callbacks = PocketStory.SponsoredContentCallbacks(clickUrl = "", impressionUrl = ""),
         imageUrl = URL,
         domain = "domain",

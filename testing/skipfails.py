@@ -490,11 +490,24 @@ class Skipfails:
             try:
                 if len(task.results) == 0:
                     continue  # ignore aborted tasks
-                failure_types = task.failure_types  # call magic property once
-                if failure_types is None:
+                _fail_types = task.failure_types  # call magic property once
+                if _fail_types is None:
                     continue
                 if self.failure_types is None:
                     self.failure_types = {}
+
+                # This remove known failures
+                failure_types = {}
+                failing_groups = [r.group for r in task.results if not r.ok]
+                for ft in _fail_types:
+                    failtype = ft
+                    kind, manifest = self.get_kind_manifest(ft)
+                    if kind == Kind.WPT:
+                        failtype = parse_wpt_path(ft)[0]
+
+                    if [fg for fg in failing_groups if fg.endswith(failtype)]:
+                        failure_types[ft] = _fail_types[ft]
+
                 self.failure_types[task.id] = failure_types
                 self.vinfo(f"Getting failure_types from task: {task.id}")
                 for raw_manifest in failure_types:
@@ -1173,7 +1186,7 @@ class Skipfails:
         """Get mozinfo for each test variants"""
 
         if len(self.variants) == 0:
-            variants_file = "taskcluster/kinds/test/variants.yml"
+            variants_file = "taskcluster/test_configs/variants.yml"
             variants_path = self.full_path(variants_file)
             fp = open(variants_path, encoding="utf-8")
             raw_variants = load(fp, Loader=Loader)

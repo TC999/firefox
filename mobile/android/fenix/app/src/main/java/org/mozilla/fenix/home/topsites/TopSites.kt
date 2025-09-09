@@ -4,7 +4,6 @@
 
 package org.mozilla.fenix.home.topsites
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -21,8 +20,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -36,7 +33,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
@@ -56,17 +52,19 @@ import org.mozilla.fenix.R
 import org.mozilla.fenix.compose.ContextualMenu
 import org.mozilla.fenix.compose.Favicon
 import org.mozilla.fenix.compose.MenuItem
-import org.mozilla.fenix.compose.PagerIndicator
 import org.mozilla.fenix.home.fake.FakeHomepagePreview
-import org.mozilla.fenix.home.sessioncontrol.TopSiteInteractor
 import org.mozilla.fenix.home.topsites.TopSitesTestTag.TOP_SITE_CARD_FAVICON
+import org.mozilla.fenix.home.topsites.interactor.TopSiteInteractor
 import org.mozilla.fenix.theme.FirefoxTheme
 import org.mozilla.fenix.wallpapers.WallpaperState
-import kotlin.math.ceil
 
-private const val TOP_SITES_PER_PAGE = 8
+/**
+ * The size of a top site item.
+ */
+const val TOP_SITES_ITEM_SIZE = 84
+
+private const val TOP_SITES_TO_SHOW = 8
 private const val TOP_SITES_PER_ROW = 4
-private const val TOP_SITES_ITEM_SIZE = 84
 private const val TOP_SITES_ROW_WIDTH = TOP_SITES_PER_ROW * TOP_SITES_ITEM_SIZE
 private const val TOP_SITES_FAVICON_CARD_SIZE = 60
 private const val TOP_SITES_FAVICON_SIZE = 36
@@ -123,7 +121,6 @@ fun TopSites(
  * menu item.
  * @param onTopSitesItemBound Invoked during the composition of a top site item.
  */
-@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 @Suppress("LongParameterList", "LongMethod")
 fun TopSites(
@@ -139,11 +136,8 @@ fun TopSites(
     onSponsorPrivacyClicked: () -> Unit,
     onTopSitesItemBound: () -> Unit,
 ) {
-    val numberOfTopSites = topSites.size.toDouble()
-    val pageCount = ceil((numberOfTopSites / TOP_SITES_PER_PAGE)).toInt()
-
-    val needsInvisibleRow =
-        numberOfTopSites > TOP_SITES_PER_PAGE && numberOfTopSites <= (TOP_SITES_PER_PAGE + TOP_SITES_PER_ROW)
+    val topSitesToShow = topSites.take(TOP_SITES_TO_SHOW).chunked(TOP_SITES_PER_ROW)
+    val needsInvisibleRow = topSites.size <= (TOP_SITES_TO_SHOW - TOP_SITES_PER_ROW)
 
     Column(
         modifier = Modifier
@@ -154,68 +148,46 @@ fun TopSites(
             .testTag(TopSitesTestTag.TOP_SITES),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        val pagerState = rememberPagerState(
-            pageCount = { pageCount },
-        )
-
         Box(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.Center,
         ) {
-            HorizontalPager(
-                state = pagerState,
-            ) { page ->
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    val topSitesWindows = topSites.windowed(
-                        size = TOP_SITES_PER_PAGE,
-                        step = TOP_SITES_PER_PAGE,
-                        partialWindows = true,
-                    )[page].chunked(TOP_SITES_PER_ROW)
-
-                    for (items in topSitesWindows) {
-                        Row(modifier = Modifier.defaultMinSize(minWidth = TOP_SITES_ROW_WIDTH.dp)) {
-                            items.forEachIndexed { position, topSite ->
-                                TopSiteItem(
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                for (items in topSitesToShow) {
+                    Row(modifier = Modifier.defaultMinSize(minWidth = TOP_SITES_ROW_WIDTH.dp)) {
+                        items.forEachIndexed { position, topSite ->
+                            TopSiteItem(
+                                topSite = topSite,
+                                menuItems = getMenuItems(
                                     topSite = topSite,
-                                    menuItems = getMenuItems(
-                                        topSite = topSite,
-                                        onOpenInPrivateTabClicked = onOpenInPrivateTabClicked,
-                                        onEditTopSiteClicked = onEditTopSiteClicked,
-                                        onRemoveTopSiteClicked = onRemoveTopSiteClicked,
-                                        onSettingsClicked = onSettingsClicked,
-                                        onSponsorPrivacyClicked = onSponsorPrivacyClicked,
-                                    ),
-                                    position = position,
-                                    topSiteColors = topSiteColors,
-                                    onTopSiteClick = { item -> onTopSiteClick(item) },
-                                    onTopSiteLongClick = onTopSiteLongClick,
-                                    onTopSiteImpression = onTopSiteImpression,
-                                    onTopSitesItemBound = onTopSitesItemBound,
-                                )
-                            }
-                        }
-
-                        if (items != topSitesWindows.last()) {
-                            Spacer(modifier = Modifier.height(12.dp))
+                                    onOpenInPrivateTabClicked = onOpenInPrivateTabClicked,
+                                    onEditTopSiteClicked = onEditTopSiteClicked,
+                                    onRemoveTopSiteClicked = onRemoveTopSiteClicked,
+                                    onSettingsClicked = onSettingsClicked,
+                                    onSponsorPrivacyClicked = onSponsorPrivacyClicked,
+                                ),
+                                position = position,
+                                topSiteColors = topSiteColors,
+                                onTopSiteClick = { item -> onTopSiteClick(item) },
+                                onTopSiteLongClick = onTopSiteLongClick,
+                                onTopSiteImpression = onTopSiteImpression,
+                                onTopSitesItemBound = onTopSitesItemBound,
+                            )
                         }
                     }
 
-                    if (needsInvisibleRow && page > 0) {
-                        InvisibleRow()
+                    if (items != topSitesToShow.last()) {
+                        Spacer(modifier = Modifier.height(12.dp))
                     }
                 }
-            }
-        }
 
-        if (pagerState.pageCount > 1) {
-            PagerIndicator(
-                pagerState = pagerState,
-                modifier = Modifier.padding(horizontal = 16.dp),
-                spacing = 4.dp,
-            )
+                if (needsInvisibleRow) {
+                    InvisibleRow()
+                }
+            }
         }
     }
 }
@@ -298,10 +270,13 @@ data class TopSiteColors(
  * @param onTopSiteImpression Invoked when the user sees a provided top site.
  * @param onTopSitesItemBound Invoked during the composition of a top site item.
  */
-@Suppress("LongMethod", "LongParameterList", "Deprecation") // https://bugzilla.mozilla.org/show_bug.cgi?id=1927713
-@OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
+@Suppress(
+    "LongMethod",
+    "LongParameterList",
+    "Deprecation",
+) // https://bugzilla.mozilla.org/show_bug.cgi?id=1927713
 @Composable
-private fun TopSiteItem(
+fun TopSiteItem(
     topSite: TopSite,
     menuItems: List<MenuItem>,
     position: Int,
@@ -415,7 +390,6 @@ private fun TopSiteItem(
  * @param topSite The [TopSite] to display.
  * @param backgroundColor The background [Color] of the card.
  */
-@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun TopSiteFaviconCard(
     topSite: TopSite,
@@ -457,7 +431,7 @@ private fun TopSiteFavicon(url: String, imageUrl: String? = null) {
 }
 
 @Composable
-private fun getMenuItems(
+internal fun getMenuItems(
     topSite: TopSite,
     onOpenInPrivateTabClicked: (topSite: TopSite) -> Unit,
     onEditTopSiteClicked: (topSite: TopSite) -> Unit,
@@ -531,7 +505,11 @@ private fun getMenuItems(
 @PreviewLightDark
 private fun TopSitesPreview() {
     FirefoxTheme {
-        Box(modifier = Modifier.background(color = FirefoxTheme.colors.layer1).padding(16.dp)) {
+        Box(
+            modifier = Modifier
+                .background(color = FirefoxTheme.colors.layer1)
+                .padding(16.dp),
+        ) {
             TopSites(
                 topSites = FakeHomepagePreview.topSites(),
                 onTopSiteClick = {},

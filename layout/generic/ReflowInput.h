@@ -528,6 +528,14 @@ struct ReflowInput : public SizeComputationInput {
     // If true, then children of this frame can generate class A breakpoints
     // for paginated reflow.
     bool mCanHaveClassABreakpoints : 1;
+
+    // If set:
+    // (1) This frame is absolutely-positioned,
+    // (2) Inset in that axis are non-auto, and
+    // (3) Size in that axis is `auto` & resolved as fit-content size.
+    // Automatic margin computation in this case requires waiting until
+    // the frame reflows to compute the fit-content size.
+    bool mDeferAutoMarginComputation : 1;
   };
   Flags mFlags;
 
@@ -864,6 +872,11 @@ struct ReflowInput : public SizeComputationInput {
   // absolute containing block (aCBReflowInput->mFrame). The writing mode of the
   // hypothetical box will have the same block direction as the absolute
   // containing block, but it may differ in the inline direction.
+  //
+  // FIXME: Bug 1983345. We should update this function to use the customized
+  // containing block rect (if any), instead of using |aCBReflowInput| to
+  // calculate everything. Perhaps we could update
+  // ReflowInput::mContainingBlockSize earlier and use it in this function.
   void CalculateHypotheticalPosition(
       nsPlaceholderFrame* aPlaceholderFrame, const ReflowInput* aCBReflowInput,
       nsHypotheticalPosition& aHypotheticalPos) const;

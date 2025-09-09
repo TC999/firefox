@@ -164,6 +164,13 @@ var gBrowserInit = {
 
     gURLBar.initPlaceHolder();
 
+    if (Services.prefs.getBoolPref("browser.search.widget.new", false)) {
+      new UrlbarInput({
+        textbox: document.getElementById("searchbar-new"),
+        eventTelemetryCategory: "searchbar",
+      });
+    }
+
     // Hack to ensure that the various initial pages favicon is loaded
     // instantaneously, to avoid flickering and improve perceived performance.
     this._callWithURIToLoad(uriToLoad => {
@@ -249,7 +256,10 @@ var gBrowserInit = {
     gUIDensity.init();
     Win10TabletModeUpdater.init();
     CombinedStopReload.ensureInitialized();
-    gPrivateBrowsingUI.init();
+    // Initialize private browsing UI only if window is private
+    if (PrivateBrowsingUtils.isWindowPrivate(window)) {
+      PrivateBrowsingUI.init(window);
+    }
     TaskbarTabsChrome.init(window);
     BrowserPageActions.init();
     if (gToolbarKeyNavEnabled) {
@@ -396,7 +406,6 @@ var gBrowserInit = {
     Services.obs.addObserver(gLocaleChangeObserver, "intl:app-locales-changed");
 
     BrowserOffline.init();
-    WebAuthnPromptHelper.init();
 
     BrowserUtils.callModulesFromCategory(
       {
@@ -755,6 +764,7 @@ var gBrowserInit = {
             : Ci.nsIScriptSecurityManager.DEFAULT_USER_CONTEXT_ID;
 
         let hasValidUserGestureActivation = undefined;
+        let textDirectiveUserActivation = undefined;
         let fromExternal = undefined;
         let globalHistoryOptions = undefined;
         let triggeringRemoteType = undefined;
@@ -773,6 +783,11 @@ var gBrowserInit = {
               "hasValidUserGestureActivation"
             );
           }
+          if (extraOptions.hasKey("textDirectiveUserActivation")) {
+            textDirectiveUserActivation = extraOptions.getPropertyAsBool(
+              "textDirectiveUserActivation"
+            );
+          }
           if (extraOptions.hasKey("fromExternal")) {
             fromExternal = extraOptions.getPropertyAsBool("fromExternal");
           }
@@ -787,6 +802,10 @@ var gBrowserInit = {
                 extraOptions.getPropertyAsUint64(
                   "triggeringSponsoredURLVisitTimeMS"
                 );
+            }
+            if (extraOptions.hasKey("triggeringSource")) {
+              globalHistoryOptions.triggeringSource =
+                extraOptions.getPropertyAsACString("triggeringSource");
             }
           }
           if (extraOptions.hasKey("triggeringRemoteType")) {
@@ -822,6 +841,7 @@ var gBrowserInit = {
             forceAboutBlankViewerInCurrent: !!window.arguments[6],
             forceAllowDataURI,
             hasValidUserGestureActivation,
+            textDirectiveUserActivation,
             fromExternal,
             globalHistoryOptions,
             triggeringRemoteType,
@@ -1126,7 +1146,6 @@ var gBrowserInit = {
       );
 
       BrowserOffline.uninit();
-      WebAuthnPromptHelper.uninit();
       PanelUI.uninit();
     }
 

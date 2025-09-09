@@ -13,13 +13,32 @@ exclude: true
 
 ⚠️  breaking change and deprecation notices
 
+## v144
+- Added [`GeckoSession.flushSessionState()`][144.1] to immediately notify the registered [`GeckoSession.ProgressDelegate`][144.2] and [`GeckoSession.HistoryDelegate`][144.3] of the current session state.
+- Added [`GeckoRuntimeSettings.getIsolatedProcessEnabled`][144.4] and [`GeckoRuntimeSettings.Builder.isolatedProcessEnabled`][144.5] to control whether content service runs on isolated process or not.
+- Added [`ContentBlocking.GOOGLE_SAFE_BROWSING_V5_PROVIDER`][144.6] for the configuration of the SafeBrowsing V5 provider
+
+[144.1]: {{javadoc_uri}}/GeckoSession.html#flushSessionState()
+[144.2]: {{javadoc_uri}}/GeckoSession.ProgressDelegate.html
+[144.3]: {{javadoc_uri}}/GeckoSession.HistoryDelegate.html
+[144.4]: {{javadoc_uri}}/GeckoRuntimeSettings.html#getIsolatedProcessEnabled
+[144.5]: {{javadoc_uri}}/GeckoRuntimeSettings.Builder.html#isolatedProcessEnabled(boolean)
+[144.6]: {{javadoc_uri}}/ContentBlocking.SafeBrowsingProvider.html
+
 ## v143
 - Added an option to set multiple preferences on [`GeckoPreferenceController`][140.1] as [`checkStateAndSetGeckoPrefs`][143.1].
 - Added [`WebNotification.origin`][143.2] that shows the origin of the notification. ([bug 1976269]({{bugzilla}}1976269))
 - ⚠️ Removed deprecated functions that were scheduled for removal in GeckoView 143. Includes deprecations to versions of `onInstallPromptRequest`, `removeOptionalPermissions`, `addOptionalPermissions`, `PermissionPromptResponse()`, and `CertificateRequest()`. ([bug 1980176]({{bugzilla}}1980176))
+- Added [`GeckoRuntimeSettings#setLnaBlockingEnabled`][143.3], [`GeckoRuntimeSettings#getLnaBlockingEnabled`][143.4] and [`GeckoRuntimeSettings.Builder#setLnaBlockingEnabled`][143.5] to enable LNA blocking.
+- Added new permissions [`GeckoSession.PermissionDelegate#PERMISSION_LOCAL_DEVICE_ACCESS`][143.6] and [`GeckoSession.PermissionDelegate#PERMISSION_LOCAL_NETWORK_ACCESS`][143.7]
 
 [143.1]: {{javadoc_uri}}/GeckoPreferenceController.html#setGeckoPrefs(java.util.List)
 [143.2]: {{javadoc_uri}}/WebNotification.html#origin
+[143.3]: {{javadoc_uri}}/GeckoRuntimeSettings.html#setLnaBlockingEnabled(boolean)
+[143.4]: {{javadoc_uri}}/GeckoRuntimeSettings.html#getLnaBlockingEnabled
+[143.5]: {{javadoc_uri}}/GeckoRuntimeSettings.Builder.html#setLnaBlockingEnabled(boolean)
+[143.6]: {{javadoc_uri}}/GeckoSession.PermissionDelegate.html#PERMISSION_LOCAL_DEVICE_ACCESS
+[143.7]: {{javadoc_uri}}/GeckoSession.PermissionDelegate.html#PERMISSION_LOCAL_NETWORK_ACCESS
 
 ## v142
 - Added support for data collection permissions to [`WebExtensionController.onOptionalPrompt`][142.1] ([bug 1964999]({{bugzilla}}1964999))
@@ -1806,4 +1825,4 @@ to allow adding gecko profiler markers.
 [65.24]: {{javadoc_uri}}/CrashReporter.html#sendCrashReport(android.content.Context,android.os.Bundle,java.lang.String)
 [65.25]: {{javadoc_uri}}/GeckoResult.html
 
-[api-version]: 33e9af3eb74a1dd27d099ad08fb02b4595351095
+[api-version]: 7e7096bbfe4ade17e9467746ccdb909e2dbe37f8

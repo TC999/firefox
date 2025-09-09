@@ -7,51 +7,38 @@
 
 #include "CommandEncoder.h"
 #include "Device.h"
+#include "ExternalTexture.h"
 #include "ipc/WebGPUChild.h"
 #include "mozilla/dom/WebGPUBinding.h"
 #include "mozilla/webgpu/CanvasContext.h"
+#include "nsTArray.h"
 
 namespace mozilla::webgpu {
 
-GPU_IMPL_CYCLE_COLLECTION(CommandBuffer, mParent, mBridge)
+GPU_IMPL_CYCLE_COLLECTION(CommandBuffer, mParent, mExternalTextures)
 GPU_IMPL_JS_WRAP(CommandBuffer)
 
 CommandBuffer::CommandBuffer(
-    Device* const aParent, WebGPUChild* const aBridge, RawId aId,
-    nsTArray<WeakPtr<CanvasContext>>&& aPresentationContexts)
-    : ChildOf(aParent),
-      mId(aId),
-      mBridge(aBridge),
-      mPresentationContexts(std::move(aPresentationContexts)) {
+    Device* const aParent, RawId aId,
+    nsTArray<WeakPtr<CanvasContext>>&& aPresentationContexts,
+    nsTArray<RefPtr<ExternalTexture>>&& aExternalTextures)
+    : ObjectBase(aParent->GetChild(), aId,
+                 ffi::wgpu_client_drop_command_buffer),
+      ChildOf(aParent),
+      mPresentationContexts(std::move(aPresentationContexts)),
+      mExternalTextures(std::move(aExternalTextures)) {
   MOZ_RELEASE_ASSERT(aId);
 }
 
-CommandBuffer::~CommandBuffer() {}
+CommandBuffer::~CommandBuffer() = default;
 
-void CommandBuffer::Cleanup() {
-  if (!mValid) {
-    return;
-  }
-  mValid = false;
-
-  if (!mBridge) {
-    return;
-  }
-
-  ffi::wgpu_client_drop_command_buffer(mBridge->GetClient(), mId);
-}
-
-Maybe<RawId> CommandBuffer::Commit() {
-  if (!mValid) {
-    return Nothing();
-  }
-  mValid = false;
+RawId CommandBuffer::Commit() {
   for (const auto& presentationContext : mPresentationContexts) {
     if (presentationContext) {
       presentationContext->MaybeQueueSwapChainPresent();
     }
   }
-  return Some(mId);
+  return GetId();
 }
 
 }  // namespace mozilla::webgpu

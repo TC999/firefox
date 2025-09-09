@@ -221,6 +221,12 @@ class MacroAssemblerRiscv64 : public Assembler {
                           Label* overflow);
   void ma_addPtrTestCarry(Condition cond, Register rd, Register rj, ImmWord imm,
                           Label* overflow);
+  void ma_addPtrTestSigned(Condition cond, Register rd, Register rj,
+                           Register rk, Label* taken);
+  void ma_addPtrTestSigned(Condition cond, Register rd, Register rj, Imm32 imm,
+                           Label* taken);
+  void ma_addPtrTestSigned(Condition cond, Register rd, Register rj,
+                           ImmWord imm, Label* taken);
 
   // subtract
   void ma_sub32TestOverflow(Register rd, Register rj, Register rk,
@@ -369,9 +375,10 @@ class MacroAssemblerRiscv64 : public Assembler {
 
   void BranchShort(Label* L);
 
-  void BranchShort(int32_t offset, Condition cond, Register rs,
-                   const Operand& rt);
-  void BranchShort(Label* L, Condition cond, Register rs, const Operand& rt);
+  [[nodiscard]] bool BranchShort(int32_t offset, Condition cond, Register rs,
+                                 const Operand& rt);
+  [[nodiscard]] bool BranchShort(Label* L, Condition cond, Register rs,
+                                 const Operand& rt);
   void BranchShortHelper(int32_t offset, Label* L);
   bool BranchShortHelper(int32_t offset, Label* L, Condition cond, Register rs,
                          const Operand& rt);
@@ -1250,6 +1257,12 @@ class MacroAssemblerRiscv64Compat : public MacroAssemblerRiscv64 {
   };
 
   static void calculateAlignedStackPointer(void** stackPointer);
+
+  void minMax32(Register lhs, Register rhs, Register dest, bool isMax);
+  void minMax32(Register lhs, Imm32 rhs, Register dest, bool isMax);
+
+  void minMaxPtr(Register lhs, Register rhs, Register dest, bool isMax);
+  void minMaxPtr(Register lhs, ImmWord rhs, Register dest, bool isMax);
 
   void cmpPtrSet(Assembler::Condition cond, Address lhs, ImmPtr rhs,
                  Register dest);

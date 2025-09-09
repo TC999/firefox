@@ -4,7 +4,6 @@
 
 package org.mozilla.fenix.search
 
-import android.os.Handler
 import android.os.Looper
 import androidx.lifecycle.Lifecycle.State.RESUMED
 import androidx.lifecycle.LifecycleOwner
@@ -17,9 +16,6 @@ import io.mockk.mockk
 import io.mockk.spyk
 import io.mockk.verify
 import io.mockk.verifyOrder
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.android.asCoroutineDispatcher
-import kotlinx.coroutines.test.setMain
 import mozilla.components.browser.state.action.AwesomeBarAction.EngagementFinished
 import mozilla.components.browser.state.action.SearchAction.ApplicationSearchEnginesLoaded
 import mozilla.components.browser.state.search.RegionState
@@ -89,6 +85,8 @@ import org.mozilla.fenix.utils.Settings
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import mozilla.components.browser.toolbar.R as toolbarR
+import mozilla.components.feature.qr.R as qrR
 import mozilla.components.ui.icons.R as iconsR
 import org.mozilla.fenix.components.appstate.search.SearchState as AppSearchState
 
@@ -216,6 +214,7 @@ class BrowserToolbarSearchMiddlewareTest {
         val appStore: AppStore = mockk(relaxed = true) {
             every { state.searchState.selectedSearchEngine } returns mockk(relaxed = true)
         }
+        every { settings.shouldShowVoiceSearch } returns true
         val middleware = spyk(buildMiddleware(appStore = appStore))
         every { middleware.isSpeechRecognitionAvailable() } returns true
         val store = buildStore(middleware)
@@ -298,6 +297,7 @@ class BrowserToolbarSearchMiddlewareTest {
         every { settings.shouldAutocompleteInAwesomebar } returns true
         every { settings.shouldShowHistorySuggestions } returns true
         every { settings.shouldShowBookmarkSuggestions } returns true
+        every { settings.shouldShowVoiceSearch } returns true
         val middleware = spyk(buildMiddleware(appStore = appStore))
         every { middleware.isSpeechRecognitionAvailable() } returns true
         configureAutocompleteProvidersInComponents()
@@ -377,6 +377,7 @@ class BrowserToolbarSearchMiddlewareTest {
         every { settings.shouldAutocompleteInAwesomebar } returns true
         every { settings.shouldShowHistorySuggestions } returns true
         every { settings.shouldShowBookmarkSuggestions } returns true
+        every { settings.shouldShowVoiceSearch } returns true
         val appStore = AppStore()
         val middleware = spyk(buildMiddleware(appStore = appStore))
         every { middleware.isSpeechRecognitionAvailable() } returns true
@@ -405,6 +406,7 @@ class BrowserToolbarSearchMiddlewareTest {
         every { settings.shouldAutocompleteInAwesomebar } returns true
         every { settings.shouldShowHistorySuggestions } returns true
         every { settings.shouldShowBookmarkSuggestions } returns true
+        every { settings.shouldShowVoiceSearch } returns true
         val appStore = AppStore()
         val middleware = spyk(buildMiddleware(appStore = appStore))
         every { middleware.isSpeechRecognitionAvailable() } returns true
@@ -430,6 +432,7 @@ class BrowserToolbarSearchMiddlewareTest {
         every { settings.shouldAutocompleteInAwesomebar } returns true
         every { settings.shouldShowHistorySuggestions } returns true
         every { settings.shouldShowBookmarkSuggestions } returns true
+        every { settings.shouldShowVoiceSearch } returns true
         val appStore = AppStore()
         val middleware = spyk(buildMiddleware(appStore = appStore))
         every { middleware.isSpeechRecognitionAvailable() } returns true
@@ -453,6 +456,7 @@ class BrowserToolbarSearchMiddlewareTest {
     @Test
     fun `GIVEN other search engine selected WHEN entering in edit mode THEN set autocomplete providers`() {
         every { settings.shouldAutocompleteInAwesomebar } returns true
+        every { settings.shouldShowVoiceSearch } returns true
         val middleware = spyk(buildMiddleware(appStore = appStore))
         every { middleware.isSpeechRecognitionAvailable() } returns true
         configureAutocompleteProvidersInComponents()
@@ -471,8 +475,6 @@ class BrowserToolbarSearchMiddlewareTest {
 
     @Test
     fun `WHEN the search engines are updated in BrowserStore THEN update the search selector and search providers`() {
-        Dispatchers.setMain(Handler(Looper.getMainLooper()).asCoroutineDispatcher())
-
         val browserStore = BrowserStore()
         val (_, store) = buildMiddlewareAndAddToStore(browserStore = browserStore)
         store.dispatch(ToggleEditMode(true))
@@ -489,8 +491,6 @@ class BrowserToolbarSearchMiddlewareTest {
 
     @Test
     fun `GIVEN a search engine is already selected WHEN the search engines are updated in BrowserStore THEN don't change the selected search engine`() {
-        Dispatchers.setMain(Handler(Looper.getMainLooper()).asCoroutineDispatcher())
-
         val selectedSearchEngine = fakeSearchState().applicationSearchEngines.first().copy(id = "test")
         val appStore = AppStore(
             AppState(
@@ -771,11 +771,7 @@ class BrowserToolbarSearchMiddlewareTest {
 
     @Test
     fun `GIVEN the toolbar is in edit mode WHEN updateSearchActionsEnd is triggered via ToggleEditMode THEN a voice search action button is added to the end actions`() {
-        val expectedVoiceAction = ActionButtonRes(
-            drawableResId = iconsR.drawable.mozac_ic_microphone_24,
-            contentDescription = R.string.voice_search_content_description,
-            onClick = VoiceSearchButtonClicked,
-        )
+        every { settings.shouldShowVoiceSearch } returns true
         val middleware = spyk(buildMiddleware(appStore = appStore))
         every { middleware.isSpeechRecognitionAvailable() } returns true
         val store = buildStore(middleware)
@@ -786,7 +782,7 @@ class BrowserToolbarSearchMiddlewareTest {
         val actions = store.state.editState.editActionsEnd
         assertEquals(2, actions.size)
         val voiceAction = actions.first() as ActionButtonRes
-        assertEquals(expectedVoiceAction, voiceAction)
+        assertEquals(expectedVoiceSearchButton, voiceAction)
     }
 
     @Test
@@ -808,6 +804,7 @@ class BrowserToolbarSearchMiddlewareTest {
         val appStore: AppStore = mockk(relaxed = true) {
             every { state } returns mockk(relaxed = true)
         }
+        every { settings.shouldShowVoiceSearch } returns true
         val middleware = spyk(buildMiddleware(appStore = appStore))
         every { middleware.isSpeechRecognitionAvailable() } returns true
         val store = buildStore(middleware)
@@ -829,15 +826,15 @@ class BrowserToolbarSearchMiddlewareTest {
     )
 
     private val expectedClearButton = ActionButtonRes(
-        drawableResId = R.drawable.mozac_ic_cross_circle_fill_24,
-        contentDescription = R.string.mozac_clear_button_description,
+        drawableResId = iconsR.drawable.mozac_ic_cross_circle_fill_24,
+        contentDescription = toolbarR.string.mozac_clear_button_description,
         state = ActionButton.State.DEFAULT,
         onClick = ClearSearchClicked,
     )
 
     private val expectedQrButton = ActionButtonRes(
-        drawableResId = R.drawable.mozac_ic_qr_code_24,
-        contentDescription = R.string.mozac_feature_qr_scanner,
+        drawableResId = iconsR.drawable.mozac_ic_qr_code_24,
+        contentDescription = qrR.string.mozac_feature_qr_scanner,
         state = ActionButton.State.DEFAULT,
         onClick = QrScannerClicked,
     )

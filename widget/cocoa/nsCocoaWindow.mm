@@ -162,6 +162,8 @@ static void RollUpPopups(nsIRollupListener::AllowAnimations aAllowAnimations =
 }
 
 extern nsIArray* gDraggedTransferables;
+extern bool gCreatedFileForFileURL;
+extern bool gCreatedFileForFilePromise;
 ChildView* ChildViewMouseTracker::sLastMouseEventView = nil;
 NSEvent* ChildViewMouseTracker::sLastMouseMoveEvent = nil;
 NSWindow* ChildViewMouseTracker::sWindowUnderMouse = nil;
@@ -955,7 +957,7 @@ void nsCocoaWindow::SetCompositorWidgetDelegate(
 void nsCocoaWindow::GetCompositorWidgetInitData(
     mozilla::widget::CompositorWidgetInitData* aInitData) {
   MOZ_ASSERT(mChildEndpoint.IsValid());
-  auto deviceIntRect = GetBounds();
+  auto deviceIntRect = GetClientBounds();
   *aInitData = mozilla::widget::CocoaCompositorWidgetInitData(
       deviceIntRect.Size(), std::move(mChildEndpoint));
 }
@@ -3706,8 +3708,6 @@ static gfx::IntPoint GetIntegerDeltaForEvent(NSEvent* aEvent) {
   MOZ_RELEASE_ASSERT(NS_IsMainThread());
 #endif
 
-  gDraggedTransferables = nullptr;
-
   NSEvent* currentEvent = [NSApp currentEvent];
   gUserCancelledDrag = ([currentEvent type] == NSEventTypeKeyDown &&
                         [currentEvent keyCode] == kVK_Escape);
@@ -3801,20 +3801,31 @@ static gfx::IntPoint GetIntegerDeltaForEvent(NSEvent* aEvent) {
   NS_OBJC_END_TRY_IGNORE_BLOCK;
 }
 
-// Get the paste location from the low level pasteboard.
-static CFTypeRefPtr<CFURLRef> GetPasteLocation(NSPasteboard* aPasteboard) {
+static NSURL* GetPasteLocation(NSPasteboard* aPasteboard, bool aUseFallback) {
+  // First, try to get the paste location from the low level pasteboard.
   PasteboardRef pboardRef = nullptr;
   PasteboardCreate((CFStringRef)[aPasteboard name], &pboardRef);
   if (!pboardRef) {
     return nullptr;
   }
-
-  auto pasteBoard = CFTypeRefPtr<PasteboardRef>::WrapUnderCreateRule(pboardRef);
-  PasteboardSynchronize(pasteBoard.get());
+  PasteboardSynchronize(pboardRef);
 
   CFURLRef urlRef = nullptr;
-  PasteboardCopyPasteLocation(pasteBoard.get(), &urlRef);
-  return CFTypeRefPtr<CFURLRef>::WrapUnderCreateRule(urlRef);
+  PasteboardCopyPasteLocation(pboardRef, &urlRef);
+  CFRelease(pboardRef);
+  if (urlRef) {
+    return [(NSURL*)urlRef autorelease];
+  }
+
+  if (aUseFallback) {
+    return nil;
+  }
+
+  // If no paste location was present on the pasteboard, fall back to a temp
+  // directory instead.
+  return [NSURL
+      fileURLWithPath:[NSTemporaryDirectory()
+                          stringByAppendingPathComponent:@"mozDraggedFiles"]];
 }
 
 // NSPasteboardItemDataProvider
@@ -3862,47 +3873,32 @@ static CFTypeRefPtr<CFURLRef> GetPasteLocation(NSPasteboard* aPasteboard) {
                                   stringFromPboardType:kPublicUrlPboardType]] ||
           [curType isEqualToString:[UTIHelper stringFromPboardType:
                                                   kPublicUrlNamePboardType]] ||
-          [curType
-              isEqualToString:[UTIHelper
-                                  stringFromPboardType:(NSString*)
-                                                           kUTTypeFileURL]]) {
+          ([curType
+               isEqualToString:[UTIHelper
+                                   stringFromPboardType:(NSString*)
+                                                            kUTTypeFileURL]] &&
+           ![[pasteboardOutputDict valueForKey:curType] isEqualToString:@""])) {
         [aPasteboard setString:[pasteboardOutputDict valueForKey:curType]
                        forType:curType];
-      } else if ([curType isEqualToString:[UTIHelper
-                                              stringFromPboardType:
-                                                  kUrlsWithTitlesPboardType]]) {
-        [aPasteboard setPropertyList:[pasteboardOutputDict valueForKey:curType]
-                             forType:curType];
-      } else if ([curType
-                     isEqualToString:[UTIHelper stringFromPboardType:
-                                                    NSPasteboardTypeHTML]]) {
-        [aPasteboard setString:(nsClipboard::WrapHtmlForSystemPasteboard(
-                                   [pasteboardOutputDict valueForKey:curType]))
-                       forType:curType];
-      } else if ([curType
-                     isEqualToString:[UTIHelper stringFromPboardType:
-                                                    NSPasteboardTypeTIFF]] ||
-                 [curType isEqualToString:[UTIHelper
-                                              stringFromPboardType:
-                                                  kMozCustomTypesPboardType]]) {
-        [aPasteboard setData:[pasteboardOutputDict valueForKey:curType]
-                     forType:curType];
-      } else if ([curType
-                     isEqualToString:[UTIHelper stringFromPboardType:
-                                                    kMozFileUrlsPboardType]]) {
-        [aPasteboard writeObjects:[pasteboardOutputDict valueForKey:curType]];
-      } else if ([curType
-                     isEqualToString:
-                         [UTIHelper
-                             stringFromPboardType:
-                                 (NSString*)kPasteboardTypeFileURLPromise]]) {
-        CFTypeRefPtr<CFURLRef> url = GetPasteLocation(aPasteboard);
-        if (!url) {
-          continue;
-        }
-
+      } else if (([curType
+                      isEqualToString:[UTIHelper
+                                          stringFromPboardType:
+                                              (NSString*)kUTTypeFileURL]] &&
+                  !gCreatedFileForFileURL) ||
+                 ([curType
+                      isEqualToString:
+                          [UTIHelper
+                              stringFromPboardType:
+                                  (NSString*)kPasteboardTypeFileURLPromise]] &&
+                  !gCreatedFileForFilePromise)) {
+        NSURL* url = GetPasteLocation(
+            aPasteboard,
+            [curType
+                isEqualToString:[UTIHelper
+                                    stringFromPboardType:(NSString*)
+                                                             kUTTypeFileURL]]);
         nsCOMPtr<nsILocalFileMac> macLocalFile;
-        if (NS_FAILED(NS_NewLocalFileWithCFURL(url.get(),
+        if (NS_FAILED(NS_NewLocalFileWithCFURL((__bridge CFURLRef)url,
                                                getter_AddRefs(macLocalFile)))) {
           NS_ERROR("failed NS_NewLocalFileWithCFURL");
           continue;
@@ -3931,12 +3927,55 @@ static CFTypeRefPtr<CFURLRef> GetPasteLocation(NSPasteboard* aPasteboard) {
           // Now request the kFilePromiseMime data, which will invoke the data
           // provider. If successful, the file will have been created.
           nsCOMPtr<nsISupports> fileDataPrimitive;
-          Unused << item->GetTransferData(kFilePromiseMime,
-                                          getter_AddRefs(fileDataPrimitive));
-        }
+          if (NS_FAILED(item->GetTransferData(
+                  kFilePromiseMime, getter_AddRefs(fileDataPrimitive)))) {
+            continue;
+          }
 
+          if ([curType
+                  isEqualToString:[UTIHelper stringFromPboardType:
+                                                 (NSString*)kUTTypeFileURL]]) {
+            // In case of a file URL we need to populate the pasteboard with the
+            // path to the file.
+            nsCOMPtr<nsIFile> file = do_QueryInterface(fileDataPrimitive);
+            if (!file) {
+              continue;
+            }
+            nsAutoCString finalPath;
+            file->GetNativePath(finalPath);
+            NSString* filePath =
+                [NSString stringWithUTF8String:(const char*)finalPath.get()];
+            [aPasteboard
+                setString:[[NSURL fileURLWithPath:filePath] absoluteString]
+                  forType:curType];
+            gCreatedFileForFileURL = true;
+          } else {
+            gCreatedFileForFilePromise = true;
+          }
+        }
+      } else if ([curType isEqualToString:[UTIHelper
+                                              stringFromPboardType:
+                                                  kUrlsWithTitlesPboardType]]) {
         [aPasteboard setPropertyList:[pasteboardOutputDict valueForKey:curType]
                              forType:curType];
+      } else if ([curType
+                     isEqualToString:[UTIHelper stringFromPboardType:
+                                                    NSPasteboardTypeHTML]]) {
+        [aPasteboard setString:(nsClipboard::WrapHtmlForSystemPasteboard(
+                                   [pasteboardOutputDict valueForKey:curType]))
+                       forType:curType];
+      } else if ([curType
+                     isEqualToString:[UTIHelper stringFromPboardType:
+                                                    NSPasteboardTypeTIFF]] ||
+                 [curType isEqualToString:[UTIHelper
+                                              stringFromPboardType:
+                                                  kMozCustomTypesPboardType]]) {
+        [aPasteboard setData:[pasteboardOutputDict valueForKey:curType]
+                     forType:curType];
+      } else if ([curType
+                     isEqualToString:[UTIHelper stringFromPboardType:
+                                                    kMozFileUrlsPboardType]]) {
+        [aPasteboard writeObjects:[pasteboardOutputDict valueForKey:curType]];
       }
     }
   }
@@ -4706,11 +4745,14 @@ nsresult nsCocoaWindow::Create(nsIWidget* aParent, const DesktopIntRect& aRect,
       initWithFrame:mWindow.childViewFrameRectForCurrentBounds
          geckoChild:this];
   mChildView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-  [contentView addSubview:mChildView];
 
   mNativeLayerRoot =
       NativeLayerRootCA::CreateForCALayer(mChildView.rootCALayer);
   mNativeLayerRoot->SetBackingScale(BackingScaleFactor());
+
+  // Link mChildView into the native NSView hierarchy only after
+  // mNativeLayerRoot is initialized. This resolves bug 1986701.
+  [contentView addSubview:mChildView];
 
   [WindowDataMap.sharedWindowDataMap ensureDataForWindow:mWindow];
 
@@ -4932,13 +4974,6 @@ nsresult nsCocoaWindow::CreateNativeWindow(const NSRect& aRect,
 }
 
 void nsCocoaWindow::Destroy() {
-  // Make sure that no composition is in progress while disconnecting
-  // ourselves from the view. This has to be held through the call
-  // to nsBaseWidget::Destroy (which calls ::DestroyCompositor), and
-  // that is called at the very end. So grab the lock now and keep it
-  // for the entire scope.
-  MutexAutoLock lock(mCompositingLock);
-
   if (mOnDestroyCalled) {
     return;
   }
@@ -4955,7 +4990,12 @@ void nsCocoaWindow::Destroy() {
   // (Bug 891424)
   Show(false);
 
-  [mChildView widgetDestroyed];
+  {
+    // Make sure that no composition is in progress while disconnecting
+    // ourselves from the view.
+    MutexAutoLock lock(mCompositingLock);
+    [mChildView widgetDestroyed];
+  }
 
   TearDownView();  // Safe if called twice.
   if (mFullscreenTransitionAnimation) {
@@ -6360,11 +6400,19 @@ void nsCocoaWindow::BackingScaleFactorChanged() {
     return;
   }
 
+  UpdateBounds();
+
   SuspendAsyncCATransactions();
   mBackingScaleFactor = newScale;
   if (mNativeLayerRoot) {
     mNativeLayerRoot->SetBackingScale(newScale);
   }
+
+  if (mCompositorWidgetDelegate) {
+    auto deviceIntRect = GetClientBounds();
+    mCompositorWidgetDelegate->NotifyClientSizeChanged(deviceIntRect.Size());
+  }
+
   NotifyAPZOfDPIChange();
   if (mWidgetListener) {
     if (PresShell* presShell = mWidgetListener->GetPresShell()) {
@@ -6391,7 +6439,7 @@ nsresult nsCocoaWindow::SetTitle(const nsAString& aTitle) {
   const unichar* uniTitle = reinterpret_cast<const unichar*>(strTitle.get());
   NSString* title = [NSString stringWithCharacters:uniTitle
                                             length:strTitle.Length()];
-  if (mWindow.drawsContentsIntoWindowFrame && !mWindow.wantsTitleDrawn) {
+  if (mWindow.drawsContentsIntoWindowFrame) {
     // Don't cause invalidations when the title isn't displayed.
     [mWindow disableSetNeedsDisplay];
     [mWindow setTitle:title];
@@ -6856,21 +6904,27 @@ void nsCocoaWindow::SetWindowAnimationType(
   mAnimationType = aType;
 }
 
-void nsCocoaWindow::SetDrawsTitle(bool aDrawTitle) {
+void nsCocoaWindow::SetHideTitlebarSeparator(bool aHide) {
   NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
 
-  // If we don't draw into the window frame, we always want to display window
-  // titles.
-  mWindow.wantsTitleDrawn = aDrawTitle || !mWindow.drawsContentsIntoWindowFrame;
+  if (@available(macOS 11.0, *)) {
+    mWindow.titlebarSeparatorStyle = aHide ? NSTitlebarSeparatorStyleNone
+                                           : NSTitlebarSeparatorStyleAutomatic;
+  }
 
   NS_OBJC_END_TRY_IGNORE_BLOCK;
+}
+
+bool nsCocoaWindow::IsMacTitlebarDirectionRTL() {
+  return mWindow && mWindow.windowTitlebarLayoutDirection ==
+                        NSUserInterfaceLayoutDirectionRightToLeft;
 }
 
 void nsCocoaWindow::SetCustomTitlebar(bool aState) {
   NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
 
   if (mWindow) {
-    [mWindow setDrawsContentsIntoWindowFrame:aState];
+    mWindow.drawsContentsIntoWindowFrame = aState;
   }
 
   NS_OBJC_END_TRY_IGNORE_BLOCK;
@@ -7042,7 +7096,7 @@ void nsCocoaWindow::CocoaWindowDidResize() {
   UpdateBounds();
 
   if (mCompositorWidgetDelegate) {
-    auto deviceIntRect = GetBounds();
+    auto deviceIntRect = GetClientBounds();
     mCompositorWidgetDelegate->NotifyClientSizeChanged(deviceIntRect.Size());
   }
 
@@ -7362,7 +7416,7 @@ void nsCocoaWindow::CocoaWindowDidResize() {
     return self.FrameView__closeButtonOrigin;
   }
   auto* win = static_cast<ToolbarWindow*>(self.window);
-  if (win.drawsContentsIntoWindowFrame && !win.wantsTitleDrawn &&
+  if (win.drawsContentsIntoWindowFrame &&
       !(win.styleMask & NSWindowStyleMaskFullScreen) &&
       (win.styleMask & NSWindowStyleMaskTitled)) {
     const NSRect buttonsRect = win.windowButtonsRect;
@@ -7488,7 +7542,6 @@ static NSMutableSet* gSwizzledFrameViewClasses = nil;
   mViewWithTrackingArea = nil;
   mDirtyRect = NSZeroRect;
   mBeingShown = NO;
-  mDrawTitle = NO;
   mTouchBar = nil;
   mIsAnimationSuppressed = NO;
 
@@ -7595,7 +7648,6 @@ static const NSString* kStateDrawsContentsIntoWindowFrameKey =
     @"drawsContentsIntoWindowFrame";
 static const NSString* kStateShowsToolbarButton = @"showsToolbarButton";
 static const NSString* kStateCollectionBehavior = @"collectionBehavior";
-static const NSString* kStateWantsTitleDrawn = @"wantsTitleDrawn";
 
 - (void)importState:(NSDictionary*)aState {
   if (NSString* title = [aState objectForKey:kStateTitleKey]) {
@@ -7608,8 +7660,6 @@ static const NSString* kStateWantsTitleDrawn = @"wantsTitleDrawn";
                                   boolValue]];
   [self setCollectionBehavior:[[aState objectForKey:kStateCollectionBehavior]
                                   unsignedIntValue]];
-  [self setWantsTitleDrawn:[[aState objectForKey:kStateWantsTitleDrawn]
-                               boolValue]];
 }
 
 - (NSMutableDictionary*)exportState {
@@ -7623,8 +7673,6 @@ static const NSString* kStateWantsTitleDrawn = @"wantsTitleDrawn";
             forKey:kStateShowsToolbarButton];
   [state setObject:[NSNumber numberWithUnsignedInt:self.collectionBehavior]
             forKey:kStateCollectionBehavior];
-  [state setObject:[NSNumber numberWithBool:self.wantsTitleDrawn]
-            forKey:kStateWantsTitleDrawn];
   return state;
 }
 
@@ -7678,16 +7726,6 @@ static const NSString* kStateWantsTitleDrawn = @"wantsTitleDrawn";
   }
 
   return [super animationResizeTime:newFrame];
-}
-
-- (void)setWantsTitleDrawn:(BOOL)aDrawTitle {
-  mDrawTitle = aDrawTitle;
-  [self setTitleVisibility:mDrawTitle ? NSWindowTitleVisible
-                                      : NSWindowTitleHidden];
-}
-
-- (BOOL)wantsTitleDrawn {
-  return mDrawTitle;
 }
 
 - (NSView*)trackingAreaView {
@@ -8014,6 +8052,20 @@ static bool ShouldShiftByMenubarHeightInFullscreen(nsCocoaWindow* aWindow) {
              integerForKey:@"AppleMenuBarVisibleInFullscreen"];
 }
 
+static CGFloat DefaultTitlebarHeight() {
+  static CGFloat sDefaultHeight = [] {
+    NSWindow* window =
+        [[NSWindow alloc] initWithContentRect:NSZeroRect
+                                    styleMask:NSWindowStyleMaskTitled
+                                      backing:NSBackingStoreBuffered
+                                        defer:NO];
+    CGFloat height = window.frame.size.height;
+    [window release];
+    return height;
+  }();
+  return sDefaultHeight;
+}
+
 - (void)updateTitlebarShownAmount:(CGFloat)aShownAmount {
   if (!(self.styleMask & NSWindowStyleMaskFullScreen)) {
     // We are not interested in the size of the titlebar unless we are in
@@ -8039,9 +8091,7 @@ static bool ShouldShiftByMenubarHeightInFullscreen(nsCocoaWindow* aWindow) {
     if (nsIWidgetListener* listener = geckoWindow->GetWidgetListener()) {
       // titlebarHeight returns 0 when we're in fullscreen, return the default
       // titlebar height.
-      CGFloat shiftByPixels =
-          LookAndFeel::GetInt(LookAndFeel::IntID::MacTitlebarHeight) *
-          aShownAmount;
+      CGFloat shiftByPixels = DefaultTitlebarHeight() * aShownAmount;
       if (ShouldShiftByMenubarHeightInFullscreen(geckoWindow)) {
         shiftByPixels += mMenuBarHeight * aShownAmount;
       }
@@ -8077,7 +8127,8 @@ static bool ShouldShiftByMenubarHeightInFullscreen(nsCocoaWindow* aWindow) {
   [super setDrawsContentsIntoWindowFrame:aState];
   if (stateChanged && [self.delegate isKindOfClass:[WindowDelegate class]]) {
     // Hide the titlebar if we are drawing into it
-    self.titlebarAppearsTransparent = self.drawsContentsIntoWindowFrame;
+    self.titlebarAppearsTransparent = aState;
+    self.titleVisibility = aState ? NSWindowTitleHidden : NSWindowTitleVisible;
 
     // Here we extend / shrink our mainChildView.
     [self updateChildViewFrameRect];

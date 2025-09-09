@@ -16,13 +16,9 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   QuickSuggest: "resource:///modules/QuickSuggest.sys.mjs",
   UrlbarPrefs: "resource:///modules/UrlbarPrefs.sys.mjs",
-  UrlbarProviderGlobalActions:
-    "resource:///modules/UrlbarProviderGlobalActions.sys.mjs",
   UrlbarProviderOpenTabs: "resource:///modules/UrlbarProviderOpenTabs.sys.mjs",
   UrlbarProviderQuickSuggest:
     "resource:///modules/UrlbarProviderQuickSuggest.sys.mjs",
-  UrlbarProviderTabToSearch:
-    "resource:///modules/UrlbarProviderTabToSearch.sys.mjs",
   UrlbarSearchUtils: "resource:///modules/UrlbarSearchUtils.sys.mjs",
 });
 
@@ -749,6 +745,14 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
         // Always allow hidden exposure Suggest results.
         return true;
       }
+      if (
+        result.payload.suggestionObject?.suggestionType == "important_dates"
+      ) {
+        // Always allow important date results since they are considered
+        // utility suggestions rather than typical suggestions.
+        // We assume that there will be at most one.
+        return true;
+      }
 
       if (state.quickSuggestResult && state.quickSuggestResult != result) {
         // A Suggest result was already added.
@@ -836,17 +840,18 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
       return false;
     }
 
-    // HeuristicFallback may add non-heuristic results in some cases, but those
-    // should be retained only if the heuristic result comes from it.
+    // UrlbarProviderHeuristicFallback may add non-heuristic results in some cases,
+    // but those should be retained only if the heuristic result comes from it.
     if (
       !result.heuristic &&
-      result.providerName == "HeuristicFallback" &&
-      state.context.heuristicResult?.providerName != "HeuristicFallback"
+      result.providerName == "UrlbarProviderHeuristicFallback" &&
+      state.context.heuristicResult?.providerName !=
+        "UrlbarProviderHeuristicFallback"
     ) {
       return false;
     }
 
-    if (result.providerName == lazy.UrlbarProviderTabToSearch.name) {
+    if (result.providerName == "UrlbarProviderTabToSearch") {
       // Discard the result if a tab-to-search result was added already.
       if (!state.canAddTabToSearch) {
         return false;
@@ -1143,7 +1148,7 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
       this._canAddResult(result, state)
     ) {
       let span = UrlbarUtils.getSpanForResult(result);
-      if (result.providerName == lazy.UrlbarProviderTabToSearch.name) {
+      if (result.providerName == "UrlbarProviderTabToSearch") {
         state.maxTabToSearchResultSpan = Math.max(
           state.maxTabToSearchResultSpan,
           span
@@ -1237,12 +1242,15 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
       state.canShowTailSuggestions = false;
     }
 
-    if (result.providerName == lazy.UrlbarProviderQuickSuggest.name) {
+    if (
+      result.providerName == lazy.UrlbarProviderQuickSuggest.name &&
+      result.payload.suggestionObject?.suggestionType != "important_dates"
+    ) {
       state.quickSuggestResult ??= result;
     }
 
-    state.hasUnitConversionResult =
-      state.hasUnitConversionResult || result.providerName == "UnitConversion";
+    state.hasUnitConversionResult ||=
+      result.providerName == "UrlbarProviderUnitConversion";
 
     // Keep track of result urls to dedupe results with the same url embedded
     // in its query string
@@ -1308,7 +1316,7 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
 
     // Avoid multiple tab-to-search results.
     // TODO (Bug 1670185): figure out better strategies to manage this case.
-    if (result.providerName == lazy.UrlbarProviderTabToSearch.name) {
+    if (result.providerName == "UrlbarProviderTabToSearch") {
       state.canAddTabToSearch = false;
     }
 
@@ -1380,6 +1388,15 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
       }
 
       if (a.providerName === b.providerName) {
+        if (a.providerName === lazy.UrlbarProviderQuickSuggest.name) {
+          // The important dates suggestion should be before the other suggestion.
+          let aIsDate =
+            a.payload.suggestionObject?.suggestionType === "important_dates";
+          let bIsDate =
+            b.payload.suggestionObject?.suggestionType === "important_dates";
+          return Number(aIsDate) - Number(bIsDate);
+        }
+
         return 0;
       }
 
@@ -1387,14 +1404,14 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
       // provider priority.
       // GlobalActions == TabToSearch (legacy) > QuickSuggest > Other providers
       if (
-        a.providerName === lazy.UrlbarProviderTabToSearch.name ||
-        a.providerName === lazy.UrlbarProviderGlobalActions.name
+        a.providerName === "UrlbarProviderTabToSearch" ||
+        a.providerName === "UrlbarProviderGlobalActions"
       ) {
         return 1;
       }
       if (
-        b.providerName === lazy.UrlbarProviderTabToSearch.name ||
-        b.providerName === lazy.UrlbarProviderGlobalActions.name
+        b.providerName === "UrlbarProviderTabToSearch" ||
+        b.providerName === "UrlbarProviderGlobalActions"
       ) {
         return -1;
       }

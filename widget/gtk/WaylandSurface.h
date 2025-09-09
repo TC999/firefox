@@ -179,6 +179,7 @@ class WaylandSurface final {
                              const gfx::IntRegion& aRegion);
   void SetOpaqueLocked(const WaylandSurfaceLock& aProofOfLock);
   void ClearOpaqueRegionLocked(const WaylandSurfaceLock& aProofOfLock);
+  void OpaqueCallbackHandler();
 
   bool DisableUserInputLocked(const WaylandSurfaceLock& aProofOfLock);
   void InvalidateRegionLocked(const WaylandSurfaceLock& aProofOfLock,
@@ -262,6 +263,9 @@ class WaylandSurface final {
                        RefPtr<WaylandSurface> aParent);
 
   bool EnableColorManagementLocked(const WaylandSurfaceLock& aProofOfLock);
+  void SetColorRepresentationLocked(const WaylandSurfaceLock& aProofOfLock,
+                                    mozilla::gfx::YUVColorSpace aColorSpace,
+                                    bool aFullRange);
 
   static void ImageDescriptionFailed(
       void* aData, struct wp_image_description_v1* aImageDescription,
@@ -296,6 +300,7 @@ class WaylandSurface final {
   void Commit(WaylandSurfaceLock* aProofOfLock, bool aForceCommit,
               bool aForceDisplayFlush);
 
+  // Get buffer transaction for WaylandBuffer, create new or recycle one.
   BufferTransaction* GetNextTransactionLocked(
       const WaylandSurfaceLock& aSurfaceLock, WaylandBuffer* aBuffer);
   // Force release/detele all transactions and wl_buffers attached to them.
@@ -407,6 +412,9 @@ class WaylandSurface final {
   // Frame callback handler called every frame
   FrameCallback mFrameCallbackHandler;
 
+  wl_region* mPendingOpaqueRegion = nullptr;
+  wl_callback* mOpaqueRegionFrameCallback = nullptr;
+
   // WaylandSurface is used from Compositor/Rendering/Main threads.
   mozilla::Mutex mMutex{"WaylandSurface"};
   WaylandSurfaceLock* mSurfaceLock = nullptr;
@@ -478,6 +486,7 @@ class WaylandSurface final {
   // HDR support
   bool mHDRSet = false;
   wp_color_management_surface_v1* mColorSurface = nullptr;
+  wp_color_representation_surface_v1* mColorRepresentationSurface = nullptr;
   wp_image_description_v1* mImageDescription = nullptr;
 };
 

@@ -12,6 +12,8 @@ ChromeUtils.defineESModuleGetters(this, {
   AmpMatchingStrategy:
     "moz-src:///toolkit/components/uniffi-bindgen-gecko-js/components/generated/RustSuggest.sys.mjs",
   AmpSuggestions: "resource:///modules/urlbar/private/AmpSuggestions.sys.mjs",
+  SuggestBackendRust:
+    "resource:///modules/urlbar/private/SuggestBackendRust.sys.mjs",
   SuggestionProvider:
     "moz-src:///toolkit/components/uniffi-bindgen-gecko-js/components/generated/RustSuggest.sys.mjs",
 });
@@ -55,6 +57,7 @@ const REMOTE_SETTINGS_RESULTS = [
     advertiser: "HttpAdvertiser",
     iab_category: "22 - Shopping",
     icon: "1234",
+    serp_categories: [2],
   },
   {
     id: 4,
@@ -167,6 +170,8 @@ function expectedHttpResult() {
     clickUrl: suggestion.click_url,
     blockId: suggestion.id,
     advertiser: suggestion.advertiser,
+    categories: suggestion.serp_categories,
+    suggestedIndex: -1,
   });
 }
 
@@ -181,6 +186,7 @@ function expectedHttpsResult() {
     clickUrl: suggestion.click_url,
     blockId: suggestion.id,
     advertiser: suggestion.advertiser,
+    suggestedIndex: -1,
   });
 }
 
@@ -310,7 +316,7 @@ add_task(async function sponsoredOnly_sponsored() {
   });
   await check_results({
     context,
-    matches: [QuickSuggestTestUtils.ampResult()],
+    matches: [QuickSuggestTestUtils.ampResult({ suggestedIndex: -1 })],
   });
 
   // The title should include the full keyword and em dash, and the part of the
@@ -355,7 +361,7 @@ add_task(async function both_sponsored() {
   });
   await check_results({
     context,
-    matches: [QuickSuggestTestUtils.ampResult()],
+    matches: [QuickSuggestTestUtils.ampResult({ suggestedIndex: -1 })],
   });
 });
 
@@ -428,7 +434,7 @@ add_task(async function caseInsensitiveAndLeadingSpaces() {
   });
   await check_results({
     context,
-    matches: [QuickSuggestTestUtils.ampResult()],
+    matches: [QuickSuggestTestUtils.ampResult({ suggestedIndex: -1 })],
   });
 });
 
@@ -453,7 +459,9 @@ add_task(async function emptySearchStringsAndSpaces() {
       matches: [],
     });
     Assert.ok(
-      !(await UrlbarProviderQuickSuggest.isActive(context)),
+      !(await UrlbarProvidersManager.getProvider(
+        UrlbarProviderQuickSuggest.name
+      ).isActive(context)),
       "Provider should not be active for search string: " + msg
     );
   }
@@ -749,6 +757,7 @@ add_task(async function maxResults() {
         keyword: "maxresults",
         title: "maxresults 0",
         url: "https://example.com/maxresults/0",
+        suggestedIndex: -1,
       }),
     ],
   });
@@ -784,6 +793,7 @@ add_task(async function manySuggestResults_visible() {
         keyword: "maxresults",
         title: "maxresults 0",
         url: "https://example.com/maxresults/0",
+        suggestedIndex: -1,
       }),
     ],
     expectedOtherResultsCount: UrlbarPrefs.get("maxRichResults") - 1,
@@ -809,6 +819,7 @@ add_task(async function manySuggestResults_hiddenExposures() {
         keyword: "maxresults",
         title: "maxresults " + index,
         url: "https://example.com/maxresults/" + index,
+        suggestedIndex: -1,
       }),
       exposureTelemetry: UrlbarUtils.EXPOSURE_TELEMETRY.HIDDEN,
     });
@@ -869,8 +880,8 @@ async function doManySuggestResultsTest({
       isPrivate: false,
     }),
     matches: [
-      ...expectedSuggestResults,
       ...otherResults.slice(0, expectedOtherResultsCount),
+      ...expectedSuggestResults,
     ],
   });
 
@@ -1213,7 +1224,10 @@ add_task(async function dismissResult() {
 
   let tests = [
     // [suggestion, expected result]
-    [REMOTE_SETTINGS_RESULTS[0], QuickSuggestTestUtils.ampResult()],
+    [
+      REMOTE_SETTINGS_RESULTS[0],
+      QuickSuggestTestUtils.ampResult({ suggestedIndex: -1 }),
+    ],
     [REMOTE_SETTINGS_RESULTS[1], QuickSuggestTestUtils.wikipediaResult()],
     [REMOTE_SETTINGS_RESULTS[2], expectedHttpResult()],
     [REMOTE_SETTINGS_RESULTS[3], expectedHttpsResult()],
@@ -1442,7 +1456,7 @@ add_task(async function tabToSearch() {
         ),
         providesSearchMode: true,
         query: "",
-        providerName: "TabToSearch",
+        providerName: "UrlbarProviderTabToSearch",
         satisfiesAutofillThreshold: true,
       }),
       // Suggest best match
@@ -1615,6 +1629,7 @@ add_task(async function keywordLengthThreshold() {
               title: "Suggestion with 1-char keyword",
               url: "http://example.com/1-char-keyword",
               originalUrl: "http://example.com/1-char-keyword",
+              suggestedIndex: -1,
             }),
           ],
     });
@@ -1720,6 +1735,7 @@ add_task(async function ampTopPickCharThreshold() {
         });
       } else {
         expectedResult = QuickSuggestTestUtils.ampResult({
+          suggestedIndex: -1,
           keyword,
           fullKeyword,
           title: "AMP suggestion with full keyword and prefix keywords",
@@ -1782,6 +1798,7 @@ add_task(async function ampTopPickCharThreshold_zero() {
         fullKeyword,
         title: "AMP suggestion with full keyword and prefix keywords",
         url: "https://example.com/amp-full-keyword",
+        suggestedIndex: -1,
       });
     }
 
@@ -1936,7 +1953,7 @@ add_task(async function offline_amp_disabled() {
         providers: [UrlbarProviderQuickSuggest.name],
         isPrivate: false,
       }),
-      matches: [QuickSuggestTestUtils.ampResult()],
+      matches: [QuickSuggestTestUtils.ampResult({ suggestedIndex: -1 })],
     });
 
     // Now disable the pref and try again.
@@ -2022,6 +2039,7 @@ add_task(async function online_amp_disabled() {
             icon: "https://example.com/amp-icon",
             iabCategory: "22 - Shopping",
             requestId: "request_id",
+            suggestedIndex: -1,
           }),
         ],
       });
@@ -2104,6 +2122,265 @@ async function doMerinoTest(callback) {
   await MerinoTestUtils.server.stop();
   UrlbarPrefs.clear("quicksuggest.dataCollection.enabled");
 }
+
+add_task(async function mergeRustProviderConstraints() {
+  let tests = [
+    {
+      a: null,
+      b: null,
+      expected: null,
+    },
+
+    // b is null
+    {
+      a: {},
+      b: null,
+      expected: {},
+    },
+    {
+      a: { ampAlternativeMatching: 1 },
+      b: null,
+      expected: { ampAlternativeMatching: 1 },
+    },
+    {
+      a: { dynamicSuggestionTypes: [] },
+      b: null,
+      expected: { dynamicSuggestionTypes: [] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa"] },
+      b: null,
+      expected: { dynamicSuggestionTypes: ["aaa"] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa", "bbb"] },
+      b: null,
+      expected: { dynamicSuggestionTypes: ["aaa", "bbb"] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa", "bbb"], ampAlternativeMatching: 1 },
+      b: null,
+      expected: {
+        dynamicSuggestionTypes: ["aaa", "bbb"],
+        ampAlternativeMatching: 1,
+      },
+    },
+
+    // b is an empty object
+    {
+      a: {},
+      b: {},
+      expected: {},
+    },
+    {
+      a: { ampAlternativeMatching: 1 },
+      b: {},
+      expected: { ampAlternativeMatching: 1 },
+    },
+    {
+      a: { dynamicSuggestionTypes: [] },
+      b: {},
+      expected: { dynamicSuggestionTypes: [] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa"] },
+      b: {},
+      expected: { dynamicSuggestionTypes: ["aaa"] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa", "bbb"] },
+      b: {},
+      expected: { dynamicSuggestionTypes: ["aaa", "bbb"] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa", "bbb"], ampAlternativeMatching: 1 },
+      b: {},
+      expected: {
+        dynamicSuggestionTypes: ["aaa", "bbb"],
+        ampAlternativeMatching: 1,
+      },
+    },
+
+    // b is { ampAlternativeMatching: 1 }
+    {
+      a: {},
+      b: { ampAlternativeMatching: 1 },
+      expected: { ampAlternativeMatching: 1 },
+    },
+    {
+      a: { ampAlternativeMatching: 1 },
+      b: { ampAlternativeMatching: 1 },
+      expected: { ampAlternativeMatching: 1 },
+    },
+    {
+      a: { dynamicSuggestionTypes: [] },
+      b: { ampAlternativeMatching: 1 },
+      expected: { dynamicSuggestionTypes: [], ampAlternativeMatching: 1 },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa"] },
+      b: { ampAlternativeMatching: 1 },
+      expected: { dynamicSuggestionTypes: ["aaa"], ampAlternativeMatching: 1 },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa", "bbb"] },
+      b: { ampAlternativeMatching: 1 },
+      expected: {
+        dynamicSuggestionTypes: ["aaa", "bbb"],
+        ampAlternativeMatching: 1,
+      },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa", "bbb"], ampAlternativeMatching: 1 },
+      b: { ampAlternativeMatching: 1 },
+      expected: {
+        dynamicSuggestionTypes: ["aaa", "bbb"],
+        ampAlternativeMatching: 1,
+      },
+    },
+
+    // b is { dynamicSuggestionTypes: [] }
+    {
+      a: {},
+      b: { dynamicSuggestionTypes: [] },
+      expected: { dynamicSuggestionTypes: [] },
+    },
+    {
+      a: { ampAlternativeMatching: 1 },
+      b: { dynamicSuggestionTypes: [] },
+      expected: { dynamicSuggestionTypes: [], ampAlternativeMatching: 1 },
+    },
+    {
+      a: { dynamicSuggestionTypes: [] },
+      b: { dynamicSuggestionTypes: [] },
+      expected: { dynamicSuggestionTypes: [] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa"] },
+      b: { dynamicSuggestionTypes: [] },
+      expected: { dynamicSuggestionTypes: ["aaa"] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa", "bbb"] },
+      b: { dynamicSuggestionTypes: [] },
+      expected: { dynamicSuggestionTypes: ["aaa", "bbb"] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa", "bbb"], ampAlternativeMatching: 1 },
+      b: { dynamicSuggestionTypes: [] },
+      expected: {
+        dynamicSuggestionTypes: ["aaa", "bbb"],
+        ampAlternativeMatching: 1,
+      },
+    },
+
+    // b is { dynamicSuggestionTypes: ["bbb"] }
+    {
+      a: {},
+      b: { dynamicSuggestionTypes: ["bbb"] },
+      expected: { dynamicSuggestionTypes: ["bbb"] },
+    },
+    {
+      a: { ampAlternativeMatching: 1 },
+      b: { dynamicSuggestionTypes: ["bbb"] },
+      expected: { dynamicSuggestionTypes: ["bbb"], ampAlternativeMatching: 1 },
+    },
+    {
+      a: { dynamicSuggestionTypes: [] },
+      b: { dynamicSuggestionTypes: ["bbb"] },
+      expected: { dynamicSuggestionTypes: ["bbb"] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa"] },
+      b: { dynamicSuggestionTypes: ["bbb"] },
+      expected: { dynamicSuggestionTypes: ["aaa", "bbb"] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["bbb"] },
+      b: { dynamicSuggestionTypes: ["bbb"] },
+      expected: { dynamicSuggestionTypes: ["bbb"] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa", "bbb"] },
+      b: { dynamicSuggestionTypes: ["bbb"] },
+      expected: { dynamicSuggestionTypes: ["aaa", "bbb"] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa", "bbb"], ampAlternativeMatching: 1 },
+      b: { dynamicSuggestionTypes: ["bbb"] },
+      expected: {
+        dynamicSuggestionTypes: ["aaa", "bbb"],
+        ampAlternativeMatching: 1,
+      },
+    },
+
+    // b is { dynamicSuggestionTypes: ["bbb", "ddd"] }
+    {
+      a: {},
+      b: { dynamicSuggestionTypes: ["bbb", "ddd"] },
+      expected: { dynamicSuggestionTypes: ["bbb", "ddd"] },
+    },
+    {
+      a: { ampAlternativeMatching: 1 },
+      b: { dynamicSuggestionTypes: ["bbb", "ddd"] },
+      expected: {
+        dynamicSuggestionTypes: ["bbb", "ddd"],
+        ampAlternativeMatching: 1,
+      },
+    },
+    {
+      a: { dynamicSuggestionTypes: [] },
+      b: { dynamicSuggestionTypes: ["bbb", "ddd"] },
+      expected: { dynamicSuggestionTypes: ["bbb", "ddd"] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa"] },
+      b: { dynamicSuggestionTypes: ["bbb", "ddd"] },
+      expected: { dynamicSuggestionTypes: ["aaa", "bbb", "ddd"] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["bbb"] },
+      b: { dynamicSuggestionTypes: ["bbb", "ddd"] },
+      expected: { dynamicSuggestionTypes: ["bbb", "ddd"] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa", "bbb"] },
+      b: { dynamicSuggestionTypes: ["bbb", "ddd"] },
+      expected: { dynamicSuggestionTypes: ["aaa", "bbb", "ddd"] },
+    },
+    {
+      a: { dynamicSuggestionTypes: ["aaa", "bbb", "ccc"] },
+      b: { dynamicSuggestionTypes: ["bbb", "ddd"] },
+      expected: { dynamicSuggestionTypes: ["aaa", "bbb", "ccc", "ddd"] },
+    },
+    {
+      a: {
+        dynamicSuggestionTypes: ["aaa", "bbb", "ccc"],
+        ampAlternativeMatching: 1,
+      },
+      b: { dynamicSuggestionTypes: ["bbb", "ddd"] },
+      expected: {
+        dynamicSuggestionTypes: ["aaa", "bbb", "ccc", "ddd"],
+        ampAlternativeMatching: 1,
+      },
+    },
+  ];
+
+  for (let { a, b, expected } of tests) {
+    for (let [first, second] of [
+      [a, b],
+      [b, a],
+    ]) {
+      info("Doing test: " + JSON.stringify({ first, second }));
+      let actual = SuggestBackendRust.mergeProviderConstraints(first, second);
+      Assert.deepEqual(
+        actual,
+        expected,
+        "Expected merged constraints with " + JSON.stringify({ first, second })
+      );
+    }
+  }
+});
 
 async function resetRemoteSettingsData(data = REMOTE_SETTINGS_RESULTS) {
   let isAmp = suggestion => suggestion.iab_category == "22 - Shopping";

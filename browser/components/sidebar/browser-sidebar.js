@@ -433,7 +433,10 @@ var SidebarController = {
         );
       }
       this.revampComponentsLoaded = true;
-      this._state.initializeState();
+      this._state.initializeState(this._showLauncherAfterInit);
+      // clear the flag after we've used it
+      delete this._showLauncherAfterInit;
+
       document.getElementById("sidebar-header").hidden = true;
       if (!this._mainResizeObserverAdded) {
         this._mainResizeObserver.observe(this.sidebarMain);
@@ -556,6 +559,15 @@ var SidebarController = {
     this._splitter.removeEventListener("command", this._browserResizeObserver);
     this._disableLauncherDragging();
     this._disablePinnedTabsDragging();
+  },
+
+  /**
+   * Keep track when sidebar.revamp is enabled by the user via about:preferences UI
+   *
+   * @param {boolean} isEnabled
+   */
+  enabledViaSettings(isEnabled = false) {
+    this._showLauncherAfterInit = isEnabled;
   },
 
   /**
@@ -830,14 +842,6 @@ var SidebarController = {
     if (!this.sidebarRevampEnabled) {
       this._state.launcherVisible = false;
       document.getElementById("sidebar-header").hidden = false;
-      // Disable vertical tabs if revamped sidebar is turned off
-      if (this.sidebarVerticalTabsEnabled) {
-        Services.prefs.setBoolPref("sidebar.verticalTabs", false);
-      }
-    } else {
-      // initial launcher visibleness with sidebar.revamp is is one of the
-      // default properties managed by SidebarState
-      this._state.launcherVisible = this._state.defaultLauncherVisible;
     }
     if (!this._sidebars.get(this.lastOpenedId)) {
       this.lastOpenedId = this.DEFAULT_SIDEBAR_ID;
@@ -1370,7 +1374,15 @@ var SidebarController = {
         this.dismissSidebarBadge(commandID);
       }
 
-      if (this.sidebarRevampEnabled && badgePref && isSidebarClosed) {
+      // Show badge on toolbar if we would have shown it on a visible tool but sidebar is closed
+      const tool = this.toolsAndExtensions.get(commandID);
+      if (
+        this.sidebarRevampEnabled &&
+        badgePref &&
+        !tool.disabled &&
+        !tool.hidden &&
+        isSidebarClosed
+      ) {
         this._showToolbarButtonBadge();
       } else {
         this._clearToolbarButtonBadge();
@@ -1406,6 +1418,8 @@ var SidebarController = {
 
       // Re-add MousePosTracker listener
       MousePosTracker.addListener(this);
+    }
+    if (this._hoverBlockerCount > 0) {
       this._hoverBlockerCount--;
     }
   },
@@ -2177,6 +2191,7 @@ var SidebarController = {
       this._animateSidebarMain();
     }
     this._state.launcherExpanded = true;
+    this._mouseEnterDeferred.resolve();
   },
 
   onMouseLeave() {
@@ -2184,6 +2199,7 @@ var SidebarController = {
       return;
     }
     this.mouseEnterTask.disarm();
+    this._mouseEnterDeferred.resolve();
     const contentArea = document.getElementById("tabbrowser-tabbox");
     this._box.toggleAttribute("sidebar-launcher-hovered", false);
     contentArea.toggleAttribute("sidebar-launcher-hovered", false);
@@ -2198,6 +2214,7 @@ var SidebarController = {
     if (this._state.launcherExpanded) {
       return;
     }
+    this._mouseEnterDeferred = Promise.withResolvers();
     this.mouseEnterTask = new DeferredTask(
       () => {
         this.debouncedMouseEnter();
@@ -2206,6 +2223,10 @@ var SidebarController = {
       EXPAND_ON_HOVER_DEBOUNCE_TIMEOUT_MS
     );
     this.mouseEnterTask?.arm();
+  },
+
+  get expandOnHoverComplete() {
+    return this._mouseEnterDeferred?.promise || Promise.resolve();
   },
 
   async setLauncherCollapsedWidth() {
@@ -2277,7 +2298,8 @@ var SidebarController = {
       document.addEventListener("popupshown", this);
       document.addEventListener("popuphidden", this);
       // Reset user-preferred height
-      this.sidebarMain.buttonGroup.style.height = this._state.launcherExpanded
+      this.sidebarMain.buttonsWrapper.style.height = this._state
+        .launcherExpanded
         ? ""
         : "0";
     } else {
@@ -2487,21 +2509,6 @@ XPCOMUtils.defineLazyPreferenceGetter(
       }
       SidebarController._state.updatePinnedTabsHeight();
       SidebarController._state.updateToolsHeight();
-    }
-  }
-);
-
-XPCOMUtils.defineLazyPreferenceGetter(
-  SidebarController,
-  "revampDefaultLauncherVisible",
-  "sidebar.revamp.defaultLauncherVisible",
-  false,
-  (_aPreference, _previousValue, _newValue) => {
-    if (
-      !SidebarController.uninitializing &&
-      !SidebarController.inSingleTabWindow
-    ) {
-      SidebarController._state.updateVisibility();
     }
   }
 );

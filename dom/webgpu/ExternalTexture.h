@@ -9,7 +9,9 @@
 #include <array>
 
 #include "ObjectModel.h"
+#include "mozilla/HashTable.h"
 #include "mozilla/Span.h"
+#include "mozilla/WeakPtr.h"
 #include "mozilla/gfx/Types.h"
 #include "mozilla/webgpu/WebGPUTypes.h"
 #include "mozilla/webgpu/ffi/wgpu.h"
@@ -18,8 +20,11 @@
 
 namespace mozilla {
 namespace dom {
+struct GPUExternalTextureDescriptor;
+class HTMLVideoElement;
 class OwningHTMLVideoElementOrVideoFrame;
 enum class PredefinedColorSpace : uint8_t;
+class VideoFrame;
 }  // namespace dom
 namespace layers {
 class BufferDescriptor;
@@ -53,7 +58,10 @@ class WebGPUParent;
 // by any external textures.
 //
 // [1] https://www.w3.org/TR/webgpu/#gpuexternaltexture
-class ExternalTexture : public ObjectBase, public ChildOf<Device> {
+class ExternalTexture final : public nsWrapperCache,
+                              public ObjectBase,
+                              public ChildOf<Device>,
+                              public SupportsWeakPtr {
  public:
   GPU_DECL_CYCLE_COLLECTION(ExternalTexture)
   GPU_DECL_JS_WRAP(ExternalTexture)
@@ -63,17 +71,73 @@ class ExternalTexture : public ObjectBase, public ChildOf<Device> {
       const RefPtr<ExternalTextureSourceClient>& aSource,
       dom::PredefinedColorSpace aColorSpace);
 
-  const RawId mId;
+  // Sets the external texture's "expired" state to true. This gets called at
+  // the end of the task in which the external texture was imported if
+  // imported from an HTMLVideoElement, and when the video frame is closed if
+  // imported from a VideoFrame. It is an error to submit a command buffer
+  // which uses an expired external texture.
+  void Expire();
+  bool IsExpired() const { return mIsExpired; }
+  void Unexpire();
+  bool IsDestroyed() const { return mIsDestroyed; }
+
+  void OnSubmit(uint64_t aSubmissionIndex);
+  void OnSubmittedWorkDone(uint64_t aSubmissionIndex);
+
+  RefPtr<ExternalTextureSourceClient> Source() { return mSource; }
 
  private:
   explicit ExternalTexture(Device* const aParent, RawId aId,
                            RefPtr<ExternalTextureSourceClient> aSource);
   virtual ~ExternalTexture();
-  void Cleanup();
+
+  // Destroys the external texture if it is no longer required, i.e. all
+  // submitted work using the external texture has completed, and the external
+  // texture has been expired.
+  void MaybeDestroy();
 
   // Hold a strong reference to the source to ensure it stays alive as long as
   // the external texture may still be used.
   RefPtr<ExternalTextureSourceClient> mSource;
+  bool mIsExpired = false;
+  bool mIsDestroyed = false;
+  uint64_t mLastSubmittedIndex = 0;
+  uint64_t mLastSubmittedWorkDoneIndex = 0;
+};
+
+// A cache of imported external texture sources. This allows, where possible,
+// reusing a previously imported external source rather than importing a new
+// one. Each source additionally caches which external textures were created
+// from it, meaning where possible we can even reuse the external textures
+// themselves.
+class ExternalTextureCache : public SupportsWeakPtr {
+ public:
+  // Get an external texture matching the descriptor. This may reuse an
+  // existing external texture or create a new one if required. Returns nullptr
+  // on error. Throws security error if the source is not origin-clean.
+  RefPtr<ExternalTexture> GetOrCreate(
+      Device* aDevice, const dom::GPUExternalTextureDescriptor& aDesc,
+      ErrorResult& aRv);
+
+  // Removes a previously imported external texture source from the cache. This
+  // *must* be called by the source when it is destroyed.
+  void RemoveSource(const ExternalTextureSourceClient* aSource);
+
+ private:
+  // Gets the external texture source previously imported from an
+  // HTMLVideoElement or a VideoFrame if still valid, otherwise imports a new
+  // one. Returns nullptr on failure. Throws security error if the source is not
+  // origin-clean.
+  RefPtr<ExternalTextureSourceClient> GetOrCreateSource(
+      Device* aDevice, const dom::OwningHTMLVideoElementOrVideoFrame& aSource,
+      ErrorResult& aRv);
+
+  // Map of previously imported external texture sources. Keyed by the value of
+  // `GetSerial()` for the `layers::Image` they were imported from. We store a
+  // raw pointer to the source to avoid keeping the source alive unnecessarily.
+  // As a consequence, the source *must* remove itself from the cache when it is
+  // destroyed.
+  HashMap<uint32_t, ExternalTextureSourceClient*> mSources;
 };
 
 // The client side of an imported external texture source. This gets imported
@@ -84,8 +148,10 @@ class ExternalTexture : public ObjectBase, public ChildOf<Device> {
 // The client side is responsible for creating and destroying the host side.
 // Any external texture created from this source must ensure the source remains
 // alive as long as it is required by the external texture, by holding a strong
-// reference.
-class ExternalTextureSourceClient {
+// reference. The source itself retains a strong reference to the layers::Image
+// it was imported from, which ensures that the decoder does not attempt to
+// reuse the image's underlying resources while the source is still in use.
+class ExternalTextureSourceClient final : public ObjectBase {
   NS_INLINE_DECL_REFCOUNTING(ExternalTextureSourceClient)
 
  public:
@@ -93,10 +159,19 @@ class ExternalTextureSourceClient {
   // Returns nullptr on failure. Throws security error if the source is not
   // origin-clean.
   static already_AddRefed<ExternalTextureSourceClient> Create(
-      Device* aDevice, const dom::OwningHTMLVideoElementOrVideoFrame& aSource,
-      ErrorResult& aRv);
+      Device* aDevice, ExternalTextureCache* aCache,
+      const dom::OwningHTMLVideoElementOrVideoFrame& aSource, ErrorResult& aRv);
 
-  const RawId mId;
+  // Hold a strong reference to the image as long as we are alive. If the
+  // SurfaceDescriptor sent to the host was a SurfaceDescriptorGPUVideo, this
+  // ensures the remote TextureHost is kept alive until we have imported the
+  // textures into wgpu. Additionally this prevents the decoder from recycling
+  // the underlying resource whilst still in use, e.g. decoding a future video
+  // frame into a texture that is currently being rendered by wgpu. When all
+  // external textures created from this source have been destroyed the final
+  // reference to the source will be released, causing this reference to be
+  // released, indicating to the decoder that it can reuse the resources.
+  const RefPtr<layers::Image> mImage;
 
   // External texture sources can consist of up to 3 planes of texture data, but
   // on the client side we do not know how many planes will actually be
@@ -105,15 +180,30 @@ class ExternalTextureSourceClient {
   const std::array<RawId, 3> mTextureIds;
   const std::array<RawId, 3> mViewIds;
 
+  // Get an external texture from this source matching the descriptor. This may
+  // reuse an existing external texture or create a new one if required.
+  RefPtr<ExternalTexture> GetOrCreateExternalTexture(
+      Device* aDevice, const dom::GPUExternalTextureDescriptor& aDesc);
+
  private:
-  ExternalTextureSourceClient(WebGPUChild* aBridge, RawId aId,
+  ExternalTextureSourceClient(WebGPUChild* aChild, RawId aId,
+                              ExternalTextureCache* aCache,
+                              const RefPtr<layers::Image>& aImage,
                               const std::array<RawId, 3>& aTextureIds,
                               const std::array<RawId, 3>& aViewIds);
-  ~ExternalTextureSourceClient();
+  virtual ~ExternalTextureSourceClient();
 
-  // Used to free resources on the host side when we are destroyed, if the
-  // bridge is still valid.
-  const WeakPtr<WebGPUChild> mBridge;
+  // Pointer to the cache this source is stored in. If the cache is still
+  // valid then the source *must* remove itself from the cache when it is
+  // destroyed.
+  const WeakPtr<ExternalTextureCache> mCache;
+
+  // Cache of external textures created from this source. We can ignore the
+  // label when deciding whether to reuse an external texture, and since the
+  // cache is owned by the source we can ignore the source field of the
+  // descriptor too. This leaves just the color space.
+  HashMap<dom::PredefinedColorSpace, WeakPtr<ExternalTexture>>
+      mExternalTextures;
 };
 
 // Host side of an external texture source. This is responsible for creating
@@ -138,6 +228,12 @@ class ExternalTextureSourceHost {
   ffi::WGPUExternalTextureDescriptorFromSource GetExternalTextureDescriptor(
       ffi::WGPUPredefinedColorSpace aDestColorSpace) const;
 
+  // Called prior to submitting commands which read from this external texture
+  // source. This can be used to wait on a fence, for example. If this returns
+  // false, the commands must *not* be submitted.
+  bool OnBeforeQueueSubmit(WebGPUParent* aParent, RawId aDeviceId,
+                           RawId aQueueId);
+
  private:
   ExternalTextureSourceHost(Span<const RawId> aTextureIds,
                             Span<const RawId> aViewIds, gfx::IntSize aSize,
@@ -150,6 +246,18 @@ class ExternalTextureSourceHost {
       WebGPUParent* aParent, RawId aDeviceId, RawId aQueueId,
       const ExternalTextureSourceDescriptor& aDesc,
       const layers::BufferDescriptor& aSd, uint8_t* aBuffer);
+  static ExternalTextureSourceHost CreateFromD3D10Desc(
+      WebGPUParent* aParent, RawId aDeviceId, RawId aQueueId,
+      const ExternalTextureSourceDescriptor& aDesc,
+      const layers::SurfaceDescriptorD3D10& aSd, gfx::SurfaceFormat aFormat);
+  static ExternalTextureSourceHost CreateFromDXGIYCbCrDesc(
+      WebGPUParent* aParent, RawId aDeviceId, RawId aQueueId,
+      const ExternalTextureSourceDescriptor& aDesc,
+      const layers::SurfaceDescriptorDXGIYCbCr& aSd);
+  static ExternalTextureSourceHost CreateFromMacIOSurfaceDesc(
+      WebGPUParent* aParent, RawId aDeviceId,
+      const ExternalTextureSourceDescriptor& aDesc,
+      const layers::SurfaceDescriptorMacIOSurface& aSd);
 
   // Creates an external texture source in an error state that will be
   // propagated to any external textures created from it.
@@ -168,6 +276,16 @@ class ExternalTextureSourceHost {
   const gfx::YUVRangedColorSpace mColorSpace;
   const std::array<float, 6> mSampleTransform;
   const std::array<float, 6> mLoadTransform;
+
+#ifdef XP_WIN
+  // ID used to obtain the texture's write fence from the
+  // CompositeProcessD3D11FencesHolderMap. The fence is created by the encoder,
+  // which will signal the fence with a value of FenceD3D11::mFenceValue when
+  // it has finished writing to the texture. We must therefore ensure we wait
+  // for the fence to reach this value prior to reading from the texture. A
+  // value of Nothing indicates that we do not need to wait at all.
+  Maybe<layers::CompositeProcessFencesHolderId> mFenceId;
+#endif
 };
 
 }  // namespace webgpu

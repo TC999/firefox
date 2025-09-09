@@ -2,253 +2,227 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { SuggestProvider } from "resource:///modules/urlbar/private/SuggestFeature.sys.mjs";
+import { RealtimeSuggestProvider } from "resource:///modules/urlbar/private/RealtimeSuggestProvider.sys.mjs";
 
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  QuickSuggest: "resource:///modules/QuickSuggest.sys.mjs",
-  UrlbarPrefs: "resource:///modules/UrlbarPrefs.sys.mjs",
-  UrlbarResult: "resource:///modules/UrlbarResult.sys.mjs",
-  UrlbarUtils: "resource:///modules/UrlbarUtils.sys.mjs",
+  UrlbarSearchUtils: "resource:///modules/UrlbarSearchUtils.sys.mjs",
 });
 
 /**
  * A feature that supports Market suggestions like stocks, indexes, and funds.
  */
-export class MarketSuggestions extends SuggestProvider {
-  get enablingPreferences() {
-    return ["suggest.market", "suggest.quicksuggest.nonsponsored"];
+export class MarketSuggestions extends RealtimeSuggestProvider {
+  get realtimeType() {
+    return "market";
   }
 
-  get primaryUserControlledPreferences() {
-    return ["suggest.market"];
+  get isSponsored() {
+    return false;
   }
 
   get merinoProvider() {
     return "polygon";
   }
 
-  getSuggestionTelemetryType() {
-    return "market";
-  }
-
-  getResultCommands() {
-    let commands = [
-      {
-        name: "not_interested",
-        l10n: {
-          id: "urlbar-result-menu-dont-show-market",
-        },
-      },
-    ];
-
-    if (this.canShowLessFrequently) {
-      commands.push({
-        name: "show_less_frequently",
-        l10n: {
-          id: "urlbar-result-menu-show-less-frequently",
-        },
-      });
+  makeMerinoResult(queryContext, suggestion, searchString) {
+    if (!suggestion.custom_details?.polygon?.values?.length) {
+      return null;
     }
 
-    commands.push(
-      { name: "separator" },
-      {
-        name: "manage",
-        l10n: {
-          id: "urlbar-result-menu-manage-firefox-suggest",
-        },
-      },
-      {
-        name: "help",
-        l10n: {
-          id: "urlbar-result-menu-learn-more-about-firefox-suggest",
-        },
-      }
+    let engine = lazy.UrlbarSearchUtils.getDefaultEngine(
+      queryContext.isPrivate
     );
+    if (!engine) {
+      return null;
+    }
 
-    return commands;
+    let result = super.makeMerinoResult(queryContext, suggestion, searchString);
+    if (!result) {
+      return null;
+    }
+
+    result.payload.engine = engine.name;
+
+    return result;
   }
 
   getViewTemplate(result) {
+    let hasMultipleValues = result.payload.polygon.values.length > 1;
     return {
-      children: result.payload.polygon.values.map((v, i) => {
-        let todaysChangePercClassList = [
-          "urlbarView-market-todays-change-perc",
-        ];
-        let todaysChangePerc = Number(v.todays_change_perc);
-        if (todaysChangePerc < 0) {
-          todaysChangePercClassList.push(
-            "urlbarView-market-todays-change-perc-minus"
-          );
-        } else if (todaysChangePerc > 0) {
-          todaysChangePercClassList.push(
-            "urlbarView-market-todays-change-perc-plus"
-          );
-        }
-
-        return {
-          name: "item",
-          tag: "span",
-          classList: ["urlbarView-button"],
-          attributes: {
-            selectable: "",
-            query: v.query,
+      name: "root",
+      overflowable: true,
+      attributes: {
+        selectable: hasMultipleValues ? null : "",
+      },
+      children: result.payload.polygon.values.map((_v, i) => ({
+        name: `item_${i}`,
+        tag: "span",
+        classList: ["urlbarView-market-item"],
+        attributes: {
+          selectable: !hasMultipleValues ? null : "",
+        },
+        children: [
+          // Create an image inside a container so that the image appears inset
+          // into a square. This is atypical because we normally use only an
+          // image and give it padding and a background color to achieve that
+          // effect, but that only works when the image size is fixed.
+          // Unfortunately Merino serves market icons of different sizes due to
+          // its reliance on a third-party API.
+          {
+            name: `image_container_${i}`,
+            tag: "span",
+            classList: ["urlbarView-market-image-container"],
+            children: [
+              {
+                name: `image_${i}`,
+                tag: "img",
+                classList: ["urlbarView-market-image"],
+              },
+            ],
           },
-          children: [
-            {
-              name: `image_${i}`,
-              tag: "img",
-              classList: ["urlbarView-market-image"],
-            },
-            {
-              tag: "span",
-              classList: ["urlbarView-market-description"],
-              children: [
-                {
-                  name: `name_${i}`,
-                  tag: "span",
-                  classList: ["urlbarView-market-name"],
-                },
-                {
-                  name: `todays_change_perc_${i}`,
-                  tag: "span",
-                  classList: todaysChangePercClassList,
-                },
-                {
-                  name: `last_price_${i}`,
-                  tag: "span",
-                  classList: ["urlbarView-market-last-price"],
-                },
-              ],
-            },
-          ],
-        };
-      }),
+          {
+            tag: "span",
+            classList: ["urlbarView-market-description"],
+            children: [
+              {
+                tag: "div",
+                classList: ["urlbarView-market-description-top"],
+                children: [
+                  {
+                    name: `name_${i}`,
+                    tag: "span",
+                    classList: ["urlbarView-market-name"],
+                  },
+                  {
+                    name: `top_separator_${i}`,
+                    tag: "span",
+                    classList: ["urlbarView-market-description-separator"],
+                  },
+                  {
+                    name: `ticker_${i}`,
+                    tag: "span",
+                  },
+                ],
+              },
+              {
+                tag: "div",
+                classList: ["urlbarView-market-description-bottom"],
+                children: [
+                  {
+                    name: `todays_change_perc_${i}`,
+                    tag: "span",
+                    classList: ["urlbarView-market-todays-change-perc"],
+                  },
+                  {
+                    name: `bottom_separator_1_${i}`,
+                    tag: "span",
+                    classList: ["urlbarView-market-description-separator"],
+                  },
+                  {
+                    name: `last_price_${i}`,
+                    tag: "span",
+                    classList: ["urlbarView-market-last-price"],
+                  },
+                  {
+                    name: `bottom_separator_2_${i}`,
+                    tag: "span",
+                    classList: ["urlbarView-market-description-separator"],
+                  },
+                  {
+                    name: `exchange_${i}`,
+                    tag: "span",
+                    classList: ["urlbarView-market-exchange"],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      })),
     };
   }
 
   getViewUpdate(result) {
-    return Object.assign(
-      {},
-      ...result.payload.polygon.values.map((v, i) => ({
-        [`image_${i}`]: {
-          attributes: {
-            src: v.image_url || "chrome://global/skin/icons/search-glass.svg",
+    return Object.fromEntries([
+      [
+        "root",
+        {
+          dataset: {
+            // This `query` will be used when there's only one value.
+            query: result.payload.polygon.values[0].query,
           },
         },
-        [`name_${i}`]: {
-          textContent: v.name,
-        },
-        [`todays_change_perc_${i}`]: {
-          textContent: `${v.todays_change_perc}%`,
-        },
-        [`last_price_${i}`]: {
-          textContent: v.last_price,
-        },
-      }))
-    );
-  }
-
-  async makeResult(queryContext, suggestion, searchString) {
-    if (!this.isEnabled) {
-      return null;
-    }
-
-    if (
-      this.showLessFrequentlyCount &&
-      searchString.length < this.#minKeywordLength
-    ) {
-      return null;
-    }
-
-    return Object.assign(
-      new lazy.UrlbarResult(
-        lazy.UrlbarUtils.RESULT_TYPE.DYNAMIC,
-        lazy.UrlbarUtils.RESULT_SOURCE.SEARCH,
-        {
-          ...suggestion.custom_details,
-          dynamicType: "market",
+      ],
+      ...result.payload.polygon.values.flatMap((v, i) => {
+        let arrowImageUri;
+        let changeDescription;
+        let changePercent = parseFloat(v.todays_change_perc);
+        if (changePercent < 0) {
+          changeDescription = "down";
+          arrowImageUri = "chrome://browser/skin/urlbar/market-down.svg";
+        } else if (changePercent > 0) {
+          changeDescription = "up";
+          arrowImageUri = "chrome://browser/skin/urlbar/market-up.svg";
+        } else {
+          changeDescription = "unchanged";
+          arrowImageUri = "chrome://browser/skin/urlbar/market-unchanged.svg";
         }
-      ),
-      {
-        isBestMatch: true,
-        hideRowLabel: true,
-      }
-    );
-  }
 
-  onEngagement(_queryContext, controller, details, searchString) {
-    let { result } = details;
-    switch (details.selType) {
-      case "help":
-      case "manage": {
-        // "help" and "manage" are handled by UrlbarInput, no need to do
-        // anything here.
-        return;
-      }
-      case "not_interested": {
-        lazy.UrlbarPrefs.set("suggest.market", false);
-        result.acknowledgeDismissalL10n = {
-          id: "urlbar-result-dismissal-acknowledgment-market",
-        };
-        controller.removeResult(result);
-        return;
-      }
-      case "show_less_frequently": {
-        controller.view.acknowledgeFeedback(result);
-        this.incrementShowLessFrequentlyCount();
-        if (!this.canShowLessFrequently) {
-          controller.view.invalidateResultMenuCommands();
+        let imageUri = v.image_url;
+        let isImageAnArrow = false;
+        if (!imageUri) {
+          isImageAnArrow = true;
+          imageUri = arrowImageUri;
         }
-        lazy.UrlbarPrefs.set(
-          "market.minKeywordLength",
-          searchString.length + 1
-        );
-        return;
-      }
-    }
 
-    let query = details.element.getAttribute("query");
-    let [url] = lazy.UrlbarUtils.getSearchQueryUrl(
-      Services.search.defaultEngine,
-      query
-    );
-    controller.browserWindow.openTrustedLinkIn(url, "current");
-  }
-
-  incrementShowLessFrequentlyCount() {
-    if (this.canShowLessFrequently) {
-      lazy.UrlbarPrefs.set(
-        "market.showLessFrequentlyCount",
-        this.showLessFrequentlyCount + 1
-      );
-    }
-  }
-
-  get showLessFrequentlyCount() {
-    const count = lazy.UrlbarPrefs.get("market.showLessFrequentlyCount") || 0;
-    return Math.max(count, 0);
-  }
-
-  get canShowLessFrequently() {
-    const cap =
-      lazy.UrlbarPrefs.get("marketShowLessFrequentlyCap") ||
-      lazy.QuickSuggest.config.showLessFrequentlyCap ||
-      0;
-    return !cap || this.showLessFrequentlyCount < cap;
-  }
-
-  get #minKeywordLength() {
-    let hasUserValue = Services.prefs.prefHasUserValue(
-      "browser.urlbar.market.minKeywordLength"
-    );
-    let nimbusValue = lazy.UrlbarPrefs.get("marketMinKeywordLength");
-    let minLength =
-      hasUserValue || nimbusValue === null
-        ? lazy.UrlbarPrefs.get("market.minKeywordLength")
-        : nimbusValue;
-    return Math.max(minLength, 0);
+        return Object.entries({
+          [`item_${i}`]: {
+            attributes: {
+              change: changeDescription,
+            },
+            dataset: {
+              // These `query`s will be used when there are multiple values.
+              query: v.query,
+            },
+          },
+          [`image_container_${i}`]: {
+            attributes: {
+              "is-arrow": isImageAnArrow ? "" : null,
+            },
+          },
+          [`image_${i}`]: {
+            attributes: {
+              src: imageUri,
+            },
+          },
+          [`name_${i}`]: {
+            textContent: v.name,
+          },
+          [`ticker_${i}`]: {
+            textContent: v.ticker,
+          },
+          [`todays_change_perc_${i}`]: {
+            textContent: `${v.todays_change_perc}%`,
+          },
+          [`last_price_${i}`]: {
+            textContent: v.last_price,
+          },
+          [`exchange_${i}`]: {
+            textContent: v.exchange,
+          },
+          [`top_separator_${i}`]: {
+            textContent: "·",
+          },
+          [`bottom_separator_1_${i}`]: {
+            textContent: "·",
+          },
+          [`bottom_separator_2_${i}`]: {
+            textContent: "·",
+          },
+        });
+      }),
+    ]);
   }
 }

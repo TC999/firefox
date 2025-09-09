@@ -396,6 +396,15 @@ void MacroAssemblerMIPS64::ma_daddu(Register rd, Register rs, Imm32 imm) {
   }
 }
 
+void MacroAssemblerMIPS64::ma_daddu(Register rd, Register rs, ImmWord imm) {
+  if (Imm16::IsInSignedRange(imm.value)) {
+    as_daddiu(rd, rs, imm.value);
+  } else {
+    ma_li(ScratchRegister, imm);
+    as_daddu(rd, rs, ScratchRegister);
+  }
+}
+
 void MacroAssemblerMIPS64::ma_daddu(Register rd, Register rs) {
   as_daddu(rd, rd, rs);
 }
@@ -506,8 +515,45 @@ void MacroAssemblerMIPS64::ma_addPtrTestCarry(Condition cond, Register rd,
   }
 }
 
+void MacroAssemblerMIPS64::ma_addPtrTestSigned(Condition cond, Register rd,
+                                               Register rj, Register rk,
+                                               Label* taken) {
+  MOZ_ASSERT(cond == Assembler::Signed || cond == Assembler::NotSigned);
+
+  as_daddu(rd, rj, rk);
+  ma_b(rd, rd, taken, cond);
+}
+
+void MacroAssemblerMIPS64::ma_addPtrTestSigned(Condition cond, Register rd,
+                                               Register rj, Imm32 imm,
+                                               Label* taken) {
+  MOZ_ASSERT(cond == Assembler::Signed || cond == Assembler::NotSigned);
+
+  ma_daddu(rd, rj, imm);
+  ma_b(rd, rd, taken, cond);
+}
+
+void MacroAssemblerMIPS64::ma_addPtrTestSigned(Condition cond, Register rd,
+                                               Register rj, ImmWord imm,
+                                               Label* taken) {
+  MOZ_ASSERT(cond == Assembler::Signed || cond == Assembler::NotSigned);
+
+  SecondScratchRegisterScope scratch2(asMasm());
+  ma_li(scratch2, imm);
+  ma_addPtrTestSigned(cond, rd, rj, scratch2, taken);
+}
+
 // Subtract.
 void MacroAssemblerMIPS64::ma_dsubu(Register rd, Register rs, Imm32 imm) {
+  if (Imm16::IsInSignedRange(-imm.value)) {
+    as_daddiu(rd, rs, -imm.value);
+  } else {
+    ma_li(ScratchRegister, imm);
+    as_dsubu(rd, rs, ScratchRegister);
+  }
+}
+
+void MacroAssemblerMIPS64::ma_dsubu(Register rd, Register rs, ImmWord imm) {
   if (Imm16::IsInSignedRange(-imm.value)) {
     as_daddiu(rd, rs, -imm.value);
   } else {
@@ -568,15 +614,18 @@ void MacroAssemblerMIPS64::ma_subPtrTestOverflow(Register rd, Register rs,
   ma_subPtrTestOverflow(rd, rs, ScratchRegister, overflow);
 }
 
-void MacroAssemblerMIPS64::ma_dmult(Register rs, Imm32 imm) {
-  ma_li(ScratchRegister, imm);
+void MacroAssemblerMIPS64::ma_dmulu(Register rd, Register rs, Register rt) {
 #ifdef MIPSR6
-  as_dmul(rs, ScratchRegister, SecondScratchReg);
-  as_dmuh(rs, ScratchRegister, rs);
-  ma_move(rs, SecondScratchReg);
+  as_dmulu(rd, rs, rt);
 #else
-  as_dmult(rs, ScratchRegister);
+  as_dmultu(rs, rt);
+  as_mflo(rd);
 #endif
+}
+
+void MacroAssemblerMIPS64::ma_dmulu(Register rd, Register rs, ImmWord imm) {
+  ma_li(ScratchRegister, imm);
+  ma_dmulu(rd, rs, ScratchRegister);
 }
 
 void MacroAssemblerMIPS64::ma_mulPtrTestOverflow(Register rd, Register rs,
@@ -1152,7 +1201,7 @@ void MacroAssemblerMIPS64::ma_push(FloatRegister f) {
 }
 
 bool MacroAssemblerMIPS64Compat::buildOOLFakeExitFrame(void* fakeReturnAddr) {
-  asMasm().PushFrameDescriptor(FrameType::IonJS);  // descriptor_
+  asMasm().Push(FrameDescriptor(FrameType::IonJS));  // descriptor_
   asMasm().Push(ImmPtr(fakeReturnAddr));
   asMasm().Push(FramePointer);
   return true;

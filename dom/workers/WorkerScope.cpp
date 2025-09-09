@@ -78,6 +78,7 @@
 #include "mozilla/dom/SimpleGlobalObject.h"
 #include "mozilla/dom/TestUtils.h"
 #include "mozilla/dom/TimeoutHandler.h"
+#include "mozilla/dom/TimeoutManager.h"
 #include "mozilla/dom/TrustedTypeUtils.h"
 #include "mozilla/dom/TrustedTypesConstants.h"
 #include "mozilla/dom/VsyncWorkerChild.h"
@@ -1201,9 +1202,6 @@ void DedicatedWorkerGlobalScope::OnVsync(const VsyncEvent& aVsync) {
     return;
   }
 
-  nsTArray<FrameRequest> callbacks;
-  mFrameRequestManager.Take(callbacks);
-
   RefPtr<DedicatedWorkerGlobalScope> scope(this);
   CallbackDebuggerNotificationGuard guard(
       scope, DebuggerNotificationType::RequestAnimationFrameCallback);
@@ -1223,8 +1221,10 @@ void DedicatedWorkerGlobalScope::OnVsync(const VsyncEvent& aVsync) {
         timeStamp, 0, this->GetRTPCallerType());
   }
 
-  for (auto& callback : callbacks) {
-    if (mFrameRequestManager.IsCanceled(callback.mHandle)) {
+  FrameRequestManager::FiringCallbacks callbacks(mFrameRequestManager);
+
+  for (auto& callback : callbacks.mList) {
+    if (callback.mCancelled) {
       continue;
     }
 

@@ -108,6 +108,7 @@ class MacroAssemblerLOONG64 : public Assembler {
   // arithmetic based ops
   // add
   void ma_add_d(Register rd, Register rj, Imm32 imm);
+  void ma_add_d(Register rd, Register rj, ImmWord imm);
   void ma_add32TestOverflow(Register rd, Register rj, Register rk,
                             Label* overflow);
   void ma_add32TestOverflow(Register rd, Register rj, Imm32 imm,
@@ -124,9 +125,16 @@ class MacroAssemblerLOONG64 : public Assembler {
                           Label* overflow);
   void ma_addPtrTestCarry(Condition cond, Register rd, Register rj, ImmWord imm,
                           Label* overflow);
+  void ma_addPtrTestSigned(Condition cond, Register rd, Register rj,
+                           Register rk, Label* taken);
+  void ma_addPtrTestSigned(Condition cond, Register rd, Register rj, Imm32 imm,
+                           Label* taken);
+  void ma_addPtrTestSigned(Condition cond, Register rd, Register rj,
+                           ImmWord imm, Label* taken);
 
   // subtract
   void ma_sub_d(Register rd, Register rj, Imm32 imm);
+  void ma_sub_d(Register rd, Register rj, ImmWord imm);
   void ma_sub32TestOverflow(Register rd, Register rj, Register rk,
                             Label* overflow);
   void ma_subPtrTestOverflow(Register rd, Register rj, Register rk,
@@ -136,6 +144,7 @@ class MacroAssemblerLOONG64 : public Assembler {
 
   // multiplies.  For now, there are only few that we care about.
   void ma_mul_d(Register rd, Register rj, Imm32 imm);
+  void ma_mul_d(Register rd, Register rj, ImmWord imm);
   void ma_mulh_d(Register rd, Register rj, Imm32 imm);
   void ma_mulPtrTestOverflow(Register rd, Register rj, Register rk,
                              Label* overflow);
@@ -342,6 +351,9 @@ class MacroAssemblerLOONG64 : public Assembler {
     as_movfr2gr_s(dest, src);
   }
 
+  void minMaxPtr(Register lhs, Register rhs, Register dest, bool isMax);
+  void minMaxPtr(Register lhs, ImmWord rhs, Register dest, bool isMax);
+
   // Evaluate srcDest = minmax<isMax>{Float32,Double}(srcDest, other).
   // Handle NaN specially if handleNaN is true.
   void minMaxDouble(FloatRegister srcDest, FloatRegister other, bool handleNaN,
@@ -521,15 +533,9 @@ class MacroAssemblerLOONG64Compat : public MacroAssemblerLOONG64 {
     ma_push(scratch2);
   }
   void push(Register reg) { ma_push(reg); }
-  void push(FloatRegister reg) {
-    MOZ_ASSERT(reg.isDouble(), "float32 and simd128 not supported");
-    ma_push(reg);
-  }
+  void push(FloatRegister reg) { ma_push(reg); }
   void pop(Register reg) { ma_pop(reg); }
-  void pop(FloatRegister reg) {
-    MOZ_ASSERT(reg.isDouble(), "float32 and simd128 not supported");
-    ma_pop(reg);
-  }
+  void pop(FloatRegister reg) { ma_pop(reg); }
 
   // Emit a branch that can be toggled to a non-operation. On LOONG64 we use
   // "andi" instruction to toggle the branch.

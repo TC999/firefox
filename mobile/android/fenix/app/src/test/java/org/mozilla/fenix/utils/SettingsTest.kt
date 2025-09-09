@@ -44,6 +44,8 @@ class SettingsTest {
         persistentStorage = ASK_TO_ALLOW,
         mediaKeySystemAccess = ASK_TO_ALLOW,
         crossOriginStorageAccess = ASK_TO_ALLOW,
+        localDeviceAccess = ASK_TO_ALLOW,
+        localNetworkAccess = ASK_TO_ALLOW,
     )
 
     @Before
@@ -584,6 +586,30 @@ class SettingsTest {
     }
 
     @Test
+    fun getSitePermissionsCustomSettingsRules_localDeviceAccess() {
+        // When
+        settings.setSitePermissionsPhoneFeatureAction(PhoneFeature.LOCAL_DEVICE_ACCESS, BLOCKED)
+
+        // Then
+        assertEquals(
+            defaultPermissions.copy(localDeviceAccess = BLOCKED),
+            settings.getSitePermissionsCustomSettingsRules(),
+        )
+    }
+
+    @Test
+    fun getSitePermissionsCustomSettingsRules_localNetworkAccess() {
+        // When
+        settings.setSitePermissionsPhoneFeatureAction(PhoneFeature.LOCAL_NETWORK_ACCESS, BLOCKED)
+
+        // Then
+        assertEquals(
+            defaultPermissions.copy(localNetworkAccess = BLOCKED),
+            settings.getSitePermissionsCustomSettingsRules(),
+        )
+    }
+
+    @Test
     fun getSitePermissionsCustomSettingsRules_autoplayAudible() {
         settings.setSitePermissionsPhoneFeatureAction(PhoneFeature.AUTOPLAY_AUDIBLE, ALLOWED)
 
@@ -1030,16 +1056,6 @@ class SettingsTest {
     }
 
     @Test
-    fun `GIVEN only microsurvey is enabled WHEN getBottomToolbarContainerHeight THEN returns microsurvey height`() {
-        val settings = spyk(settings)
-        every { settings.shouldShowMicrosurveyPrompt } returns true
-
-        val bottomToolbarContainerHeight = settings.getBottomToolbarContainerHeight()
-
-        assertEquals(131, bottomToolbarContainerHeight)
-    }
-
-    @Test
     fun `GIVEN the address bar and the microsurvey are shown at bottom WHEN getBottomToolbarHeight THEN returns the combined height`() {
         val settings = spyk(settings)
         every { settings.shouldUseComposableToolbar } returns false
@@ -1096,17 +1112,6 @@ class SettingsTest {
         val bottomToolbarHeight = settings.getBottomToolbarHeight()
 
         assertEquals(64, bottomToolbarHeight)
-    }
-
-    @Test
-    fun `GIVEN navigation bar and microsurvey is enabled WHEN getBottomToolbarContainerHeight THEN returns the combined height`() {
-        val settings = spyk(settings)
-        every { settings.shouldShowMicrosurveyPrompt } returns true
-        every { settings.shouldUseExpandedToolbar } returns true
-
-        val bottomToolbarContainerHeight = settings.getBottomToolbarContainerHeight()
-
-        assertEquals(191, bottomToolbarContainerHeight)
     }
 
     @Test

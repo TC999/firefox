@@ -42,24 +42,51 @@ internal fun loginsReducer(state: LoginsState, action: LoginsAction) = when (act
         ),
     )
     is DetailLoginMenuAction.DeleteLoginMenuItemClicked -> state.copy(
-        loginsDeletionState = state.loginsLoginDetailState?.let {
-            LoginDeletionState.Presenting(it.login.guid)
-        },
-        loginsLoginDetailState = null,
+        loginDeletionDialogState = LoginDeletionDialogState.Presenting(action.item.guid),
+    )
+    is LoginDeletionDialogAction.DeleteTapped -> state.withDeletedLoginRemoved()
+        .copy(loginDeletionDialogState = LoginDeletionDialogState.None, loginsLoginDetailState = null)
+    is LoginDeletionDialogAction.CancelTapped -> state.copy(
+        loginDeletionDialogState = LoginDeletionDialogState.None,
     )
     is LoginsListBackClicked -> state.respondToLoginsListBackClick()
     is AddLoginBackClicked -> state.respondToAddLoginBackClick()
     is EditLoginBackClicked -> state.respondToEditLoginBackClick()
+    is BiometricAuthenticationAction.AuthenticationSucceeded -> state.copy(
+        biometricAuthenticationState = BiometricAuthenticationState.Authorized,
+    )
+    is BiometricAuthenticationAction.AuthenticationInProgress -> state.copy(
+        biometricAuthenticationState = BiometricAuthenticationState.InProgress,
+    )
+    is BiometricAuthenticationAction.AuthenticationFailed -> state.copy(
+        biometricAuthenticationState = BiometricAuthenticationState.NonAuthorized,
+    )
+    is BiometricAuthenticationDialogAction -> state.copy(
+        biometricAuthenticationDialogState = BiometricAuthenticationDialogState(
+            action.shouldShowDialog,
+        ),
+    )
     ViewDisposed,
     is Init, LearnMoreAboutSync,
     -> state
+}
+
+private fun LoginsState.withDeletedLoginRemoved(): LoginsState = when {
+    loginDeletionDialogState is LoginDeletionDialogState.Presenting -> copy(
+        loginItems = loginItems.filterNot { it.guid == loginDeletionDialogState.guidToDelete },
+    )
+
+    else -> this
 }
 
 private fun LoginsState.handleSearchLogins(action: SearchLogins): LoginsState = copy(
     searchText = action.searchText,
     loginItems = action.loginItems.filter {
         it.url.contains(
-            action.searchText,
+            other = action.searchText,
+            ignoreCase = true,
+        ) || it.username.contains(
+            other = action.searchText,
             ignoreCase = true,
         )
     },
@@ -70,8 +97,12 @@ private fun LoginsState.handleLoginsLoadedAction(action: LoginsLoaded): LoginsSt
         loginItems = if (searchText.isNullOrEmpty()) {
             action.loginItems.sortedWith(sortOrder.comparator)
         } else {
-            action.loginItems.sortedWith(sortOrder.comparator)
-                .filter { it.url.contains(searchText, ignoreCase = true) }
+            action.loginItems.sortedWith(sortOrder.comparator).filter {
+                it.url.contains(
+                    other = searchText,
+                    ignoreCase = true,
+                ) || it.username.contains(other = searchText, ignoreCase = true)
+            }
         },
     )
 
@@ -154,7 +185,7 @@ private fun LoginsState.handleAddLoginAction(action: AddLoginAction): LoginsStat
 private fun LoginsState.respondToLoginsDetailBackClick(): LoginsState = when {
     loginsLoginDetailState != null -> copy(
         loginsLoginDetailState = null,
-        loginsDeletionState = null,
+        loginDeletionDialogState = LoginDeletionDialogState.None,
     )
 
     else -> this

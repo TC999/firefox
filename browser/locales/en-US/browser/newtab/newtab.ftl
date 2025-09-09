@@ -133,18 +133,6 @@ newtab-menu-manage-sponsored-content = Manage sponsored content
 newtab-menu-our-sponsors-and-your-privacy = Our sponsors and your privacy
 newtab-menu-report-this-ad = Report this ad
 
-## Message displayed in a modal window to explain privacy and provide context for sponsored content.
-
-newtab-privacy-modal-button-done = Done
-newtab-privacy-modal-button-manage = Manage sponsored content settings
-newtab-privacy-modal-header = Your privacy matters.
-newtab-privacy-modal-paragraph-2 =
-    In addition to dishing up captivating stories, we also show you relevant,
-    highly-vetted content from select sponsors. Rest assured, <strong>your browsing
-    data never leaves your personal copy of { -brand-product-name }</strong> — we don’t see it, and our
-    sponsors don’t either.
-newtab-privacy-modal-link = Learn how privacy works on the new tab
-
 ##
 
 # Bookmark is a noun in this case, "Remove bookmark".
@@ -244,11 +232,6 @@ newtab-toast-dismiss-button =
     .title = Dismiss
     .aria-label = Dismiss
 
-## Pocket content onboarding experience dialog and modal for new users seeing the Pocket section for the first time, shown as the first item in the Pocket section.
-
-newtab-pocket-onboarding-discover = Discover the best of the web
-newtab-pocket-onboarding-cta = { -pocket-brand-name } explores a diverse range of publications to bring the most informative, inspirational, and trustworthy content right to your { -brand-product-name } browser.
-
 ## Error Fallback Content.
 ## This message and suggested action link are shown in each section of UI that fails to render.
 
@@ -271,7 +254,9 @@ newtab-custom-row-selector =
 newtab-custom-stories-toggle =
   .label = Recommended stories
   .description = Exceptional content curated by the { -brand-product-name } family
-newtab-custom-pocket-show-recent-saves = Show recent saves
+newtab-custom-stories-personalized-toggle =
+  .label = Stories
+newtab-custom-stories-personalized-checkbox-label = Personalized stories based on your activity
 newtab-custom-weather-toggle =
   .label = Weather
   .description = Today’s forecast at a glance
@@ -287,7 +272,10 @@ newtab-custom-widget-lists-toggle =
 newtab-custom-widget-timer-toggle =
   .label = Timer
 newtab-custom-widget-section-title = Widgets
-newtab-custom-close-button = Close
+# Tooltip for close button
+newtab-custom-close-menu-button =
+    .title = Close
+    .aria-label = Close menu
 newtab-custom-settings = Manage more settings
 
 ## New Tab Wallpapers
@@ -299,7 +287,7 @@ newtab-wallpaper-custom-color = Choose a color
 # Variables
 #   $file_size (number) - The number of the maximum image file size (in MB) that may be uploaded
 newtab-wallpaper-error-max-file-size = The image exceeded the file size limit of { $file_size }MB. Please try uploading a smaller file.
-newtab-wallpaper-error-file-type = We couldn’t upload your file. Please try again with different file type.
+newtab-wallpaper-error-upload-file-type = We couldn’t upload your file. Please try again with an image file.
 newtab-wallpaper-light-red-panda = Red panda
 newtab-wallpaper-light-mountain = White mountain
 newtab-wallpaper-light-sky = Sky with purple and pink clouds
@@ -567,12 +555,21 @@ newtab-trending-searches-dismiss = Hide trending searches
 
 ## Strings for task / to-do list productivity widget
 
-newtab-widget-lists-default-list-title = Task list
+newtab-widget-lists-name-label-default =
+    .label = Task list
+newtab-widget-lists-name-placeholder-default =
+    .placeholder = Task list
 # The placeholder value of the name field for a newly created list
-newtab-widget-lists-default-list-new = New list
+newtab-widget-lists-name-placeholder-new =
+    .placeholder = New list
+
 # "Add one" means adding a new task to the list (e.g., "Walk the dog")
 newtab-widget-lists-empty-cta = The possibilities are endless. Add one.
-newtab-widget-lists-new-label = New
+# A simple label next to the default list name letting users know this is a new / beta feature
+newtab-widget-lists-label-new =
+    .label = New
+newtab-widget-lists-label-beta =
+    .label = Beta
 # When tasks have been previous marked as complete, they will appear in their own separate list beneath incomplete items
 # Variables:
 #   $number (number) - Amount of list items marked complete
@@ -584,7 +581,8 @@ newtab-widget-lists-menu-delete = Delete this list
 newtab-widget-lists-menu-copy = Copy list to clipboard
 newtab-widget-lists-menu-hide = Hide all lists
 newtab-widget-lists-menu-learn-more = Learn more
-newtab-widget-lists-input-placeholder = Add an item
+newtab-widget-lists-input-add-an-item =
+    .placeholder = Add an item
 newtab-widget-lists-input-error = Please include text to add an item.
 newtab-widget-lists-input-menu-open-link = Open link
 newtab-widget-lists-input-menu-move-up = Move up
@@ -607,6 +605,10 @@ newtab-widget-timer-play =
     .title = Play
 newtab-widget-timer-pause =
     .title = Pause
+newtab-widget-timer-label-play =
+    .label = Play
+newtab-widget-timer-label-pause =
+    .label = Pause
 newtab-widget-timer-reset =
     .title = Reset
 newtab-widget-timer-menu-notifications = Turn off notifications
@@ -614,8 +616,18 @@ newtab-widget-timer-menu-notifications-on = Turn on notifications
 newtab-widget-timer-menu-hide = Hide timer
 newtab-widget-timer-menu-learn-more = Learn more
 
+# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
+newtab-widget-keep-scrolling = Scroll for more
+
+newtab-widget-message-title = Stay focused with lists and a built-in timer
+# to-dos stands for "things to do".
+newtab-widget-message-copy = From quick reminders to daily to-dos, focus sessions to stretch breaks — stay on task and on time.
+
 # Strings for the default promo card
 
 newtab-promo-card-title = Support { -brand-product-name }
 newtab-promo-card-body = Our sponsors support our mission to build a better web
 newtab-promo-card-cta = Learn more
+newtab-promo-card-dismiss-button =
+    .title = Dismiss
+    .aria-label = Dismiss

@@ -37,8 +37,11 @@ export const TaskbarTabsPageAction = {
   init(aWindow) {
     let isPopupWindow = !aWindow.toolbar.visible;
     let isPrivate = lazy.PrivateBrowsingUtils.isWindowPrivate(aWindow);
+    let isWin32 = AppConstants.platform === "win";
+    let isMsix =
+      isWin32 && Services.sysinfo.getProperty("hasWinPackageId", false); // Bug 1979190
 
-    if (isPopupWindow || isPrivate || AppConstants.platform != "win") {
+    if (isPopupWindow || isPrivate || !isWin32 || isMsix) {
       lazy.logConsole.info("Not initializing Taskbar Tabs Page Action.");
       return;
     }
@@ -92,19 +95,7 @@ export const TaskbarTabsPageAction = {
 
       if (!isTaskbarTabWindow) {
         lazy.logConsole.info("Opening new Taskbar Tab via Page Action.");
-
-        // Move tab to a Taskbar Tabs window.
-        let browser = currentTab.linkedBrowser;
-        let url = browser.currentURI;
-        let userContextId =
-          browser.contentPrincipal.originAttributes.userContextId;
-
-        let taskbarTab = await lazy.TaskbarTabs.findOrCreateTaskbarTab(
-          url,
-          userContextId
-        );
-
-        await lazy.TaskbarTabs.replaceTabWithWindow(taskbarTab, currentTab);
+        await lazy.TaskbarTabs.moveTabIntoTaskbarTab(currentTab);
       } else {
         lazy.logConsole.info("Closing Taskbar Tab via Page Action.");
 

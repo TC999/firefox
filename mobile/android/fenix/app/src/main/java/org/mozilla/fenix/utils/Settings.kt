@@ -10,7 +10,6 @@ import android.content.Context
 import android.content.Context.MODE_PRIVATE
 import android.content.SharedPreferences
 import android.content.pm.ShortcutManager
-import android.os.Build
 import android.view.accessibility.AccessibilityManager
 import androidx.annotation.VisibleForTesting
 import androidx.annotation.VisibleForTesting.Companion.PRIVATE
@@ -50,7 +49,6 @@ import org.mozilla.fenix.ext.getPreferenceKey
 import org.mozilla.fenix.ext.pixelSizeFor
 import org.mozilla.fenix.home.pocket.ContentRecommendationsFeatureHelper
 import org.mozilla.fenix.home.topsites.TopSitesConfigConstants.TOP_SITES_MAX_COUNT
-import org.mozilla.fenix.iconpicker.AppIcon
 import org.mozilla.fenix.nimbus.CookieBannersSection
 import org.mozilla.fenix.nimbus.FxNimbus
 import org.mozilla.fenix.nimbus.HomeScreenSection
@@ -68,7 +66,6 @@ import org.mozilla.fenix.settings.registerOnSharedPreferenceChangeListener
 import org.mozilla.fenix.settings.sitepermissions.AUTOPLAY_BLOCK_ALL
 import org.mozilla.fenix.settings.sitepermissions.AUTOPLAY_BLOCK_AUDIBLE
 import org.mozilla.fenix.tabstray.DefaultTabManagementFeatureHelper
-import org.mozilla.fenix.tabstray.TabManagementFeatureHelper
 import org.mozilla.fenix.wallpapers.Wallpaper
 import java.security.InvalidParameterException
 import java.util.UUID
@@ -91,12 +88,14 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         private const val ALLOWED_INT = 2
         private const val INACTIVE_TAB_MINIMUM_TO_SHOW_AUTO_CLOSE_DIALOG = 20
 
+        const val THIRTY_SECONDS_MS = 30 * 1000L
         const val FOUR_HOURS_MS = 60 * 60 * 4 * 1000L
         const val ONE_MINUTE_MS = 60 * 1000L
         const val ONE_HOUR_MS = 60 * ONE_MINUTE_MS
         const val ONE_DAY_MS = 60 * 60 * 24 * 1000L
         const val TWO_DAYS_MS = 2 * ONE_DAY_MS
         const val THREE_DAYS_MS = 3 * ONE_DAY_MS
+        const val FIVE_DAYS_MS = 5 * ONE_DAY_MS
         const val ONE_WEEK_MS = 60 * 60 * 24 * 7 * 1000L
         const val ONE_MONTH_MS = (60 * 60 * 24 * 365 * 1000L) / 12
 
@@ -285,10 +284,28 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         get() = FxNimbus.features.homescreen.value().sectionsEnabled
 
     /**
-     * Indicates if the homepage section settings should be visible.
+     * Indicates if the top sites homepage section settings should be visible
      */
-    val showHomepageSectionToggleSettings: Boolean
-        get() = !overrideUserSpecifiedHomepageSections
+    val showHomepageTopSitesSectionToggle: Boolean
+        get() = !overrideUserSpecifiedHomepageSections || enableHomepageSearchBar
+
+    /**
+     * Indicates if the recent tabs homepage section settings should be visible
+     */
+    val showHomepageRecentTabsSectionToggle: Boolean
+        get() = !overrideUserSpecifiedHomepageSections && !enableHomepageSearchBar
+
+    /**
+     * Indicates if the bookmarks homepage section settings should be visible
+     */
+    val showHomepageBookmarksSectionToggle: Boolean
+        get() = !overrideUserSpecifiedHomepageSections && !enableHomepageSearchBar
+
+    /**
+     * Indicates if the recently visited homepage section settings should be visible
+     */
+    val showHomepageRecentlyVisitedSectionToggle: Boolean
+        get() = !overrideUserSpecifiedHomepageSections && !enableHomepageSearchBar
 
     /**
      * Indicates if the user specified homepage section visibility should be ignored.
@@ -533,14 +550,55 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     var hasAcceptedTermsOfService by booleanPreference(
         appContext.getPreferenceKey(R.string.pref_key_terms_accepted),
         default = false,
+        persistDefaultIfNotExists = true,
+    )
+
+    /**
+     * Returns true if the terms of use feature flag is enabled
+     */
+    var isTermsOfUsePromptEnabled by lazyFeatureFlagPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_terms_prompt_enabled),
+        default = { FxNimbus.features.termsOfUsePrompt.value().enabled },
+        featureFlag = true,
+    )
+
+    /**
+     * Timestamp in milliseconds when the terms of use prompt was last shown to the user.
+     * A value of 0L indicates that the prompt has never been shown.
+     */
+    var lastTermsOfUsePromptTimeInMillis: Long by longPreference(
+        appContext.getPreferenceKey(R.string.pref_key_terms_last_prompt_time),
+        default = 0L,
     )
 
     /**
      * Users who have not accepted ToS will see a popup asking them to accept.
      * They can select "Not now" to postpone accepting.
      */
-    var hasPostponedAcceptingTermsOfService by booleanPreference(
+    var hasPostponedAcceptingTermsOfUse by booleanPreference(
         appContext.getPreferenceKey(R.string.pref_key_terms_postponed),
+        default = false,
+    )
+
+    var isDebugTermsOfServiceTriggerTimeEnabled by booleanPreference(
+        appContext.getPreferenceKey(R.string.pref_key_debug_terms_trigger_time),
+        default = false,
+        persistDefaultIfNotExists = true,
+    )
+
+    /**
+     * Used to determine users who have interacted with any links from the Terms of Use prompt.
+     */
+    var hasClickedTermOfUsePromptLink by booleanPreference(
+        appContext.getPreferenceKey(R.string.pref_key_terms_clicked_link),
+        default = false,
+    )
+
+    /**
+     * Used to determine users who clicked the "remind me later" action.
+     */
+    var hasClickedTermOfUsePromptRemindMeLater by booleanPreference(
+        appContext.getPreferenceKey(R.string.pref_key_terms_clicked_remind_me_later),
         default = false,
     )
 
@@ -629,7 +687,7 @@ class Settings(private val appContext: Context) : PreferencesHolder {
      */
     val shortcutSuggestionsEnabled by booleanPreference(
         appContext.getPreferenceKey(R.string.pref_key_show_shortcuts_suggestions),
-        default = true,
+        default = false,
     )
 
     /**
@@ -749,6 +807,27 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     var alwaysOpenTheLastTabWhenOpeningTheApp by booleanPreference(
         appContext.getPreferenceKey(R.string.pref_key_start_on_home_never),
         default = false,
+    )
+
+    /**
+     * Indicates if the LNA (Local Network Access / Local Device Access) blocking is enabled
+     *
+     * This refers to whether or not we are blocking or allowing requests that originate from
+     * remote origins targeting either localhost addresses or local network addresses.
+     */
+    var isLnaBlockingEnabled by lazyFeatureFlagPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_enable_lna_blocking_enabled),
+        featureFlag = true,
+        default = { FxNimbus.features.lnaBlocking.value().enabled },
+    )
+
+    /**
+     * Indicates whether isolated content processes are enabled or not.
+     */
+    var isIsolatedProcessEnabled by lazyFeatureFlagPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_enable_isolated_process),
+        featureFlag = true,
+        default = { FxNimbus.features.isolatedContentProcesses.value().enabled },
     )
 
     /**
@@ -1244,6 +1323,16 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         persistDefaultIfNotExists = true,
     )
 
+    var shouldShowSimpleToolbarCustomization by booleanPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_enable_simple_toolbar_customization),
+        default = { FxNimbus.features.toolbarRedesignOption.value().showSimpleCustomization },
+    )
+
+    var shouldShowExpandedToolbarCustomization by booleanPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_enable_expanded_toolbar_customization),
+        default = { FxNimbus.features.toolbarRedesignOption.value().showExpandedCustomization },
+    )
+
     val toolbarPosition: ToolbarPosition
         get() = if (isTabStripEnabled) {
             ToolbarPosition.TOP
@@ -1390,7 +1479,7 @@ class Settings(private val appContext: Context) : PreferencesHolder {
             if (userNeedsToVisitInstallableSites) return false
 
             // ShortcutManager::pinnedShortcuts is only available on Oreo+
-            if (!userKnowsAboutPwas && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!userKnowsAboutPwas) {
                 val manager = appContext.getSystemService(ShortcutManager::class.java)
                 val alreadyHavePwaInstalled = manager != null && manager.pinnedShortcuts.size > 0
 
@@ -1516,6 +1605,8 @@ class Settings(private val appContext: Context) : PreferencesHolder {
             persistentStorage = getSitePermissionsPhoneFeatureAction(PhoneFeature.PERSISTENT_STORAGE),
             crossOriginStorageAccess = getSitePermissionsPhoneFeatureAction(PhoneFeature.CROSS_ORIGIN_STORAGE_ACCESS),
             mediaKeySystemAccess = getSitePermissionsPhoneFeatureAction(PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS),
+            localDeviceAccess = getSitePermissionsPhoneFeatureAction(PhoneFeature.LOCAL_DEVICE_ACCESS),
+            localNetworkAccess = getSitePermissionsPhoneFeatureAction(PhoneFeature.LOCAL_NETWORK_ACCESS),
         )
     }
 
@@ -1530,6 +1621,8 @@ class Settings(private val appContext: Context) : PreferencesHolder {
             PhoneFeature.PERSISTENT_STORAGE,
             PhoneFeature.CROSS_ORIGIN_STORAGE_ACCESS,
             PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS,
+            PhoneFeature.LOCAL_DEVICE_ACCESS,
+            PhoneFeature.LOCAL_NETWORK_ACCESS,
         ).map { it.getPreferenceKey(appContext) }
 
         preferences.registerOnSharedPreferenceChangeListener(lifecycleOwner) { _, key ->
@@ -1992,6 +2085,15 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     var onboardingFeatureEnabled = FeatureFlags.onboardingFeatureEnabled
 
     /**
+     * Indicates if the onboarding redesign should be used.
+     */
+    var useOnboardingRedesign by lazyFeatureFlagPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_use_onboarding_redesign),
+        featureFlag = true,
+        default = { FxNimbus.features.junoOnboarding.value().useOnboardingRedesign },
+    )
+
+    /**
      * Indicates if the marketing onboarding card should be shown to the user.
      */
     var shouldShowMarketingOnboarding by booleanPreference(
@@ -2002,7 +2104,7 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     var shouldUseComposableToolbar by lazyFeatureFlagPreference(
         key = appContext.getPreferenceKey(R.string.pref_key_enable_composable_toolbar),
         default = { FxNimbus.features.composableToolbar.value().enabled },
-        featureFlag = FeatureFlags.composableToolbar,
+        featureFlag = true,
     )
 
     /**
@@ -2140,6 +2242,14 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         key = appContext.getPreferenceKey(R.string.pref_key_enable_homepage_searchbar),
         default = { FxNimbus.features.homepageSearchBar.value().enabled },
         featureFlag = true,
+    )
+
+    /**
+     * Indicates if the Homepage "Discover more" stories is enabled.
+     */
+    var enableDiscoverMoreStories by booleanPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_enable_discover_more_stories),
+        default = FeatureFlags.DISCOVER_MORE_STORIES,
     )
 
     /**
@@ -2341,30 +2451,6 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         )
 
     /**
-     * Returns the height of the bottom toolbar container.
-     *
-     * The bottom toolbar container can consist of a navigation bar, the microsurvey prompt
-     * a combination of a navigation and microsurvey prompt, or be absent.
-     */
-    fun getBottomToolbarContainerHeight(): Int {
-        val isMicrosurveyEnabled = shouldShowMicrosurveyPrompt
-
-        val microsurveyHeight = if (isMicrosurveyEnabled) {
-            appContext.pixelSizeFor(R.dimen.browser_microsurvey_height)
-        } else {
-            0
-        }
-
-        val navBarHeight = if (shouldUseExpandedToolbar) {
-            appContext.pixelSizeFor(R.dimen.browser_navbar_height)
-        } else {
-            0
-        }
-
-        return microsurveyHeight + navBarHeight
-    }
-
-    /**
      * Indicates if the microsurvey feature is enabled.
      */
     var microsurveyFeatureEnabled by lazyFeatureFlagPreference(
@@ -2460,7 +2546,7 @@ class Settings(private val appContext: Context) : PreferencesHolder {
      */
     var useNewCrashReporterDialog by booleanPreference(
         appContext.getPreferenceKey(R.string.pref_key_use_new_crash_reporter),
-        default = false,
+        default = Config.channel.isNightlyOrDebug,
     )
 
     /**
@@ -2637,19 +2723,11 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     )
 
     /**
-     * Suffix of the currently selected app icon (launcher alias).
-     */
-    var selectedAppIcon by stringPreference(
-        key = appContext.getPreferenceKey(R.string.pref_key_selected_app_icon),
-        default = AppIcon.AppDefault.aliasSuffix,
-    )
-
-    /**
      * Whether the Tab Manager enhancements are enabled.
      */
     var tabManagerEnhancementsEnabled by booleanPreference(
         key = appContext.getPreferenceKey(R.string.pref_key_tab_manager_enhancements),
-        default = DefaultTabManagementFeatureHelper.enhancementsEnabled,
+        default = { DefaultTabManagementFeatureHelper.enhancementsEnabled },
     )
 
     /**

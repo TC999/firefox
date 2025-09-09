@@ -3878,7 +3878,10 @@ bool Parser<FullParseHandler, Unit>::asmJS(ListNodeType list) {
     return true;
   }
 
-  pc_->functionBox()->useAsm = true;
+  // Mark this function as being in a "use asm" directive.
+  if (!pc_->functionBox()->setUseAsm()) {
+    return false;
+  }
 
   // Attempt to validate and compile this asm.js module. On success, the
   // tokenStream has been advanced to the closing }. On failure, the
@@ -4997,13 +5000,7 @@ GeneralParser<ParseHandler, Unit>::moduleExportName() {
 
 template <class ParseHandler, typename Unit>
 bool GeneralParser<ParseHandler, Unit>::withClause(ListNodeType attributesSet) {
-  MOZ_ASSERT(anyChars.isCurrentTokenType(TokenKind::Assert) ||
-             anyChars.isCurrentTokenType(TokenKind::With));
-
-  if (!options().importAttributes()) {
-    error(JSMSG_IMPORT_ATTRIBUTES_NOT_SUPPORTED);
-    return false;
-  }
+  MOZ_ASSERT(anyChars.isCurrentTokenType(TokenKind::With));
 
   if (!abortIfSyntaxParser()) {
     return false;
@@ -5013,7 +5010,7 @@ bool GeneralParser<ParseHandler, Unit>::withClause(ListNodeType attributesSet) {
     return false;
   }
 
-  // Handle the form |... assert {}|
+  // Handle the form |... with {}|
   TokenKind token;
   if (!tokenStream.getToken(&token)) {
     return false;
@@ -5336,24 +5333,8 @@ GeneralParser<ParseHandler, Unit>::importDeclaration() {
   NameNodeType moduleSpec;
   MOZ_TRY_VAR(moduleSpec, stringLiteral());
 
-  // The `assert` keyword has a [no LineTerminator here] production before it in
-  // the grammar -- `with` does not. We need to handle this distinction.
-  if (!tokenStream.peekTokenSameLine(&tt, TokenStream::SlashIsRegExp)) {
+  if (!tokenStream.peekToken(&tt, TokenStream::SlashIsRegExp)) {
     return errorResult();
-  }
-
-  // `with` may have an EOL prior, so peek the next token and replace
-  // EOL if the next token is `with`.
-  if (tt == TokenKind::Eol) {
-    // Doing a regular peek won't produce Eol, but the actual next token.
-    TokenKind peekedToken;
-    if (!tokenStream.peekToken(&peekedToken, TokenStream::SlashIsRegExp)) {
-      return errorResult();
-    }
-
-    if (peekedToken == TokenKind::With) {
-      tt = TokenKind::With;
-    }
   }
 
   ListNodeType importAttributeList;
@@ -5708,25 +5689,8 @@ GeneralParser<ParseHandler, Unit>::exportFrom(uint32_t begin, Node specList) {
   MOZ_TRY_VAR(moduleSpec, stringLiteral());
 
   TokenKind tt;
-
-  // The `assert` keyword has a [no LineTerminator here] production before it in
-  // the grammar -- `with` does not. We need to handle this distinction.
-  if (!tokenStream.peekTokenSameLine(&tt, TokenStream::SlashIsRegExp)) {
+  if (!tokenStream.peekToken(&tt, TokenStream::SlashIsRegExp)) {
     return errorResult();
-  }
-
-  // `with` may have an EOL prior, so peek the next token and replace
-  // EOL if the next token is `with`.
-  if (tt == TokenKind::Eol) {
-    // Doing a regular peek won't produce Eol, but the actual next token.
-    TokenKind peekedToken;
-    if (!tokenStream.peekToken(&peekedToken, TokenStream::SlashIsRegExp)) {
-      return errorResult();
-    }
-
-    if (peekedToken == TokenKind::With) {
-      tt = TokenKind::With;
-    }
   }
 
   uint32_t moduleSpecPos = pos().begin;
@@ -12649,30 +12613,25 @@ GeneralParser<ParseHandler, Unit>::importExpr(YieldHandling yieldHandling,
     }
 
     Node optionalArg;
-    if (options().importAttributes()) {
-      if (next == TokenKind::Comma) {
-        tokenStream.consumeKnownToken(TokenKind::Comma,
-                                      TokenStream::SlashIsRegExp);
+    if (next == TokenKind::Comma) {
+      tokenStream.consumeKnownToken(TokenKind::Comma,
+                                    TokenStream::SlashIsRegExp);
+
+      if (!tokenStream.peekToken(&next, TokenStream::SlashIsRegExp)) {
+        return errorResult();
+      }
+
+      if (next != TokenKind::RightParen) {
+        MOZ_TRY_VAR(optionalArg,
+                    assignExpr(InAllowed, yieldHandling, TripledotProhibited));
 
         if (!tokenStream.peekToken(&next, TokenStream::SlashIsRegExp)) {
           return errorResult();
         }
 
-        if (next != TokenKind::RightParen) {
-          MOZ_TRY_VAR(optionalArg, assignExpr(InAllowed, yieldHandling,
-                                              TripledotProhibited));
-
-          if (!tokenStream.peekToken(&next, TokenStream::SlashIsRegExp)) {
-            return errorResult();
-          }
-
-          if (next == TokenKind::Comma) {
-            tokenStream.consumeKnownToken(TokenKind::Comma,
-                                          TokenStream::SlashIsRegExp);
-          }
-        } else {
-          MOZ_TRY_VAR(optionalArg,
-                      handler_.newPosHolder(TokenPos(pos().end, pos().end)));
+        if (next == TokenKind::Comma) {
+          tokenStream.consumeKnownToken(TokenKind::Comma,
+                                        TokenStream::SlashIsRegExp);
         }
       } else {
         MOZ_TRY_VAR(optionalArg,

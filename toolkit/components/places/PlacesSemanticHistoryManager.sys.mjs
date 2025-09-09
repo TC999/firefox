@@ -41,7 +41,10 @@ const DEFERRED_TASK_INTERVAL_MS = 3000;
 // Maximum time to wait for an idle before the task is executed anyway.
 const DEFERRED_TASK_MAX_IDLE_WAIT_MS = 2 * 60000;
 // Number of entries to update at once.
-const DEFAULT_CHUNK_SIZE = 50;
+const DEFAULT_CHUNK_SIZE = Services.prefs.getIntPref(
+  "places.semanticHistory.defaultBatchChunksize",
+  25
+);
 const ONE_MiB = 1024 * 1024;
 // minimum title length threshold; Usage len(title || description) > MIN_TITLE_LENGTH
 const MIN_TITLE_LENGTH = 4;
@@ -344,7 +347,7 @@ class PlacesSemanticHistoryManager {
         }
 
         // Capture updateTask startTime.
-        const updateStartTime = Cu.now();
+        const updateStartTime = ChromeUtils.now();
 
         try {
           lazy.logger.info("Running vector DB update task...");
@@ -364,7 +367,7 @@ class PlacesSemanticHistoryManager {
           }
 
           this.#prevPagesRankChangedCount = pagesRankChangedCount;
-          const startTime = Cu.now();
+          const startTime = ChromeUtils.now();
 
           lazy.logger.info(
             `Changes exceed threshold (${this.#changeThresholdCount}).`
@@ -378,7 +381,7 @@ class PlacesSemanticHistoryManager {
           // We already have startTime for profile markers, so just use it
           // instead of tracking timer within the distribution.
           Glean.places.semanticHistoryFindChunksTime.accumulateSingleSample(
-            Cu.now() - startTime
+            ChromeUtils.now() - startTime
           );
 
           lazy.logger.info(
@@ -431,7 +434,7 @@ class PlacesSemanticHistoryManager {
           lazy.logger.error("Error executing vector DB update task:", error);
         } finally {
           lazy.logger.info("Vector DB update task completed.");
-          const updateEndTime = Cu.now();
+          const updateEndTime = ChromeUtils.now();
           const updateTaskTime = updateEndTime - updateStartTime;
           this.#updateTaskLatency.push(updateTaskTime);
 
@@ -746,7 +749,7 @@ class PlacesSemanticHistoryManager {
    *   The result of the engine's inference pipeline.
    */
   async infer(queryContext) {
-    const inferStartTime = Cu.now();
+    const inferStartTime = ChromeUtils.now();
     let results = [];
     await this.embedder.ensureEngine();
     let tensor = await this.embedder.embed(queryContext.searchString);

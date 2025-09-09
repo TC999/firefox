@@ -22,6 +22,7 @@
 #include "mozilla/widget/xdg-activation-v1-client-protocol.h"
 #include "mozilla/widget/xdg-output-unstable-v1-client-protocol.h"
 #include "mozilla/widget/color-management-v1-client-protocol.h"
+#include "mozilla/widget/color-representation-v1-client-protocol.h"
 #include "mozilla/widget/xdg-shell-client-protocol.h"
 #include "mozilla/widget/xx-pip-v1-client-protocol.h"
 
@@ -103,6 +104,11 @@ class nsWaylandDisplay {
 
   void SetColorManager(wp_color_manager_v1* aColorManager);
   wp_color_manager_v1* GetColorManager() const { return mColorManager; }
+  void SetColorRepresentationManager(
+      wp_color_representation_manager_v1* aColorRepresentationManager);
+  wp_color_representation_manager_v1* GetColorRepresentationManager() const {
+    return mColorRepresentationManager;
+  }
   void SetPipShell(xx_pip_shell_v1* aShell) { mPipShell = aShell; }
   xx_pip_shell_v1* GetPipShell() const { return mPipShell; }
   void SetXdgWm(xdg_wm_base* aWmBase) { mWmBase = aWmBase; }
@@ -113,6 +119,9 @@ class nsWaylandDisplay {
   bool IsHDREnabled() const {
     return mColorManagerSupportedFeature.mParametric;
   }
+  void SetSupportedCoefficientsAndRanges(uint32_t aCoefficients,
+                                         uint32_t aRange);
+  uint32_t GetColorRange(uint32_t aCoefficients, bool aFullRange);
   RefPtr<DMABufFormats> GetDMABufFormats() const { return mFormats; }
   bool HasDMABufFeedback() const { return mDmabufIsFeedback; }
   void EnsureDMABufFormats();
@@ -121,6 +130,20 @@ class nsWaylandDisplay {
                                      uint32_t aTime);
   void RequestAsyncRoundtrip();
   void WaitForAsyncRoundtrips();
+
+  struct MonitorConfig {
+    int id = 0;
+    int x = 0;
+    int y = 0;
+    int pixelWidth = 0;
+    int pixelHeight = 0;
+    explicit MonitorConfig(int aId) : id(aId) {}
+  };
+
+  MonitorConfig* AddMonitorConfig(int aId);
+  MonitorConfig* GetMonitorConfig(int x, int y);
+  bool RemoveMonitorConfig(int aId);
+  void AddWlOutput(wl_output* aWlOutput, int aId);
 
   ~nsWaylandDisplay();
 
@@ -147,6 +170,7 @@ class nsWaylandDisplay {
   org_kde_kwin_appmenu_manager* mAppMenuManager = nullptr;
   wp_fractional_scale_manager_v1* mFractionalScaleManager = nullptr;
   wp_color_manager_v1* mColorManager = nullptr;
+  wp_color_representation_manager_v1* mColorRepresentationManager = nullptr;
   xx_pip_shell_v1* mPipShell = nullptr;
   xdg_wm_base* mWmBase = nullptr;
   RefPtr<DMABufFormats> mFormats;
@@ -164,8 +188,17 @@ class nsWaylandDisplay {
   int mSupportedTransfer[sColorTransfersNum] = {};
   int mSupportedPrimaries[sColorPrimariesNum] = {};
 
+  constexpr static int sSupportedRangeFull = 1;
+  constexpr static int sSupportedRangeLimited = 2;
+  constexpr static int sSupportedRangeBoth = 3;
+  constexpr static int sSupportedRangesNum =
+      WP_COLOR_REPRESENTATION_SURFACE_V1_COEFFICIENTS_ICTCP + 1;
+  uint32_t mSupportedRanges[sSupportedRangesNum] = {};
+
   bool mExplicitSync = false;
   bool mIsPrimarySelectionEnabled = false;
+
+  AutoTArray<UniquePtr<MonitorConfig>, 4> mMonitors;
 };
 
 wl_display* WaylandDisplayGetWLDisplay();
