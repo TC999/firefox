@@ -775,6 +775,29 @@ const POLICIES_TESTS = [
     },
   },
 
+  // POLICY: LocalNetworkAccess
+  {
+    policies: {
+      LocalNetworkAccess: {
+        Enabled: true,
+      },
+    },
+    unlockedPrefs: {
+      "network.lna.enabled": true,
+    },
+  },
+  {
+    policies: {
+      LocalNetworkAccess: {
+        Enabled: false,
+        Locked: true,
+      },
+    },
+    lockedPrefs: {
+      "network.lna.enabled": false,
+    },
+  },
+
   // POLICY: EncryptedMediaExtensions
 
   {
@@ -1173,6 +1196,16 @@ const POLICIES_TESTS = [
       "termsofuse.acceptedVersion": 999,
       // "termsofuse.acceptedVersion" is a string of
       // the timestamp at which the policy was set
+    },
+  },
+
+  // POLICY: VisualSearchEnabled
+  {
+    policies: {
+      VisualSearchEnabled: false,
+    },
+    lockedPrefs: {
+      "browser.search.visualSearch.featureGate": false,
     },
   },
 ];

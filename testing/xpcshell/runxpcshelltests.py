@@ -222,6 +222,7 @@ class XPCShellTestThread(Thread):
         self.extraPrefs = kwargs.get("extraPrefs")
         self.verboseIfFails = kwargs.get("verboseIfFails")
         self.headless = kwargs.get("headless")
+        self.selfTest = kwargs.get("selfTest")
         self.runFailures = kwargs.get("runFailures")
         self.timeoutAsPass = kwargs.get("timeoutAsPass")
         self.crashAsPass = kwargs.get("crashAsPass")
@@ -547,7 +548,7 @@ class XPCShellTestThread(Thread):
         """
         if self.conditionedProfileDir:
             profileDir = self.conditioned_profile_copy
-        elif self.interactive or self.singleFile:
+        elif self.interactive or (self.singleFile and not self.selfTest):
             profileDir = os.path.join(gettempdir(), self.profileName, "xpcshellprofile")
             try:
                 # This could be left over from previous runs
@@ -1112,10 +1113,15 @@ class XPCShellTests:
     def normalizeTest(self, root, test_object):
         path = test_object.get("file_relpath", test_object["relpath"])
         if "dupe-manifest" in test_object and "ancestor_manifest" in test_object:
-            test_object["id"] = "%s:%s" % (
-                os.path.basename(test_object["ancestor_manifest"]),
-                path,
+            # Use same logic as get_full_group_name() to determine which manifest to use
+            ancestor_manifest = normsep(test_object["ancestor_manifest"])
+            # If ancestor is not the generated root (has path separator), use it
+            manifest_for_id = (
+                test_object["ancestor_manifest"]
+                if "/" in ancestor_manifest
+                else test_object["manifest"]
             )
+            test_object["id"] = "%s:%s" % (os.path.basename(manifest_for_id), path)
         else:
             test_object["id"] = path
 
@@ -1736,6 +1742,7 @@ class XPCShellTests:
 
     def runSelfTest(self):
         import unittest
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
         import selftest
 
@@ -1753,11 +1760,85 @@ class XPCShellTests:
         old_info = dict(mozinfo.info)
         try:
             suite = unittest.TestLoader().loadTestsFromTestCase(XPCShellTestsTests)
-            return unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful()
+            test_cases = list(suite)
+            group = "xpcshell-selftest"
+            tests_by_manifest = {
+                "xpcshell-selftest": [tc._testMethodName for tc in test_cases]
+            }
+            self.log.suite_start(tests_by_manifest, name=group)
+            self.log.group_start(name="selftests")
+
+            if self.sequential or len(test_cases) <= 1:
+                return unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful()
+
+            def run_single_test(test_case):
+                result = unittest.TestResult()
+                test_name = test_case._testMethodName
+                this.log.test_start(test_name, group=group)
+                status = "PASS"
+                try:
+                    test_case.run(result)
+                    if not result.wasSuccessful():
+                        status = "FAIL"
+                except Exception as e:
+                    result.addError(test_case, (type(e), e, None))
+                    status = "ERROR"
+                finally:
+                    this.log.test_end(test_name, status, expected="PASS", group=group)
+                    return {
+                        "result": result,
+                        "name": test_name,
+                    }
+
+            success = True
+
+            # Limit parallel self-tests to 32 on macOS to avoid "too many open files" error.
+            max_workers = (
+                min(32, self.threadCount)
+                if sys.platform == "darwin"
+                else self.threadCount
+            )
+
+            self.log.info(
+                f"Running {len(test_cases)} self-tests in parallel with up to {max_workers} workers..."
+            )
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tests
+                future_to_test = {
+                    executor.submit(run_single_test, test): test for test in test_cases
+                }
+
+                # Print the status of tests as they finish
+                for future in as_completed(future_to_test):
+                    try:
+                        test_result = future.result()
+                        result_obj = test_result["result"]
+
+                        if not result_obj.wasSuccessful():
+                            success = False
+                            test_name = test_result["name"]
+                            if result_obj.failures:
+                                self.log.error(f"FAIL: {test_name}")
+                                for test, traceback in result_obj.failures:
+                                    self.log.error(f"  Failure: {traceback}")
+                            if result_obj.errors:
+                                self.log.error(f"ERROR: {test_name}")
+                                for test, traceback in result_obj.errors:
+                                    self.log.error(f"  Error: {traceback}")
+
+                    except Exception as e:
+                        self.log.error(f"Exception in test execution: {e}")
+                        success = False
+
+            return success
+
         finally:
             # The self tests modify mozinfo, so we need to reset it.
             mozinfo.info.clear()
             mozinfo.update(old_info)
+
+            self.log.group_end(name="selftests")
+            self.log.suite_end()
 
     def runTests(self, options, testClass=XPCShellTestThread, mobileArgs=None):
         """
@@ -1845,6 +1926,7 @@ class XPCShellTests:
         self.threadCount = options.get("threadCount") or NUM_THREADS
         self.jscovdir = options.get("jscovdir")
         self.headless = options.get("headless")
+        self.selfTest = options.get("selfTest")
         self.runFailures = options.get("runFailures")
         self.timeoutAsPass = options.get("timeoutAsPass")
         self.crashAsPass = options.get("crashAsPass")
@@ -1945,7 +2027,7 @@ class XPCShellTests:
         self.buildTestList(
             options.get("test_tags"), options.get("testPaths"), options.get("verify")
         )
-        if self.singleFile:
+        if self.singleFile and not self.selfTest:
             self.sequential = True
 
         if options.get("shuffle"):
@@ -2028,6 +2110,7 @@ class XPCShellTests:
             "extraPrefs": options.get("extraPrefs") or [],
             "verboseIfFails": self.verboseIfFails,
             "headless": self.headless,
+            "selfTest": self.selfTest,
             "runFailures": self.runFailures,
             "timeoutAsPass": self.timeoutAsPass,
             "crashAsPass": self.crashAsPass,
@@ -2239,6 +2322,12 @@ class XPCShellTests:
 
         self.log.suite_start(tests_by_manifest, name="xpcshell")
 
+        # Start group for parallel test execution
+        parallel_group_started = False
+        if tests_queue:
+            self.log.group_start(name="parallel")
+            parallel_group_started = True
+
         while tests_queue or running_tests:
             # if we're not supposed to continue and all of the running tests
             # are done, stop
@@ -2289,11 +2378,17 @@ class XPCShellTests:
             # make room for new tests to run
             running_tests.difference_update(done_tests)
 
+        # End group for parallel test execution
+        if parallel_group_started:
+            self.log.group_end(name="parallel")
+
         if infra_abort:
             return TBPL_RETRY  # terminate early
 
         if keep_going:
             # run the other tests sequentially
+            if sequential_tests:
+                self.log.group_start(name="sequential")
             for test in sequential_tests:
                 if not keep_going:
                     self.log.error(
@@ -2316,9 +2411,13 @@ class XPCShellTests:
                     break
                 keep_going = test.keep_going
 
+            if sequential_tests:
+                self.log.group_end(name="sequential")
+
         # retry tests that failed when run in parallel
         if self.try_again_list:
             self.log.info("Retrying tests that failed when run in parallel.")
+            self.log.group_start(name="retry")
         for test_object in self.try_again_list:
             test = testClass(
                 test_object,
@@ -2338,8 +2437,12 @@ class XPCShellTests:
                 break
             keep_going = test.keep_going
 
+        if self.try_again_list:
+            self.log.group_end(name="retry")
+
         # restore default SIGINT behaviour
-        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        if self.sequential:
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
 
         # Clean up any slacker directories that might be lying around
         # Some might fail because of windows taking too long to unlock them.

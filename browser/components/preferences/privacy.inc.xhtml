@@ -14,9 +14,12 @@
   <html:h1 data-l10n-id="privacy-header"/>
 </hbox>
 
+
+
 <!-- Tracking / Content Blocking -->
 <groupbox id="trackingGroup" data-category="panePrivacy" hidden="true" aria-describedby="contentBlockingDescription" class="highlighting-group">
   <label id="contentBlockingHeader"><html:h2 data-l10n-id="content-blocking-enhanced-tracking-protection"/></label>
+  <html:setting-group groupid="securityPrivacyStatus"/>
   <vbox data-subcategory="trackingprotection">
     <hbox align="start">
       <image id="trackingProtectionShield"/>
@@ -919,7 +922,7 @@
 
   <hbox data-subcategory="permissions-block-popups">
     <checkbox id="popupPolicy" preference="dom.disable_open_during_load"
-              data-l10n-id="permissions-block-popups"
+              data-l10n-id="permissions-block-popups2"
               flex="1" />
     <button id="popupPolicyButton"
             is="highlightable-button"
@@ -928,8 +931,8 @@
             data-l10n-attrs="searchkeywords"
             search-l10n-ids="
               permissions-address,
-              permissions-exceptions-popup-window2.title,
-              permissions-exceptions-popup-desc,
+              permissions-exceptions-popup-window3.title,
+              permissions-exceptions-popup-desc2,
             " />
   </hbox>
 

@@ -67,7 +67,6 @@
 #include "vm/AsyncFunction.h"
 #include "vm/AsyncIteration.h"
 #include "vm/BuiltinObjectKind.h"
-#include "vm/ConstantCompareOperand.h"
 #include "vm/FunctionFlags.h"  // js::FunctionFlags
 #include "vm/Interpreter.h"
 #include "vm/JSAtomUtils.h"  // AtomizeString
@@ -1608,37 +1607,68 @@ void CodeGenerator::visitStrictConstantCompareInt32(
   ValueOperand value = ToValue(comp->value());
   int32_t constantVal = comp->mir()->constant();
   JSOp op = comp->mir()->jsop();
+  Register temp = ToRegister(comp->temp0());
   Register output = ToRegister(comp->output());
 
-  Label fail, pass, done, maybeDouble;
-  masm.branchTestInt32(Assembler::NotEqual, value, &maybeDouble);
-  masm.branch32(JSOpToCondition(op, true), value.payloadOrValueReg(),
-                Imm32(constantVal), &pass,
-                MacroAssembler::LhsHighBitsAreClean::No);
-  masm.jump(&fail);
+  masm.cmp64Set(JSOpToCondition(op, false), value.toRegister64(),
+                Imm64(Int32Value(constantVal).asRawBits()), output);
+  masm.cmp64Set(JSOpToCondition(op, false), value.toRegister64(),
+                Imm64(DoubleValue(constantVal).asRawBits()), temp);
 
-  masm.bind(&maybeDouble);
-  {
-    FloatRegister unboxedValue = ToFloatRegister(comp->temp0());
-    FloatRegister floatPayload = ToFloatRegister(comp->temp1());
-
-    masm.branchTestDouble(Assembler::NotEqual, value,
-                          op == JSOp::StrictEq ? &fail : &pass);
-
-    masm.unboxDouble(value, unboxedValue);
-    masm.loadConstantDouble(double(constantVal), floatPayload);
-    masm.branchDouble(JSOpToDoubleCondition(op), unboxedValue, floatPayload,
-                      &pass);
+  if (op == JSOp::StrictEq) {
+    masm.or32(temp, output);
+  } else {
+    masm.and32(temp, output);
   }
 
-  masm.bind(&fail);
-  masm.move32(Imm32(0), output);
-  masm.jump(&done);
+  if (constantVal == 0) {
+    masm.cmp64Set(JSOpToCondition(op, false), value.toRegister64(),
+                  Imm64(DoubleValue(-0.0).asRawBits()), temp);
 
-  masm.bind(&pass);
-  masm.move32(Imm32(1), output);
+    if (op == JSOp::StrictEq) {
+      masm.or32(temp, output);
+    } else {
+      masm.and32(temp, output);
+    }
+  }
+}
 
-  masm.bind(&done);
+void CodeGenerator::visitStrictConstantCompareInt32AndBranch(
+    LStrictConstantCompareInt32AndBranch* comp) {
+  ValueOperand value = ToValue(comp->value());
+  int32_t constantVal = comp->cmpMir()->constant();
+  JSOp op = comp->cmpMir()->jsop();
+  Assembler::Condition cond = JSOpToCondition(op, false);
+
+  MBasicBlock* ifTrue = comp->ifTrue();
+  MBasicBlock* ifFalse = comp->ifFalse();
+
+  Label* trueLabel = getJumpLabelForBranch(ifTrue);
+  Label* falseLabel = getJumpLabelForBranch(ifFalse);
+
+  Label* onEqual = op == JSOp::StrictEq ? trueLabel : falseLabel;
+
+  // If the next block is the true case, invert the condition to fall through.
+  if (isNextBlock(ifTrue->lir())) {
+    cond = Assembler::InvertCondition(cond);
+    trueLabel = falseLabel;
+    falseLabel = nullptr;
+  } else if (isNextBlock(ifFalse->lir())) {
+    falseLabel = nullptr;
+  }
+
+  masm.branch64(Assembler::Equal, value.toRegister64(),
+                Imm64(Int32Value(constantVal).asRawBits()), onEqual);
+  if (constantVal == 0) {
+    masm.branch64(Assembler::Equal, value.toRegister64(),
+                  Imm64(DoubleValue(0.0).asRawBits()), onEqual);
+    masm.branch64(cond, value.toRegister64(),
+                  Imm64(DoubleValue(-0.0).asRawBits()), trueLabel, falseLabel);
+  } else {
+    masm.branch64(cond, value.toRegister64(),
+                  Imm64(DoubleValue(constantVal).asRawBits()), trueLabel,
+                  falseLabel);
+  }
 }
 
 void CodeGenerator::visitStrictConstantCompareBoolean(
@@ -1648,19 +1678,34 @@ void CodeGenerator::visitStrictConstantCompareBoolean(
   JSOp op = comp->mir()->jsop();
   Register output = ToRegister(comp->output());
 
-  masm.move32(Imm32(op == JSOp::StrictNe), output);
+  masm.cmp64Set(JSOpToCondition(op, false), value.toRegister64(),
+                Imm64(BooleanValue(constantVal).asRawBits()), output);
+}
 
-  Label done;
-  masm.fallibleUnboxBoolean(value, output, &done);
-  {
-    // Prefer comparison against zero because most architectures can optimize
-    // this case more efficiently.
-    if (constantVal) {
-      op = NegateCompareOp(op);
-    }
-    masm.cmp32Set(JSOpToCondition(op, true), output, Imm32(0), output);
+void CodeGenerator::visitStrictConstantCompareBooleanAndBranch(
+    LStrictConstantCompareBooleanAndBranch* comp) {
+  ValueOperand value = ToValue(comp->value());
+  bool constantVal = comp->cmpMir()->constant();
+  Assembler::Condition cond = JSOpToCondition(comp->cmpMir()->jsop(), false);
+
+  MBasicBlock* ifTrue = comp->ifTrue();
+  MBasicBlock* ifFalse = comp->ifFalse();
+
+  Label* trueLabel = getJumpLabelForBranch(ifTrue);
+  Label* falseLabel = getJumpLabelForBranch(ifFalse);
+
+  // If the next block is the true case, invert the condition to fall through.
+  if (isNextBlock(ifTrue->lir())) {
+    cond = Assembler::InvertCondition(cond);
+    trueLabel = falseLabel;
+    falseLabel = nullptr;
+  } else if (isNextBlock(ifFalse->lir())) {
+    falseLabel = nullptr;
   }
-  masm.bind(&done);
+
+  masm.branch64(cond, value.toRegister64(),
+                Imm64(BooleanValue(constantVal).asRawBits()), trueLabel,
+                falseLabel);
 }
 
 void CodeGenerator::visitCompareAndBranch(LCompareAndBranch* comp) {
@@ -21564,21 +21609,18 @@ void CodeGenerator::visitBuiltinObject(LBuiltinObject* lir) {
   callVM<Fn, js::BuiltinObjectOperation>(lir);
 }
 
-void CodeGenerator::visitSuperFunction(LSuperFunction* lir) {
-  Register callee = ToRegister(lir->callee());
-  ValueOperand out = ToOutValue(lir);
-  Register temp = ToRegister(lir->temp0());
-
+static void EmitLoadSuperFunction(MacroAssembler& masm, Register callee,
+                                  Register dest) {
 #ifdef DEBUG
   Label classCheckDone;
-  masm.branchTestObjIsFunction(Assembler::Equal, callee, temp, callee,
+  masm.branchTestObjIsFunction(Assembler::Equal, callee, dest, callee,
                                &classCheckDone);
   masm.assumeUnreachable("Unexpected non-JSFunction callee in JSOp::SuperFun");
   masm.bind(&classCheckDone);
 #endif
 
   // Load prototype of callee
-  masm.loadObjProto(callee, temp);
+  masm.loadObjProto(callee, dest);
 
 #ifdef DEBUG
   // We won't encounter a lazy proto, because |callee| is guaranteed to be a
@@ -21586,10 +21628,18 @@ void CodeGenerator::visitSuperFunction(LSuperFunction* lir) {
   MOZ_ASSERT(uintptr_t(TaggedProto::LazyProto) == 1);
 
   Label proxyCheckDone;
-  masm.branchPtr(Assembler::NotEqual, temp, ImmWord(1), &proxyCheckDone);
+  masm.branchPtr(Assembler::NotEqual, dest, ImmWord(1), &proxyCheckDone);
   masm.assumeUnreachable("Unexpected lazy proto in JSOp::SuperFun");
   masm.bind(&proxyCheckDone);
 #endif
+}
+
+void CodeGenerator::visitSuperFunction(LSuperFunction* lir) {
+  Register callee = ToRegister(lir->callee());
+  ValueOperand out = ToOutValue(lir);
+  Register temp = out.scratchReg();
+
+  EmitLoadSuperFunction(masm, callee, temp);
 
   Label nullProto, done;
   masm.branchPtr(Assembler::Equal, temp, ImmWord(0), &nullProto);
@@ -21602,6 +21652,15 @@ void CodeGenerator::visitSuperFunction(LSuperFunction* lir) {
   masm.moveValue(NullValue(), out);
 
   masm.bind(&done);
+}
+
+void CodeGenerator::visitSuperFunctionAndUnbox(LSuperFunctionAndUnbox* lir) {
+  Register callee = ToRegister(lir->callee());
+  Register output = ToRegister(lir->output());
+
+  EmitLoadSuperFunction(masm, callee, output);
+
+  bailoutCmpPtr(Assembler::Equal, output, ImmWord(0), lir->snapshot());
 }
 
 void CodeGenerator::visitInitHomeObject(LInitHomeObject* lir) {

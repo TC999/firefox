@@ -12,7 +12,7 @@ import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
 const lazy = XPCOMUtils.declareLazy({
   NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
-  UrlbarUtils: "resource:///modules/UrlbarUtils.sys.mjs",
+  UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
   CustomizableUI:
     "moz-src:///browser/components/customizableui/CustomizableUI.sys.mjs",
 });
@@ -116,10 +116,6 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   // If a page is interacted with for less than these seconds, before navigating
   // away via browser chrome, then send a bounce event.
   ["events.bounce.maxSecondsFromLastSearch", 10],
-
-  // Whether we expand the font size when when the urlbar is
-  // focused.
-  ["experimental.expandTextOnFocus", false],
 
   // Whether the heuristic result is hidden.
   ["experimental.hideHeuristic", false],

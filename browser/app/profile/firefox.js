@@ -871,6 +871,9 @@ pref("browser.search.totalSearches", 0);
 // Feature gate for visual search.
 pref("browser.search.visualSearch.featureGate", false);
 
+// Feature gate for ohttp based suggestions.
+pref("browser.search.suggest.ohttp.featureGate", false);
+
 // Spin the cursor while the page is loading
 pref("browser.spin_cursor_while_busy", false);
 
@@ -3428,6 +3431,7 @@ pref("browser.backup.template.fallback-download.beta", "https://www.mozilla.org/
 pref("browser.backup.template.fallback-download.aurora", "https://www.mozilla.org/firefox/channel/desktop/?utm_medium=firefox-desktop&utm_source=backup&utm_campaign=firefox-backup-2024&utm_content=control#developer");
 pref("browser.backup.template.fallback-download.nightly", "https://www.mozilla.org/firefox/channel/desktop/?utm_medium=firefox-desktop&utm_source=backup&utm_campaign=firefox-backup-2024&utm_content=control#nightly");
 pref("browser.backup.template.fallback-download.esr", "https://www.mozilla.org/firefox/enterprise/?utm_medium=firefox-desktop&utm_source=backup&utm_campaign=firefox-backup-2024&utm_content=control#download");
+pref("browser.backup.errorCode", 0);
 
 #ifdef NIGHTLY_BUILD
   // Pref to enable the new profiles

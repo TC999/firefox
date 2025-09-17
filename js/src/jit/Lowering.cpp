@@ -1258,6 +1258,26 @@ void LIRGenerator::visitTest(MTest* test) {
     return;
   }
 
+  if (opd->isStrictConstantCompareInt32() && opd->isEmittedAtUses()) {
+    auto* comp = opd->toStrictConstantCompareInt32();
+    auto* value = comp->value();
+
+    auto* lir = new (alloc()) LStrictConstantCompareInt32AndBranch(
+        ifTrue, ifFalse, useBoxAtStart(value), comp);
+    add(lir, test);
+    return;
+  }
+
+  if (opd->isStrictConstantCompareBoolean() && opd->isEmittedAtUses()) {
+    auto* comp = opd->toStrictConstantCompareBoolean();
+    auto* value = comp->value();
+
+    auto* lir = new (alloc()) LStrictConstantCompareBooleanAndBranch(
+        ifTrue, ifFalse, useBoxAtStart(value), comp);
+    add(lir, test);
+    return;
+  }
+
   if (opd->isIsNoIter()) {
     MOZ_ASSERT(opd->isEmittedAtUses());
 
@@ -1520,15 +1540,26 @@ void LIRGenerator::visitCompare(MCompare* comp) {
 
 void LIRGenerator::visitStrictConstantCompareInt32(
     MStrictConstantCompareInt32* ins) {
+  // Prefer to emit fused compare-and-branch if possible.
+  if (CanEmitCompareAtUses(ins)) {
+    emitAtUses(ins);
+    return;
+  }
+
   MDefinition* value = ins->value();
 
-  auto* lir = new (alloc())
-      LStrictConstantCompareInt32(useBox(value), tempDouble(), tempDouble());
+  auto* lir = new (alloc()) LStrictConstantCompareInt32(useBox(value), temp());
   define(lir, ins);
 }
 
 void LIRGenerator::visitStrictConstantCompareBoolean(
     MStrictConstantCompareBoolean* ins) {
+  // Prefer to emit fused compare-and-branch if possible.
+  if (CanEmitCompareAtUses(ins)) {
+    emitAtUses(ins);
+    return;
+  }
+
   MDefinition* value = ins->value();
 
   auto* lir = new (alloc()) LStrictConstantCompareBoolean(useBox(value));
@@ -7595,8 +7626,17 @@ void LIRGenerator::visitSuperFunction(MSuperFunction* ins) {
   MOZ_ASSERT(ins->callee()->type() == MIRType::Object);
   MOZ_ASSERT(ins->type() == MIRType::Value);
 
-  auto* lir = new (alloc()) LSuperFunction(useRegister(ins->callee()), temp());
+  auto* lir = new (alloc()) LSuperFunction(useRegister(ins->callee()));
   defineBox(lir, ins);
+}
+
+void LIRGenerator::visitSuperFunctionAndUnbox(MSuperFunctionAndUnbox* ins) {
+  MOZ_ASSERT(ins->callee()->type() == MIRType::Object);
+  MOZ_ASSERT(ins->type() == MIRType::Object);
+
+  auto* lir = new (alloc()) LSuperFunctionAndUnbox(useRegister(ins->callee()));
+  assignSnapshot(lir, ins->bailoutKind());
+  define(lir, ins);
 }
 
 void LIRGenerator::visitInitHomeObject(MInitHomeObject* ins) {

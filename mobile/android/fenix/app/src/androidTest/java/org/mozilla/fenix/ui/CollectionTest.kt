@@ -73,7 +73,7 @@ class CollectionTest : TestSetup() {
         }
 
         composeTabDrawer(composeTestRule) {
-            verifySnackBarText("Collection saved!")
+            verifySnackBarText("Collection saved")
         }.closeTabDrawer {
         }
 
@@ -93,7 +93,7 @@ class CollectionTest : TestSetup() {
         }.openSaveToCollection {
             verifyCollectionNameTextField()
         }.typeCollectionNameAndSave(collectionName) {
-            verifySnackBarText("Collection saved!")
+            verifySnackBarText("Collection saved")
         }
     }
 
@@ -243,7 +243,7 @@ class CollectionTest : TestSetup() {
         }.openThreeDotMenu {
         }.openSaveToCollection {
         }.selectExistingCollection(collectionName) {
-            verifySnackBarText("Tab saved!")
+            verifySnackBarText("Tab saved")
         }.goToHomescreen(composeTestRule) {
             verifyCollectionIsDisplayed(composeTestRule, collectionName)
         }.expandCollection(composeTestRule, collectionName) {
@@ -273,7 +273,7 @@ class CollectionTest : TestSetup() {
             selectAddTabToCollection(composeTestRule)
             verifyTabsSelectedCounterText(1)
             saveTabsSelectedForCollection()
-            verifySnackBarText("Tab saved!")
+            verifySnackBarText("Tab saved")
             verifyTabSavedInCollection(composeTestRule, secondWebPage.title)
         }
     }
@@ -317,7 +317,7 @@ class CollectionTest : TestSetup() {
                 tabTitles = arrayOf(firstWebPage.title, secondWebPage.title),
                 collectionName = collectionName,
             )
-            verifySnackBarText("Collection saved!")
+            verifySnackBarText("Collection saved")
             waitUntilSnackbarGone()
         }.closeTabDrawer {
         }.goToHomescreen(composeTestRule) {
@@ -438,7 +438,7 @@ class CollectionTest : TestSetup() {
         }.openThreeDotMenu {
         }.clickSaveCollection {
             typeCollectionNameAndSave(collectionName)
-            verifySnackBarText("Collection saved!")
+            verifySnackBarText("Collection saved")
             waitUntilSnackbarGone()
         }
 
@@ -460,7 +460,7 @@ class CollectionTest : TestSetup() {
         }.enterURLAndEnterToBrowser(webPage.url) {
         }.openTabDrawer(composeTestRule) {
             createCollection(webPage.title, collectionName = collectionName)
-            verifySnackBarText("Collection saved!")
+            verifySnackBarText("Collection saved")
             waitUntilSnackbarGone()
         }.closeTabDrawer {
         }.openThreeDotMenu {

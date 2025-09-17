@@ -272,10 +272,14 @@ void CanonicalBrowsingContext::ReplacedBy(
   txn.SetTopInnerSizeForRFP(GetTopInnerSizeForRFP());
   txn.SetIPAddressSpace(GetIPAddressSpace());
 
-  // Reapply language override to update the corresponding realm.
-  txn.SetLanguageOverride(GetLanguageOverride());
-  // Reapply timezone override to update the corresponding realm.
-  txn.SetTimezoneOverride(GetTimezoneOverride());
+  if (!GetLanguageOverride().IsEmpty()) {
+    // Reapply language override to update the corresponding realm.
+    txn.SetLanguageOverride(GetLanguageOverride());
+  }
+  if (!GetTimezoneOverride().IsEmpty()) {
+    // Reapply timezone override to update the corresponding realm.
+    txn.SetTimezoneOverride(GetTimezoneOverride());
+  }
 
   // Propagate some settings on BrowsingContext replacement so they're not lost
   // on bfcached navigations. These are important for GeckoView (see bug
@@ -645,6 +649,28 @@ CanonicalBrowsingContext::CreateLoadingSessionHistoryEntryForLoad(
       MOZ_LOG_FMT(gNavigationLog, LogLevel::Debug,
                   "Failed to determine navigation type");
       return loadingInfo;
+    }
+
+    if (*navigationType == NavigationType::Traverse && !mActiveEntry) {
+      // We must have just been recreated from a session restore, so we need
+      // to reconstruct the list of contiguous entries.
+      auto* shistory = static_cast<nsSHistory*>(GetSessionHistory());
+      MOZ_ASSERT(mActiveEntryList.isEmpty());
+      mActiveEntryList.insertFront(entry);
+
+      SessionHistoryEntry* currEntry = entry;
+      while (auto* prevEntry =
+                 shistory->FindAdjacentContiguousEntryFor(currEntry, -1)) {
+        currEntry->setPrevious(prevEntry);
+        currEntry = prevEntry;
+      }
+
+      currEntry = entry;
+      while (auto* nextEntry =
+                 shistory->FindAdjacentContiguousEntryFor(currEntry, 1)) {
+        currEntry->setNext(nextEntry);
+        currEntry = nextEntry;
+      }
     }
 
     nsCOMPtr<nsIURI> uri = mActiveEntry ? mActiveEntry->GetURI() : nullptr;
@@ -1174,7 +1200,8 @@ void CanonicalBrowsingContext::SessionHistoryCommit(
 
           if (!addEntry) {
             shistory->ReplaceEntry(index, newActiveEntry);
-            if (Navigation::IsAPIEnabled() && mActiveEntry->isInList()) {
+            if (Navigation::IsAPIEnabled() && mActiveEntry &&
+                mActiveEntry->isInList()) {
               RefPtr entry = mActiveEntry;
               while (entry) {
                 entry = entry->removeAndGetNext();
@@ -1210,7 +1237,7 @@ void CanonicalBrowsingContext::SessionHistoryCommit(
         } else if (!mActiveEntry) {
           MOZ_LOG_FMT(gSHLog, LogLevel::Verbose,
                       "IsTop: No active entry, adding new entry");
-          if (Navigation::IsAPIEnabled()) {
+          if (Navigation::IsAPIEnabled() && !newActiveEntry->isInList()) {
             mActiveEntryList.insertBack(newActiveEntry);
           }
           mActiveEntry = newActiveEntry;
@@ -1293,7 +1320,7 @@ void CanonicalBrowsingContext::SessionHistoryCommit(
               MOZ_LOG_FMT(gSHLog, LogLevel::Verbose,
                           "NotTop: Adding entry without an active entry");
               mActiveEntry = newActiveEntry;
-              if (Navigation::IsAPIEnabled()) {
+              if (Navigation::IsAPIEnabled() && !mActiveEntry->isInList()) {
                 mActiveEntryList.insertBack(mActiveEntry);
               }
               // FIXME Using IsInProcess for aUseRemoteSubframes isn't quite

@@ -999,6 +999,24 @@
       }
     },
 
+    "LocalNetworkAccess": {
+      "type": "object",
+      "properties": {
+        "Enabled": {
+          "type": "boolean"
+        },
+        "BlockTrackers": {
+          "type": "boolean"
+        },
+        "EnablePrompting": {
+          "type": "boolean"
+        },
+        "Locked": {
+          "type": "boolean"
+        }
+      }
+    },
+
     "ManagedBookmarks": {
       "items": {
         "properties": {
@@ -1642,6 +1660,10 @@
     },
 
     "UseSystemPrintDialog": {
+      "type": "boolean"
+    },
+
+    "VisualSearchEnabled": {
       "type": "boolean"
     },
 

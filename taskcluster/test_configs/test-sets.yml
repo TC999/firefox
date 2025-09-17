@@ -524,33 +524,11 @@ macosx1500-64-perftests:
 
 # Android
 
-android-x86_64-tests:
+android14-x86_64-tests:
     - cppunittest
     - crashtest
     - geckoview-junit
     - gtest
-    - mochitest-media
-    - mochitest-plain
-    - mochitest-plain-gpu
-    # - mochitest-webgl1-core # Harness issues?
-    # - mochitest-webgl1-ext
-    # - mochitest-webgl2-core # Emulator not creating ES3?
-    # - mochitest-webgl2-ext
-    - reftest
-    - test-verify
-    - web-platform-tests
-    - web-platform-tests-crashtest
-    - web-platform-tests-reftest
-    - web-platform-tests-wdspec
-    - web-platform-tests-webcodecs
-    - web-platform-tests-eme
-    - xpcshell
-
-android14-x86_64-tests:
-    - cppunittest
-    - crashtest
-    # - geckoview-junit # Bug 1973794
-    # - gtest # Bug 1983881
     - mochitest-media
     - mochitest-plain
     - mochitest-plain-gpu

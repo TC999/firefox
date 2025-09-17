@@ -257,15 +257,29 @@ FunctionEnd
 
 Function TestUninstallRegKey
     Call CommonOnInit
+    Push $R0 ; We will locally use $R0, ensuring that we can restore it later.
 
-    Push $INSTDIR ; back up the original contents for later
+    Call findUninstallKey
+    Pop $R0
+    !insertmacro AssertEqual R0 ""
+
+    Call getModernUninstallKey
+    Pop $R0
+    !insertmacro AssertEqual R0 \
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\${BrandFullNameInternal}"
+
+    Call getLegacyUninstallKey
+    Pop $R0
+    !insertmacro AssertEqual R0 \
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\${BrandFullNameInternal} ${AppVersion} (${ARCH} ${AB_CD})"
 
     ; Ensure that the getDefaultInstallDir function does not modify the
     ; contents of $1.
+    Push $INSTDIR ; back up the original contents for later
     Push $1
     Call getDefaultInstallDir
-    Pop $INSTDIR
-    Pop $INSTDIR
+    Pop $INSTDIR ; discard the return value of getDefaultInstallDir
+    Pop $INSTDIR ; restore to original (see above)
     !insertmacro AssertEqual INSTDIR "$1"
 
     ; Later, we also want to check that none of the common registers have been
@@ -321,7 +335,7 @@ Function TestUninstallRegKey
     ; settings), which under Windows 10 is a special case and the Uninstall
     ; key should be rewritten, leaving the Version number out of it.
     Call getDefaultInstallDir ; pushes the default directory on the stack
-        Pop $INSTDIR
+    Pop $INSTDIR
     Push ${buildNumWin10}
     Call getUninstallKey
     Pop $INSTDIR ; reuse INSTDIR for the return value
@@ -406,16 +420,18 @@ Function TestUninstallRegKey
 
     ; ----
     ; Make sure that after all the testing the common working registers still
-    ; have their original values...
-    Pop $INSTDIR
-    ${If} "$INSTDIR" != "(0 $0, 1 $1, 2 $2, 3 $3, 4 $4, 5 $5, 6 $6, 7 $7, 8 $8, 9 $9)"
+    ; have their original values. We are using $R0, because INSTDIR can have
+    ; `Function .onVerifyInstDir` attached to it and that can modify registers.
+    Pop $R0
+    ${If} "$R0" != "(0 $0, 1 $1, 2 $2, 3 $3, 4 $4, 5 $5, 6 $6, 7 $7, 8 $8, 9 $9)"
       StrCpy $FailureMessage "At Line ${__LINE__}  Registers were changed, we expected $\n"
-      StrCpy $FailureMessage "$FailureMessage    '$INSTDIR' but received $\n"
+      StrCpy $FailureMessage "$FailureMessage    '$R0' but received $\n"
       StrCpy $FailureMessage "$FailureMessage    '(0 $0, 1 $1, 2 $2, 3 $3, 4 $4, 5 $5, 6 $6, 7 $7, 8 $8, 9 $9)'"
       SetErrors
       Return
     ${EndIf}
     Pop $INSTDIR
+    Pop $R0
 FunctionEnd
 
 Section

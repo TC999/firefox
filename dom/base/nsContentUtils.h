@@ -159,6 +159,8 @@ class RangeBoundaryBase;
 template <typename T>
 class NotNull;
 template <class T>
+class OwningNonNull;
+template <class T>
 class StaticRefPtr;
 
 namespace dom {
@@ -201,6 +203,7 @@ struct StructuredSerializeOptions;
 struct SynthesizeMouseEventData;
 struct SynthesizeMouseEventOptions;
 class TrustedHTMLOrString;
+class VoidFunction;
 class WorkerPrivate;
 enum class ElementCallbackType;
 enum class ReferrerPolicy : uint8_t;
@@ -2740,6 +2743,12 @@ class nsContentUtils {
    */
   static bool IsJsonMimeType(const nsAString& aMimeType);
 
+  /**
+   * Returns true if the given MIME type string is a valid CSS MIME type,
+   * otherwise false.
+   */
+  static bool IsCssMimeType(const nsAString& aMimeType);
+
   static void SplitMimeType(const nsAString& aValue, nsString& aType,
                             nsString& aParams);
 
@@ -3048,7 +3057,9 @@ class nsContentUtils {
       mozilla::PresShell* aPresShell, nsIWidget* aWidget,
       const nsAString& aType, mozilla::LayoutDeviceIntPoint& aRefPoint,
       const mozilla::dom::SynthesizeMouseEventData& aMouseEventData,
-      const mozilla::dom::SynthesizeMouseEventOptions& aOptions);
+      const mozilla::dom::SynthesizeMouseEventOptions& aOptions,
+      const mozilla::dom::Optional<
+          mozilla::OwningNonNull<mozilla::dom::VoidFunction>>& aCallback);
 
   static void FirePageShowEventForFrameLoaderSwap(
       nsIDocShellTreeItem* aItem,

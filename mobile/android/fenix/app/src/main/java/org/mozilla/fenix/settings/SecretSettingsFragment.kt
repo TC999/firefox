@@ -198,7 +198,7 @@ class SecretSettingsFragment : PreferenceFragmentCompat() {
         }
 
         requirePreference<SwitchPreference>(R.string.pref_key_enable_unified_trust_panel).apply {
-            isVisible = Config.channel.isNightlyOrDebug
+            isVisible = true
             isChecked = context.settings().enableUnifiedTrustPanel
             onPreferenceChangeListener = SharedPreferenceUpdater()
         }
@@ -368,6 +368,12 @@ class SecretSettingsFragment : PreferenceFragmentCompat() {
         requirePreference<SwitchPreference>(R.string.pref_key_enable_isolated_process).apply {
             isVisible = Config.channel.isNightlyOrDebug
             isChecked = context.settings().isIsolatedProcessEnabled
+            onPreferenceChangeListener = SharedPreferenceUpdater()
+        }
+
+        requirePreference<SwitchPreference>(R.string.pref_key_screenshots_in_private_mode_allowed).apply {
+            isVisible = Config.channel.isNightlyOrDebug
+            isChecked = context.settings().allowScreenshotsInPrivateMode
             onPreferenceChangeListener = SharedPreferenceUpdater()
         }
     }

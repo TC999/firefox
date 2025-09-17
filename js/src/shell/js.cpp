@@ -8150,12 +8150,11 @@ static bool SetSharedObject(JSContext* cx, unsigned argc, Value* vp) {
             cx, &obj->as<WasmMemoryObject>()
                      .buffer()
                      .as<SharedArrayBufferObject>());
-        MOZ_ASSERT(!sab->isGrowable(), "unexpected growable shared buffer");
         tag = MailboxTag::WasmMemory;
         value.sarb.buffer = sab->rawBufferObject();
         value.sarb.length = sab->byteLength();
         value.sarb.isHugeMemory = obj->as<WasmMemoryObject>().isHuge();
-        value.sarb.isGrowable = false;
+        value.sarb.isGrowable = sab->isGrowable();
         if (!value.sarb.buffer->addReference()) {
           JS_ReportErrorASCII(cx,
                               "Reference count overflow on SharedArrayBuffer");
@@ -10553,14 +10552,6 @@ JS_FN_HELP("createUserArrayBuffer", CreateUserArrayBuffer, 1, 0,
 "isValidJSON(source)",
 " Returns true if the given source is valid JSON."),
 
-    JS_FN_HELP("compressLZ4", CompressLZ4, 1, 0,
-"compressLZ4(bytes)",
-" Return a compressed copy of bytes using LZ4."),
-
-    JS_FN_HELP("decompressLZ4", DecompressLZ4, 1, 0,
-"decompressLZ4(bytes)",
-" Return a decompressed copy of bytes using LZ4."),
-
     JS_FN_HELP("createSideEffectfulResolveObject", CreateSideEffectfulResolveObject, 0, 0,
 "createSideEffectfulResolveObject()",
 " Return an object with a property 'obj.test == 42', backed by a resolve hook "
@@ -10706,6 +10697,16 @@ TestAssertRecoveredOnBailout,
     JS_FN_HELP("getTelemetrySamples", GetTelemetrySamples, 1, 0,
 "getTelemetry(probeName)",
 "  Return an array of recorded telemetry samples for the specified probe."),
+
+    // compressLZ4 and decompressLZ4 are fuzzing unsafe because of unfixed
+    // integer overflow issues. See bug 1900525.
+    JS_FN_HELP("compressLZ4", CompressLZ4, 1, 0,
+"compressLZ4(bytes)",
+" Return a compressed copy of bytes using LZ4."),
+
+    JS_FN_HELP("decompressLZ4", DecompressLZ4, 1, 0,
+"decompressLZ4(bytes)",
+" Return a decompressed copy of bytes using LZ4."),
 
     JS_FS_HELP_END
 };
@@ -13209,12 +13210,12 @@ bool SetGlobalOptionsPreJSInit(const OptionParser& op) {
   if (op.getBoolOption("enable-error-iserror")) {
     JS::Prefs::set_experimental_error_iserror(true);
   }
+  if (op.getBoolOption("enable-symbols-as-weakmap-keys")) {
+    JS::Prefs::setAtStartup_experimental_symbols_as_weakmap_keys(true);
+  }
 #ifdef NIGHTLY_BUILD
   if (op.getBoolOption("enable-async-iterator-helpers")) {
     JS::Prefs::setAtStartup_experimental_async_iterator_helpers(true);
-  }
-  if (op.getBoolOption("enable-symbols-as-weakmap-keys")) {
-    JS::Prefs::setAtStartup_experimental_symbols_as_weakmap_keys(true);
   }
   if (op.getBoolOption("enable-iterator-sequencing")) {
     JS::Prefs::setAtStartup_experimental_iterator_sequencing(true);

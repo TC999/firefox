@@ -530,7 +530,7 @@ struct PreferenceMarker {
     schema.AddKeyLabelFormat("prefType", "Type", MS::Format::String);
     schema.AddKeyLabelFormat("prefValue", "Value", MS::Format::String);
     schema.SetTableLabel(
-        "{marker.name} — {marker.data.prefName}: {marker.data.prefValue} "
+        "{marker.data.prefName}: {marker.data.prefValue} "
         "({marker.data.prefType})");
     return schema;
   }
@@ -3712,7 +3712,9 @@ class AddPreferencesMemoryReporterRunnable : public Runnable {
 static StaticAutoPtr<nsTArray<dom::Pref>> gChangedDomPrefs;
 
 static const char kTelemetryPref[] = "toolkit.telemetry.enabled";
+#if !(defined(MOZ_WIDGET_ANDROID) && defined(MOZ_TELEMETRY_ON_BY_DEFAULT))
 static const char kChannelPref[] = "app.update.channel";
+#endif
 
 #ifdef MOZ_WIDGET_ANDROID
 

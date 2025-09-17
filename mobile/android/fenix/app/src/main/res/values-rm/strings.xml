@@ -707,9 +707,9 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">Avrir colliaziuns en in tab privat</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode">Permetter maletgs dal visur en il modus privat</string>
+  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">Permetter maletgs dal visur en il modus privat</string>
   <!-- Will inform the user of the risk of activating Allow screenshots in private browsing option -->
-  <string name="preferences_screenshots_in_private_mode_disclaimer">Sche permess, èn tabs privats era visibels en cas che pliras apps èn avertas</string>
+  <string name="preferences_screenshots_in_private_mode_disclaimer" tools:ignore="UnusedResources" moz:removedIn="144">Sche permess, èn tabs privats era visibels en cas che pliras apps èn avertas</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">Agiuntar ina scursanida al modus privat</string>
   <!-- Preference for enabling "HTTPS-Only" mode -->
@@ -1708,9 +1708,9 @@
   <!-- The button text for the send button to submit the provided form data. -->
   <string name="webcompat_reporter_send">Trametter</string>
   <!-- Text for a snackbar to confirm the successful submission of a WebCompat report. -->
-  <string name="webcompat_reporter_success_snackbar_text">Tes rapport è vegnì tramess</string>
+  <string name="webcompat_reporter_success_snackbar_text" moz:removedIn="144" tools:ignore="UnusedResources">Tes rapport è vegnì tramess</string>
   <!-- Button text for closing or dismissing the snackbar shown after successfully submitting a WebCompat report. -->
-  <string name="webcompat_reporter_dismiss_success_snackbar_text">Serrar</string>
+  <string name="webcompat_reporter_dismiss_success_snackbar_text" moz:removedIn="144" tools:ignore="UnusedResources">Serrar</string>
   <!-- Placeholder text for the description field to prompt the user on what they should type. -->
   <string name="webcompat_reporter_problem_description_placeholder_text">Tge è capità? Tge avess stuì capitar?</string>
   <!--
@@ -2035,7 +2035,7 @@
   <!-- Text shown in snackbar when multiple tabs have been saved in a collection -->
   <string name="create_collection_tabs_saved" tools:ignore="UnusedResources" moz:removedIn="142">Memorisà ils tabs!</string>
   <!-- Text shown in snackbar when one or multiple tabs have been saved in a new collection -->
-  <string name="create_collection_tabs_saved_new_collection">Memorisà la collecziun!</string>
+  <string name="create_collection_tabs_saved_new_collection" tools:ignore="UnusedResources" moz:removedIn="144">Memorisà la collecziun!</string>
   <!-- Text shown in snackbar when one tab has been saved in a collection -->
   <string name="create_collection_tab_saved">Memorisà il tab!</string>
   <!-- Content description (not visible, for screen readers etc.): button to close the collection creator -->
@@ -2174,7 +2174,7 @@
   <!-- Text shown in snackbar when user closes multiple inactive tabs. %1$s will be replaced with the number of tabs closed. -->
   <string name="snackbar_num_tabs_closed">Tabs serrads: %1$s</string>
   <!-- Text shown in snackbar when user bookmarks a list of tabs. %s is the name of the folder the bookmark was saved into. -->
-  <string name="snackbar_message_bookmarks_saved_in">Memorisà ils segnapaginas en «%s»!</string>
+  <string name="snackbar_message_bookmarks_saved_in" tools:ignore="UnusedResources" moz:removedIn="144">Memorisà ils segnapaginas en «%s»!</string>
   <!-- Text shown in snackbar when user adds a site to shortcuts -->
   <string name="snackbar_added_to_shortcuts">Agiuntà a las scursanidas!</string>
   <!-- Text shown in snackbar when user closes a private tab -->
@@ -2294,7 +2294,7 @@
   -->
   <string name="sync_sent_tabs_snackbar">Tramess ils tabs!</string>
   <!-- Text shown in snackbar when one tab has been sent to device -->
-  <string name="sync_sent_tab_snackbar">Tramess il tab!</string>
+  <string name="sync_sent_tab_snackbar" tools:ignore="UnusedResources" moz:removedIn="144">Tramess il tab!</string>
   <!-- Text shown in snackbar when sharing tabs failed -->
   <string name="sync_sent_tab_error_snackbar">Betg reussì da trametter</string>
   <!-- Text shown in snackbar for the "retry" action that the user has after sharing tabs failed -->

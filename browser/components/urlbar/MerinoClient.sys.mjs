@@ -6,13 +6,13 @@ import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
 const lazy = XPCOMUtils.declareLazy({
   ObliviousHTTP: "resource://gre/modules/ObliviousHTTP.sys.mjs",
-  SkippableTimer: "resource:///modules/UrlbarUtils.sys.mjs",
-  UrlbarPrefs: "resource:///modules/UrlbarPrefs.sys.mjs",
-  UrlbarUtils: "resource:///modules/UrlbarUtils.sys.mjs",
+  SkippableTimer: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
+  UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
+  UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
 });
 
 /**
- * @import {SkippableTimer} from "resource:///modules/UrlbarUtils.sys.mjs"
+ * @import {SkippableTimer} from "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs"
  * @import {OHTTPResponse} from "resource://gre/modules/ObliviousHTTP.sys.mjs"
  */
 
@@ -54,6 +54,17 @@ export class MerinoClient {
    */
   static get SEARCH_PARAMS() {
     return { ...SEARCH_PARAMS };
+  }
+
+  /**
+   * @returns {boolean}
+   *   Returns true if the OHTTP Prefs are defined for use.
+   */
+  static get hasOHTTPPrefs() {
+    return (
+      lazy.UrlbarPrefs.get("merinoOhttpConfigURL") &&
+      lazy.UrlbarPrefs.get("merinoOhttpRelayURL")
+    );
   }
 
   /**
@@ -162,7 +173,7 @@ export class MerinoClient {
    *   Timeout in milliseconds. This method will return once the timeout
    *   elapses, a response is received, or an error occurs, whichever happens
    *   first.
-   * @param {object} options.otherParams
+   * @param {{[key: string]: string}} options.otherParams
    *   If specified, the otherParams will be added as a query params. Currently
    *   used for accuweather's location autocomplete endpoint
    * @returns {Promise<MerinoClientSuggestion[]>}

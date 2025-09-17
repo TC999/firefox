@@ -679,11 +679,11 @@ ViewID nsLayoutUtils::FindIDForScrollContainerFrame(
 
 bool nsLayoutUtils::UsesAsyncScrolling(nsIFrame* aFrame) {
 #ifdef MOZ_WIDGET_ANDROID
-  // We always have async scrolling for android
+  // We always have async scrolling for Android.
   return true;
-#endif
-
+#else
   return AsyncPanZoomEnabled(aFrame);
+#endif
 }
 
 bool nsLayoutUtils::AsyncPanZoomEnabled(const nsIFrame* aFrame) {
@@ -5536,8 +5536,7 @@ void nsLayoutUtils::PaintTextShadow(
 
     gfxContext* shadowContext = contextBoxBlur.Init(
         shadowRect, 0, blurRadius, presCtx->AppUnitsPerDevPixel(), aDestCtx,
-        aDirtyRect, nullptr,
-        nsContextBoxBlur::DISABLE_HARDWARE_ACCELERATION_BLUR);
+        aDirtyRect, nullptr);
     if (!shadowContext) {
       continue;
     }
