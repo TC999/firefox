@@ -257,9 +257,9 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">Atverti saitus privačiojoje kortelėje</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">Leisti ekrano nuotraukas naršant privačiai</string>
+  <string name="preferences_allow_screenshots_in_private_mode">Leisti ekrano nuotraukas naršant privačiai</string>
   <!-- Will inform the user of the risk of activating Allow screenshots in private browsing option -->
-  <string name="preferences_screenshots_in_private_mode_disclaimer" tools:ignore="UnusedResources" moz:removedIn="144">Jei leisite, privačios kortelės bus matomos kartu su kitomis atvertomis programomis</string>
+  <string name="preferences_screenshots_in_private_mode_disclaimer">Jei leisite, privačios kortelės bus matomos kartu su kitomis atvertomis programomis</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">Pridėti privačiojo naršymo leistuką</string>
   <!-- Preference for accessibility -->
@@ -606,9 +606,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">Išvalyti žurnalą</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Žurnalas išvalytas</string>
+  <string name="history_delete_multiple_items_snackbar">Žurnalas išvalytas</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Pašalinta %1$s</string>
+  <string name="history_delete_single_item_snackbar">Pašalinta %1$s</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">Pašalinti</string>
   <!--

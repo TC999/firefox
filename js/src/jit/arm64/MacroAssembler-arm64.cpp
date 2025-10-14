@@ -1621,10 +1621,9 @@ void MacroAssembler::call(ImmPtr imm) {
   // eg testcase: asm.js/testTimeout5.js
   syncStackPtr();
   vixl::UseScratchRegisterScope temps(this);
-  MOZ_ASSERT(temps.IsAvailable(ScratchReg64));  // ip0
-  temps.Exclude(ScratchReg64);
-  movePtr(imm, ScratchReg64.asUnsized());
-  Blr(ScratchReg64);
+  const Register scratch = temps.AcquireX().asUnsized();
+  movePtr(imm, scratch);
+  Blr(ARMRegister(scratch, 64));
 }
 
 void MacroAssembler::call(ImmWord imm) { call(ImmPtr((void*)imm.value)); }
@@ -2131,7 +2130,7 @@ void MacroAssembler::wasmBoundsCheck64(Condition cond, Register64 index,
 
 void MacroAssembler::wasmBoundsCheck64(Condition cond, Register64 index,
                                        Address boundsCheckLimit, Label* label) {
-  branchPtr(InvertCondition(cond), boundsCheckLimit, index.reg, label);
+  branchPtr(SwapCmpOperandsCondition(cond), boundsCheckLimit, index.reg, label);
   if (JitOptions.spectreIndexMasking) {
     csel(ARMRegister(index.reg, 64), vixl::xzr, ARMRegister(index.reg, 64),
          cond);

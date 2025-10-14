@@ -95,12 +95,10 @@
 #include "mozilla/Likely.h"
 #include "mozilla/LoadInfo.h"
 #include "mozilla/Logging.h"
-#include "mozilla/MacroForEach.h"
 #include "mozilla/ManualNAC.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MediaFeatureChange.h"
 #include "mozilla/MouseEvents.h"
-#include "mozilla/NotNull.h"
 #include "mozilla/NullPrincipal.h"
 #include "mozilla/OriginAttributes.h"
 #include "mozilla/Preferences.h"
@@ -2734,6 +2732,19 @@ bool nsContentUtils::ShouldResistFingerprinting(nsIChannel* aChannel,
     return ShouldResistFingerprinting("Null Object", aTarget);
   }
 
+  bool isPBM = NS_UsePrivateBrowsing(aChannel);
+
+  if (MOZ_LOG_TEST(nsContentUtils::ResistFingerprintingLog(),
+                   mozilla::LogLevel::Debug)) {
+    nsCOMPtr<nsIURI> channelURI;
+    Unused << NS_GetFinalChannelURI(aChannel, getter_AddRefs(channelURI));
+    nsAutoCString channelSpec;
+    channelURI->GetSpec(channelSpec);
+    MOZ_LOG(nsContentUtils::ResistFingerprintingLog(), LogLevel::Debug,
+            ("Inside ShouldResistFingerprinting(nsIChannel*) for %s (PBM: %s)",
+             channelSpec.get(), isPBM ? "Yes" : "No"));
+  }
+
   nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   if (!loadInfo) {
     MOZ_LOG(nsContentUtils::ResistFingerprintingLog(), LogLevel::Info,
@@ -2744,7 +2755,6 @@ bool nsContentUtils::ShouldResistFingerprinting(nsIChannel* aChannel,
 
   // With this check, we can ensure that the prefs and target say yes, so only
   // an exemption would cause us to return false.
-  bool isPBM = NS_UsePrivateBrowsing(aChannel);
   if (!ShouldResistFingerprinting_("Positive return check", isPBM, aTarget)) {
     MOZ_LOG(nsContentUtils::ResistFingerprintingLog(), LogLevel::Debug,
             ("Inside ShouldResistFingerprinting(nsIChannel*)"
@@ -2785,29 +2795,27 @@ bool nsContentUtils::ShouldResistFingerprinting(nsIChannel* aChannel,
       return true;
     }
 
-#if 0
-  if (loadInfo->GetExternalContentPolicyType() == ExtContentPolicy::TYPE_SUBDOCUMENT) {
-    nsCOMPtr<nsIURI> channelURI;
-    nsresult rv = NS_GetFinalChannelURI(aChannel, getter_AddRefs(channelURI));
+    nsAutoCString loadingPrincipalSpec;
     nsAutoCString channelSpec;
     channelURI->GetSpec(channelSpec);
 
-    if (!loadInfo->GetLoadingPrincipal()) {
-        MOZ_LOG(nsContentUtils::ResistFingerprintingLog(), LogLevel::Info,
-            ("Sub Document Type.  FinalChannelURI is %s, Loading Principal is NULL\n",
-                channelSpec.get()));
-
+    if (contentType == ExtContentPolicy::TYPE_SUBDOCUMENT) {
+      MOZ_LOG_DEBUG_ONLY(
+          nsContentUtils::ResistFingerprintingLog(), LogLevel::Info,
+          ("Sub Document Type.  FinalChannelURI is %s, Loading Principal %s\n",
+           channelSpec.get(),
+           loadInfo->GetLoadingPrincipal()
+           ? loadInfo->GetLoadingPrincipal()->GetOrigin(loadingPrincipalSpec),
+           loadingPrincipalSpec.get() : "is NULL"));
     } else {
-        nsAutoCString loadingPrincipalSpec;
-        loadInfo->GetLoadingPrincipal()->GetOrigin(loadingPrincipalSpec);
-
-        MOZ_LOG(nsContentUtils::ResistFingerprintingLog(), LogLevel::Info,
-            ("Sub Document Type.  FinalChannelURI is %s, Loading Principal Origin is %s\n",
-                channelSpec.get(), loadingPrincipalSpec.get()));
+      MOZ_LOG_DEBUG_ONLY(
+          nsContentUtils::ResistFingerprintingLog(), LogLevel::Info,
+          ("Document Type.  FinalChannelURI is %s, Loading Principal %s\n",
+           channelSpec.get(),
+           loadInfo->GetLoadingPrincipal()
+           ? loadInfo->GetLoadingPrincipal()->GetOrigin(loadingPrincipalSpec),
+           loadingPrincipalSpec.get() : "is NULL"));
     }
-  }
-
-#endif
 
     return ShouldResistFingerprinting_dangerous(
         channelURI, loadInfo->GetOriginAttributes(), "Internal Call", aTarget);
@@ -2833,6 +2841,12 @@ bool nsContentUtils::ShouldResistFingerprinting_dangerous(
   // With this check, we can ensure that the prefs and target say yes, so only
   // an exemption would cause us to return false.
   bool isPBM = aOriginAttributes.IsPrivateBrowsing();
+
+  MOZ_LOG(nsContentUtils::ResistFingerprintingLog(), LogLevel::Debug,
+          ("Inside ShouldResistFingerprinting_dangerous(nsIURI*,"
+           " OriginAttributes) and the URI is %s  (PBM: %s)",
+           aURI->GetSpecOrDefault().get(), isPBM ? "Yes" : "No"));
+
   if (!ShouldResistFingerprinting_("Positive return check", isPBM, aTarget)) {
     MOZ_LOG(nsContentUtils::ResistFingerprintingLog(), LogLevel::Debug,
             ("Inside ShouldResistFingerprinting_dangerous(nsIURI*,"
@@ -2888,6 +2902,17 @@ bool nsContentUtils::ShouldResistFingerprinting_dangerous(
   // With this check, we can ensure that the prefs and target say yes, so only
   // an exemption would cause us to return false.
   bool isPBM = originAttributes.IsPrivateBrowsing();
+
+  if (MOZ_LOG_TEST(nsContentUtils::ResistFingerprintingLog(),
+                   mozilla::LogLevel::Debug)) {
+    nsAutoCString origin;
+    aPrincipal->GetOrigin(origin);
+    MOZ_LOG(
+        nsContentUtils::ResistFingerprintingLog(), LogLevel::Debug,
+        ("Inside ShouldResistFingerprinting(nsIPrincipal*) for %s (PBM: %s)",
+         origin.get(), isPBM ? "Yes" : "No"));
+  }
+
   if (!ShouldResistFingerprinting_("Positive return check", isPBM, aTarget)) {
     MOZ_LOG(nsContentUtils::ResistFingerprintingLog(), LogLevel::Debug,
             ("Inside ShouldResistFingerprinting(nsIPrincipal*) Positive return "
@@ -7791,16 +7816,10 @@ nsIWidget* nsContentUtils::WidgetForDocument(const Document* aDocument) {
 
 nsIWidget* nsContentUtils::WidgetForContent(const nsIContent* aContent) {
   nsIFrame* frame = aContent->GetPrimaryFrame();
-  if (frame) {
-    frame = nsLayoutUtils::GetDisplayRootFrame(frame);
-
-    nsView* view = frame->GetView();
-    if (view) {
-      return view->GetWidget();
-    }
+  if (!frame) {
+    return nullptr;
   }
-
-  return nullptr;
+  return frame->GetNearestWidget();
 }
 
 WindowRenderer* nsContentUtils::WindowRendererForContent(
@@ -7815,11 +7834,9 @@ WindowRenderer* nsContentUtils::WindowRendererForContent(
 
 WindowRenderer* nsContentUtils::WindowRendererForDocument(
     const Document* aDoc) {
-  nsIWidget* widget = nsContentUtils::WidgetForDocument(aDoc);
-  if (widget) {
+  if (nsIWidget* widget = nsContentUtils::WidgetForDocument(aDoc)) {
     return widget->GetWindowRenderer();
   }
-
   return nullptr;
 }
 
@@ -9405,7 +9422,8 @@ nsIWidget* nsContentUtils::GetWidget(PresShell* aPresShell, nsPoint* aOffset) {
   if (!frame) {
     return nullptr;
   }
-  return frame->GetView()->GetNearestWidget(aOffset);
+  return aOffset ? frame->GetNearestWidget(*aOffset)
+                 : frame->GetNearestWidget();
 }
 
 int16_t nsContentUtils::GetButtonsFlagForButton(int32_t aButton) {

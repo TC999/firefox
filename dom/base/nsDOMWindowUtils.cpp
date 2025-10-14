@@ -15,7 +15,6 @@
 #include "js/experimental/PCCountProfiling.h"  // JS::{Start,Stop}PCCountProfiling, JS::PurgePCCounts, JS::GetPCCountScript{Count,Summary,Contents}
 #include "mozilla/Base64.h"
 #include "mozilla/ChaosMode.h"
-#include "mozilla/CheckedInt.h"
 #include "mozilla/EventStateManager.h"
 #include "mozilla/InputTaskManager.h"
 #include "mozilla/Logging.h"
@@ -427,8 +426,9 @@ nsDOMWindowUtils::UpdateLayerTree() {
     RefPtr<nsViewManager> vm = presShell->GetViewManager();
     if (nsView* view = vm->GetRootView()) {
       nsAutoScriptBlocker scriptBlocker;
-      presShell->PaintAndRequestComposite(view,
-                                          PaintFlags::PaintSyncDecodeImages);
+      presShell->PaintAndRequestComposite(
+          view->GetFrame(), view->GetWidget()->GetWindowRenderer(),
+          PaintFlags::PaintSyncDecodeImages);
       presShell->GetWindowRenderer()->WaitOnTransactionProcessed();
     }
   }

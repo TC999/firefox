@@ -297,9 +297,9 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">Gāna\'nin riña a\'ngô rakïj ñanj nakàa</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">Ga\'nīn nārij ñadu\'ua pantaya riña gāchē nu huìt</string>
+  <string name="preferences_allow_screenshots_in_private_mode">Ga\'nīn nārij ñadu\'ua pantaya riña gāchē nu huìt</string>
   <!-- Will inform the user of the risk of activating Allow screenshots in private browsing option -->
-  <string name="preferences_screenshots_in_private_mode_disclaimer" tools:ignore="UnusedResources" moz:removedIn="144">Sisī gā’nïnt, gūruguì’ nej rakïj ñanj huìi gīni’hiājt ngà hua ni’nïnj a’ngô nej aplikasiûn</string>
+  <string name="preferences_screenshots_in_private_mode_disclaimer">Sisī gā’nïnt, gūruguì’ nej rakïj ñanj huìi gīni’hiājt ngà hua ni’nïnj a’ngô nej aplikasiûn</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">Gāchrūn aksêso direkto riña aché nu huìt</string>
   <!-- Preference for enabling "HTTPS-Only" mode -->
@@ -768,9 +768,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">Nādūre\' sa gini\'iājt</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Ngà nare\' nej sa gini\'iājt</string>
+  <string name="history_delete_multiple_items_snackbar">Ngà nare\' nej sa gini\'iājt</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Ngà nare\' %1$s</string>
+  <string name="history_delete_single_item_snackbar">Ngà nare\' %1$s</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">Nādūre\'</string>
   <!--

@@ -1,7 +1,7 @@
 /**
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/PL/2.0/.
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
 // Bug 1948378: remove this exception when the eslint import plugin fully
@@ -163,6 +163,12 @@ testRule({
       fixed: ".a { border-radius: var(--border-radius-circle); }",
       message: messages.rejected("1000px"),
       description: "1000px value should be fixed to use design token.",
+    },
+    {
+      code: ".a { border-radius: 9999px; }",
+      fixed: ".a { border-radius: var(--border-radius-circle); }",
+      message: messages.rejected("9999px"),
+      description: "9999px value should be fixed to use design token.",
     },
     {
       code: ".a { border-radius: 4px; }",

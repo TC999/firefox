@@ -2,6 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+/** @import MozButton from "chrome://global/content/elements/moz-button.mjs"; */
+/** @import { SettingGroup } from "./widgets/setting-group/setting-group.mjs" */
+/** @import { PreferencesSettingsConfig } from "chrome://global/content/preferences/Preferences.mjs" */
+
 /* import-globals-from extensionControlled.js */
 /* import-globals-from preferences.js */
 /* import-globals-from /toolkit/mozapps/preferences/fontbuilder.js */
@@ -48,9 +52,13 @@ const ICON_URL_APP =
 // was set by us to a custom handler icon and CSS should not try to override it.
 const APP_ICON_ATTR_NAME = "appHandlerIcon";
 
+const OPEN_EXTERNAL_LINK_NEXT_TO_ACTIVE_TAB_VALUE =
+  Ci.nsIBrowserDOMWindow.OPEN_NEWTAB_AFTER_CURRENT;
+
 Preferences.addAll([
   // Startup
   { id: "browser.startup.page", type: "int" },
+  { id: "browser.startup.windowsLaunchOnLogin.enabled", type: "bool" },
   { id: "browser.privatebrowsing.autostart", type: "bool" },
 
   // Downloads
@@ -68,6 +76,10 @@ Preferences.addAll([
       1 opens such links in the most recent window or tab,
       2 opens such links in a new window,
       3 opens such links in a new tab
+  browser.link.open_newwindow.override.external
+    - this setting overrides `browser.link.open_newwindow` for externally
+      opened links.
+    - see `nsIBrowserDOMWindow` constants for the meaning of each value.
   browser.tabs.loadInBackground
   - true if display should switch to a new tab which has been opened from a
     link, false if display shouldn't switch
@@ -84,6 +96,7 @@ Preferences.addAll([
   */
 
   { id: "browser.link.open_newwindow", type: "int" },
+  { id: "browser.link.open_newwindow.override.external", type: "int" },
   { id: "browser.tabs.loadInBackground", type: "bool", inverted: true },
   { id: "browser.tabs.warnOnClose", type: "bool" },
   { id: "browser.warnOnQuitShortcut", type: "bool" },
@@ -211,6 +224,189 @@ if (AppConstants.MOZ_UPDATER) {
 }
 
 Preferences.addSetting({
+  id: "privateBrowsingAutoStart",
+  pref: "browser.privatebrowsing.autostart",
+});
+
+Preferences.addSetting({
+  id: "launchOnLoginApproved",
+  _getLaunchOnLoginApprovedCachedValue: true,
+  get() {
+    return this._getLaunchOnLoginApprovedCachedValue;
+  },
+  // Check for a launch on login registry key
+  // This accounts for if a user manually changes it in the registry
+  // Disabling in Task Manager works outside of just deleting the registry key
+  // in HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run
+  // but it is not possible to change it back to enabled as the disabled value is just a random
+  // hexadecimal number
+  async setup() {
+    if (AppConstants.platform !== "win") {
+      /**
+       * WindowsLaunchOnLogin isnt available if not on windows
+       * but this setup function still fires, so must prevent
+       * WindowsLaunchOnLogin.getLaunchOnLoginApproved
+       * below from executing unnecessarily.
+       */
+      return;
+    }
+    this._getLaunchOnLoginApprovedCachedValue =
+      await WindowsLaunchOnLogin.getLaunchOnLoginApproved();
+  },
+});
+
+Preferences.addSetting({
+  id: "windowsLaunchOnLoginEnabled",
+  pref: "browser.startup.windowsLaunchOnLogin.enabled",
+});
+
+Preferences.addSetting({
+  id: "windowsLaunchOnLogin",
+  deps: ["launchOnLoginApproved", "windowsLaunchOnLoginEnabled"],
+  _getLaunchOnLoginEnabledValue: false,
+  get startWithLastProfile() {
+    return Cc["@mozilla.org/toolkit/profile-service;1"].getService(
+      Ci.nsIToolkitProfileService
+    ).startWithLastProfile;
+  },
+  get() {
+    return this._getLaunchOnLoginEnabledValue;
+  },
+  async setup(emitChange) {
+    if (AppConstants.platform !== "win") {
+      /**
+       * WindowsLaunchOnLogin isnt available if not on windows
+       * but this setup function still fires, so must prevent
+       * WindowsLaunchOnLogin.getLaunchOnLoginEnabled
+       * below from executing unnecessarily.
+       */
+      return;
+    }
+
+    let getLaunchOnLoginEnabledValue;
+    if (!this.startWithLastProfile) {
+      getLaunchOnLoginEnabledValue = false;
+    } else {
+      getLaunchOnLoginEnabledValue =
+        await WindowsLaunchOnLogin.getLaunchOnLoginEnabled();
+    }
+    if (getLaunchOnLoginEnabledValue !== this._getLaunchOnLoginEnabledValue) {
+      this._getLaunchOnLoginEnabledValue = getLaunchOnLoginEnabledValue;
+      emitChange();
+    }
+  },
+  visible: ({ windowsLaunchOnLoginEnabled }) => {
+    let isVisible =
+      AppConstants.platform === "win" && windowsLaunchOnLoginEnabled.value;
+    if (isVisible) {
+      NimbusFeatures.windowsLaunchOnLogin.recordExposureEvent({
+        once: true,
+      });
+    }
+    return isVisible;
+  },
+  disabled({ launchOnLoginApproved }) {
+    return !this.startWithLastProfile || !launchOnLoginApproved.value;
+  },
+  onUserChange(checked) {
+    if (checked) {
+      // windowsLaunchOnLogin has been checked: create registry key or shortcut
+      // The shortcut is created with the same AUMID as Firefox itself. However,
+      // this is not set during browser tests and the fallback of checking the
+      // registry fails. As such we pass an arbitrary AUMID for the purpose
+      // of testing.
+      WindowsLaunchOnLogin.createLaunchOnLogin();
+      Services.prefs.setBoolPref(
+        "browser.startup.windowsLaunchOnLogin.disableLaunchOnLoginPrompt",
+        true
+      );
+    } else {
+      // windowsLaunchOnLogin has been unchecked: delete registry key and shortcut
+      WindowsLaunchOnLogin.removeLaunchOnLogin();
+    }
+  },
+});
+
+Preferences.addSetting({
+  id: "windowsLaunchOnLoginDisabledProfileBox",
+  deps: ["windowsLaunchOnLoginEnabled"],
+  visible: ({ windowsLaunchOnLoginEnabled }) => {
+    if (AppConstants.platform !== "win") {
+      return false;
+    }
+    let startWithLastProfile = Cc[
+      "@mozilla.org/toolkit/profile-service;1"
+    ].getService(Ci.nsIToolkitProfileService).startWithLastProfile;
+
+    return !startWithLastProfile && windowsLaunchOnLoginEnabled.value;
+  },
+});
+
+Preferences.addSetting({
+  id: "windowsLaunchOnLoginDisabledBox",
+  deps: ["launchOnLoginApproved", "windowsLaunchOnLoginEnabled"],
+  visible: ({ launchOnLoginApproved, windowsLaunchOnLoginEnabled }) => {
+    if (AppConstants.platform !== "win") {
+      return false;
+    }
+    let startWithLastProfile = Cc[
+      "@mozilla.org/toolkit/profile-service;1"
+    ].getService(Ci.nsIToolkitProfileService).startWithLastProfile;
+
+    return (
+      startWithLastProfile &&
+      !launchOnLoginApproved.value &&
+      windowsLaunchOnLoginEnabled.value
+    );
+  },
+});
+
+Preferences.addSetting({
+  /**
+   * The "Open previous windows and tabs" option on about:preferences page.
+   */
+  id: "browserRestoreSession",
+  pref: "browser.startup.page",
+  deps: ["privateBrowsingAutoStart"],
+  get:
+    /**
+     * Returns the value of the "Open previous windows and tabs" option based
+     * on the value of the browser.privatebrowsing.autostart pref.
+     *
+     * @param {number | undefined} value
+     * @returns {boolean}
+     */
+    value => {
+      const pbAutoStartPref = Preferences.get(
+        "browser.privatebrowsing.autostart"
+      );
+      let newValue = pbAutoStartPref.value
+        ? false
+        : value === gMainPane.STARTUP_PREF_RESTORE_SESSION;
+
+      return newValue;
+    },
+  set: checked => {
+    const startupPref = Preferences.get("browser.startup.page");
+    let newValue;
+
+    if (checked) {
+      // We need to restore the blank homepage setting in our other pref
+      if (startupPref.value === gMainPane.STARTUP_PREF_BLANK) {
+        HomePage.safeSet("about:blank");
+      }
+      newValue = gMainPane.STARTUP_PREF_RESTORE_SESSION;
+    } else {
+      newValue = gMainPane.STARTUP_PREF_HOMEPAGE;
+    }
+    return newValue;
+  },
+  disabled: deps => {
+    return deps.privateBrowsingAutoStart.value;
+  },
+});
+
+Preferences.addSetting({
   id: "useAutoScroll",
   pref: "general.autoScroll",
 });
@@ -218,6 +414,7 @@ Preferences.addSetting({
   id: "useSmoothScrolling",
   pref: "general.smoothScroll",
 });
+
 Preferences.addSetting({
   id: "useOverlayScrollbars",
   pref: "widget.gtk.overlay-scrollbars.enabled",
@@ -225,7 +422,9 @@ Preferences.addSetting({
 });
 Preferences.addSetting({
   id: "useOnScreenKeyboard",
-  pref: "ui.osk.enabled",
+  // Bug 1993053: Restore the pref to `ui.osk.enabled` after changing
+  // the PrefereceNotFoundError throwing behavior.
+  pref: AppConstants.platform == "win" ? "ui.osk.enabled" : undefined,
   visible: () => AppConstants.platform == "win",
 });
 Preferences.addSetting({
@@ -372,6 +571,19 @@ Preferences.addSetting({
 });
 
 Preferences.addSetting({ id: "zoomPlaceholder" });
+Preferences.addSetting({
+  id: "containersPane",
+  onUserClick(e) {
+    e.preventDefault();
+    gotoPref("paneContainers2");
+  },
+});
+Preferences.addSetting({ id: "containersPlaceholder" });
+
+Preferences.addSetting({
+  id: "connectionSettings",
+  onUserClick: () => gMainPane.showConnections(),
+});
 
 // Downloads
 /*
@@ -654,8 +866,308 @@ Preferences.addSetting({
     Services.prefs.setBoolPref("browser.download.deletePrivate.chosen", true);
   },
 });
+/**
+ * A helper object containing all logic related to
+ * setting the browser as the user's default.
+ */
+const DefaultBrowserHelper = {
+  /**
+   * @type {number}
+   */
+  _backoffIndex: 0,
 
+  /**
+   * @type {number | undefined}
+   */
+  _pollingTimer: undefined,
+
+  /**
+   * Keeps track of the last known browser
+   * default value set to compare while polling.
+   *
+   * @type {boolean | undefined}
+   */
+  _lastPolledIsDefault: undefined,
+
+  /**
+   * @type {typeof import('../shell/ShellService.sys.mjs').ShellService | undefined}
+   */
+  get shellSvc() {
+    return AppConstants.HAVE_SHELL_SERVICE && getShellService();
+  },
+
+  /**
+   * Sets up polling of whether the browser is set to default,
+   * and calls provided hasChanged function when the state changes.
+   *
+   * @param {Function} hasChanged
+   */
+  pollForDefaultChanges(hasChanged) {
+    if (this._pollingTimer) {
+      return;
+    }
+    this._lastPolledIsDefault = this.isBrowserDefault;
+
+    // Exponential backoff mechanism will delay the polling times if user doesn't
+    // trigger SetDefaultBrowser for a long time.
+    const backoffTimes = [
+      1000, 1000, 1000, 1000, 2000, 2000, 2000, 5000, 5000, 10000,
+    ];
+
+    const pollForDefaultBrowser = () => {
+      if (
+        (location.hash == "" || location.hash == "#general") &&
+        document.visibilityState == "visible"
+      ) {
+        const { isBrowserDefault } = this;
+        if (isBrowserDefault !== this._lastPolledIsDefault) {
+          this._lastPolledIsDefault = isBrowserDefault;
+          hasChanged();
+        }
+      }
+
+      if (!this._pollingTimer) {
+        return;
+      }
+
+      // approximately a "requestIdleInterval"
+      this._pollingTimer = window.setTimeout(
+        () => {
+          window.requestIdleCallback(pollForDefaultBrowser);
+        },
+        backoffTimes[
+          this._backoffIndex + 1 < backoffTimes.length
+            ? this._backoffIndex++
+            : backoffTimes.length - 1
+        ]
+      );
+    };
+
+    this._pollingTimer = window.setTimeout(() => {
+      window.requestIdleCallback(pollForDefaultBrowser);
+    }, backoffTimes[this._backoffIndex]);
+  },
+
+  /**
+   * Stops timer for polling changes.
+   */
+  clearPollingForDefaultChanges() {
+    if (this._pollingTimer) {
+      clearTimeout(this._pollingTimer);
+      this._pollingTimer = undefined;
+    }
+  },
+
+  /**
+   *  Checks if the browser is default through the shell service.
+   */
+  get isBrowserDefault() {
+    if (!this.canCheck) {
+      return false;
+    }
+    return this.shellSvc?.isDefaultBrowser(false, true);
+  },
+
+  /**
+   * Attempts to set the browser as the user's
+   * default through the shell service.
+   *
+   * @returns {Promise<void>}
+   */
+  async setDefaultBrowser() {
+    // Reset exponential backoff delay time in order to do visual update in pollForDefaultBrowser.
+    this._backoffIndex = 0;
+
+    try {
+      await this.shellSvc?.setDefaultBrowser(false);
+    } catch (e) {
+      console.error(e);
+    }
+  },
+
+  /**
+   * Checks whether the browser is capable of being made default.
+   * @type {boolean}
+   */
+  get canCheck() {
+    return (
+      this.shellSvc &&
+      /**
+       * Flatpak does not support setting nor detection of default browser
+       */
+      !gGIOService?.isRunningUnderFlatpak
+    );
+  },
+};
+
+Preferences.addSetting({
+  id: "alwaysCheckDefault",
+  pref: "browser.shell.checkDefaultBrowser",
+  setup: emitChange => {
+    if (!DefaultBrowserHelper.canCheck) {
+      return;
+    }
+    DefaultBrowserHelper.pollForDefaultChanges(emitChange);
+    // eslint-disable-next-line consistent-return
+    return () => DefaultBrowserHelper.clearPollingForDefaultChanges();
+  },
+  /**
+   * Show button for setting browser as default browser or information that
+   * browser is already the default browser.
+   */
+  visible: () => DefaultBrowserHelper.canCheck,
+  disabled: (deps, setting) =>
+    !DefaultBrowserHelper.canCheck ||
+    setting.locked ||
+    DefaultBrowserHelper.isBrowserDefault,
+});
+
+Preferences.addSetting({
+  id: "isDefaultPane",
+  deps: ["alwaysCheckDefault"],
+  visible: () =>
+    DefaultBrowserHelper.canCheck && DefaultBrowserHelper.isBrowserDefault,
+});
+
+Preferences.addSetting({
+  id: "isNotDefaultPane",
+  deps: ["alwaysCheckDefault"],
+  visible: () =>
+    DefaultBrowserHelper.canCheck && !DefaultBrowserHelper.isBrowserDefault,
+  onUserClick: (e, { alwaysCheckDefault }) => {
+    if (!DefaultBrowserHelper.canCheck) {
+      return;
+    }
+    const setDefaultButton = /** @type {MozButton} */ (e.target);
+
+    if (!setDefaultButton) {
+      return;
+    }
+    if (setDefaultButton.disabled) {
+      return;
+    }
+
+    /**
+     * Disable the set default button, so that the user
+     * doesn't try to hit it again while browser is being set to default.
+     */
+    setDefaultButton.disabled = true;
+    alwaysCheckDefault.value = true;
+    DefaultBrowserHelper.setDefaultBrowser().finally(() => {
+      setDefaultButton.disabled = false;
+    });
+  },
+});
+
+// Performance settings
+Preferences.addSetting({
+  id: "contentProcessCount",
+  pref: "dom.ipc.processCount",
+});
+Preferences.addSetting({
+  id: "allowHWAccel",
+  pref: "layers.acceleration.disabled",
+  deps: ["useRecommendedPerformanceSettings"],
+  visible({ useRecommendedPerformanceSettings }) {
+    return !useRecommendedPerformanceSettings.value;
+  },
+});
+Preferences.addSetting({
+  id: "useRecommendedPerformanceSettings",
+  pref: "browser.preferences.defaultPerformanceSettings.enabled",
+  deps: ["contentProcessCount", "allowHWAccel"],
+  get(val, { allowHWAccel, contentProcessCount }) {
+    if (
+      allowHWAccel.value != allowHWAccel.pref.defaultValue ||
+      contentProcessCount.value != contentProcessCount.pref.defaultValue
+    ) {
+      return false;
+    }
+    return val;
+  },
+  set(val, { allowHWAccel, contentProcessCount }) {
+    if (val) {
+      contentProcessCount.value = contentProcessCount.pref.defaultValue;
+      allowHWAccel.value = allowHWAccel.pref.defaultValue;
+    }
+    return val;
+  },
+});
+
+/**
+ * @type {Record<string, PreferencesSettingsConfig>} SettingConfig
+ */
 let SETTINGS_CONFIG = {
+  containers: {
+    // This section is marked as in progress for testing purposes
+    inProgress: true,
+    items: [
+      {
+        id: "containersPlaceholder",
+        control: "moz-message-bar",
+        controlAttrs: {
+          message: "Placeholder for updated containers",
+        },
+      },
+    ],
+  },
+  startup: {
+    items: [
+      {
+        id: "browserRestoreSession",
+        l10nId: "startup-restore-windows-and-tabs",
+      },
+      {
+        id: "windowsLaunchOnLogin",
+        l10nId: "windows-launch-on-login",
+      },
+      {
+        id: "windowsLaunchOnLoginDisabledBox",
+        control: "moz-box-item",
+        l10nId: "windows-launch-on-login-disabled",
+        options: [
+          {
+            control: "a",
+            controlAttrs: {
+              "data-l10n-name": "startup-link",
+              href: "ms-settings:startupapps",
+              _target: "self",
+            },
+          },
+        ],
+      },
+      {
+        id: "windowsLaunchOnLoginDisabledProfileBox",
+        control: "moz-message-bar",
+        l10nId: "startup-windows-launch-on-login-profile-disabled",
+      },
+      {
+        id: "alwaysCheckDefault",
+        l10nId: "always-check-default",
+      },
+      {
+        id: "isDefaultPane",
+        l10nId: "is-default-browser",
+        control: "moz-promo",
+      },
+      {
+        id: "isNotDefaultPane",
+        l10nId: "is-not-default-browser",
+        control: "moz-promo",
+        options: [
+          {
+            control: "moz-button",
+            l10nId: "set-as-my-default-browser",
+            id: "setDefaultButton",
+            controlAttrs: {
+              slot: "actions",
+              type: "primary",
+            },
+          },
+        ],
+      },
+    ],
+  },
   zoom: {
     // This section is marked as in progress for testing purposes
     inProgress: true,
@@ -665,6 +1177,13 @@ let SETTINGS_CONFIG = {
         control: "moz-message-bar",
         controlAttrs: {
           message: "Placeholder for updated zoom controls",
+        },
+      },
+      {
+        id: "containersPane",
+        control: "moz-button",
+        controlAttrs: {
+          label: "Manage container settings",
         },
       },
     ],
@@ -819,6 +1338,100 @@ let SETTINGS_CONFIG = {
       },
     ],
   },
+  httpsOnly: {
+    items: [
+      {
+        id: "httpsOnlyRadioGroup",
+        control: "moz-radio-group",
+        l10nId: "httpsonly-label",
+        supportPage: "https-only-prefs",
+        options: [
+          {
+            id: "httpsOnlyRadioEnabled",
+            value: "enabled",
+            l10nId: "httpsonly-radio-enabled",
+          },
+          {
+            id: "httpsOnlyRadioEnabledPBM",
+            value: "privateOnly",
+            l10nId: "httpsonly-radio-enabled-pbm",
+          },
+          {
+            id: "httpsOnlyRadioDisabled",
+            value: "disabled",
+            l10nId: "httpsonly-radio-disabled3",
+            supportPage: "connection-upgrades",
+          },
+        ],
+      },
+      {
+        id: "httpsOnlyExceptionButton",
+        l10nId: "sitedata-cookies-exceptions",
+        control: "moz-box-button",
+        controlAttrs: {
+          "search-l10n-ids":
+            "permissions-address,permissions-allow.label,permissions-remove.label,permissions-remove-all.label,permissions-exceptions-https-only-desc2",
+        },
+      },
+    ],
+  },
+  certificates: {
+    l10nId: "certs-description2",
+    supportPage: "secure-website-certificate",
+    headingLevel: 2,
+    items: [
+      {
+        id: "certificateButtonGroup",
+        control: "moz-box-group",
+        items: [
+          {
+            id: "viewCertificatesButton",
+            l10nId: "certs-view",
+            control: "moz-box-button",
+            controlAttrs: {
+              "search-l10n-ids":
+                "certmgr-tab-mine.label,certmgr-tab-people.label,certmgr-tab-servers.label,certmgr-tab-ca.label,certmgr-mine,certmgr-people,certmgr-server,certmgr-ca,certmgr-cert-name.label,certmgr-token-name.label,certmgr-view.label,certmgr-export.label,certmgr-delete.label",
+            },
+          },
+          {
+            id: "viewSecurityDevicesButton",
+            l10nId: "certs-devices",
+            control: "moz-box-button",
+            controlAttrs: {
+              "search-l10n-ids":
+                "devmgr-window.title,devmgr-devlist.label,devmgr-header-details.label,devmgr-header-value.label,devmgr-button-login.label,devmgr-button-logout.label,devmgr-button-changepw.label,devmgr-button-load.label,devmgr-button-unload.label,certs-devices-enable-fips",
+            },
+          },
+        ],
+      },
+
+      {
+        id: "certEnableThirdPartyToggle",
+        l10nId: "certs-thirdparty-toggle",
+        supportPage: "automatically-trust-third-party-certificates",
+      },
+    ],
+  },
+  browsingProtection: {
+    items: [
+      {
+        id: "enableSafeBrowsing",
+        l10nId: "security-enable-safe-browsing",
+        supportPage: "phishing-malware",
+        control: "moz-checkbox",
+        items: [
+          {
+            id: "blockDownloads",
+            l10nId: "security-block-downloads",
+          },
+          {
+            id: "blockUncommonUnwanted",
+            l10nId: "security-block-uncommon-software",
+          },
+        ],
+      },
+    ],
+  },
   nonTechnicalPrivacy: {
     l10nId: "non-technical-privacy-label",
     items: [
@@ -853,11 +1466,116 @@ let SETTINGS_CONFIG = {
       },
     ],
   },
+  performance: {
+    items: [
+      {
+        id: "useRecommendedPerformanceSettings",
+        l10nId: "performance-use-recommended-settings-checkbox",
+        supportPage: "performance",
+      },
+      {
+        id: "allowHWAccel",
+        l10nId: "performance-allow-hw-accel",
+      },
+    ],
+  },
+  cookiesAndSiteData: {
+    l10nId: "sitedata-label",
+    items: [
+      {
+        id: "clearSiteDataButton",
+        l10nId: "sitedata-clear2",
+        control: "moz-box-button",
+        iconSrc: "chrome://browser/skin/flame.svg",
+        controlAttrs: {
+          "search-l10n-ids": `
+            clear-site-data-cookies-empty.label,
+            clear-site-data-cache-empty.label
+          `,
+        },
+      },
+      {
+        id: "deleteOnCloseInfo",
+        l10nId: "sitedata-delete-on-close-private-browsing3",
+        control: "moz-message-bar",
+      },
+      {
+        id: "manageDataSettingsGroup",
+        control: "moz-box-group",
+        controlAttrs: {
+          type: "default",
+        },
+        items: [
+          {
+            id: "siteDataSize",
+            l10nId: "sitedata-total-size-calculating",
+            control: "moz-box-item",
+            supportPage: "sitedata-learn-more",
+          },
+          {
+            id: "siteDataSettings",
+            l10nId: "sitedata-settings2",
+            control: "moz-box-button",
+            controlAttrs: {
+              "search-l10n-ids": `
+                site-data-settings-window.title,
+                site-data-column-host.label,
+                site-data-column-cookies.label,
+                site-data-column-storage.label,
+                site-data-settings-description,
+                site-data-remove-all.label,
+              `,
+            },
+          },
+          {
+            id: "cookieExceptions",
+            l10nId: "sitedata-cookies-exceptions2",
+            control: "moz-box-button",
+            controlAttrs: {
+              "search-l10n-ids": `
+                permissions-address,
+                permissions-block.label,
+                permissions-allow.label,
+                permissions-remove.label,
+                permissions-remove-all.label,
+                permissions-exceptions-cookie-desc
+              `,
+            },
+          },
+        ],
+      },
+      {
+        id: "deleteOnClose",
+        l10nId: "sitedata-delete-on-close",
+      },
+    ],
+  },
+  networkProxy: {
+    items: [
+      {
+        id: "connectionSettings",
+        l10nId: "network-proxy-connection-settings",
+        control: "moz-box-button",
+        controlAttrs: {
+          "search-l10n-ids":
+            "connection-window2.title,connection-proxy-option-no.label,connection-proxy-option-auto.label,connection-proxy-option-system.label,connection-proxy-option-wpad.label,connection-proxy-option-manual.label,connection-proxy-http,connection-proxy-https,connection-proxy-http-port,connection-proxy-socks,connection-proxy-socks4,connection-proxy-socks5,connection-proxy-noproxy,connection-proxy-noproxy-desc,connection-proxy-https-sharing.label,connection-proxy-autotype.label,connection-proxy-reload.label,connection-proxy-autologin-checkbox.label,connection-proxy-socks-remote-dns.label",
+        },
+        // Bug 1990552: due to how this lays out in the legacy page, we do not include a
+        // controllingExtensionInfo attribute here. We will want one in the redesigned page,
+        // using storeId: "proxy.settings".
+        controllingExtensionInfo: undefined,
+      },
+    ],
+  },
 };
 
+/**
+ * @param {string} id - ID of {@link SettingGroup} custom element.
+ */
 function initSettingGroup(id) {
+  /** @type {SettingGroup} */
   let group = document.querySelector(`setting-group[groupid=${id}]`);
-  let config = SETTINGS_CONFIG[id];
+  const config = SETTINGS_CONFIG[id];
   if (group && config) {
     if (config.inProgress && !srdSectionEnabled(id)) {
       group.remove();
@@ -933,71 +1651,22 @@ var gMainPane = {
     return (this._filter = document.getElementById("filter"));
   },
 
-  _backoffIndex: 0,
-
   /**
    * Initialization of gMainPane.
    */
   init() {
+    /**
+     * @param {string} aId
+     * @param {string} aEventType
+     * @param {(ev: Event) => void} aCallback
+     */
     function setEventListener(aId, aEventType, aCallback) {
       document
         .getElementById(aId)
         .addEventListener(aEventType, aCallback.bind(gMainPane));
     }
 
-    if (AppConstants.HAVE_SHELL_SERVICE) {
-      this.updateSetDefaultBrowser();
-      let win = Services.wm.getMostRecentWindow("navigator:browser");
-
-      // Exponential backoff mechanism will delay the polling times if user doesn't
-      // trigger SetDefaultBrowser for a long time.
-      let backoffTimes = [
-        1000, 1000, 1000, 1000, 2000, 2000, 2000, 5000, 5000, 10000,
-      ];
-
-      let pollForDefaultBrowser = () => {
-        let uri = win.gBrowser.currentURI.spec;
-
-        if (
-          (uri == "about:preferences" ||
-            uri == "about:preferences#general" ||
-            uri == "about:settings" ||
-            uri == "about:settings#general") &&
-          document.visibilityState == "visible"
-        ) {
-          this.updateSetDefaultBrowser();
-        }
-
-        // approximately a "requestIdleInterval"
-        window.setTimeout(
-          () => {
-            window.requestIdleCallback(pollForDefaultBrowser);
-          },
-          backoffTimes[
-            this._backoffIndex + 1 < backoffTimes.length
-              ? this._backoffIndex++
-              : backoffTimes.length - 1
-          ]
-        );
-      };
-
-      window.setTimeout(() => {
-        window.requestIdleCallback(pollForDefaultBrowser);
-      }, backoffTimes[this._backoffIndex]);
-    }
-
     this.initBrowserContainers();
-    this.buildContentProcessCountMenuList();
-
-    this.updateDefaultPerformanceSettingsPref();
-
-    let defaultPerformancePref = Preferences.get(
-      "browser.preferences.defaultPerformanceSettings.enabled"
-    );
-    defaultPerformancePref.on("change", () => {
-      this.updatePerformanceSettingsBox({ duringChangeEvent: true });
-    });
-    this.updatePerformanceSettingsBox({ duringChangeEvent: false });
     this.displayUseSystemLocale();
     this.updateProxySettingsUI();
     initializeProxyUI(gMainPane);
@@ -1018,6 +1687,9 @@ var gMainPane = {
     initSettingGroup("downloads");
     initSettingGroup("browsing");
     initSettingGroup("zoom");
+    initSettingGroup("performance");
+    initSettingGroup("startup");
+    initSettingGroup("networkProxy");
 
     if (AppConstants.platform == "win") {
       // Functionality for "Show tabs in taskbar" on Windows 7 and up.
@@ -1099,53 +1771,6 @@ var gMainPane = {
       });
     }
 
-    // Startup pref
-    setEventListener(
-      "browserRestoreSession",
-      "command",
-      gMainPane.onBrowserRestoreSessionChange
-    );
-    if (AppConstants.platform == "win") {
-      setEventListener(
-        "windowsLaunchOnLogin",
-        "command",
-        gMainPane.onWindowsLaunchOnLoginChange
-      );
-      if (
-        Services.prefs.getBoolPref(
-          "browser.startup.windowsLaunchOnLogin.enabled",
-          false
-        )
-      ) {
-        document.getElementById("windowsLaunchOnLoginBox").hidden = false;
-        NimbusFeatures.windowsLaunchOnLogin.recordExposureEvent({
-          once: true,
-        });
-      }
-    }
-    gMainPane.updateBrowserStartupUI =
-      gMainPane.updateBrowserStartupUI.bind(gMainPane);
-    Preferences.get("browser.privatebrowsing.autostart").on(
-      "change",
-      gMainPane.updateBrowserStartupUI
-    );
-    Preferences.get("browser.startup.page").on(
-      "change",
-      gMainPane.updateBrowserStartupUI
-    );
-    Preferences.get("browser.startup.homepage").on(
-      "change",
-      gMainPane.updateBrowserStartupUI
-    );
-    gMainPane.updateBrowserStartupUI();
-
-    if (AppConstants.HAVE_SHELL_SERVICE) {
-      setEventListener(
-        "setDefaultButton",
-        "command",
-        gMainPane.setDefaultBrowser
-      );
-    }
     setEventListener(
       "disableContainersExtension",
       "command",
@@ -1169,15 +1794,6 @@ var gMainPane = {
       gMainPane.updateColorsButton.bind(gMainPane)
     );
     gMainPane.updateColorsButton();
-    Preferences.get("layers.acceleration.disabled").on(
-      "change",
-      gMainPane.updateHardwareAcceleration.bind(gMainPane)
-    );
-    setEventListener(
-      "connectionSettings",
-      "command",
-      gMainPane.showConnections
-    );
     setEventListener(
       "browserContainersCheckbox",
       "command",
@@ -1356,43 +1972,6 @@ var gMainPane = {
       }
 
       if (AppConstants.platform == "win") {
-        // Check for a launch on login registry key
-        // This accounts for if a user manually changes it in the registry
-        // Disabling in Task Manager works outside of just deleting the registry key
-        // in HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run
-        // but it is not possible to change it back to enabled as the disabled value is just a random
-        // hexadecimal number
-        let launchOnLoginCheckbox = document.getElementById(
-          "windowsLaunchOnLogin"
-        );
-
-        let startWithLastProfile = Cc[
-          "@mozilla.org/toolkit/profile-service;1"
-        ].getService(Ci.nsIToolkitProfileService).startWithLastProfile;
-
-        // Grey out the launch on login checkbox if startWithLastProfile is false
-        document.getElementById(
-          "windowsLaunchOnLoginDisabledProfileBox"
-        ).hidden = startWithLastProfile;
-        launchOnLoginCheckbox.disabled = !startWithLastProfile;
-
-        if (!startWithLastProfile) {
-          launchOnLoginCheckbox.checked = false;
-        } else {
-          WindowsLaunchOnLogin.getLaunchOnLoginEnabled().then(enabled => {
-            launchOnLoginCheckbox.checked = enabled;
-          });
-
-          WindowsLaunchOnLogin.getLaunchOnLoginApproved().then(
-            approvedByWindows => {
-              launchOnLoginCheckbox.disabled = !approvedByWindows;
-              document.getElementById(
-                "windowsLaunchOnLoginDisabledBox"
-              ).hidden = approvedByWindows;
-            }
-          );
-        }
-
         // On Windows, the Application Update setting is an installation-
         // specific preference, not a profile-specific one. Show a warning to
         // inform users of this.
@@ -1465,6 +2044,14 @@ var gMainPane = {
     Preferences.addSyncToPrefListener(
       document.getElementById("linkTargeting"),
       () => this.writeLinkTarget()
+    );
+    Preferences.addSyncFromPrefListener(
+      document.getElementById("openAppLinksNextToActiveTab"),
+      () => this.readExternalLinkNextToActiveTab()
+    );
+    Preferences.addSyncToPrefListener(
+      document.getElementById("openAppLinksNextToActiveTab"),
+      inputElement => this.writeExternalLinkNextToActiveTab(inputElement)
     );
     Preferences.addSyncFromPrefListener(
       document.getElementById("browserContainersCheckbox"),
@@ -1631,26 +2218,6 @@ var gMainPane = {
     return undefined;
   },
 
-  /**
-   * Hide/show the "Show my windows and tabs from last time" option based
-   * on the value of the browser.privatebrowsing.autostart pref.
-   */
-  updateBrowserStartupUI() {
-    const pbAutoStartPref = Preferences.get(
-      "browser.privatebrowsing.autostart"
-    );
-    const startupPref = Preferences.get("browser.startup.page");
-
-    let newValue;
-    let checkbox = document.getElementById("browserRestoreSession");
-    checkbox.disabled = pbAutoStartPref.value || startupPref.locked;
-    newValue = pbAutoStartPref.value
-      ? false
-      : startupPref.value === this.STARTUP_PREF_RESTORE_SESSION;
-    if (checkbox.checked !== newValue) {
-      checkbox.checked = newValue;
-    }
-  },
   /**
    * Fetch the existing default zoom value, initialise and unhide
    * the preferences menu. This method also establishes a listener
@@ -2337,44 +2904,6 @@ var gMainPane = {
     cps2.setGlobal(win.FullZoom.name, newZoom, nonPrivateLoadContext);
   },
 
-  onBrowserRestoreSessionChange(event) {
-    const value = event.target.checked;
-    const startupPref = Preferences.get("browser.startup.page");
-    let newValue;
-
-    if (value) {
-      // We need to restore the blank homepage setting in our other pref
-      if (startupPref.value === this.STARTUP_PREF_BLANK) {
-        HomePage.safeSet("about:blank");
-      }
-      newValue = this.STARTUP_PREF_RESTORE_SESSION;
-    } else {
-      newValue = this.STARTUP_PREF_HOMEPAGE;
-    }
-    startupPref.value = newValue;
-  },
-
-  async onWindowsLaunchOnLoginChange(event) {
-    if (AppConstants.platform !== "win") {
-      return;
-    }
-    if (event.target.checked) {
-      // windowsLaunchOnLogin has been checked: create registry key or shortcut
-      // The shortcut is created with the same AUMID as Firefox itself. However,
-      // this is not set during browser tests and the fallback of checking the
-      // registry fails. As such we pass an arbitrary AUMID for the purpose
-      // of testing.
-      await WindowsLaunchOnLogin.createLaunchOnLogin();
-      Services.prefs.setBoolPref(
-        "browser.startup.windowsLaunchOnLogin.disableLaunchOnLoginPrompt",
-        true
-      );
-    } else {
-      // windowsLaunchOnLogin has been unchecked: delete registry key and shortcut
-      await WindowsLaunchOnLogin.removeLaunchOnLogin();
-    }
-  },
-
   // TABS
 
   /*
@@ -2423,76 +2952,43 @@ var gMainPane = {
     var linkTargeting = document.getElementById("linkTargeting");
     return linkTargeting.checked ? 3 : 2;
   },
-  /*
-   * Preferences:
-   *
-   * browser.shell.checkDefault
-   * - true if a default-browser check (and prompt to make it so if necessary)
-   *   occurs at startup, false otherwise
-   */
 
   /**
-   * Show button for setting browser as default browser or information that
-   * browser is already the default browser.
+   * @returns {boolean}
+   *   Whether the "Open links in tabs instead of new windows" settings
+   *   checkbox should be checked. Should only be checked if the
+   *   `browser.link.open_newwindow.override.external` pref is set to the
+   *   value of 7 (nsIBrowserDOMWindow.OPEN_NEWTAB_AFTER_CURRENT).
    */
-  updateSetDefaultBrowser() {
-    if (AppConstants.HAVE_SHELL_SERVICE) {
-      let shellSvc = getShellService();
-      let defaultBrowserBox = document.getElementById("defaultBrowserBox");
-      let isInFlatpak = gGIOService?.isRunningUnderFlatpak;
-      // Flatpak does not support setting nor detection of default browser
-      if (!shellSvc || isInFlatpak) {
-        defaultBrowserBox.hidden = true;
-        return;
-      }
-      let isDefault = shellSvc.isDefaultBrowser(false, true);
-      let setDefaultPane = document.getElementById("setDefaultPane");
-      setDefaultPane.classList.toggle("is-default", isDefault);
-      let alwaysCheck = document.getElementById("alwaysCheckDefault");
-      let alwaysCheckPref = Preferences.get(
-        "browser.shell.checkDefaultBrowser"
-      );
-      alwaysCheck.disabled = alwaysCheckPref.locked || isDefault;
-    }
+  readExternalLinkNextToActiveTab() {
+    const externalLinkOpenOverride = Preferences.get(
+      "browser.link.open_newwindow.override.external"
+    );
+
+    return (
+      externalLinkOpenOverride.value ==
+      Ci.nsIBrowserDOMWindow.OPEN_NEWTAB_AFTER_CURRENT
+    );
   },
 
   /**
-   * Set browser as the operating system default browser.
+   * This pref has at least 8 valid values but we are offering a checkbox
+   * to set one specific value (`7`).
+   *
+   * @param {HTMLInputElement} inputElement
+   * @returns {number}
+   *   - `7` (`nsIBrowserDOMWindow.OPEN_NEWTAB_AFTER_CURRENT`) if checked
+   *   - the default value of
+   *     `browser.link.open_newwindow.override.external` if not checked
    */
-  async setDefaultBrowser() {
-    if (AppConstants.HAVE_SHELL_SERVICE) {
-      let alwaysCheckPref = Preferences.get(
-        "browser.shell.checkDefaultBrowser"
-      );
-      alwaysCheckPref.value = true;
+  writeExternalLinkNextToActiveTab(inputElement) {
+    const externalLinkOpenOverride = Preferences.get(
+      "browser.link.open_newwindow.override.external"
+    );
 
-      // Reset exponential backoff delay time in order to do visual update in pollForDefaultBrowser.
-      this._backoffIndex = 0;
-
-      let shellSvc = getShellService();
-      if (!shellSvc) {
-        return;
-      }
-
-      // Disable the set default button, so that the user doesn't try to hit it again
-      // while awaiting on setDefaultBrowser
-      let setDefaultButton = document.getElementById("setDefaultButton");
-      setDefaultButton.disabled = true;
-
-      try {
-        await shellSvc.setDefaultBrowser(false);
-      } catch (ex) {
-        console.error(ex);
-        return;
-      } finally {
-        // Make sure to re-enable the default button when we're finished, regardless of the outcome
-        setDefaultButton.disabled = false;
-      }
-
-      let isDefault = shellSvc.isDefaultBrowser(false, true);
-      let setDefaultPane = document.getElementById("setDefaultPane");
-      setDefaultPane.classList.toggle("is-default", isDefault);
-    }
+    return inputElement.checked
+      ? Ci.nsIBrowserDOMWindow.OPEN_NEWTAB_AFTER_CURRENT
+      : externalLinkOpenOverride.defaultValue;
   },
 
   /**
@@ -2791,10 +3287,6 @@ var gMainPane = {
     gotoPref("containers");
   },
 
-  updateHardwareAcceleration() {
-    // Placeholder for restart on change
-  },
-
   // FONTS
 
   /**
@@ -2988,77 +3480,6 @@ var gMainPane = {
       return 1;
     }
     return 0;
-  },
-
-  updateDefaultPerformanceSettingsPref() {
-    let defaultPerformancePref = Preferences.get(
-      "browser.preferences.defaultPerformanceSettings.enabled"
-    );
-    let processCountPref = Preferences.get("dom.ipc.processCount");
-    let accelerationPref = Preferences.get("layers.acceleration.disabled");
-    if (
-      processCountPref.value != processCountPref.defaultValue ||
-      accelerationPref.value != accelerationPref.defaultValue
-    ) {
-      defaultPerformancePref.value = false;
-    }
-  },
-
-  updatePerformanceSettingsBox() {
-    let defaultPerformancePref = Preferences.get(
-      "browser.preferences.defaultPerformanceSettings.enabled"
-    );
-    let performanceSettings = document.getElementById("performanceSettings");
-    let processCountPref = Preferences.get("dom.ipc.processCount");
-    if (defaultPerformancePref.value) {
-      let accelerationPref = Preferences.get("layers.acceleration.disabled");
-      // Unset the value so process count will be decided by the platform.
-      processCountPref.value = processCountPref.defaultValue;
-      accelerationPref.value = accelerationPref.defaultValue;
-      performanceSettings.hidden = true;
-    } else {
-      performanceSettings.hidden = false;
-    }
-  },
-
-  buildContentProcessCountMenuList() {
-    if (Services.appinfo.fissionAutostart) {
-      document.getElementById("limitContentProcess").hidden = true;
-      document.getElementById("contentProcessCount").hidden = true;
-      document.getElementById("contentProcessCountEnabledDescription").hidden =
-        true;
-      document.getElementById("contentProcessCountDisabledDescription").hidden =
-        true;
-      return;
-    }
-    if (Services.appinfo.browserTabsRemoteAutostart) {
-      let processCountPref = Preferences.get("dom.ipc.processCount");
-      let defaultProcessCount = processCountPref.defaultValue;
-
-      let contentProcessCount =
-        document.querySelector(`#contentProcessCount > menupopup >
-                                menuitem[value="${defaultProcessCount}"]`);
-
-      document.l10n.setAttributes(
-        contentProcessCount,
-        "performance-default-content-process-count",
-        { num: defaultProcessCount }
-      );
-
-      document.getElementById("limitContentProcess").disabled = false;
-      document.getElementById("contentProcessCount").disabled = false;
-      document.getElementById("contentProcessCountEnabledDescription").hidden =
-        false;
-      document.getElementById("contentProcessCountDisabledDescription").hidden =
-        true;
-    } else {
-      document.getElementById("limitContentProcess").disabled = true;
-      document.getElementById("contentProcessCount").disabled = true;
-      document.getElementById("contentProcessCountEnabledDescription").hidden =
-        true;
-      document.getElementById("contentProcessCountDisabledDescription").hidden =
-        false;
-    }
   },
 
   _minUpdatePrefDisableTime: 1000,

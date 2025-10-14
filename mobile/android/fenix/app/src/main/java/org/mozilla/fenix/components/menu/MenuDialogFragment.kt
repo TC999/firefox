@@ -36,10 +36,12 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toDrawable
 import androidx.core.net.toUri
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat.Type.systemBars
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
@@ -59,12 +61,10 @@ import mozilla.components.lib.state.ext.observeAsState
 import mozilla.components.service.fxa.manager.AccountState.NotAuthenticated
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
 import mozilla.components.support.ktx.android.util.dpToPx
-import mozilla.components.support.ktx.android.view.setNavigationBarColorCompat
 import mozilla.components.support.utils.ext.isLandscape
 import mozilla.components.support.utils.ext.top
 import mozilla.telemetry.glean.private.NoExtras
 import org.mozilla.fenix.BrowserDirection
-import org.mozilla.fenix.Config
 import org.mozilla.fenix.GleanMetrics.Events
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
@@ -107,7 +107,6 @@ import org.mozilla.fenix.utils.enterSubmenu
 import org.mozilla.fenix.utils.exitMenu
 import org.mozilla.fenix.utils.exitSubmenu
 import org.mozilla.fenix.utils.lastSavedFolderCache
-import org.mozilla.fenix.utils.slideDown
 import org.mozilla.fenix.webcompat.DefaultWebCompatReporterMoreInfoSender
 import org.mozilla.fenix.webcompat.middleware.DefaultWebCompatReporterRetrievalService
 import org.mozilla.fenix.webcompat.middleware.WebCompatInfoDeserializer
@@ -149,16 +148,6 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
 
                 isPrivate = appStore.state.mode.isPrivate
 
-                if (!Config.channel.isNightlyOrDebug) {
-                    val navigationBarColor = if (isPrivate) {
-                        ContextCompat.getColor(context, R.color.fx_mobile_private_layer_color_3)
-                    } else {
-                        ContextCompat.getColor(context, R.color.fx_mobile_layer_color_3)
-                    }
-
-                    window?.setNavigationBarColorCompat(navigationBarColor)
-                }
-
                 if (isPrivate && args.accesspoint == MenuAccessPoint.Home) {
                     window?.setBackgroundDrawable(
                         Color.BLACK.toDrawable().mutate().apply {
@@ -168,22 +157,29 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                 }
 
                 val bottomSheet = findViewById<View?>(materialR.id.design_bottom_sheet)
-                if (Config.channel.isNightlyOrDebug) {
-                    bottomSheet?.setBackgroundResource(R.drawable.bottom_sheet_with_top_rounded_corners)
-
-                    // https://bugzilla.mozilla.org/show_bug.cgi?id=1982004
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-                        bottomSheet?.let { sheet ->
-                            sheet.translationY = sheet.height * MenuAnimationConfig.START_OFFSET_RATIO
-                            sheet.animate()
-                                .translationY(0f)
-                                .setInterpolator(OvershootInterpolator())
-                                .setDuration(MenuAnimationConfig.DURATION)
-                                .start()
-                        }
+                bottomSheet?.let {
+                    ViewCompat.setOnApplyWindowInsetsListener(it) { view, insets ->
+                        view.setPadding(
+                            0,
+                            insets.getInsets(systemBars()).top,
+                            0,
+                            insets.getInsets(systemBars()).bottom,
+                        )
+                        insets
                     }
-                } else {
-                    bottomSheet?.setBackgroundResource(android.R.color.transparent)
+                }
+                bottomSheet?.setBackgroundResource(R.drawable.bottom_sheet_with_top_rounded_corners)
+
+                // https://bugzilla.mozilla.org/show_bug.cgi?id=1982004
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                    bottomSheet?.let { sheet ->
+                        sheet.translationY = sheet.height * MenuAnimationConfig.START_OFFSET_RATIO
+                        sheet.animate()
+                            .translationY(0f)
+                            .setInterpolator(OvershootInterpolator())
+                            .setDuration(MenuAnimationConfig.DURATION)
+                            .start()
+                    }
                 }
 
                 bottomSheetBehavior = bottomSheet?.let {
@@ -334,13 +330,12 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                     )
                 }
 
+                val descCustom = stringResource(R.string.browser_custom_tab_menu_handlebar_content_description)
+                val descMain = stringResource(R.string.browser_close_main_menu_handlebar_content_description)
+
                 var handlebarContentDescription by remember {
                     mutableStateOf(
-                        if (args.accesspoint == MenuAccessPoint.External) {
-                            context.getString(R.string.browser_custom_tab_menu_handlebar_content_description)
-                        } else {
-                            context.getString(R.string.browser_close_main_menu_handlebar_content_description)
-                        },
+                        if (args.accesspoint == MenuAccessPoint.External) descCustom else descMain,
                     )
                 }
 
@@ -524,8 +519,7 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                     ) { route ->
                         when (route) {
                             Route.MainMenu -> {
-                                handlebarContentDescription =
-                                    context.getString(R.string.browser_close_main_menu_handlebar_content_description)
+                                handlebarContentDescription = descMain
 
                                 val account by syncStore.observeAsState(initialValue = null) { state -> state.account }
                                 val accountState by syncStore.observeAsState(initialValue = NotAuthenticated) { state ->
@@ -554,6 +548,12 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                     state.supportedMenuNotifications.contains(SupportedMenuNotifications.Downloads)
                                 }
 
+                                val isOpenInAppMenuHighlighted by appStore.observeAsState(
+                                    initialValue = false,
+                                ) { state ->
+                                    state.supportedMenuNotifications.contains(SupportedMenuNotifications.OpenInApp)
+                                }
+
                                 MainMenu(
                                     accessPoint = args.accesspoint,
                                     account = account,
@@ -570,6 +570,7 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                     isPdf = isPdf,
                                     isPrivate = isPrivate,
                                     isReaderViewActive = isReaderViewActive,
+                                    isMoreMenuHighlighted = isOpenInAppMenuHighlighted,
                                     canGoBack = selectedTab?.content?.canGoBack ?: true,
                                     canGoForward = selectedTab?.content?.canGoForward ?: true,
                                     extensionsMenuItemDescription = extensionsMenuItemDescription,
@@ -579,19 +580,15 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                     webExtensionMenuCount = webExtensionsCount,
                                     allWebExtensionsDisabled = allWebExtensionsDisabled,
                                     onMozillaAccountButtonClick = {
-                                        view?.slideDown {
-                                            store.dispatch(
-                                                MenuAction.Navigate.MozillaAccount(
-                                                    accountState = accountState,
-                                                    accesspoint = args.accesspoint,
-                                                ),
-                                            )
-                                        }
+                                        store.dispatch(
+                                            MenuAction.Navigate.MozillaAccount(
+                                                accountState = accountState,
+                                                accesspoint = args.accesspoint,
+                                            ),
+                                        )
                                     },
                                     onSettingsButtonClick = {
-                                        view?.slideDown {
-                                            store.dispatch(MenuAction.Navigate.Settings)
-                                        }
+                                        store.dispatch(MenuAction.Navigate.Settings)
                                     },
                                     onBookmarkPageMenuClick = {
                                         store.dispatch(MenuAction.AddBookmark)
@@ -632,24 +629,16 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                         isMoreMenuExpanded = !isMoreMenuExpanded
                                     },
                                     onBookmarksMenuClick = {
-                                        view?.slideDown {
-                                            store.dispatch(MenuAction.Navigate.Bookmarks)
-                                        }
+                                        store.dispatch(MenuAction.Navigate.Bookmarks)
                                     },
                                     onHistoryMenuClick = {
-                                        view?.slideDown {
-                                            store.dispatch(MenuAction.Navigate.History)
-                                        }
+                                        store.dispatch(MenuAction.Navigate.History)
                                     },
                                     onDownloadsMenuClick = {
-                                        view?.slideDown {
-                                            store.dispatch(MenuAction.Navigate.Downloads)
-                                        }
+                                        store.dispatch(MenuAction.Navigate.Downloads)
                                     },
                                     onPasswordsMenuClick = {
-                                        view?.slideDown {
-                                            store.dispatch(MenuAction.Navigate.Passwords)
-                                        }
+                                        store.dispatch(MenuAction.Navigate.Passwords)
                                     },
                                     onCustomizeReaderViewMenuClick = {
                                         store.dispatch(MenuAction.CustomizeReaderView)
@@ -685,6 +674,7 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                             hasExternalApp = appLinksRedirect?.hasExternalApp() ?: false,
                                             externalAppName = appLinksRedirect?.appName ?: "",
                                             isWebCompatReporterSupported = isWebCompatReporterSupported,
+                                            isOpenInAppMenuHighlighted = isOpenInAppMenuHighlighted,
                                             translationInfo = translationInfo,
                                             showShortcuts = settings.showTopSitesFeature,
                                             onWebCompatReporterClick = {
@@ -729,13 +719,11 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                             addonInstallationInProgress = addonInstallationInProgress,
                                             recommendedAddons = recommendedAddons,
                                             onAddonClick = { addon ->
-                                                view?.slideDown {
-                                                    store.dispatch(
-                                                        MenuAction.Navigate.AddonDetails(
-                                                            addon = addon,
-                                                        ),
-                                                    )
-                                                }
+                                                store.dispatch(
+                                                    MenuAction.Navigate.AddonDetails(
+                                                        addon = addon,
+                                                    ),
+                                                )
                                             },
                                             onAddonSettingsClick = { addon ->
                                                 store.dispatch(
@@ -771,8 +759,7 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                 val isSiteLoading by browserStore.observeAsState(false) { state ->
                                     args.customTabSessionId?.let { state.findCustomTab(it)?.content?.loading } ?: false
                                 }
-                                handlebarContentDescription =
-                                    context.getString(R.string.browser_custom_tab_menu_handlebar_content_description)
+                                handlebarContentDescription = descCustom
 
                                 CustomTabMenu(
                                     canGoBack = customTab?.content?.canGoBack ?: true,

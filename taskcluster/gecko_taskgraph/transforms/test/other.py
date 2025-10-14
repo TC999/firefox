@@ -15,7 +15,6 @@ from taskgraph.util.readonlydict import ReadOnlyDict
 from taskgraph.util.schema import Schema, resolve_keyed_by
 from taskgraph.util.taskcluster import (
     get_artifact_path,
-    get_artifact_url,
     get_index_url,
 )
 from taskgraph.util.templates import merge
@@ -321,9 +320,9 @@ def set_target(config, tasks):
                 )
                 task["mozharness"]["installer-url"] = installer_url
             else:
-                task["mozharness"]["installer-url"] = get_artifact_url(
-                    f'<{target["upstream-task"]}>', target["name"]
-                )
+                task["mozharness"][
+                    "installer-url"
+                ] = f"<{target['upstream-task']}/{target['name']}>"
         else:
             task["mozharness"]["build-artifact-name"] = get_artifact_path(task, target)
 
@@ -1145,14 +1144,15 @@ def enable_parallel_marking_in_tsan_tests(config, tasks):
 @transforms.add
 def set_webgpu_ignore_blocklist(config, tasks):
     """
-    Ignore the WebGPU blocklist on Linux because CI's Mesa is old
-
-    See <https://bugzilla.mozilla.org/show_bug.cgi?id=1985348>
+    Ignore the WebGPU blocklist on Linux (because CI's Mesa is old,
+    <https://bugzilla.mozilla.org/show_bug.cgi?id=1985348>) and on pre-Tahoe
+    MacOS (<https://bugzilla.mozilla.org/show_bug.cgi?id=1993341>).
     """
     for task in tasks:
-        if "web-platform-tests-webgpu" in task["test-name"] and task[
-            "test-platform"
-        ].startswith("linux"):
+        if "web-platform-tests-webgpu" in task["test-name"] and (
+            task["test-platform"].startswith("linux")
+            or task["test-platform"].startswith("macosx1")
+        ):
             extra_options = task["mozharness"].setdefault("extra-options", [])
             extra_options.append("--setpref=gfx.webgpu.ignore-blocklist=true")
 

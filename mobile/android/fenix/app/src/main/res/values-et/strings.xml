@@ -374,15 +374,14 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">Lingid avatakse privaatsel kaardil</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">Privaatse veebilehitsemise režiimis lubatakse ekraanipildid</string>
+  <string name="preferences_allow_screenshots_in_private_mode">Privaatse veebilehitsemise režiimis lubatakse ekraanipildid</string>
   <!-- Will inform the user of the risk of activating Allow screenshots in private browsing option -->
-  <string name="preferences_screenshots_in_private_mode_disclaimer" tools:ignore="UnusedResources" moz:removedIn="144">Kui see on lubatud, siis on privaatsed kaardid nähtavad ka siis, kui mitu äppi on avatud</string>
+  <string name="preferences_screenshots_in_private_mode_disclaimer">Kui see on lubatud, siis on privaatsed kaardid nähtavad ka siis, kui mitu äppi on avatud</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">Lisa privaatse lehitsemise otsetee</string>
   <!-- Preference for enabling "HTTPS-Only" mode -->
   <string name="preferences_https_only_title">Ainult HTTPS-režiim</string>
-  <!-- Informs the user how to access the tabs when "Use screen lock to hide tabs in private browsing" is enabled -->
-  <string name="preferences_pbm_lock_screen_summary_2">Vaata kaarte sõrmejälje, PIN-koodi või näotuvastusega.</string>
+  <string name="preferences_pbm_lock_screen_summary_2" tools:ignore="UnusedResources" moz:removedIn="144">Vaata kaarte sõrmejälje, PIN-koodi või näotuvastusega.</string>
   <!-- Text for indicating cookie banner handling is off this site, this is shown as part of the protections panel with the tracking protection toggle -->
   <string name="reduce_cookie_banner_off_for_site">Sellel saidil väljas</string>
   <!-- Text for cancel button indicating that cookie banner reduction is not supported for the current site, this is shown as part of the cookie banner details view. -->
@@ -767,7 +766,7 @@
   <!-- Content description for tabs tray multiselect menu -->
   <string name="tab_tray_multiselect_menu_content_description">Valitud kaartide menüü</string>
   <!-- Title text displayed for a homepage tab in the tabs tray. -->
-  <string name="tab_tray_homepage_tab">Avaleht</string>
+  <string name="tab_tray_homepage_tab" tools:ignore="UnusedResources" moz:removedIn="145">Avaleht</string>
   <!-- Content description (not visible, for screen readers etc.): Removes tab from collection button. Removes the selected tab from collection when pressed -->
   <string name="remove_tab_from_collection">Eemalda kaart kollektsioonist</string>
   <!-- Text for button to enter multiselect mode in tabs tray -->
@@ -803,9 +802,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">Kustuta ajalugu</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Ajalugu kustutatud</string>
+  <string name="history_delete_multiple_items_snackbar">Ajalugu kustutatud</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Ajaloost kustutati %1$s</string>
+  <string name="history_delete_single_item_snackbar">Ajaloost kustutati %1$s</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">Kustuta</string>
   <!--

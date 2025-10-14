@@ -14,7 +14,6 @@ import androidx.lifecycle.Lifecycle.State.RESUMED
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavController
-import androidx.navigation.NavOptions
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -41,11 +40,13 @@ import mozilla.components.compose.browser.toolbar.store.BrowserEditToolbarAction
 import mozilla.components.compose.browser.toolbar.store.BrowserEditToolbarAction.UrlSuggestionAutocompleted
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction.CommitUrl
-import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction.ToggleEditMode
+import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction.EnterEditMode
+import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction.ExitEditMode
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarInteraction.BrowserToolbarEvent
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarInteraction.BrowserToolbarMenu
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarMenuItem
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarMenuItem.BrowserToolbarMenuButton
+import mozilla.components.compose.browser.toolbar.store.BrowserToolbarMenuItem.BrowserToolbarMenuDivider
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarState
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarStore
 import mozilla.components.compose.browser.toolbar.store.EnvironmentCleared
@@ -170,26 +171,26 @@ class BrowserToolbarSearchMiddleware(
                 context.dispatch(AutocompleteProvidersUpdated(emptyList()))
             }
 
-            is ToggleEditMode -> {
-                if (action.editMode) {
-                    refreshConfigurationAfterSearchEngineChange(
-                        context = context,
-                        searchEngine = reconcileSelectedEngine(),
-                    )
-                    observeVoiceInputResults(context)
-                    syncCurrentSearchEngine(context)
-                    syncAvailableEngines(context)
-                    updateSearchEndPageActions(context)
-                } else {
-                    syncCurrentSearchEngineJob?.cancel()
-                    syncAvailableSearchEnginesJob?.cancel()
+            is EnterEditMode -> {
+                refreshConfigurationAfterSearchEngineChange(
+                    context = context,
+                    searchEngine = reconcileSelectedEngine(),
+                )
+                observeVoiceInputResults(context)
+                syncCurrentSearchEngine(context)
+                syncAvailableEngines(context)
+                updateSearchEndPageActions(context)
+            }
 
-                    if (observeQRScannerInputJob?.isActive == true) {
-                        appStore.dispatch(AppAction.QrScannerAction.QrScannerDismissed)
-                    }
-                    observeQRScannerInputJob?.cancel()
-                    observeVoiceInputJob?.cancel()
+            is ExitEditMode -> {
+                syncCurrentSearchEngineJob?.cancel()
+                syncAvailableSearchEnginesJob?.cancel()
+
+                if (observeQRScannerInputJob?.isActive == true) {
+                    appStore.dispatch(AppAction.QrScannerAction.QrScannerDismissed)
                 }
+                observeQRScannerInputJob?.cancel()
+                observeVoiceInputJob?.cancel()
             }
 
             is SearchAborted -> {
@@ -521,21 +522,9 @@ class BrowserToolbarSearchMiddleware(
                             searchTermOrURL = it.qrScannerState.lastScanData,
                             newTab = appStore.state.searchState.sourceTabId == null,
                             flags = EngineSession.LoadUrlFlags.external(),
-                            private = false,
+                            private = environment?.browsingModeManager?.mode == Private,
                         )
-                        environment?.navController?.navigate(
-                            resId = R.id.browserFragment,
-                            args = null,
-                            navOptions = when (environment?.navController?.currentDestination?.id) {
-                                R.id.historyFragment,
-                                R.id.bookmarkFragment,
-                                    -> NavOptions.Builder()
-                                        .setPopUpTo(R.id.browserFragment, true)
-                                        .build()
-
-                                else -> null
-                            },
-                        )
+                        environment?.navController?.navigate(R.id.action_global_browser)
                     }
                 }
         }
@@ -570,7 +559,7 @@ class BrowserToolbarSearchMiddleware(
 
     private inline fun <S : State, A : MVIAction> Store<S, A>.observeWhileActive(
         crossinline observe: suspend (Flow<S>.() -> Unit),
-    ): Job? = environment?.viewLifecycleOwner?.run {
+    ): Job? = environment?.fragment?.viewLifecycleOwner?.run {
         lifecycleScope.launch {
             repeatOnLifecycle(RESUMED) {
                 flow().observe()
@@ -607,7 +596,18 @@ class BrowserToolbarSearchMiddleware(
                         onClick = null,
                     ),
                 )
-                addAll(searchEngineShortcuts.toToolbarMenuItems(resources))
+                val searchEngines = searchEngineShortcuts.filter { it.type != APPLICATION }
+                if (searchEngines.isNotEmpty()) {
+                    addAll(searchEngines.toToolbarMenuItems(resources))
+                    add(BrowserToolbarMenuDivider)
+                }
+
+                val applicationSearchEngines = searchEngineShortcuts.filter { it.type == APPLICATION }
+                if (applicationSearchEngines.isNotEmpty()) {
+                    addAll(applicationSearchEngines.toToolbarMenuItems(resources))
+                    add(BrowserToolbarMenuDivider)
+                }
+
                 add(
                     BrowserToolbarMenuButton(
                         icon = MenuItemIconRes(iconsR.drawable.mozac_ic_settings_24),

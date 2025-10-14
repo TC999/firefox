@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* eslint-env mozilla/browser-window */
-
 /**
  * The base view implements everything that's common to all the views.
  * It should not be instanced directly, use a derived class instead.
@@ -429,7 +427,7 @@ class PlacesViewBase {
 
       let icon = aPlacesNode.icon;
       if (icon) {
-        element.setAttribute("image", encodeURI(icon));
+        element.setAttribute("image", ChromeUtils.encodeURIForSrcset(icon));
       }
     }
 
@@ -496,7 +494,7 @@ class PlacesViewBase {
     }
     // We must remove and reset the attribute to force an update.
     elt.removeAttribute("image");
-    elt.setAttribute("image", encodeURI(aPlacesNode.icon));
+    elt.setAttribute("image", ChromeUtils.encodeURIForSrcset(aPlacesNode.icon));
   }
 
   nodeTitleChanged(aPlacesNode, aNewTitle) {
@@ -1338,7 +1336,7 @@ class PlacesToolbar extends PlacesViewBase {
       } else {
         let icon = aPlacesNode.icon;
         if (icon) {
-          button.setAttribute("image", encodeURI(icon));
+          button.setAttribute("image", ChromeUtils.encodeURIForSrcset(icon));
         }
         this.updateNodesVisibility();
       }
@@ -1427,7 +1425,7 @@ class PlacesToolbar extends PlacesViewBase {
         );
         let icon = aPlacesNode.icon;
         if (icon) {
-          elt.setAttribute("image", encodeURI(icon));
+          elt.setAttribute("image", ChromeUtils.encodeURIForSrcset(icon));
         }
       } else {
         this._rootElt.insertBefore(elt, this._rootElt.children[aNewIndex]);

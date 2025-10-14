@@ -319,7 +319,7 @@ pref("media.videocontrols.keyboard-tab-to-all-controls", true);
   // 770 = DTLS 1.0, 771 = DTLS 1.2, 772 = DTLS 1.3
   pref("media.peerconnection.dtls.version.min", 771);
   pref("media.peerconnection.dtls.version.max", 772);
-
+  
   pref("media.peerconnection.sctp.default_max_streams", 2048);
 
 #if defined(XP_MACOSX)
@@ -1167,6 +1167,9 @@ pref("network.http.redirection-limit", 20);
 // NOTE: separate values with comma+space (", "): see bug 576033
 pref("network.http.accept-encoding", "gzip, deflate");
 pref("network.http.accept-encoding.secure", "gzip, deflate, br, zstd");
+// dictionary compression is always only for secure connections
+// Added to network.http.accept-encoding.secure
+pref("network.http.accept-encoding.dictionary", "dcb, dcz");
 
 // Prompt for redirects resulting in unsafe HTTP requests
 pref("network.http.prompt-temp-redirect", false);
@@ -1787,11 +1790,7 @@ pref("extensions.browser_style_mv3.same_as_mv2", false);
 
 // If set to true, browser.cookies.set() will throw exceptions if the cookie is
 // invalid. Otherwise, a warning message will be shown in the console.
-#ifdef NIGHTLY_BUILD
 pref("extensions.cookie.rejectWhenInvalid", true);
-#else
-pref("extensions.cookie.rejectWhenInvalid", false);
-#endif
 
 // Experimental Inference API
 pref("extensions.ml.enabled", true);
@@ -3024,6 +3023,12 @@ pref("signon.firefoxRelay.terms_of_service_url", "https://www.mozilla.org/%LOCAL
 pref("signon.firefoxRelay.privacy_policy_url", "https://www.mozilla.org/%LOCALE%/privacy/subscription-services/");
 pref("signon.signupDetection.confidenceThreshold",     "0.75");
 
+#ifdef NIGHTLY_BUILD
+  pref("signon.rustMirror.enabled", true);
+#else
+  pref("signon.rustMirror.enabled", false);
+#endif
+
 // Satchel (Form Manager) prefs
 pref("browser.formfill.debug",            false);
 pref("browser.formfill.enable",           true);
@@ -3400,7 +3405,11 @@ pref("browser.safebrowsing.provider.google4.dataSharingURL", "https://safebrowsi
 pref("browser.safebrowsing.provider.google4.dataSharing.enabled", false);
 
 // Google Safe Browsing V5 prefs.
+#ifdef NIGHTLY_BUILD
+pref("browser.safebrowsing.provider.google5.enabled", true);
+#else
 pref("browser.safebrowsing.provider.google5.enabled", false);
+#endif
 pref("browser.safebrowsing.provider.google5.lists", "goog-phish-proto,googpub-phish-proto,goog-malware-proto,goog-unwanted-proto,goog-harmful-proto");
 pref("browser.safebrowsing.provider.google5.updateURL", "https://safebrowsing.googleapis.com/v5/hashLists:batchGet?key=%GOOGLE_SAFEBROWSING_API_KEY%");
 pref("browser.safebrowsing.provider.google5.gethashURL", "https://safebrowsing.googleapis.com/v5/hashes:search?key=%GOOGLE_SAFEBROWSING_API_KEY%");
@@ -3447,6 +3456,7 @@ pref("browser.search.log", false);
 pref("browser.search.update", true);
 pref("browser.search.suggest.enabled", true);
 pref("browser.search.suggest.enabled.private", false);
+pref("browser.search.suggest.ohttp.enabled", false);
 pref("browser.search.separatePrivateDefault", true);
 pref("browser.search.separatePrivateDefault.ui.enabled", false);
 pref("browser.search.removeEngineInfobar.enabled", true);

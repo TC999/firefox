@@ -164,7 +164,7 @@ void ModuleLoader::ExecuteInlineModule(ModuleLoadRequest* aRequest) {
 void ModuleLoader::OnModuleLoadComplete(ModuleLoadRequest* aRequest) {
   MOZ_ASSERT(aRequest->IsFinished());
 
-  if (aRequest->IsTopLevel()) {
+  if (aRequest->IsTopLevel() || aRequest->IsDynamicImport()) {
     if (aRequest->GetScriptLoadContext()->mIsInline &&
         aRequest->GetScriptLoadContext()->GetParserCreated() ==
             NOT_FROM_PARSER) {
@@ -269,7 +269,7 @@ nsresult ModuleLoader::CompileJavaScriptModule(
       return NS_ERROR_FAILURE;
     }
 
-    if (aRequest->PassedConditionForCache()) {
+    if (aRequest->PassedConditionForEitherCache()) {
       bool alreadyStarted;
       if (!JS::StartCollectingDelazifications(aCx, aModuleOut, stencil,
                                               alreadyStarted)) {
@@ -318,7 +318,7 @@ nsresult ModuleLoader::CompileJavaScriptModule(
     return NS_ERROR_FAILURE;
   }
 
-  if (aRequest->PassedConditionForCache()) {
+  if (aRequest->PassedConditionForEitherCache()) {
     bool alreadyStarted;
     if (!JS::StartCollectingDelazifications(aCx, aModuleOut, stencil,
                                             alreadyStarted)) {

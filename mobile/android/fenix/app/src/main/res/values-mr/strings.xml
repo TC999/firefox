@@ -141,7 +141,7 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">दुवा खाजगी टॅबमध्ये उघडा</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">खाजगी ब्राउझिंग मध्ये स्क्रीनशॉटची अनुमती द्या</string>
+  <string name="preferences_allow_screenshots_in_private_mode">खाजगी ब्राउझिंग मध्ये स्क्रीनशॉटची अनुमती द्या</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">खाजगी ब्राउझिंग शॉर्टकट जोडा</string>
   <!-- Preference for accessibility -->
@@ -319,9 +319,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">इतिहास नष्ट करा</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">इतिहास पुसला</string>
+  <string name="history_delete_multiple_items_snackbar">इतिहास पुसला</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">%1$s हटविले</string>
+  <string name="history_delete_single_item_snackbar">%1$s हटविले</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">नष्ट करा</string>
   <!--

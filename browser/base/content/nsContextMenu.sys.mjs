@@ -345,7 +345,6 @@ export class nsContextMenu {
     }
 
     this.hasTextFragments = context.hasTextFragments;
-    this.textDirectiveTarget = context.textDirectiveTarget;
     this.textFragmentURL = null;
   } // setContext
 
@@ -480,7 +479,7 @@ export class nsContextMenu {
         this.onEditable ||
         this.browser.currentURI.schemeIs("view-source")
       ) &&
-      this.textDirectiveTarget;
+      (this.hasTextFragments || this.isContentSelected);
     this.showItem("context-copy-link-to-highlight", shouldShow);
     this.showItem("context-copy-clean-link-to-highlight", shouldShow);
 
@@ -2976,7 +2975,7 @@ export class nsContextMenu {
       );
       this.window.document.l10n.setAttributes(
         menuitem,
-        "main-context-menu-visual-search",
+        "main-context-menu-visual-search-2",
         {
           engine: visualSearchUrl.displayName || menuitem.engine.name,
         }
@@ -3040,6 +3039,8 @@ export class nsContextMenu {
    *   The menuitem that should be badged.
    */
   async #setNewFeatureBadge(menuitem, shouldShow) {
+    menuitem.classList.toggle("badge-new", shouldShow);
+
     if (!shouldShow) {
       menuitem.removeAttribute("badge");
       return;

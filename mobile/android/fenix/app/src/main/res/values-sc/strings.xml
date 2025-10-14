@@ -640,17 +640,16 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">Aberi ligòngios in un’ischeda privada noa</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">Permite is caturas de ischermu in sa navigatzione privada</string>
+  <string name="preferences_allow_screenshots_in_private_mode">Permite is caturas de ischermu in sa navigatzione privada</string>
   <!-- Will inform the user of the risk of activating Allow screenshots in private browsing option -->
-  <string name="preferences_screenshots_in_private_mode_disclaimer" tools:ignore="UnusedResources" moz:removedIn="144">Si est ativu, is ischedas privadas ant a èssere visìbiles fintzas cun prus aplicatziones abertas</string>
+  <string name="preferences_screenshots_in_private_mode_disclaimer">Si est ativu, is ischedas privadas ant a èssere visìbiles fintzas cun prus aplicatziones abertas</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">Agiunghe unu curtzadòrgiu de navigatzione privada</string>
   <!-- Preference for enabling "HTTPS-Only" mode -->
   <string name="preferences_https_only_title">Modalidade «isceti HTTPS»</string>
   <!-- Preference title for using the screen lock to hide tabs in private browsing -->
   <string name="preferences_pbm_lock_screen_title">Imprea su blocu de ischermu pro cuare ischedas in sa navigatzione privada</string>
-  <!-- Informs the user how to access the tabs when "Use screen lock to hide tabs in private browsing" is enabled -->
-  <string name="preferences_pbm_lock_screen_summary_2">Podes bìdere is ischedas a pustis de isblocare su dispositivu cun s’imprenta, cun sa cara o cun su PIN.</string>
+  <string name="preferences_pbm_lock_screen_summary_2" tools:ignore="UnusedResources" moz:removedIn="144">Podes bìdere is ischedas a pustis de isblocare su dispositivu cun s’imprenta, cun sa cara o cun su PIN.</string>
   <!-- Label for cookie banner section in quick settings panel. -->
   <string name="cookie_banner_blocker">Blocu de is avisos de testimòngios</string>
   <!-- Preference for removing cookie/consent banners from sites automatically in private mode. See reduce_cookie_banner_summary for additional context. -->
@@ -1340,7 +1339,7 @@
   <!-- Content description for tabs tray multiselect menu -->
   <string name="tab_tray_multiselect_menu_content_description">Menù de ischedas seletzionadas</string>
   <!-- Title text displayed for a homepage tab in the tabs tray. -->
-  <string name="tab_tray_homepage_tab">Pàgina printzipale</string>
+  <string name="tab_tray_homepage_tab" tools:ignore="UnusedResources" moz:removedIn="145">Pàgina printzipale</string>
   <!-- Content description (not visible, for screen readers etc.): Removes tab from collection button. Removes the selected tab from collection when pressed -->
   <string name="remove_tab_from_collection">Boga is ischedas dae sa colletzione</string>
   <!-- Text for button to enter multiselect mode in tabs tray -->
@@ -1376,9 +1375,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">Cantzella sa cronologia</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Cronologia cantzellada</string>
+  <string name="history_delete_multiple_items_snackbar">Cronologia cantzellada</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">%1$s cantzelladu</string>
+  <string name="history_delete_single_item_snackbar">%1$s cantzelladu</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">Cantzella</string>
   <!--

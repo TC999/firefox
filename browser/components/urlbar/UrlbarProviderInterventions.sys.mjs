@@ -481,8 +481,9 @@ export class UrlbarProviderInterventions extends UrlbarProvider {
    * with this provider, to save on resources.
    *
    * @param {UrlbarQueryContext} queryContext The query context object
+   * @param {UrlbarController} controller The current controller.
    */
-  async isActive(queryContext) {
+  async isActive(queryContext, controller) {
     if (
       !queryContext.searchString ||
       queryContext.searchString.length > UrlbarUtils.MAX_TEXT_LENGTH ||
@@ -493,7 +494,7 @@ export class UrlbarProviderInterventions extends UrlbarProvider {
       !Services.policies.isAllowed("urlbarinterventions") ||
       (await this.queryInstance
         .getProvider(lazy.UrlbarProviderGlobalActions.name)
-        ?.isActive())
+        ?.isActive(queryContext, controller))
     ) {
       return false;
     }
@@ -646,19 +647,19 @@ export class UrlbarProviderInterventions extends UrlbarProvider {
     // At this point, this.currentTip != TIPS.UPDATE_CHECKING because we
     // returned early above if it was.
 
-    let result = new lazy.UrlbarResult(
-      UrlbarUtils.RESULT_TYPE.TIP,
-      UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
-      {
+    let result = new lazy.UrlbarResult({
+      type: UrlbarUtils.RESULT_TYPE.TIP,
+      source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+      suggestedIndex: 1,
+      payload: {
         ...getPayloadForTip(this.currentTip),
         type: this.currentTip,
         icon: UrlbarUtils.ICON.TIP,
         helpL10n: {
           id: "urlbar-result-menu-tip-get-help",
         },
-      }
-    );
-    result.suggestedIndex = 1;
+      },
+    });
     addCallback(this, result);
   }
 

@@ -28,6 +28,7 @@
 #include "js/MemoryMetrics.h"
 #include "js/SourceText.h"
 #include "js/friend/ErrorMessages.h"  // JSMSG_OUT_OF_MEMORY
+#include "js/friend/MicroTask.h"
 #include "mozilla/AntiTrackingUtils.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/CycleCollectedJSContext.h"
@@ -39,6 +40,7 @@
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/StaticPrefs_javascript.h"
 #include "mozilla/StorageAccess.h"
 #include "mozilla/StoragePrincipalHelper.h"
 #include "mozilla/ThreadEventQueue.h"
@@ -5010,43 +5012,31 @@ nsresult WorkerPrivate::RegisterShutdownTask(nsITargetShutdownTask* aTask) {
   NS_ENSURE_ARG(aTask);
 
   MutexAutoLock lock(mMutex);
-
   // If we've already started running shutdown tasks, don't allow registering
   // new ones.
   if (mShutdownTasksRun) {
     return NS_ERROR_UNEXPECTED;
   }
-
-  MOZ_ASSERT(!mShutdownTasks.Contains(aTask));
-  mShutdownTasks.AppendElement(aTask);
-  return NS_OK;
+  return mShutdownTasks.AddTask(aTask);
 }
 
 nsresult WorkerPrivate::UnregisterShutdownTask(nsITargetShutdownTask* aTask) {
   NS_ENSURE_ARG(aTask);
 
   MutexAutoLock lock(mMutex);
-
-  // We've already started running shutdown tasks, so can't unregister them
-  // anymore.
-  if (mShutdownTasksRun) {
-    return NS_ERROR_UNEXPECTED;
-  }
-
-  return mShutdownTasks.RemoveElement(aTask) ? NS_OK : NS_ERROR_UNEXPECTED;
+  return mShutdownTasks.RemoveTask(aTask);
 }
 
 void WorkerPrivate::RunShutdownTasks() {
-  nsTArray<nsCOMPtr<nsITargetShutdownTask>> shutdownTasks;
+  TargetShutdownTaskSet::TasksArray shutdownTasks;
 
   {
     MutexAutoLock lock(mMutex);
-    shutdownTasks = std::move(mShutdownTasks);
-    mShutdownTasks.Clear();
     mShutdownTasksRun = true;
+    shutdownTasks = mShutdownTasks.Extract();
   }
 
-  for (auto& task : shutdownTasks) {
+  for (const auto& task : shutdownTasks) {
     task->TargetShutdown();
   }
   mWorkerHybridEventTarget->ForgetWorkerPrivate(this);
@@ -5617,12 +5607,24 @@ void WorkerPrivate::EnterDebuggerEventLoop() {
     {
       MutexAutoLock lock(mMutex);
 
-      std::deque<RefPtr<MicroTaskRunnable>>& debuggerMtQueue =
-          ccjscx->GetDebuggerMicroTaskQueue();
-      while (mControlQueue.IsEmpty() &&
-             !(debuggerRunnablesPending = !mDebuggerQueue.IsEmpty()) &&
-             debuggerMtQueue.empty()) {
-        WaitForWorkerEvents();
+      if (StaticPrefs::javascript_options_use_js_microtask_queue()) {
+        // When JS microtask queue is enabled, check for debugger microtasks
+        // directly from the JS engine
+        while (mControlQueue.IsEmpty() &&
+               !(debuggerRunnablesPending = !mDebuggerQueue.IsEmpty()) &&
+               !JS::HasDebuggerMicroTasks(cx)) {
+          WaitForWorkerEvents();
+        }
+      } else {
+        // Legacy path: check the debugger microtask queue in
+        // CycleCollectedJSContext
+        std::deque<RefPtr<MicroTaskRunnable>>& debuggerMtQueue =
+            ccjscx->GetDebuggerMicroTaskQueue();
+        while (mControlQueue.IsEmpty() &&
+               !(debuggerRunnablesPending = !mDebuggerQueue.IsEmpty()) &&
+               debuggerMtQueue.empty()) {
+          WaitForWorkerEvents();
+        }
       }
 
       ProcessAllControlRunnablesLocked();
@@ -5854,7 +5856,11 @@ void WorkerPrivate::ReportError(JSContext* aCx,
   }
 
   JS::ExceptionStack exnStack(aCx);
-  if (JS_IsExceptionPending(aCx)) {
+  // NOTE: This function is used both for errors and warnings, and warnings
+  //       can be reported while there's a pending exception.
+  //       Warnings are always reported with non-null JSErrorReport.
+  if (!aReport || !aReport->isWarning()) {
+    MOZ_ASSERT(JS_IsExceptionPending(aCx));
     if (!JS::StealPendingExceptionStack(aCx, &exnStack)) {
       JS_ClearPendingException(aCx);
       return;
@@ -5868,10 +5874,6 @@ void WorkerPrivate::ReportError(JSContext* aCx,
       JSAutoRealm ar(aCx, stackGlobal);
       report->SerializeWorkerStack(aCx, this, stack);
     }
-  } else {
-    // ReportError is also used for reporting warnings,
-    // so there won't be a pending exception.
-    MOZ_ASSERT(aReport && aReport->isWarning());
   }
 
   if (report->mMessage.IsEmpty() && aToStringResult) {

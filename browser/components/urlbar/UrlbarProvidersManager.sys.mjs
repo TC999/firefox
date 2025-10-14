@@ -52,7 +52,7 @@ var localProviderModules = [
     name: "UrlbarProviderGlobalActions",
     module:
       "moz-src:///browser/components/urlbar/UrlbarProviderGlobalActions.sys.mjs",
-    supportedInputTypes: ["urlbar"],
+    supportedInputTypes: ["urlbar", "searchbar"],
   },
   {
     name: "UrlbarProviderAliasEngines",
@@ -153,13 +153,13 @@ var localProviderModules = [
     name: "UrlbarProviderRestrictKeywords",
     module:
       "moz-src:///browser/components/urlbar/UrlbarProviderRestrictKeywords.sys.mjs",
-    supportedInputTypes: ["urlbar", "searchbar"],
+    supportedInputTypes: ["urlbar"],
   },
   {
     name: "UrlbarProviderRestrictKeywordsAutofill",
     module:
       "moz-src:///browser/components/urlbar/UrlbarProviderRestrictKeywordsAutofill.sys.mjs",
-    supportedInputTypes: ["urlbar", "searchbar"],
+    supportedInputTypes: ["urlbar"],
   },
   {
     name: "UrlbarProviderSearchTips",
@@ -183,7 +183,7 @@ var localProviderModules = [
     name: "UrlbarProviderTabToSearch",
     module:
       "moz-src:///browser/components/urlbar/UrlbarProviderTabToSearch.sys.mjs",
-    supportedInputTypes: ["urlbar"],
+    supportedInputTypes: ["urlbar", "searchbar"],
   },
   {
     name: "UrlbarProviderTokenAliasEngines",

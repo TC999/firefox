@@ -169,7 +169,7 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">இணைப்பைக் கமுக்கக் கீற்றில் திறக்க</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">கமுக்க உலாவலில் திரைப்பிடிப்பை அனுமதி</string>
+  <string name="preferences_allow_screenshots_in_private_mode">கமுக்க உலாவலில் திரைப்பிடிப்பை அனுமதி</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">கமுக்க உலாவல் குறுக்குவழியைச் சேர்க்கவும்</string>
   <!-- Preference for accessibility -->
@@ -393,9 +393,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">வரலாற்றை அழி</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">வரலாறு அழிக்கப்பட்டது</string>
+  <string name="history_delete_multiple_items_snackbar">வரலாறு அழிக்கப்பட்டது</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">%1$s அழிக்கப்பட்டது</string>
+  <string name="history_delete_single_item_snackbar">%1$s அழிக்கப்பட்டது</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">அழி</string>
   <!--

@@ -66,6 +66,9 @@ pub fn user_agent() -> &'static str {
 pub enum RequestBuilder<'a> {
     /// Send a POST with multiple mime parts.
     MimePost { parts: Vec<MimePart<'a>> },
+    /// Gzip and POST a file's contents.
+    #[allow(unused)]
+    GzipAndPostFile { file: &'a Path },
     /// Send a POST.
     Post {
         body: &'a [u8],
@@ -115,6 +118,28 @@ pub enum Request<'a> {
     },
 }
 
+/// Format a `time::Date` using the date format described by RFC 7231, section 7.1.1.2, for use in
+/// the HTTP Date header.
+fn format_rfc7231_datetime(datetime: time::OffsetDateTime) -> anyhow::Result<String> {
+    let format = time::macros::format_description!(
+        "[weekday repr:short], [day] [month repr:short] [year] [hour]:[minute]:[second] GMT"
+    );
+    datetime
+        .to_offset(time::UtcOffset::UTC)
+        .format(format)
+        .context("failed to format datetime")
+}
+
+fn now_date_header() -> Option<String> {
+    match format_rfc7231_datetime(time::OffsetDateTime::now_utc()) {
+        Err(e) => {
+            log::warn!("failed to format Date header, omitting: {e}");
+            None
+        }
+        Ok(s) => Some(format!("Date: {s}")),
+    }
+}
+
 impl<'a> RequestBuilder<'a> {
     /// Build the request with the given url.
     pub fn build(&self, url: &'a str) -> std::io::Result<Request<'a>> {
@@ -148,6 +173,10 @@ impl<'a> RequestBuilder<'a> {
         cmd.args(["--backgroundtask", "crashreporterNetworkBackend"]);
         cmd.arg(url);
         cmd.arg(user_agent());
+        // Disable crash reporting in the background task. We don't want a crash in the background
+        // task to launch another crash reporter flow. See bugs 1991491/1987145.
+        cmd.env("MOZ_CRASHREPORTER_DISABLE", "1")
+            .env_remove("MOZ_CRASHREPORTER");
 
         let mut file = TempRequestFile::new()?;
         serde_json::to_writer(&mut *file, self)?;
@@ -210,6 +239,15 @@ impl<'a> RequestBuilder<'a> {
                     part.curl_command_args(&mut cmd, &mut stdin)?;
                 }
             }
+            Self::GzipAndPostFile { file } => {
+                cmd.args(["--header", "Content-Encoding: gzip", "--data-binary", "@-"]);
+                if let Some(header) = now_date_header() {
+                    cmd.args(["--header", &header]);
+                }
+
+                let encoder = flate2::read::GzEncoder::new(File::open(file)?, Default::default());
+                stdin = Some(Box::new(encoder));
+            }
             Self::Post { body, headers } => {
                 for (k, v) in headers.iter() {
                     cmd.args(["--header", &format!("{k}: {v}")]);
@@ -248,6 +286,20 @@ impl<'a> RequestBuilder<'a> {
                 }
 
                 easy.set_mime_post(mime)?;
+            }
+            Self::GzipAndPostFile { file } => {
+                let mut headers = easy.slist();
+                headers.append("Content-Encoding: gzip")?;
+                if let Some(header) = now_date_header() {
+                    headers.append(&header)?;
+                }
+                easy.set_headers(headers)?;
+
+                let mut encoder =
+                    flate2::read::GzEncoder::new(File::open(file)?, Default::default());
+                let mut data = Vec::new();
+                encoder.read_to_end(&mut data)?;
+                easy.set_postfields(data)?;
             }
             Self::Post { body, headers } => {
                 let mut header_list = easy.slist();

@@ -155,9 +155,9 @@ static gfx::IntSize CalculateDesiredSize(DesiredSizeInput aInput) {
     double scale = std::min(
         {scale_width, scale_height, scale_width_strict, scale_height_strict});
 
-    dst_width = AssertedCast<int32_t>(
+    dst_width = SaturatingCast<int32_t>(
         std::round(scale * AssertedCast<double>(inputWidth)));
-    dst_height = AssertedCast<int32_t>(
+    dst_height = SaturatingCast<int32_t>(
         std::round(scale * AssertedCast<double>(inputHeight)));
   }
 
@@ -243,9 +243,12 @@ nsresult MediaEngineRemoteVideoSource::Allocate(
   webrtc::CaptureCapability newCapability;
   LOG("ChooseCapability(%s) for mCapability (Allocate) ++",
       ToString(distanceMode));
-  if (!ChooseCapability(c, aPrefs, newCapability, distanceMode)) {
-    *aOutBadConstraint =
-        MediaConstraintsHelper::FindBadConstraint(c, aPrefs, mMediaDevice);
+  if (!ChooseCapability(c, aPrefs, newCapability, distanceMode,
+                        aOutBadConstraint)) {
+    if (aOutBadConstraint && !*aOutBadConstraint) {
+      *aOutBadConstraint =
+          MediaConstraintsHelper::FindBadConstraint(c, aPrefs, mMediaDevice);
+    }
     return NS_ERROR_FAILURE;
   }
   LOG("ChooseCapability(%s) for mCapability (Allocate) --",
@@ -476,9 +479,12 @@ nsresult MediaEngineRemoteVideoSource::Reconfigure(
   webrtc::CaptureCapability newCapability;
   LOG("ChooseCapability(%s) for mTargetCapability (Reconfigure) ++",
       ToString(distanceMode));
-  if (!ChooseCapability(c, aPrefs, newCapability, distanceMode)) {
-    *aOutBadConstraint =
-        MediaConstraintsHelper::FindBadConstraint(c, aPrefs, mMediaDevice);
+  if (!ChooseCapability(c, aPrefs, newCapability, distanceMode,
+                        aOutBadConstraint)) {
+    if (aOutBadConstraint && !*aOutBadConstraint) {
+      *aOutBadConstraint =
+          MediaConstraintsHelper::FindBadConstraint(c, aPrefs, mMediaDevice);
+    }
     return NS_ERROR_INVALID_ARG;
   }
   LOG("ChooseCapability(%s) for mTargetCapability (Reconfigure) --",
@@ -887,7 +893,7 @@ static void LogCapability(const char* aHeader,
 bool MediaEngineRemoteVideoSource::ChooseCapability(
     const NormalizedConstraints& aConstraints, const MediaEnginePrefs& aPrefs,
     webrtc::CaptureCapability& aCapability,
-    const DistanceCalculation aCalculate) {
+    const DistanceCalculation aCalculate, const char** aOutBadConstraint) {
   LOG("%s", __PRETTY_FUNCTION__);
   AssertIsOnOwningThread();
 
@@ -907,7 +913,29 @@ bool MediaEngineRemoteVideoSource::ChooseCapability(
     case camera::ScreenEngine:
     case camera::WinEngine:
     case camera::BrowserEngine: {
+      MOZ_ASSERT_IF(aOutBadConstraint, !*aOutBadConstraint);
       FlattenedConstraints c(aConstraints);
+      const auto checkConstraint = [](const auto& aConstraint) {
+        return aConstraint.mMin <= aConstraint.mMax && aConstraint.mMax > 0;
+      };
+      if (!checkConstraint(c.mWidth)) {
+        if (aOutBadConstraint) {
+          *aOutBadConstraint = "width";
+        }
+        return false;
+      }
+      if (!checkConstraint(c.mHeight)) {
+        if (aOutBadConstraint) {
+          *aOutBadConstraint = "height";
+        }
+        return false;
+      }
+      if (!checkConstraint(c.mFrameRate)) {
+        if (aOutBadConstraint) {
+          *aOutBadConstraint = "frameRate";
+        }
+        return false;
+      }
       // DesktopCaptureImpl polls for frames and so must know the framerate to
       // capture at. This is signaled through CamerasParent as the capability's
       // maxFPS. Note that DesktopCaptureImpl does not expose any capabilities.

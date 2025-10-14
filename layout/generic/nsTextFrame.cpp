@@ -3887,18 +3887,59 @@ static gfxFloat ComputeTabWidthAppUnits(const nsIFrame* aFrame) {
 
 // Walk backward from aIter to prior cluster starts (within the same textframe's
 // content) and return the first non-mark autospace class.
+//
+// @param aContentOffsetAtFrameStart the original content offset at the start of
+// the textframe.
 static Maybe<TextAutospace::CharClass> LastNonMarkCharClass(
-    gfxSkipCharsIterator& aIter, const gfxTextRun* aTextRun,
-    const CharacterDataBuffer& aBuffer) {
-  while (aIter.GetOriginalOffset() > 0) {
+    gfxSkipCharsIterator& aIter, int32_t aContentOffsetAtFrameStart,
+    const gfxTextRun* aTextRun, const CharacterDataBuffer& aBuffer) {
+  while (aIter.GetOriginalOffset() > aContentOffsetAtFrameStart) {
     aIter.AdvanceOriginal(-1);
-    FindClusterStart(aTextRun, 0, &aIter);
+    FindClusterStart(aTextRun, aContentOffsetAtFrameStart, &aIter);
     const char32_t ch = aBuffer.ScalarValueAt(aIter.GetOriginalOffset());
     auto cls = TextAutospace::GetCharClass(ch);
     if (cls != TextAutospace::CharClass::CombiningMark) {
       return Some(cls);
     }
   }
+  return Nothing();
+}
+
+// Walk backward through the frame's content and return the first non-mark
+// autospace class. (Unlike the function above, this is usable when the frame
+// does not currently have a textrun.)
+static Maybe<TextAutospace::CharClass> LastNonMarkCharClass(
+    const nsTextFrame* aFrame) {
+  using CharClass = TextAutospace::CharClass;
+  bool trimSpace = aFrame->HasAnyStateBits(TEXT_TRIMMED_TRAILING_WHITESPACE);
+  const auto& buffer = aFrame->CharacterDataBuffer();
+  const uint32_t startOffset = aFrame->GetContentOffset();
+  uint32_t i = aFrame->GetContentEnd();
+  while (i > startOffset) {
+    // Get trailing character, decoding surrogate pair if necessary.
+    char32_t ch = buffer.CharAt(--i);
+    if (NS_IS_LOW_SURROGATE(ch) && i > startOffset) {
+      // Get potential high surrogate, and decode.
+      char32 hi = buffer.CharAt(i - 1);
+      if (NS_IS_HIGH_SURROGATE(hi)) {
+        ch = SURROGATE_TO_UCS4(hi, ch);
+        --i;
+      }
+    }
+    // Skip over trailing whitespace if the frame was trimmed.
+    if (trimSpace) {
+      if (IsTrimmableSpace(ch)) {
+        continue;
+      }
+      trimSpace = false;
+    }
+    // If it has a non-CombiningMark class, return it.
+    auto cls = TextAutospace::GetCharClass(ch);
+    if (cls != CharClass::CombiningMark) {
+      return Some(cls);
+    }
+  }
+  // No (non-mark, non-trimmed) characters were found.
   return Nothing();
 }
 
@@ -3909,11 +3950,24 @@ static Maybe<TextAutospace::CharClass> LastNonMarkCharClassInFrame(
   if (!aFrame->GetContentLength()) {
     return Nothing();
   }
-  gfxSkipCharsIterator iter = aFrame->EnsureTextRun(nsTextFrame::eInflated);
-  iter.SetOriginalOffset(aFrame->GetContentEnd());
-  Maybe<CharClass> prevClass =
-      LastNonMarkCharClass(iter, aFrame->GetTextRun(nsTextFrame::eInflated),
-                           aFrame->CharacterDataBuffer());
+  Maybe<CharClass> prevClass;
+  if (aFrame->GetTextRun(nsTextFrame::eInflated)) {
+    // If the frame has a textrun, we can use that to find the last cluster
+    // start character and return its class.
+    gfxSkipCharsIterator iter = aFrame->EnsureTextRun(nsTextFrame::eInflated);
+    iter.SetOriginalOffset(aFrame->GetContentEnd());
+    prevClass = LastNonMarkCharClass(iter, aFrame->GetContentOffset(),
+                                     aFrame->GetTextRun(nsTextFrame::eInflated),
+                                     aFrame->CharacterDataBuffer());
+  } else {
+    // We can't call EnsureTextRun if it would build new textruns, because that
+    // could destroy the glyph runs that we're currently iterating over. So
+    // instead we fall back to inspecting the content directly. This means we
+    // ignore CSS whitespace-collapsing, which could mean some of the content
+    // should be skipped, but in practice none of the characters that are
+    // relevant for autospace classes would be affected.
+    prevClass = LastNonMarkCharClass(aFrame);
+  }
   if (prevClass) {
     return prevClass;
   }
@@ -4000,31 +4054,32 @@ static Maybe<TextAutospace::CharClass> GetPrecedingCharClassFromFrameTree(
   return Nothing();
 }
 
+static bool HasCJKGlyphRun(const gfxTextRun* aTextRun) {
+  uint32_t numGlyphRuns;
+  const gfxTextRun::GlyphRun* run = aTextRun->GetGlyphRuns(&numGlyphRuns);
+  while (numGlyphRuns-- > 0) {
+    if (run->mIsCJK) {
+      return true;
+    }
+    run++;
+  }
+  return false;
+}
+
 void nsTextFrame::PropertyProvider::GetSpacingInternal(Range aRange,
                                                        Spacing* aSpacing,
                                                        bool aIgnoreTabs) const {
   MOZ_ASSERT(IsInBounds(mStart, mLength, aRange), "Range out of bounds");
 
-  uint32_t index;
-  for (index = 0; index < aRange.Length(); ++index) {
-    aSpacing[index].mBefore = 0.0;
-    aSpacing[index].mAfter = 0.0;
-  }
+  std::memset(aSpacing, 0, aRange.Length() * sizeof(*aSpacing));
 
   if (mFrame->Style()->IsTextCombined()) {
     return;
   }
 
-  // Find our offset into the original+transformed string
-  gfxSkipCharsIterator start(mStart);
-  start.SetSkippedOffset(aRange.start);
-
   // First, compute the word spacing, letter spacing, and text-autospace
   // spacing.
   if (mWordSpacing || mLetterSpacing || mTextAutospace) {
-    // Iterate over non-skipped characters
-    nsSkipCharsRunIterator run(
-        start, nsSkipCharsRunIterator::LENGTH_UNSKIPPED_ONLY, aRange.Length());
     bool newlineIsSignificant = mTextStyle->NewlineIsSignificant(mFrame);
     // Which letter-spacing model are we using?
     //   0 - Gecko legacy model, spacing added to trailing side of letter
@@ -4051,6 +4106,10 @@ void nsTextFrame::PropertyProvider::GetSpacingInternal(Range aRange,
         after = mLetterSpacing - before;
         break;
     }
+
+    // Find our offset into the original+transformed string
+    gfxSkipCharsIterator start(mStart);
+    start.SetSkippedOffset(aRange.start);
     bool atStart = mStartOfLineOffset == start.GetSkippedOffset() &&
                    !mFrame->IsInSVGTextSubtree();
 
@@ -4066,7 +4125,8 @@ void nsTextFrame::PropertyProvider::GetSpacingInternal(Range aRange,
       Maybe<CharClass> prevClass;
       if (aRange.start > 0) {
         gfxSkipCharsIterator iter = start;
-        prevClass = LastNonMarkCharClass(iter, mTextRun, mCharacterDataBuffer);
+        prevClass = LastNonMarkCharClass(iter, mFrame->GetContentOffset(),
+                                         mTextRun, mCharacterDataBuffer);
       }
       // If no class was found, we need to look at the preceding content (if
       // any) to see what it ended with.
@@ -4092,6 +4152,14 @@ void nsTextFrame::PropertyProvider::GetSpacingInternal(Range aRange,
       return prevClass.valueOr(CharClass::Other);
     };
 
+    // If text-autospace is enabled, we may be able to skip some processing if
+    // there are no CJK glyphs in the textrun, so check for their presence.
+    bool textIncludesCJK = mTextAutospace && mCharacterDataBuffer.Is2b() &&
+                           HasCJKGlyphRun(mTextRun);
+
+    // Iterate over non-skipped characters
+    nsSkipCharsRunIterator run(
+        start, nsSkipCharsRunIterator::LENGTH_UNSKIPPED_ONLY, aRange.Length());
     while (run.NextRun()) {
       uint32_t runOffsetInSubstring = run.GetSkippedOffset() - aRange.start;
       gfxSkipCharsIterator iter = run.GetPos();
@@ -4107,9 +4175,9 @@ void nsTextFrame::PropertyProvider::GetSpacingInternal(Range aRange,
           // End of a cluster, not in a ligature: put letter-spacing after it
           aSpacing[runOffsetInSubstring + i].mAfter += after;
         }
-        if (IsCSSWordSpacingSpace(mCharacterDataBuffer,
-                                  i + run.GetOriginalOffset(), mFrame,
-                                  mTextStyle)) {
+        if (mWordSpacing && IsCSSWordSpacingSpace(mCharacterDataBuffer,
+                                                  i + run.GetOriginalOffset(),
+                                                  mFrame, mTextStyle)) {
           // It kinda sucks, but space characters can be part of clusters,
           // and even still be whitespace (I think!)
           iter.SetSkippedOffset(run.GetSkippedOffset() + i);
@@ -4118,14 +4186,19 @@ void nsTextFrame::PropertyProvider::GetSpacingInternal(Range aRange,
           uint32_t runOffset = iter.GetSkippedOffset() - aRange.start;
           aSpacing[runOffset].mAfter += mWordSpacing;
         }
-        // Add text-autospace spacing.
+        // Add text-autospace spacing only at cluster starts. Always check the
+        // character classes if the textrun includes CJK; otherwise, check only
+        // at the frame start (as preceding content might be an ideograph
+        // requiring autospacing).
         if (mTextAutospace &&
+            (textIncludesCJK ||
+             run.GetOriginalOffset() + i == mFrame->GetContentOffset()) &&
             mTextRun->IsClusterStart(run.GetSkippedOffset() + i)) {
           const char32_t currScalar =
               mCharacterDataBuffer.ScalarValueAt(run.GetOriginalOffset() + i);
           const auto currClass = TextAutospace::GetCharClass(currScalar);
 
-          // It is rare for the current class to be is a combining mark, as
+          // It is rare for the current class to be a combining mark, as
           // combining marks are not cluster starts. We still check in case a
           // stray mark appears at the start of a frame.
           if (currClass != CharClass::CombiningMark) {
@@ -4133,7 +4206,7 @@ void nsTextFrame::PropertyProvider::GetSpacingInternal(Range aRange,
             // current class is `Other`, which never participates in spacing.
             if (!atStart && currClass != CharClass::Other &&
                 mTextAutospace->ShouldApplySpacing(
-                    prevClass.valueOr(findPrecedingClass()), currClass)) {
+                    prevClass.valueOrFrom(findPrecedingClass), currClass)) {
               aSpacing[runOffsetInSubstring + i].mBefore +=
                   mTextAutospace->InterScriptSpacing();
             }
@@ -5699,6 +5772,97 @@ static gfxFloat ComputeDecorationLineOffset(
   return 0;
 }
 
+// Helper to determine decoration trim offset.
+// Returns false if the trim would cut off the decoration entirely.
+static bool ComputeDecorationTrim(
+    const nsTextFrame* aFrame, const nsPresContext* aPresCtx,
+    const nsIFrame* aDecFrame, const gfxFont::Metrics& aMetrics,
+    nsCSSRendering::DecorationRectParams& aParams) {
+  const gfxFloat app = aPresCtx->AppUnitsPerDevPixel();
+  const WritingMode wm = aDecFrame->GetWritingMode();
+  bool verticalDec = wm.IsVertical();
+
+  aParams.trimLeft = 0.0;
+  aParams.trimRight = 0.0;
+
+  // Find the trim values for this frame.
+  const StyleTextDecorationTrim& cssTrim =
+      aDecFrame->StyleTextReset()->mTextDecorationTrim;
+  gfxFloat trimLeft, trimRight;
+  if (cssTrim.IsAuto()) {
+    // Use the EM size divide by 8, or 1 dev pixel if this is too
+    // small to ensure that at least some separation occurs.
+    const gfxFloat scale = aPresCtx->CSSToDevPixelScale().scale;
+    const nscoord autoDecorationTrim =
+        std::max(aMetrics.emHeight * 0.125, scale);
+    trimLeft = autoDecorationTrim;
+    trimRight = autoDecorationTrim;
+  } else {
+    MOZ_ASSERT(cssTrim.IsLength(), "Impossible text-decoration-trim");
+    const auto& length = cssTrim.AsLength();
+    if (length.start.IsZero() && length.end.IsZero()) {
+      // We can avoid doing the geometric calculations below, potentially
+      // walking up and back down the frame tree, and walking continuations.
+      return true;
+    }
+    trimLeft = NSAppUnitsToDoublePixels(length.start.ToAppUnits(), app);
+    trimRight = NSAppUnitsToDoublePixels(length.end.ToAppUnits(), app);
+  }
+
+  if (wm.IsBidiRTL()) {
+    std::swap(trimLeft, trimRight);
+  }
+  const nsPoint offset = aFrame->GetOffsetTo(aDecFrame);
+  const nsSize decSize = aDecFrame->GetSize();
+  const nsSize size = aFrame->GetSize();
+  nscoord start, end, max;
+  if (verticalDec) {
+    start = offset.y;
+    max = size.height;
+    end = decSize.height - (size.height + offset.y);
+  } else {
+    start = offset.x;
+    max = size.width;
+    end = decSize.width - (size.width + offset.x);
+  }
+
+  const bool cloneDecBreak = aDecFrame->StyleBorder()->mBoxDecorationBreak ==
+                             StyleBoxDecorationBreak::Clone;
+  // TODO alaskanemily: This will not correctly account for the case that the
+  // continuations are bidi continuations.
+  const bool applyLeft = cloneDecBreak || !aDecFrame->GetPrevContinuation();
+  if (applyLeft) {
+    trimLeft -= NSAppUnitsToDoublePixels(start, app);
+  }
+  const bool applyRight = cloneDecBreak || !aDecFrame->GetNextContinuation();
+  if (applyRight) {
+    trimRight -= NSAppUnitsToDoublePixels(end, app);
+  }
+
+  if (trimLeft >= NSAppUnitsToDoublePixels(max, app) - trimRight) {
+    // This frame does not contain the decoration at all.
+    return false;
+  }
+  // TODO alaskanemily: We currently determine if we should have a negative
+  // trim value by checking if we are at the edge of frame from which the
+  // decloration comes from.
+  //
+  // This is not absolutely correct, there could in theory be a zero-width
+  // frame before/after this frame, and we will draw the decoration extension
+  // twice (causing a visible inaccuracy for semi-transparent decorations).
+  //
+  // I am unsure if it's possible that the first/last frame might be inset
+  // for some reason, as well, in which case we will not draw the outset
+  // decorations.
+  if (applyLeft && (trimLeft > 0.0 || start == 0)) {
+    aParams.trimLeft = trimLeft;
+  }
+  if (applyRight && (trimRight > 0.0 || end == 0)) {
+    aParams.trimRight = trimRight;
+  }
+  return true;
+}
+
 void nsTextFrame::UnionAdditionalOverflow(nsPresContext* aPresContext,
                                           nsIFrame* aBlock,
                                           PropertyProvider& aProvider,
@@ -5810,7 +5974,6 @@ void nsTextFrame::UnionAdditionalOverflow(nsPresContext* aPresContext,
       params.vertical = verticalDec;
       params.sidewaysLeft = mTextRun->IsSidewaysLeft();
 
-      nscoord topOrLeft(nscoord_MAX), bottomOrRight(nscoord_MIN);
       typedef gfxFont::Metrics Metrics;
       auto accumulateDecorationRect =
           [&](const LineDecoration& dec, gfxFloat Metrics::* lineSize,
@@ -5841,18 +6004,17 @@ void nsTextFrame::UnionAdditionalOverflow(nsPresContext* aPresContext,
                 metrics, appUnitsPerDevUnit, this, parentWM.IsCentralBaseline(),
                 swapUnderline);
 
-            const nsRect decorationRect =
+            if (!ComputeDecorationTrim(this, aPresContext, dec.mFrame, metrics,
+                                       params)) {
+              return;
+            }
+
+            nsRect decorationRect =
                 nsCSSRendering::GetTextDecorationRect(aPresContext, params) +
                 (verticalDec ? nsPoint(frameBStart - dec.mBaselineOffset, 0)
                              : nsPoint(0, -dec.mBaselineOffset));
 
-            if (verticalDec) {
-              topOrLeft = std::min(decorationRect.x, topOrLeft);
-              bottomOrRight = std::max(decorationRect.XMost(), bottomOrRight);
-            } else {
-              topOrLeft = std::min(decorationRect.y, topOrLeft);
-              bottomOrRight = std::max(decorationRect.YMost(), bottomOrRight);
-            }
+            aInkOverflowRect->UnionRect(*aInkOverflowRect, decorationRect);
           };
 
       // Below we loop through all text decorations and compute the rectangle
@@ -5872,12 +6034,6 @@ void nsTextFrame::UnionAdditionalOverflow(nsPresContext* aPresContext,
         accumulateDecorationRect(dec, &Metrics::strikeoutSize,
                                  params.decoration);
       }
-
-      aInkOverflowRect->UnionRect(
-          *aInkOverflowRect,
-          verticalDec
-              ? nsRect(topOrLeft, 0, bottomOrRight - topOrLeft, measure)
-              : nsRect(0, topOrLeft, measure, bottomOrRight - topOrLeft));
     }
 
     aInkOverflowRect->UnionRect(*aInkOverflowRect,
@@ -7563,6 +7719,40 @@ void nsTextFrame::DrawTextRunAndDecorations(
     }
   }
 
+  // We create a clip region in order to draw the decoration lines only in the
+  // range of the text. Restricting the draw area prevents the decoration lines
+  // to be drawn multiple times when a part of the text is selected.
+  Maybe<gfxRect> clipRect;
+
+  // We skip clipping for the following cases:
+  // - drawing the whole text
+  // - having different orientation of the text and the writing-mode, such as
+  //   "text-combine-upright" (Bug 1408825)
+  if (aRange.Length() != mTextRun->GetLength() && verticalDec == verticalRun) {
+    // Get the inline-size according to the specified range.
+    gfxFloat clipLength = mTextRun->GetAdvanceWidth(aRange, aParams.provider);
+    nsRect visualRect = InkOverflowRect();
+
+    const bool isInlineReversed = mTextRun->IsInlineReversed();
+    gfxFloat x, y, w, h;
+    if (verticalDec) {
+      x = aParams.framePt.x + visualRect.x;
+      y = isInlineReversed ? aTextBaselinePt.y.value - clipLength
+                           : aTextBaselinePt.y.value;
+      w = visualRect.width;
+      h = clipLength;
+    } else {
+      x = isInlineReversed ? aTextBaselinePt.x.value - clipLength
+                           : aTextBaselinePt.x.value;
+      y = aParams.framePt.y + visualRect.y;
+      w = clipLength;
+      h = visualRect.height;
+    }
+    clipRect.emplace(x, y, w, h);
+    clipRect->Scale(1 / app);
+    clipRect->Round();
+  }
+
   typedef gfxFont::Metrics Metrics;
   auto paintDecorationLine = [&](const LineDecoration& dec,
                                  gfxFloat Metrics::* lineSize,
@@ -7575,7 +7765,10 @@ void nsTextFrame::DrawTextRunAndDecorations(
         GetInflationForTextDecorations(dec.mFrame, inflationMinFontSize);
     const Metrics metrics = GetFirstFontMetrics(
         GetFontGroupForFrame(dec.mFrame, inflation), useVerticalMetrics);
-
+    if (!ComputeDecorationTrim(this, aParams.textStyle->PresContext(),
+                               dec.mFrame, metrics, params)) {
+      return;
+    }
     bCoord = (frameBStart - dec.mBaselineOffset) / app;
 
     params.color = dec.mColor;
@@ -7592,45 +7785,16 @@ void nsTextFrame::DrawTextRunAndDecorations(
 
     params.style = dec.mStyle;
     params.allowInkSkipping = dec.mAllowInkSkipping;
+    gfxClipAutoSaveRestore clipRestore(params.context);
+    // If we have a negative trim value, then the decoration will extend
+    // outside the edges of the text.
+    // TODO alaskanemily: Ideally we would adjust the clipping rect, but as
+    // an initial pass we just disable clipping in this case.
+    if (clipRect && !params.HasNegativeTrim()) {
+      clipRestore.Clip(*clipRect);
+    }
     PaintDecorationLine(params);
   };
-
-  // We create a clip region in order to draw the decoration lines only in the
-  // range of the text. Restricting the draw area prevents the decoration lines
-  // to be drawn multiple times when a part of the text is selected.
-
-  // We skip clipping for the following cases:
-  // - drawing the whole text
-  // - having different orientation of the text and the writing-mode, such as
-  //   "text-combine-upright" (Bug 1408825)
-  bool skipClipping =
-      aRange.Length() == mTextRun->GetLength() || verticalDec != verticalRun;
-
-  gfxRect clipRect;
-  if (!skipClipping) {
-    // Get the inline-size according to the specified range.
-    gfxFloat clipLength = mTextRun->GetAdvanceWidth(aRange, aParams.provider);
-    nsRect visualRect = InkOverflowRect();
-
-    const bool isInlineReversed = mTextRun->IsInlineReversed();
-    if (verticalDec) {
-      clipRect.x = aParams.framePt.x + visualRect.x;
-      clipRect.y = isInlineReversed ? aTextBaselinePt.y.value - clipLength
-                                    : aTextBaselinePt.y.value;
-      clipRect.width = visualRect.width;
-      clipRect.height = clipLength;
-    } else {
-      clipRect.x = isInlineReversed ? aTextBaselinePt.x.value - clipLength
-                                    : aTextBaselinePt.x.value;
-      clipRect.y = aParams.framePt.y + visualRect.y;
-      clipRect.width = clipLength;
-      clipRect.height = visualRect.height;
-    }
-
-    clipRect.Scale(1 / app);
-    clipRect.Round();
-    params.context->Clip(clipRect);
-  }
 
   // Underlines
   params.decoration = StyleTextDecorationLine::UNDERLINE;
@@ -7644,11 +7808,9 @@ void nsTextFrame::DrawTextRunAndDecorations(
     paintDecorationLine(dec, &Metrics::underlineSize, params.decoration);
   }
 
-  // Some glyphs and emphasis marks may extend outside the region, so we reset
-  // the clip region here. For an example, italic glyphs.
-  if (!skipClipping) {
-    params.context->PopClip();
-  }
+  // Some glyphs and emphasis marks may extend outside the region, so we do
+  // not set the clip region here to the clip rect. For an example, italic
+  // glyphs.
 
   {
     gfxContextMatrixAutoSaveRestore unscaledRestorer;
@@ -7666,19 +7828,10 @@ void nsTextFrame::DrawTextRunAndDecorations(
   DrawEmphasisMarks(aParams.context, wm, aTextBaselinePt, aParams.framePt,
                     aRange, aParams.decorationOverrideColor, aParams.provider);
 
-  // Re-apply the clip region when the line-through is being drawn.
-  if (!skipClipping) {
-    params.context->Clip(clipRect);
-  }
-
   // Line-throughs
   params.decoration = StyleTextDecorationLine::LINE_THROUGH;
   for (const LineDecoration& dec : Reversed(aDecorations.mStrikes)) {
     paintDecorationLine(dec, &Metrics::strikeoutSize, params.decoration);
-  }
-
-  if (!skipClipping) {
-    params.context->PopClip();
   }
 }
 

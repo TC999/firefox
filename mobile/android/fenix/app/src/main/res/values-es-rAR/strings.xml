@@ -84,6 +84,11 @@
   -->
   <string name="felt_privacy_info_card_subtitle_2">%1$s elimina las cookies, historial y datos del sitio cuando cerrás todas las pestañas privadas. %2$s</string>
   <!--
+    Description of private browsing mode displayed to users on the homepage when they enable private mode.
+    %1$s is the name of the app (for example "Firefox").
+  -->
+  <string name="felt_privacy_info_card_subtitle_3">%1$s borra tus cookies, historial y datos del sitio cuando cerrás todas tus pestañas privadas.</string>
+  <!--
     Clickable portion of the explanation for private browsing that links the user to our
     about privacy page.
     This string is used in felt_privacy_info_card_subtitle as the text for the link.
@@ -573,11 +578,11 @@
   <!-- Terms of use (ToU) onboarding page continue button label. -->
   <string name="onboarding_redesign_tou_agree_and_continue_button_label">Continuar</string>
   <!-- Onboarding header for the toolbar selection card. -->
-  <string name="onboarding_redesign_customize_toolbar_title">¿Dónde quiere que esté la barra de direcciones?</string>
+  <string name="onboarding_redesign_customize_toolbar_title">¿Dónde querés que esté la barra de direcciones?</string>
   <!-- Onboarding label for 'Continue' button. -->
   <string name="onboarding_redesign_continue_button">Continuar</string>
   <!-- Marketing onboarding page title. 'Firefox' is intentionally hardcoded. -->
-  <string name="onboarding_marketing_redesign_title" tools:ignore="BrandUsage">Ayúdanos a hacer crecer a Firefox</string>
+  <string name="onboarding_marketing_redesign_title" tools:ignore="BrandUsage">Ayudanos a hacer crecer a Firefox</string>
   <!-- Marketing onboarding page opt-out checkbox. Unchecking the box does not increase data collection. Our data practices remain the same. 'Mozilla' is intentionally hardcoded. -->
   <string name="onboarding_marketing_redesign_opt_out_checkbox" tools:ignore="BrandUsage">Compartí con los socios de marketing de Mozilla cómo descubriste Firefox y lo usás. Estos datos nunca serán vendidos.</string>
   <!-- Marketing onboarding page clickable link text to "learn more" on how data is used. -->
@@ -588,6 +593,14 @@
   <string name="onboarding_redesign_set_default_browser_title">Obtener protección contra rastreo automática por defecto</string>
   <!-- Set to default browser onboarding redesign body. -->
   <string name="onboarding_redesign_set_default_browser_body">Un toque ayuda a evitar que las empresas espíen tus clics.</string>
+  <!-- Sync onboarding redesign title. 'Firefox' is intentionally hardcoded. -->
+  <string name="onboarding_redesign_sync_title" tools:ignore="BrandUsage">Sincronizá donde sea que usés Firefox</string>
+  <!-- Sync onboarding redesign body. -->
+  <string name="onboarding_redesign_sync_body">Obtené marcadores, pestañas y contraseñas en cualquier dispositivo. Todo protegido con cifrado.</string>
+  <!-- Sync onboarding redesign positive button text. -->
+  <string name="onboarding_redesign_sync_positive_button">Iniciar sincronización</string>
+  <!-- Sync onboarding redesign negative button text. -->
+  <string name="onboarding_redesign_sync_negative_button">No ahora</string>
   <!-- Marketing onboarding page title. 'Firefox' is intentionally hardcoded. -->
   <string name="onboarding_marketing_title" tools:ignore="BrandUsage,UnusedResources">Ayúdanos a hacer crecer a Firefox</string>
   <!-- Marketing onboarding page body. 'Firefox' is intentionally hardcoded. -->
@@ -711,9 +724,9 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">Abrir enlace en una pestaña privada</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">Permitir capturas de pantalla en navegación privada</string>
+  <string name="preferences_allow_screenshots_in_private_mode">Permitir capturas de pantalla en navegación privada</string>
   <!-- Will inform the user of the risk of activating Allow screenshots in private browsing option -->
-  <string name="preferences_screenshots_in_private_mode_disclaimer" tools:ignore="UnusedResources" moz:removedIn="144">Si se permite, las pestañas privadas también serán visibles cuando haya varias aplicaciones abiertas</string>
+  <string name="preferences_screenshots_in_private_mode_disclaimer">Si se permite, las pestañas privadas también serán visibles cuando haya varias aplicaciones abiertas</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">Agregar atajo de navegación privada</string>
   <!-- Preference for enabling "HTTPS-Only" mode -->
@@ -721,7 +734,8 @@
   <!-- Preference title for using the screen lock to hide tabs in private browsing -->
   <string name="preferences_pbm_lock_screen_title">Usar el bloqueo de pantalla para ocultar pestañas en la navegación privada</string>
   <!-- Informs the user how to access the tabs when "Use screen lock to hide tabs in private browsing" is enabled -->
-  <string name="preferences_pbm_lock_screen_summary_2">Ver pestañas con tu huella digital, PIN o desbloqueo facial.</string>
+  <string name="preferences_pbm_lock_screen_summary_3">Ver pestañas con tu huella digital, PIN o desbloqueo facial. Habilitar esto también evita la captura y el uso compartido de la pantalla.</string>
+  <string name="preferences_pbm_lock_screen_summary_2" tools:ignore="UnusedResources" moz:removedIn="144">Ver pestañas con tu huella digital, PIN o desbloqueo facial.</string>
   <!-- Label for cookie banner section in quick settings panel. -->
   <string name="cookie_banner_blocker">Bloqueador de mensajes de cookies</string>
   <!-- Preference for removing cookie/consent banners from sites automatically in private mode. See reduce_cookie_banner_summary for additional context. -->
@@ -1424,7 +1438,7 @@
   -->
   <string name="tabs_header_synced_tabs_counter_title">Pestañas sincronizadas abiertas: %1$s. Tocá para cambiar de pestaña.</string>
   <!-- Text for the tabs header private tabs -->
-  <string name="tabs_header_private_tabs_title">Privadas\u0020</string>
+  <string name="tabs_header_private_tabs_title">Privadas</string>
   <!-- Text for the tabs header normal tabs -->
   <string name="tabs_header_normal_tabs_title">Pestañas</string>
   <!-- Text for the tabs header synced tabs -->
@@ -1472,7 +1486,9 @@
   <!-- Content description for tabs tray multiselect menu -->
   <string name="tab_tray_multiselect_menu_content_description">Menú de pestañas seleccionadas</string>
   <!-- Title text displayed for a homepage tab in the tabs tray. -->
-  <string name="tab_tray_homepage_tab">Página de inicio</string>
+  <string name="tab_tray_homepage_tab" tools:ignore="UnusedResources" moz:removedIn="145">Página de inicio</string>
+  <!-- Title text displayed for a homepage tab in the tabs tray. %s is a placeholder that will be replaced by app name. -->
+  <string name="tab_tray_homepage_tab_2">Página de inicio de %s</string>
   <!-- Content description (not visible, for screen readers etc.): Removes tab from collection button. Removes the selected tab from collection when pressed -->
   <string name="remove_tab_from_collection">Eliminar pestaña de la colección</string>
   <!-- Text for button to enter multiselect mode in tabs tray -->
@@ -1508,9 +1524,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">Eliminar historial</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Historial eliminado</string>
+  <string name="history_delete_multiple_items_snackbar">Historial eliminado</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Se eliminó %1$s</string>
+  <string name="history_delete_single_item_snackbar">Se eliminó %1$s</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">Eliminar</string>
   <!--
@@ -1715,6 +1731,10 @@
   <string name="webcompat_reporter_dismiss_success_snackbar_text" moz:removedIn="144" tools:ignore="UnusedResources">Cerrar</string>
   <!-- Placeholder text for the description field to prompt the user on what they should type. -->
   <string name="webcompat_reporter_problem_description_placeholder_text">¿Qué pasó? ¿Qué debería haber pasado?</string>
+  <!-- Label of the checkbox on the “Report broken site” screen for sending URLS blocked by Enhanced Tracking Protection. -->
+  <string name="webcompat_reporter_etp_checkbox_text">Enviar URLs bloqueadas por la protección de rastreo</string>
+  <!-- Description text for the checkbox on the “Report broken site” screen for sending URLS blocked by Enhanced Tracking Protection. It informs the user when checked, the report will include the list of URLs that were blocked by Enhanced Tracking Protection on the current page. -->
+  <string name="webcompat_reporter_etp_checkbox_description">La protección de rastreo aumentada puede bloquear rastreadores y scripts que algunos sitios web necesitan para funcionar correctamente.</string>
   <!--
     These reason strings are dropdown options on a WebCompat reporter form, indicating what is broken on the site.
 
@@ -1793,7 +1813,7 @@
   <!-- Snackbar title describing failure to edit an existing folder -->
   <string name="bookmark_error_edit_folder">No se pudo editar la carpeta</string>
   <!-- Snackbar title describing failure to select a new parent folder for a bookmark or folder -->
-  <string name="bookmark_error_select_folder">No se pudo cambiar la carpeta padre</string>
+  <string name="bookmark_error_select_folder">No se pudo cambiar la carpeta principal</string>
   <!-- Snackbar title describing failure to edit a bookmark -->
   <string name="bookmark_error_edit_bookmark">No se pudo editar el marcador</string>
   <!-- Snackbar edit button shown after a bookmark has been created. -->
@@ -2695,6 +2715,10 @@
   <string name="saved_login_hide_password">Ocultar contraseña</string>
   <!-- Message displayed in biometric prompt displayed for authentication before allowing users to view their passwords -->
   <string name="logins_biometric_prompt_message_2">Desbloqueá para ver las contraseñas guardadas</string>
+  <!-- Button for unlocking logins on the biometric lock screen -->
+  <string name="logins_biometric_unlock_button">Desbloquear</string>
+  <!-- Button for leaving logins on the biometric lock screen -->
+  <string name="logins_biometric_leave_button">Salir</string>
   <!-- Title of warning dialog if users have no device authentication set up -->
   <string name="logins_warning_dialog_title_2">Asegurá tus contraseñas guardadas</string>
   <!-- Message of warning dialog if users have no device authentication set up -->
@@ -3029,7 +3053,7 @@
     Text displayed in the tabs tray, indicating the number of inactive tabs.
     %d is the number of inactive tabs.
   -->
-  <string name="inactive_tabs_num_items">Elementos: %d</string>
+  <string name="inactive_tabs_num_items">Ítems: %d</string>
   <!-- Content description for closing all inactive tabs -->
   <string name="inactive_tabs_delete_all">Cerrar todas las pestañas inactivas</string>
   <!-- Content description for expanding the inactive tabs section. -->
@@ -3588,6 +3612,16 @@
   <string name="debug_drawer_add_new_address">Agregar nueva dirección para la localización seleccionada</string>
   <!-- The title of the button for deleting in the debug drawer all addresses. -->
   <string name="debug_drawer_delete_all_addresses">Borrar todas las direcciones</string>
+  <!--
+    Debug drawer credit cards
+
+    The title of the credit cards feature in the Debug Drawer.
+  -->
+  <string name="debug_drawer_credit_cards_title">Tarjetas de crédito</string>
+  <!-- The title of the button in the debug drawer for adding a new credit card -->
+  <string name="debug_drawer_add_new_credit_card">Agregar nueva tarjeta de crédito</string>
+  <!-- The title of the button for deleting in the debug drawer all addresses. -->
+  <string name="debug_drawer_delete_all_credit_cards">Eliminar todas las tarjetas de crédito</string>
   <!--
     Debug drawer "contextual feature recommendation" (CFR) tools
 

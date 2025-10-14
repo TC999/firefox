@@ -483,9 +483,9 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">පෞද්. පටිත්තක සබැඳිය අරින්න</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">පෞද්. පිරික්සුමේ දී තිරසේයා සඳහා ඉඩදෙන්න</string>
+  <string name="preferences_allow_screenshots_in_private_mode">පෞද්. පිරික්සුමේ දී තිරසේයා සඳහා ඉඩදෙන්න</string>
   <!-- Will inform the user of the risk of activating Allow screenshots in private browsing option -->
-  <string name="preferences_screenshots_in_private_mode_disclaimer" tools:ignore="UnusedResources" moz:removedIn="144">ඉඩ දී ඇත්නම්, යෙදුම් කිහිපයක් විවෘතව තිබෙන විට ද පෞද්. පටිති දිස්වේ</string>
+  <string name="preferences_screenshots_in_private_mode_disclaimer">ඉඩ දී ඇත්නම්, යෙදුම් කිහිපයක් විවෘතව තිබෙන විට ද පෞද්. පටිති දිස්වේ</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">පෞද්. පිරික්සුම් කෙටිමඟක් යොදන්න</string>
   <!-- Preference for enabling "HTTPS-Only" mode -->
@@ -1048,9 +1048,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">ඉතිහාසය මකන්න</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">ඉතිහාසය මකා ඇත</string>
+  <string name="history_delete_multiple_items_snackbar">ඉතිහාසය මකා ඇත</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">%1$s මැකිණි</string>
+  <string name="history_delete_single_item_snackbar">%1$s මැකිණි</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">මකන්න</string>
   <!--

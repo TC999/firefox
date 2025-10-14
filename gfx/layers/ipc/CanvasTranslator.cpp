@@ -358,22 +358,29 @@ void CanvasTranslator::GetDataSurface(uint64_t aSurfaceRef) {
   MOZ_ASSERT(IsInTaskQueue());
 
   ReferencePtr surfaceRef = reinterpret_cast<void*>(aSurfaceRef);
-  gfx::SourceSurface* surface = LookupSourceSurface(surfaceRef);
-  if (!surface) {
+  RefPtr<gfx::DataSourceSurface> dataSurface = LookupDataSurface(surfaceRef);
+  if (!dataSurface) {
+    gfx::SourceSurface* surface = LookupSourceSurface(surfaceRef);
+    if (!surface) {
+      return;
+    }
+    dataSurface = surface->GetDataSurface();
+    if (!dataSurface) {
+      return;
+    }
+  }
+  gfx::DataSourceSurface::ScopedMap map(dataSurface,
+                                        gfx::DataSourceSurface::READ);
+  if (!map.IsMapped()) {
     return;
   }
 
-  UniquePtr<gfx::DataSourceSurface::ScopedMap> map = GetPreparedMap(surfaceRef);
-  if (!map) {
-    return;
-  }
-
-  auto dstSize = surface->GetSize();
-  auto srcSize = map->GetSurface()->GetSize();
-  gfx::SurfaceFormat format = surface->GetFormat();
+  auto dstSize = dataSurface->GetSize();
+  auto srcSize = map.GetSurface()->GetSize();
+  gfx::SurfaceFormat format = dataSurface->GetFormat();
   int32_t bpp = BytesPerPixel(format);
   int32_t dataFormatWidth = dstSize.width * bpp;
-  int32_t srcStride = map->GetStride();
+  int32_t srcStride = map.GetStride();
   if (dataFormatWidth > srcStride || srcSize != dstSize) {
     return;
   }
@@ -387,7 +394,7 @@ void CanvasTranslator::GetDataSurface(uint64_t aSurfaceRef) {
   }
 
   uint8_t* dst = mDataSurfaceShmem.DataAs<uint8_t>();
-  const uint8_t* src = map->GetData();
+  const uint8_t* src = map.GetData();
   const uint8_t* endSrc = src + (srcSize.height * srcStride);
   while (src < endSrc) {
     memcpy(dst, src, dataFormatWidth);
@@ -552,7 +559,9 @@ bool CanvasTranslator::TryDrawTargetWebglFallback(
           CreateFallbackDrawTarget(info.mRefPtr, aTextureOwnerId,
                                    aWebgl->GetSize(), aWebgl->GetFormat())) {
     bool success = aWebgl->CopyToFallback(dt);
-    AddDrawTarget(info.mRefPtr, dt);
+    if (info.mRefPtr) {
+      AddDrawTarget(info.mRefPtr, dt);
+    }
     return success;
   }
   return false;
@@ -1103,16 +1112,18 @@ void CanvasTranslator::CacheSnapshotShmem(
   if (gfx::DrawTargetWebgl* webgl = GetDrawTargetWebgl(aTextureOwnerId)) {
     if (auto shmemHandle = webgl->TakeShmemHandle()) {
       // Lock the DT so that it doesn't get removed while shmem is in transit.
-      mTextureInfo[aTextureOwnerId].mLocked++;
+      AddTextureKeepAlive(aTextureOwnerId);
       nsCOMPtr<nsIThread> thread =
           gfx::CanvasRenderThread::GetCanvasRenderThread();
       RefPtr<CanvasTranslator> translator = this;
       SendSnapshotShmem(aTextureOwnerId, std::move(shmemHandle))
           ->Then(
               thread, __func__,
-              [=](bool) { translator->RemoveTexture(aTextureOwnerId); },
+              [=](bool) {
+                translator->RemoveTextureKeepAlive(aTextureOwnerId);
+              },
               [=](ipc::ResponseRejectReason) {
-                translator->RemoveTexture(aTextureOwnerId);
+                translator->RemoveTextureKeepAlive(aTextureOwnerId);
               });
     }
   }
@@ -1286,7 +1297,9 @@ already_AddRefed<gfx::DrawTarget> CanvasTranslator::CreateDrawTarget(
     dt = CreateFallbackDrawTarget(aRefPtr, aTextureOwnerId, aSize, aFormat);
   }
 
-  AddDrawTarget(aRefPtr, dt);
+  if (dt && aRefPtr) {
+    AddDrawTarget(aRefPtr, dt);
+  }
   return dt.forget();
 }
 
@@ -1309,9 +1322,23 @@ void CanvasTranslator::NotifyTextureDestruction(
   Unused << SendNotifyTextureDestruction(aTextureOwnerId);
 }
 
+void CanvasTranslator::AddTextureKeepAlive(const RemoteTextureOwnerId& aId) {
+  auto result = mTextureInfo.find(aId);
+  if (result == mTextureInfo.end()) {
+    return;
+  }
+  auto& info = result->second;
+  ++info.mKeepAlive;
+}
+
+void CanvasTranslator::RemoveTextureKeepAlive(const RemoteTextureOwnerId& aId) {
+  RemoveTexture(aId, 0, 0, false);
+}
+
 void CanvasTranslator::RemoveTexture(const RemoteTextureOwnerId aTextureOwnerId,
                                      RemoteTextureTxnType aTxnType,
-                                     RemoteTextureTxnId aTxnId) {
+                                     RemoteTextureTxnId aTxnId,
+                                     bool aFinalize) {
   // Don't erase the texture if still in use
   auto result = mTextureInfo.find(aTextureOwnerId);
   if (result == mTextureInfo.end()) {
@@ -1321,10 +1348,17 @@ void CanvasTranslator::RemoveTexture(const RemoteTextureOwnerId aTextureOwnerId,
   if (mRemoteTextureOwner && aTxnType && aTxnId) {
     mRemoteTextureOwner->WaitForTxn(aTextureOwnerId, aTxnType, aTxnId);
   }
-  if (--info.mLocked > 0) {
+  // Remove the DrawTarget only if this is being called from a recorded event
+  // or if there are no remaining keepalives. If this is being called only to
+  // remove a keepalive without forcing removal, then the DrawTarget is still
+  // being used by the recording.
+  if ((aFinalize || info.mKeepAlive <= 1) && info.mRefPtr) {
+    RemoveDrawTarget(info.mRefPtr);
+    info.mRefPtr = ReferencePtr();
+  }
+  if (--info.mKeepAlive > 0) {
     return;
   }
-  RemoveDrawTarget(info.mRefPtr);
   if (info.mTextureData) {
     if (info.mFallbackDrawTarget) {
       info.mTextureData->ReturnDrawTarget(info.mFallbackDrawTarget.forget());
@@ -1860,27 +1894,6 @@ void CanvasTranslator::AddDataSurface(
 
 void CanvasTranslator::RemoveDataSurface(gfx::ReferencePtr aRefPtr) {
   mDataSurfaces.Remove(aRefPtr);
-}
-
-void CanvasTranslator::SetPreparedMap(
-    gfx::ReferencePtr aSurface,
-    UniquePtr<gfx::DataSourceSurface::ScopedMap> aMap) {
-  mMappedSurface = aSurface;
-  mPreparedMap = std::move(aMap);
-}
-
-UniquePtr<gfx::DataSourceSurface::ScopedMap> CanvasTranslator::GetPreparedMap(
-    gfx::ReferencePtr aSurface) {
-  if (!mPreparedMap) {
-    // We might fail to set the map during, for example, device resets.
-    return nullptr;
-  }
-
-  MOZ_RELEASE_ASSERT(mMappedSurface == aSurface,
-                     "aSurface must match previously stored surface.");
-
-  mMappedSurface = nullptr;
-  return std::move(mPreparedMap);
 }
 
 }  // namespace layers

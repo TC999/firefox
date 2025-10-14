@@ -7,7 +7,9 @@
 //!
 //! [position]: https://drafts.csswg.org/css-backgrounds-3/#position
 
+use crate::logical_geometry::{PhysicalSide, WritingMode};
 use crate::parser::{Parse, ParserContext};
+use crate::properties::LonghandId;
 use crate::selector_map::PrecomputedHashMap;
 use crate::str::HTML_SPACE_CHARACTERS;
 use crate::values::computed::LengthPercentage as ComputedLengthPercentage;
@@ -563,7 +565,7 @@ impl Parse for PositionTryFallbacksTryTactic {
         _context: &ParserContext,
         input: &mut Parser<'i, 't>,
     ) -> Result<Self, ParseError<'i>> {
-        let first = input.try_parse(PositionTryFallbacksTryTacticKeyword::parse)?;
+        let first = PositionTryFallbacksTryTacticKeyword::parse(input)?;
         let second = input
             .try_parse(PositionTryFallbacksTryTacticKeyword::parse)
             .unwrap_or_default();
@@ -578,8 +580,88 @@ impl Parse for PositionTryFallbacksTryTactic {
 }
 
 impl PositionTryFallbacksTryTactic {
-    fn is_empty(&self) -> bool {
+    /// Returns whether there's any tactic.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
         self.0.is_none()
+    }
+
+    fn flip_vertical(id: LonghandId) -> LonghandId {
+        match id {
+            LonghandId::Top => LonghandId::Bottom,
+            LonghandId::Bottom => LonghandId::Top,
+            LonghandId::MarginTop => LonghandId::MarginBottom,
+            LonghandId::MarginBottom => LonghandId::MarginTop,
+            _ => id,
+        }
+    }
+
+    fn flip_horizontal(id: LonghandId) -> LonghandId {
+        match id {
+            LonghandId::Left => LonghandId::Right,
+            LonghandId::Right => LonghandId::Left,
+            LonghandId::MarginLeft => LonghandId::MarginRight,
+            LonghandId::MarginRight => LonghandId::MarginLeft,
+            _ => id,
+        }
+    }
+
+    fn flip_start(id: LonghandId, wm: WritingMode) -> LonghandId {
+        use LonghandId::*;
+        let (physical_side, is_margin) = match id {
+            // TODO(emilio): Needs some work to use the same cascade implementation for these.
+            // Also to make justify-self: left | right map to align-self properly.
+            // AlignSelf => return JustifySelf,
+            // JustifySelf => return AlignSelf,
+
+            Width => return Height,
+            Height => return Width,
+            MinWidth => return MinHeight,
+            MinHeight => return MinWidth,
+            MaxWidth => return MaxHeight,
+            MaxHeight => return MaxWidth,
+
+            Top => (PhysicalSide::Top, false),
+            Right => (PhysicalSide::Right, false),
+            Bottom => (PhysicalSide::Bottom, false),
+            Left => (PhysicalSide::Left, false),
+
+            MarginTop => (PhysicalSide::Top, true),
+            MarginRight => (PhysicalSide::Right, true),
+            MarginBottom => (PhysicalSide::Bottom, true),
+            MarginLeft => (PhysicalSide::Left, true),
+            _ => return id,
+        };
+
+        match wm.flipped_start_side(physical_side) {
+            PhysicalSide::Top => if is_margin { MarginTop } else { Top },
+            PhysicalSide::Right => if is_margin { MarginRight } else { Right  },
+            PhysicalSide::Bottom => if is_margin { MarginBottom } else { Bottom },
+            PhysicalSide::Left => if is_margin { MarginLeft } else { Left },
+        }
+    }
+
+    /// Applies a try tactic to a given property.
+    pub fn apply_to_property(&self, mut id: LonghandId, wm: WritingMode) -> LonghandId {
+        debug_assert!(!id.is_logical(), "Logical props should've been replaced already");
+        debug_assert!(!self.is_empty(), "Should have something to do");
+        // TODO(emilio): Consider building a LonghandIdSet to check for unaffected properties, and
+        // bailing out earlier?
+        for tactic in [self.0, self.1, self.2] {
+            id = match tactic {
+                PositionTryFallbacksTryTacticKeyword::None => break,
+                PositionTryFallbacksTryTacticKeyword::FlipInline |
+                PositionTryFallbacksTryTacticKeyword::FlipBlock => {
+                    if wm.is_horizontal() == (tactic == PositionTryFallbacksTryTacticKeyword::FlipInline) {
+                        Self::flip_horizontal(id)
+                    } else {
+                        Self::flip_vertical(id)
+                    }
+                },
+                PositionTryFallbacksTryTacticKeyword::FlipStart => Self::flip_start(id, wm),
+            }
+        }
+        id
     }
 }
 
@@ -885,7 +967,7 @@ pub enum PositionAreaKeyword {
     #[css(skip)]
     Span = 1u8 << 5,
     #[css(skip)]
-    SelfWM = 1u8 << 6,  // use target's writing-mode to resolve logical edges
+    SelfWM = 1u8 << 6, // use target's writing-mode to resolve logical edges
 
     // Composite values with Span:
     SpanLeft = PositionAreaKeyword::Span as u8 | PositionAreaKeyword::Left as u8,
@@ -907,10 +989,10 @@ pub enum PositionAreaKeyword {
     SpanEnd = PositionAreaKeyword::Span as u8 | PositionAreaKeyword::End as u8,
 
     // Values using the Self element's writing-mode:
-    XSelfStart = PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::XStart as u8,
-    XSelfEnd = PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::XEnd as u8,
-    YSelfStart = PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::YStart as u8,
-    YSelfEnd = PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::YEnd as u8,
+    SelfXStart = PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::XStart as u8,
+    SelfXEnd = PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::XEnd as u8,
+    SelfYStart = PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::YStart as u8,
+    SelfYEnd = PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::YEnd as u8,
 
     SelfBlockStart = PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::BlockStart as u8,
     SelfBlockEnd = PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::BlockEnd as u8,
@@ -921,18 +1003,38 @@ pub enum PositionAreaKeyword {
     SelfEnd = PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::End as u8,
 
     // Values with Span and SelfWM:
-    SpanXSelfStart = PositionAreaKeyword::Span as u8 | PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::XStart as u8,
-    SpanXSelfEnd = PositionAreaKeyword::Span as u8 | PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::XEnd as u8,
-    SpanYSelfStart = PositionAreaKeyword::Span as u8 | PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::YStart as u8,
-    SpanYSelfEnd = PositionAreaKeyword::Span as u8 | PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::YEnd as u8,
+    SpanSelfXStart = PositionAreaKeyword::Span as u8
+        | PositionAreaKeyword::SelfWM as u8
+        | PositionAreaKeyword::XStart as u8,
+    SpanSelfXEnd = PositionAreaKeyword::Span as u8
+        | PositionAreaKeyword::SelfWM as u8
+        | PositionAreaKeyword::XEnd as u8,
+    SpanSelfYStart = PositionAreaKeyword::Span as u8
+        | PositionAreaKeyword::SelfWM as u8
+        | PositionAreaKeyword::YStart as u8,
+    SpanSelfYEnd = PositionAreaKeyword::Span as u8
+        | PositionAreaKeyword::SelfWM as u8
+        | PositionAreaKeyword::YEnd as u8,
 
-    SpanSelfBlockStart = PositionAreaKeyword::Span as u8 | PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::BlockStart as u8,
-    SpanSelfBlockEnd = PositionAreaKeyword::Span as u8 | PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::BlockEnd as u8,
-    SpanSelfInlineStart = PositionAreaKeyword::Span as u8 | PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::InlineStart as u8,
-    SpanSelfInlineEnd = PositionAreaKeyword::Span as u8 | PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::InlineEnd as u8,
+    SpanSelfBlockStart = PositionAreaKeyword::Span as u8
+        | PositionAreaKeyword::SelfWM as u8
+        | PositionAreaKeyword::BlockStart as u8,
+    SpanSelfBlockEnd = PositionAreaKeyword::Span as u8
+        | PositionAreaKeyword::SelfWM as u8
+        | PositionAreaKeyword::BlockEnd as u8,
+    SpanSelfInlineStart = PositionAreaKeyword::Span as u8
+        | PositionAreaKeyword::SelfWM as u8
+        | PositionAreaKeyword::InlineStart as u8,
+    SpanSelfInlineEnd = PositionAreaKeyword::Span as u8
+        | PositionAreaKeyword::SelfWM as u8
+        | PositionAreaKeyword::InlineEnd as u8,
 
-    SpanSelfStart = PositionAreaKeyword::Span as u8 | PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::Start as u8,
-    SpanSelfEnd = PositionAreaKeyword::Span as u8 | PositionAreaKeyword::SelfWM as u8 | PositionAreaKeyword::End as u8,
+    SpanSelfStart = PositionAreaKeyword::Span as u8
+        | PositionAreaKeyword::SelfWM as u8
+        | PositionAreaKeyword::Start as u8,
+    SpanSelfEnd = PositionAreaKeyword::Span as u8
+        | PositionAreaKeyword::SelfWM as u8
+        | PositionAreaKeyword::End as u8,
 }
 
 #[allow(missing_docs)]
@@ -952,11 +1054,11 @@ impl PositionAreaKeyword {
         match self {
             // X-axis
             Left | Right | SpanLeft | SpanRight | XStart | XEnd | SpanXStart | SpanXEnd
-            | XSelfStart | XSelfEnd | SpanXSelfStart | SpanXSelfEnd => PositionAreaType::Physical,
+            | SelfXStart | SelfXEnd | SpanSelfXStart | SpanSelfXEnd => PositionAreaType::Physical,
 
             // Y-axis
             Top | Bottom | SpanTop | SpanBottom | YStart | YEnd | SpanYStart | SpanYEnd
-            | YSelfStart | YSelfEnd | SpanYSelfStart | SpanYSelfEnd => PositionAreaType::Physical,
+            | SelfYStart | SelfYEnd | SpanSelfYStart | SpanSelfYEnd => PositionAreaType::Physical,
 
             // Block
             BlockStart | BlockEnd | SpanBlockStart | SpanBlockEnd => PositionAreaType::Logical,
@@ -1002,10 +1104,10 @@ impl PositionAreaKeyword {
                 | XEnd
                 | SpanXStart
                 | SpanXEnd
-                | XSelfStart
-                | XSelfEnd
-                | SpanXSelfStart
-                | SpanXSelfEnd
+                | SelfXStart
+                | SelfXEnd
+                | SpanSelfXStart
+                | SpanSelfXEnd
                 | BlockStart
                 | BlockEnd
                 | SpanBlockStart
@@ -1029,10 +1131,10 @@ impl PositionAreaKeyword {
                 | YEnd
                 | SpanYStart
                 | SpanYEnd
-                | YSelfStart
-                | YSelfEnd
-                | SpanYSelfStart
-                | SpanYSelfEnd
+                | SelfYStart
+                | SelfYEnd
+                | SpanSelfYStart
+                | SpanSelfYEnd
                 | InlineStart
                 | InlineEnd
                 | SpanInlineStart

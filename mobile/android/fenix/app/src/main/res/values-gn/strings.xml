@@ -30,6 +30,8 @@
   <string name="no_private_tabs_description">Ne rendaykekuéra ñemiguáva ojehecháta ápe.</string>
   <!-- The header text displayed on the private tabs page when no private tabs are open -->
   <string name="tab_manager_empty_private_tabs_page_header">Ñeikundaha ñemi</string>
+  <!-- The supplementary text displayed on the private tabs page when no private tabs are open. %1$s is the name of the app (for example "Firefox") -->
+  <string name="tab_manager_empty_private_tabs_page_description">%1$s naimandu’amo’ãi ne rembiasakue térã kookiere, hákatu oñeñongatúta techaukaha pyahu.</string>
   <!-- The header text displayed on the normal tabs page when no normal tabs are open -->
   <string name="tab_manager_empty_normal_tabs_page_header">Emoheñói tendayke pyahu eheka ñepyrũ hag̃ua</string>
   <!-- Tab tray multi select title in app bar. %1$d is the number of tabs selected -->
@@ -81,6 +83,11 @@
     %2$s is a link using felt_privacy_info_card_subtitle_link_text as text
   -->
   <string name="felt_privacy_info_card_subtitle_2">%1$s ombogue kookie, tembiasakue ha mba’ekuaarã tendápe embotypávo ne rendayke ñemiguáva. %2$s</string>
+  <!--
+    Description of private browsing mode displayed to users on the homepage when they enable private mode.
+    %1$s is the name of the app (for example "Firefox").
+  -->
+  <string name="felt_privacy_info_card_subtitle_3">%1$s ombogue kookie, tembiasakue ha mba’ekuaarã tendápe embotypávo ne rendayke ñemigua.</string>
   <!--
     Clickable portion of the explanation for private browsing that links the user to our
     about privacy page.
@@ -586,6 +593,14 @@
   <string name="onboarding_redesign_set_default_browser_title">Ereko ñemo’ã ijeheguíva tapykuehoha ypyguáva rovake</string>
   <!-- Set to default browser onboarding redesign body. -->
   <string name="onboarding_redesign_set_default_browser_body">Peteĩ jepoko nepytyvõta emboyke hag̃ua mba’apohaguasu ohecháva nde jekutu.</string>
+  <!-- Sync onboarding redesign title. 'Firefox' is intentionally hardcoded. -->
+  <string name="onboarding_redesign_sync_title" tools:ignore="BrandUsage">Embojuehe eiporuhágui Firefox</string>
+  <!-- Sync onboarding redesign body. -->
+  <string name="onboarding_redesign_sync_body">Eike techaukaha, tendayke ha ñe’ẽñemíme oimeraẽ mba’e’okágui. Oñemoã papapy ndive.</string>
+  <!-- Sync onboarding redesign positive button text. -->
+  <string name="onboarding_redesign_sync_positive_button">Eñepyrũ embojuehe</string>
+  <!-- Sync onboarding redesign negative button text. -->
+  <string name="onboarding_redesign_sync_negative_button">Ani ko’ág̃a</string>
   <!-- Marketing onboarding page title. 'Firefox' is intentionally hardcoded. -->
   <string name="onboarding_marketing_title" tools:ignore="BrandUsage,UnusedResources">Orepytyvõ Firefox oiko porãve hag̃ua</string>
   <!-- Marketing onboarding page body. 'Firefox' is intentionally hardcoded. -->
@@ -709,9 +724,9 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">Embojuruja juajuha tendayke ñemíme</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">Emoneĩ mba’erechaha japyhy kundaha ñemíme</string>
+  <string name="preferences_allow_screenshots_in_private_mode">Emoneĩ mba’erechaha japyhy kundaha ñemíme</string>
   <!-- Will inform the user of the risk of activating Allow screenshots in private browsing option -->
-  <string name="preferences_screenshots_in_private_mode_disclaimer" tools:ignore="UnusedResources" moz:removedIn="144">Oñemoneĩrõ, umi tendayke ñemigua ojehecháta oĩ vove heta tembiporu’i ijurujáva</string>
+  <string name="preferences_screenshots_in_private_mode_disclaimer">Oñemoneĩrõ, umi tendayke ñemigua ojehecháta oĩ vove heta tembiporu’i ijurujáva</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">Embojuaju jeike pya’eha tendayke ñemiguáre</string>
   <!-- Preference for enabling "HTTPS-Only" mode -->
@@ -719,7 +734,8 @@
   <!-- Preference title for using the screen lock to hide tabs in private browsing -->
   <string name="preferences_pbm_lock_screen_title">Eiporu mba’erechaha jokoha eñomi hag̃ua tendayke ñeikundaha ñemiguápe</string>
   <!-- Informs the user how to access the tabs when "Use screen lock to hide tabs in private browsing" is enabled -->
-  <string name="preferences_pbm_lock_screen_summary_2">Ehecha tendayke ne kuã hũ ndive, PIN térã tovara’ãnga joko’oha.</string>
+  <string name="preferences_pbm_lock_screen_summary_3">Ehecha tendayke ne kuã hũme, PIN térã tovara’ãnga rupi. Embojurujávo kóva emboyke jejapyhy ha mba’erechaha jeporu oñondive.</string>
+  <string name="preferences_pbm_lock_screen_summary_2" tools:ignore="UnusedResources" moz:removedIn="144">Ehecha tendayke ne kuã hũ ndive, PIN térã tovara’ãnga joko’oha.</string>
   <!-- Label for cookie banner section in quick settings panel. -->
   <string name="cookie_banner_blocker">Ejoko Banner kookie rehegua</string>
   <!-- Preference for removing cookie/consent banners from sites automatically in private mode. See reduce_cookie_banner_summary for additional context. -->
@@ -1470,7 +1486,9 @@
   <!-- Content description for tabs tray multiselect menu -->
   <string name="tab_tray_multiselect_menu_content_description">Tendayke poravorã mbosa’ypyre</string>
   <!-- Title text displayed for a homepage tab in the tabs tray. -->
-  <string name="tab_tray_homepage_tab">Kuatiarogue ñepyrũha</string>
+  <string name="tab_tray_homepage_tab" tools:ignore="UnusedResources" moz:removedIn="145">Kuatiarogue ñepyrũha</string>
+  <!-- Title text displayed for a homepage tab in the tabs tray. %s is a placeholder that will be replaced by app name. -->
+  <string name="tab_tray_homepage_tab_2">%s kuatiarogue ñepyrũ</string>
   <!-- Content description (not visible, for screen readers etc.): Removes tab from collection button. Removes the selected tab from collection when pressed -->
   <string name="remove_tab_from_collection">Embogue tendayke mbyatypyregua</string>
   <!-- Text for button to enter multiselect mode in tabs tray -->
@@ -1506,9 +1524,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">Emboguete tembiasakue</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Tembiasakue mboguepyre</string>
+  <string name="history_delete_multiple_items_snackbar">Tembiasakue mboguepyre</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Mboguepyre %1$s</string>
+  <string name="history_delete_single_item_snackbar">Mboguepyre %1$s</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">Mboguete</string>
   <!--
@@ -1713,6 +1731,10 @@
   <string name="webcompat_reporter_dismiss_success_snackbar_text" moz:removedIn="144" tools:ignore="UnusedResources">Mboty</string>
   <!-- Placeholder text for the description field to prompt the user on what they should type. -->
   <string name="webcompat_reporter_problem_description_placeholder_text">¿Mba’e ojehu? ¿Mbaʼe oikovaʼerãmoʼã?</string>
+  <!-- Label of the checkbox on the “Report broken site” screen for sending URLS blocked by Enhanced Tracking Protection. -->
+  <string name="webcompat_reporter_etp_checkbox_text">Emondo URL jokopyre tapykueho ñemo’ãha</string>
+  <!-- Description text for the checkbox on the “Report broken site” screen for sending URLS blocked by Enhanced Tracking Protection. It informs the user when checked, the report will include the list of URLs that were blocked by Enhanced Tracking Protection on the current page. -->
+  <string name="webcompat_reporter_etp_checkbox_description">Pe jehapykueho ñemo’ã iporãvéva ojokokuaa tapykuehoha ha scripts heta ñanduti rogue oikotevẽva oikoporã hag̃ua.</string>
   <!--
     These reason strings are dropdown options on a WebCompat reporter form, indicating what is broken on the site.
 
@@ -1765,6 +1787,8 @@
   <string name="unsubmitted_crash_dialog_positive_button_2">MONDO</string>
   <!-- Unsubmitted crash dialog positive button to submit crash report -->
   <string name="unsubmitted_crash_dialog_positive_button">Emondo marandu javygua</string>
+  <!-- Body text for crash report dialog. %s is the link text in the annotated string (ie. "Learn More") -->
+  <string name="unsubmitted_crash_dialog_body">Umi marandu jejavygua ñanepytyvõ jaikuaa ha ñamyatyrõ apañuái kundahára ndive. Ikatu oike mba’ekuaarã nderehegua térã ehayhúva. %s</string>
   <string name="unsubmitted_crash_dialog_learn_more">Eikuaave</string>
   <!-- Unsubmitted crash dialog button to open a web page with more details on the feature and privacy policy -->
   <string name="unsubmitted_crash_requested_by_devs_learn_more">Eikuaave</string>
@@ -2357,12 +2381,18 @@
   <string name="preference_enhanced_tracking_protection_strict">Mbaretépe</string>
   <!-- Preference description for enhanced tracking protection for the strict protection settings -->
   <string name="preference_enhanced_tracking_protection_strict_description_4">Tapykuehoha iporãvéva ñemo’ã rovake ha apopykuaave, hákatu ikatu heta tenda nomba’poporãi.</string>
+  <!-- Preference description for the checkbox setting for "baseline" exceptions (a set of content blocking exceptions applied to fix major website breakage). %1$s is the name of the application (e.g. Fenix). -->
+  <string name="preference_enhanced_tracking_protection_allow_list_baseline">Emoneĩ %1$s toku’e ijehegui tekotevẽva emboykekuaa hag̃ua ñanduti rogue jejavy guasu.</string>
+  <!-- Preference description for the checkbox setting for "convenience" exceptions (a set of content blocking exceptions applied to fix convenience site features). -->
+  <string name="preference_enhanced_tracking_protection_allow_list_convenience">Avei toku’e ijeheguiete umi oĩ’ỹva tekotevẽtéva apañuái’i ñemyatyrõrã ha toiko upe tembiapoitégui mba’e ojeporukuaáva.</string>
   <!--
     Dialog that appears after user tries to uncheck the baseline exceptions preference under Strict or Custom tracking protection
 
     Title for the dialog that appears after disabling the baseline exceptions preference under Strict or Custom tracking protection
   -->
   <string name="preference_enhanced_tracking_protection_allow_list_dialog_title">¿Añetehápe emboguese ko’ã ñemoĩporãha?</string>
+  <!-- Message for the dialog that appears after disabling the baseline exceptions preference under Strict or Custom tracking protection. %1$s is the name of the application (e.g. Fenix). -->
+  <string name="preference_enhanced_tracking_protection_allow_list_dialog_message">Ko ñemboheko oipytyvõ oñemyatyrõ hag̃ua mba’e ojehúva tendápe. Ojejokórõ, ikatu oĩ tenda ndoikóiva ha %1$s ndaikatumo’ãi oipytyvõ oñemyatyrõ hag̃ua apañuái.</string>
   <!-- Confirmation button text for the dialog that appears after disabling the baseline exceptions preference under Strict or Custom tracking protection -->
   <string name="preference_enhanced_tracking_protection_allow_list_dialog_confirm">Eipe’a myatyrõha</string>
   <!-- Cancel button text for the dialog that appears after disabling the baseline exceptions preference under Strict or Custom tracking protection. This dismisses the dialog and re-enables the preference. -->
@@ -2685,6 +2715,10 @@
   <string name="saved_login_hide_password">Emokañy ñe’ẽñemi</string>
   <!-- Message displayed in biometric prompt displayed for authentication before allowing users to view their passwords -->
   <string name="logins_biometric_prompt_message_2">Embojuruja ehecha hag̃ua ñe’ẽñemi ñongatupyre</string>
+  <!-- Button for unlocking logins on the biometric lock screen -->
+  <string name="logins_biometric_unlock_button">Mbojera</string>
+  <!-- Button for leaving logins on the biometric lock screen -->
+  <string name="logins_biometric_leave_button">Ñesẽ</string>
   <!-- Title of warning dialog if users have no device authentication set up -->
   <string name="logins_warning_dialog_title_2">Emo’ã ne ñe’ẽñemi ñongatupyre</string>
   <!-- Message of warning dialog if users have no device authentication set up -->
@@ -3578,6 +3612,16 @@
   <string name="debug_drawer_add_new_address">Embojuaju kundaharape pyahu tenda’i poravopyrépe guarã</string>
   <!-- The title of the button for deleting in the debug drawer all addresses. -->
   <string name="debug_drawer_delete_all_addresses">Emboguepaite umi kundaharape</string>
+  <!--
+    Debug drawer credit cards
+
+    The title of the credit cards feature in the Debug Drawer.
+  -->
+  <string name="debug_drawer_credit_cards_title">Kuatia’atã ñemurã</string>
+  <!-- The title of the button in the debug drawer for adding a new credit card -->
+  <string name="debug_drawer_add_new_credit_card">Embojuaju kuatia’atã ñemurã</string>
+  <!-- The title of the button for deleting in the debug drawer all addresses. -->
+  <string name="debug_drawer_delete_all_credit_cards">Emboguepaite kuatia’atã ñemurã</string>
   <!--
     Debug drawer "contextual feature recommendation" (CFR) tools
 

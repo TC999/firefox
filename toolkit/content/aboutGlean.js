@@ -104,19 +104,34 @@ function camelToKebab(str) {
 // a use-case for sending it via about:glean.
 const GLEAN_BUILTIN_PINGS = ["metrics", "events", "baseline"];
 const NO_PING = "(don't submit any ping)";
-function refillPingNames() {
-  let select = document.getElementById("ping-names");
-  let pings = GLEAN_BUILTIN_PINGS.slice().concat(Object.keys(GleanPings));
 
-  pings.forEach(ping => {
-    let option = document.createElement("option");
-    option.textContent = camelToKebab(ping);
-    select.appendChild(option);
+function refillPingNames() {
+  const builtInGroup = document.getElementById("builtin-pings");
+  const customGroup = document.getElementById("custom-pings");
+
+  // Add built-in ping options to the dropdown.
+  GLEAN_BUILTIN_PINGS.forEach(id => {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = camelToKebab(id);
+    builtInGroup.appendChild(option);
   });
-  let option = document.createElement("option");
-  document.l10n.setAttributes(option, "about-glean-no-ping-label");
-  option.value = NO_PING;
-  select.appendChild(option);
+
+  // Add "(don't submit any ping)" as last built-in option in the dropdown.
+  const noPingOption = document.createElement("option");
+  noPingOption.value = NO_PING;
+  document.l10n.setAttributes(noPingOption, "about-glean-no-ping-label");
+  builtInGroup.appendChild(noPingOption);
+
+  // Add alpha sorted custom ping options to the dropdown.
+  Object.keys(GleanPings)
+    .map(id => ({ id, label: camelToKebab(id) }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+    .forEach(({ label }) => {
+      const option = document.createElement("option");
+      option.textContent = label;
+      customGroup.appendChild(option);
+    });
 }
 
 // If there's been a previous tag, use it.
@@ -439,6 +454,132 @@ function createOrUpdateHistogram(selection, datum) {
   boxes.exit().remove();
 }
 
+function createOrUpdateEventChart(selection, datum) {
+  const values = (datum.value || []).map((d, i) => ({
+    ...d,
+    index: i,
+    fullName: datum.fullName,
+  }));
+
+  if (!values || values.length === 0) {
+    selection.select("p")?.remove();
+    selection
+      .append("p")
+      .attr("data-l10n-id", "about-glean-no-data-to-display");
+    selection.select("svg")?.remove();
+    return;
+  }
+  selection.select("p")?.remove();
+
+  const height = 75,
+    width = 500,
+    max = values.map(d => d.timestamp).sort((a, b) => b - a)[0],
+    min = values.map(d => d.timestamp).sort((a, b) => a - b)[0],
+    chartPadding = 50,
+    circleRadius = 6;
+
+  let diagram = selection.select(`svg[data-d3-datum='${datum.fullName}']`);
+  if (diagram.empty()) {
+    diagram = selection
+      .append("svg")
+      .classed({ timeline: true })
+      .attr("data-d3-datum", datum.fullName)
+      .attr("width", width)
+      .attr("height", height);
+    diagram
+      .append("line")
+      .attr("x1", chartPadding)
+      .attr("y1", height / 2)
+      .attr("x2", width - chartPadding)
+      .attr("y2", height / 2);
+    diagram
+      .append("line")
+      .attr("x1", chartPadding + 10)
+      .attr("y1", height / 2 - 10)
+      .attr("x2", chartPadding + 10)
+      .attr("y2", height / 2 + 10);
+    diagram
+      .append("line")
+      .attr("x1", width - chartPadding - 10)
+      .attr("y1", height / 2 - 10)
+      .attr("x2", width - chartPadding - 10)
+      .attr("y2", height / 2 + 10);
+  }
+
+  let code = selection.select("pre");
+  if (code.empty()) {
+    code = selection.append("pre").classed({ withChart: true }).append("code");
+  } else {
+    code = code.select("code");
+  }
+
+  const xFn = d3.scale
+    .linear()
+    .domain([min, max])
+    .range([10 + chartPadding, width - chartPadding - 10]);
+
+  let eventsContainer = diagram.select("g.events");
+  if (eventsContainer.empty()) {
+    eventsContainer = diagram.append("g").classed({ events: true });
+  }
+
+  const events = eventsContainer
+    .selectAll("g.event")
+    .data(values, d => `${d.fullName}-${d.index}-${d.timestamp}`);
+
+  const newEvents = events
+    .enter()
+    .append("g")
+    .classed({ event: true })
+    .attr("tabindex", 0);
+
+  newEvents
+    .append("circle")
+    .attr("cy", height / 2)
+    .attr("r", circleRadius);
+
+  function focusStart(_) {
+    this.classList.add("hovered");
+  }
+
+  function focusEnd(_) {
+    this.classList.remove("hovered");
+  }
+
+  function select(_) {
+    const dataPoint = this.__data__;
+    code.text(prettyPrint(dataPoint.extra));
+
+    document.querySelectorAll("g.event.selected").forEach(el => {
+      el.classList.remove("selected");
+      el.querySelector("text")?.remove();
+    });
+    this.classList.add("selected");
+
+    const text = this.appendChild(
+      document.createElementNS("http://www.w3.org/2000/svg", "text")
+    );
+    text.setAttribute("y", height / 2 + 25);
+    text.setAttribute(
+      "x",
+      xFn(dataPoint.timestamp) - `${dataPoint.timestamp}`.length * 4.5
+    );
+    text.textContent = dataPoint.timestamp;
+  }
+
+  events.attr("data-d3-datum", d => `${d.fullName}-${d.index}-${d.timestamp}`);
+
+  events.selectAll("circle").attr("cx", d => xFn(d.timestamp));
+
+  events
+    .on("focusin", select)
+    .on("mouseover", focusStart)
+    .on("focusout", focusEnd)
+    .on("mouseout", focusEnd);
+
+  events.exit().remove();
+}
+
 function updateValueSelection(selection) {
   // Set the `data-l10n-id` attribute to the appropriate warning if the value is invalid, otherwise
   // unset it by returning `null`.
@@ -457,6 +598,9 @@ function updateValueSelection(selection) {
       if (datum.loaded) {
         let codeSelection = d3.select(this).select("pre>code");
         switch (datum.type) {
+          case "Event":
+            createOrUpdateEventChart(d3.select(this), datum);
+            break;
           case "CustomDistribution":
           case "MemoryDistribution":
           case "TimingDistribution":
@@ -508,6 +652,14 @@ function updateDatum(datum) {
  * @returns a string containing the prettified JSON value in a pre+code
  */
 function prettyPrint(jsonValue) {
+  if (typeof jsonValue == "object") {
+    jsonValue = Object.keys(jsonValue ?? {})
+      .sort()
+      .reduce((obj, key) => {
+        obj[key] = jsonValue[key];
+        return obj;
+      }, {});
+  }
   // from devtools/client/jsonview/json-viewer.mjs
   const pretty = JSON.stringify(
     jsonValue,

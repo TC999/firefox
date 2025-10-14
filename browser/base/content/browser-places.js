@@ -2,9 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-// This file is loaded into the browser window scope.
-/* eslint-env mozilla/browser-window */
-
 XPCOMUtils.defineLazyPreferenceGetter(
   this,
   "NEWTAB_ENABLED",
@@ -1258,7 +1255,7 @@ var PlacesToolbarHelper = {
         menuitem.setAttribute("label", entry.name);
         menuitem.setAttribute(
           "image",
-          "page-icon:" + encodeURI(preferredURI.spec)
+          "page-icon:" + ChromeUtils.encodeURIForSrcset(preferredURI.spec)
         );
         menuitem.classList.add(
           "menuitem-iconic",

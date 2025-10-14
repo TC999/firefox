@@ -250,6 +250,8 @@ var TelemetryReportingPolicyImpl = {
   // reporting policy tab / infobar
   _notificationType: null,
 
+  _observerRegistered: false,
+
   get _log() {
     if (!this._logger) {
       this._logger = Log.repository.getLoggerWithMessagePrefix(
@@ -702,6 +704,7 @@ var TelemetryReportingPolicyImpl = {
     this.shutdown();
     this._isFirstRun = undefined;
     this._ensureUserIsNotifiedPromise = undefined;
+    this._nimbusVariables = {};
     return this.setup();
   },
 
@@ -724,7 +727,10 @@ var TelemetryReportingPolicyImpl = {
     Services.prefs.addObserver(TOU_ACCEPTED_VERSION_PREF, this);
 
     // Add the event observers.
-    Services.obs.addObserver(this, "sessionstore-windows-restored");
+    if (!this._observerRegistered) {
+      Services.obs.addObserver(this, "sessionstore-windows-restored");
+      this._observerRegistered = true;
+    }
   },
 
   /**
@@ -742,17 +748,28 @@ var TelemetryReportingPolicyImpl = {
    * Detach the observers that were attached during setup.
    */
   _detachObservers() {
-    Services.obs.removeObserver(this, "sessionstore-windows-restored");
+    if (this._observerRegistered) {
+      Services.obs.removeObserver(this, "sessionstore-windows-restored");
+      this._observerRegistered = false;
+    }
     Services.prefs.removeObserver(TOU_ACCEPTED_DATE_PREF, this);
     Services.prefs.removeObserver(TOU_ACCEPTED_VERSION_PREF, this);
   },
 
   /**
-   * Check if we are allowed to upload data. In order to submit data both these conditions
-   * should be true:
-   * - The data submission preference should be true.
-   * - The datachoices infobar should have been displayed.
+   * Check if we are allowed to upload data.
+   * Prerequisite: data submission is enabled (this.dataSubmissionEnabled).
    *
+   * In order to submit data, at least ONE of these conditions should be true:
+   *  1. The TOU flow is bypassed via a pref or Nimbus variable AND the legacy
+   *     notification flow bypass pref is set, so users bypass BOTH flows.
+   *  2. The TOU flow is bypassed via a pref or Nimbus variable and the legacy
+   *     notification flow bypass pref is NOT set, so has been been shown the
+   *     legacy flow (the data submission pref should be true and the
+   *     datachoices infobar should have been displayed).
+   *  3. The user has accepted the Terms of Use AND the user has opted-in to
+   *     sharing technical interaction data (the upload enabled pref should be
+   *     true).
    * @return {Boolean} True if we are allowed to upload data, false otherwise.
    */
   canUpload() {
@@ -762,13 +779,33 @@ var TelemetryReportingPolicyImpl = {
       return false;
     }
 
-    // Submission is enabled. We enable upload if user is notified or we need to bypass
-    // the policy.
-    const bypassNotification = Services.prefs.getBoolPref(
+    const bypassLegacyFlow = Services.prefs.getBoolPref(
       TelemetryUtils.Preferences.BypassNotification,
       false
     );
-    return this.isUserNotifiedOfCurrentPolicy || bypassNotification;
+    // TOU flow is bypassed if the Nimbus preonboarding feature is disabled
+    // (disabled by default for Linux via the fallback
+    // browser.preonboarding.enabled pref) or if the explicit bypass pref is
+    // set.
+    const bypassTOUFlow =
+      Services.prefs.getBoolPref(TOU_BYPASS_NOTIFICATION_PREF, false) ||
+      (!Services.prefs.getBoolPref("browser.preonboarding.enabled", false) &&
+        this._nimbusVariables?.enabled !== true) ||
+      this._nimbusVariables?.enabled === false;
+    const allowInteractionData = Services.prefs.getBoolPref(
+      "datareporting.healthreport.uploadEnabled",
+      false
+    );
+
+    // Condition 1
+    const canUploadBypassLegacyAndTOU = bypassLegacyFlow && bypassTOUFlow;
+    // Condition 2
+    const canUploadLegacy =
+      bypassTOUFlow && !bypassLegacyFlow && this.isUserNotifiedOfCurrentPolicy;
+    // Condition 3
+    const canUploadTOU = this.hasUserAcceptedCurrentTOU && allowInteractionData;
+
+    return canUploadBypassLegacyAndTOU || canUploadLegacy || canUploadTOU;
   },
 
   isFirstRun() {

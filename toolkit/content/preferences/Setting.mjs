@@ -9,6 +9,7 @@ import {
 import { Preferences } from "chrome://global/content/preferences/Preferences.mjs";
 
 /** @import { type Preference } from "chrome://global/content/preferences/Preference.mjs" */
+/** @import { PreferencesSettingsConfig } from "chrome://global/content/preferences/Preferences.mjs" */
 
 const { EventEmitter } = ChromeUtils.importESModule(
   "resource://gre/modules/EventEmitter.sys.mjs"
@@ -27,8 +28,23 @@ ChromeUtils.defineESModuleGetters(lazy, {
  * (keys) so that the dependencies of a setting can
  * be easily looked up by just their ID.
  *
- * @typedef {Record<string, any>} PreferenceSettingDepsMap
+ * @typedef {Record<string, Setting | undefined>} PreferenceSettingDepsMap
  */
+
+/**
+ * @typedef {string | boolean | number} SettingValue
+ */
+
+class PreferenceNotAddedError extends Error {
+  constructor(settingId, prefId) {
+    super(
+      `Setting "${settingId}" was unable to find Preference "${prefId}". Did you register it with Preferences.add/addAll?`
+    );
+    this.name = "PreferenceNotAddedError";
+    this.settingId = settingId;
+    this.prefId = prefId;
+  }
+}
 
 export class Setting extends EventEmitter {
   /**
@@ -44,6 +60,17 @@ export class Setting extends EventEmitter {
    */
   _deps;
 
+  /**
+   * @type {PreferencesSettingsConfig}
+   */
+  config;
+
+  /**
+   * @param {PreferencesSettingsConfig['id']} id
+   * @param {PreferencesSettingsConfig} config
+   * @throws {Error} Will throw an error (PreferenceNotAddedError) if
+   *    config.pref was not registered
+   */
   constructor(id, config) {
     super();
 
@@ -54,10 +81,10 @@ export class Setting extends EventEmitter {
     this.id = id;
     this.config = config;
     this.pref = config.pref && Preferences.get(config.pref);
-
-    for (const setting of Object.values(this.deps)) {
-      setting.on("change", this.onChange);
+    if (config.pref && !this.pref) {
+      throw new PreferenceNotAddedError(id, config.pref);
     }
+    this._emitting = false;
 
     this.controllingExtensionInfo = {
       ...this.config.controllingExtensionInfo,
@@ -75,7 +102,12 @@ export class Setting extends EventEmitter {
   }
 
   onChange = () => {
+    if (this._emitting) {
+      return;
+    }
+    this._emitting = true;
     this.emit("change");
+    this._emitting = false;
   };
 
   /**
@@ -101,9 +133,17 @@ export class Setting extends EventEmitter {
       }
     }
     this._deps = deps;
+
+    for (const setting of Object.values(this._deps)) {
+      setting.on("change", this.onChange);
+    }
+
     return this._deps;
   }
 
+  /**
+   * @type {SettingValue}
+   */
   get value() {
     let prefVal = this.pref?.value;
     if (this.config.get) {
@@ -112,6 +152,9 @@ export class Setting extends EventEmitter {
     return prefVal;
   }
 
+  /**
+   * @param {SettingValue} val
+   */
   set value(val) {
     let newVal = this.config.set ? this.config.set(val, this.deps, this) : val;
     if (this.pref) {
@@ -119,6 +162,9 @@ export class Setting extends EventEmitter {
     }
   }
 
+  /**
+   * @type {boolean}
+   */
   get locked() {
     return this.pref?.locked ?? false;
   }
@@ -131,6 +177,10 @@ export class Setting extends EventEmitter {
     return this.config.disabled ? this.config.disabled(this.deps, this) : false;
   }
 
+  /**
+   * @param {PreferencesSettingsConfig} config
+   * @returns {PreferencesSettingsConfig | undefined}
+   */
   getControlConfig(config) {
     if (this.config.getControlConfig) {
       return this.config.getControlConfig(config, this.deps, this);
@@ -140,10 +190,13 @@ export class Setting extends EventEmitter {
 
   userClick(event) {
     if (this.config.onUserClick) {
-      this.config.onUserClick(event);
+      this.config.onUserClick(event, this.deps, this);
     }
   }
 
+  /**
+   * @param {string} val
+   */
   userChange(val) {
     this.value = val;
     if (this.config.onUserChange) {

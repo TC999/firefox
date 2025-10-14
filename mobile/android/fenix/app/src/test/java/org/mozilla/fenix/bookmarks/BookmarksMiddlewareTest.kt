@@ -9,6 +9,7 @@ import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.NavDestination
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import mozilla.appservices.places.BookmarkRoot
@@ -35,6 +36,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.ArgumentMatchers.anyList
+import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.never
 import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
@@ -221,6 +223,41 @@ class BookmarksMiddlewareTest {
 
         val store = middleware.makeStore()
         store.dispatch(BookmarksListMenuAction.SortMenu.NewestClicked)
+        store.waitUntilIdle()
+        assertEquals(BookmarksListSortOrder.Created(true), newSortOrder)
+    }
+
+    @Test
+    fun `GIVEN SelectFolderScreen WHEN SortMenuItem is clicked THEN Save the new sort order`() = runTestOnMain {
+        val tree = generateBookmarkTree()
+        `when`(bookmarksStorage.countBookmarksInTrees(listOf(BookmarkRoot.Menu.id, BookmarkRoot.Toolbar.id, BookmarkRoot.Unfiled.id))).thenReturn(0u)
+        `when`(bookmarksStorage.getTree(BookmarkRoot.Mobile.id)).thenReturn(Result.success(tree))
+        var newSortOrder = BookmarksListSortOrder.default
+        saveSortOrder = {
+            newSortOrder = it
+        }
+        val bookmark = tree.children?.last { it.type == BookmarkNodeType.ITEM }!!
+        val bookmarkItem = BookmarkItem.Bookmark(
+            title = bookmark.title!!,
+            guid = bookmark.guid,
+            url = bookmark.url!!,
+            previewImageUrl = "",
+            position = bookmark.position,
+            dateAdded = bookmark.dateAdded,
+        )
+        val middleware = buildMiddleware()
+
+        val store = middleware.makeStore()
+        store.dispatch(EditBookmarkClicked(bookmarkItem))
+        store.dispatch(EditBookmarkAction.FolderClicked)
+        store.dispatch(SelectFolderAction.ViewAppeared)
+        assertEquals(false, store.state.sortMenuShown)
+
+        store.dispatch(SelectFolderAction.SortMenu.SortMenuButtonClicked)
+
+        assertEquals(true, store.state.sortMenuShown)
+
+        store.dispatch(SelectFolderAction.SortMenu.NewestClicked)
         store.waitUntilIdle()
         assertEquals(BookmarksListSortOrder.Created(true), newSortOrder)
     }
@@ -429,6 +466,7 @@ class BookmarksMiddlewareTest {
         assertNull(store.state.bookmarksAddFolderState)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class) // advanceUntilIdle
     @Test
     fun `GIVEN current screen is add folder and new folder title is empty WHEN back is clicked THEN navigate back to the previous tree and don't save anything`() = runTestOnMain {
         val middleware = buildMiddleware()
@@ -558,6 +596,46 @@ class BookmarksMiddlewareTest {
     }
 
     @Test
+    fun `GIVEN current screen is edit folder and new title is empty WHEN the folder location is changed and back is clicked THEN navigate back saves the valid changes and load the updated tree`() = runTest {
+        val tree = generateBookmarkTree()
+        `when`(bookmarksStorage.countBookmarksInTrees(listOf(BookmarkRoot.Menu.id, BookmarkRoot.Toolbar.id, BookmarkRoot.Unfiled.id))).thenReturn(0u)
+        `when`(bookmarksStorage.getTree(BookmarkRoot.Mobile.id)).thenReturn(Result.success(tree))
+        val middleware = buildMiddleware()
+        `when`(bookmarksStorage.countBookmarksInTrees(listOf(any()))).thenReturn(0u)
+        val store = middleware.makeStore(
+            initialState = BookmarksState.default.copy(
+                bookmarksEditFolderState = BookmarksEditFolderState(
+                    parent = BookmarkItem.Folder("Bookmarks", "guid0", 0u),
+                    folder = BookmarkItem.Folder("folder title 0", "folder guid 0", 0u),
+                ),
+            ),
+        )
+
+        val newParent = tree.children?.last { it.type == BookmarkNodeType.FOLDER }!!
+        val newParentItem = BookmarkItem.Folder(title = newParent.title!!, guid = newParent.guid, position = newParent.position)
+        val newFolderTitle = ""
+
+        store.dispatch(EditFolderAction.TitleChanged(newFolderTitle))
+        store.dispatch(EditFolderAction.ParentFolderClicked)
+        store.dispatch(SelectFolderAction.ViewAppeared)
+        store.dispatch(SelectFolderAction.ItemClicked(SelectFolderItem(0, newParentItem)))
+        store.dispatch(BackClicked)
+        store.dispatch(BackClicked)
+
+        verify(bookmarksStorage).updateNode(
+            guid = "folder guid 0",
+            info = BookmarkInfo(
+                parentGuid = newParentItem.guid,
+                position = 0u,
+                title = "folder title 0",
+                url = null,
+            ),
+        )
+        verify(bookmarksStorage, times(2)).getTree(BookmarkRoot.Mobile.id)
+        assertNull(store.state.bookmarksEditFolderState)
+    }
+
+    @Test
     fun `GIVEN current screen is edit bookmark WHEN back is clicked THEN navigate back, save the bookmark, and load the updated tree`() = runTest {
         `when`(bookmarksStorage.countBookmarksInTrees(listOf(BookmarkRoot.Menu.id, BookmarkRoot.Toolbar.id, BookmarkRoot.Unfiled.id))).thenReturn(0u)
         `when`(bookmarksStorage.getTree(BookmarkRoot.Mobile.id)).thenReturn(Result.success(generateBookmarkTree()))
@@ -614,6 +692,40 @@ class BookmarksMiddlewareTest {
         )
 
         verify(navController).popBackStack()
+        assertNull(store.state.bookmarksEditBookmarkState)
+    }
+
+    @Test
+    fun `GIVEN current screen is edit bookmark WHEN the title is set to empty and the url is changed and back is clicked THEN the url saves but the title does not`() = runTest {
+        val tree = generateBookmarkTree()
+        `when`(bookmarksStorage.countBookmarksInTrees(listOf(BookmarkRoot.Menu.id, BookmarkRoot.Toolbar.id, BookmarkRoot.Unfiled.id))).thenReturn(0u)
+        `when`(bookmarksStorage.getTree(BookmarkRoot.Mobile.id)).thenReturn(Result.success(tree))
+        val middleware = buildMiddleware()
+        val store = middleware.makeStore()
+        val newBookmarkTitle = ""
+
+        val bookmark = store.state.bookmarkItems.first { it is BookmarkItem.Bookmark } as BookmarkItem.Bookmark
+        val newParent = tree.children?.last { it.type == BookmarkNodeType.FOLDER }!!
+        val newParentItem = BookmarkItem.Folder(title = newParent.title!!, guid = newParent.guid, position = newParent.position)
+        store.dispatch(EditBookmarkClicked(bookmark = bookmark))
+        store.dispatch(EditBookmarkAction.TitleChanged(title = newBookmarkTitle))
+        store.dispatch(EditBookmarkAction.FolderClicked)
+        store.dispatch(SelectFolderAction.ItemClicked(SelectFolderItem(0, newParentItem)))
+        store.dispatch(BackClicked)
+
+        assertNotNull(store.state.bookmarksEditBookmarkState)
+        store.dispatch(BackClicked)
+
+        verify(bookmarksStorage).updateNode(
+            guid = "item guid 0",
+            info = BookmarkInfo(
+                parentGuid = newParentItem.guid,
+                position = 5u,
+                title = bookmark.title,
+                url = "item url 0",
+            ),
+        )
+
         assertNull(store.state.bookmarksEditBookmarkState)
     }
 
@@ -753,6 +865,7 @@ class BookmarksMiddlewareTest {
         assertEquals(bookmarkCount, store.state.bookmarksSelectFolderState?.folders?.count())
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class) // advanceUntilIdle
     @Test
     fun `GIVEN selected folder WHEN OpenInNormalTabsClicked THEN urls opened as normal tabs`() = runTest {
         val bookmarkFolder = BookmarkItem.Folder(title = "folder", guid = "1234", position = 0u)
@@ -775,6 +888,7 @@ class BookmarksMiddlewareTest {
         assertTrue(trayShown)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class) // advanceUntilIdle
     @Test
     fun `GIVEN selected folder WHEN OpenInPrivateTabsClicked THEN urls opened as private tabs`() = runTest {
         val bookmarkFolder = BookmarkItem.Folder(title = "folder", guid = "1234", position = 0u)
@@ -1581,6 +1695,26 @@ class BookmarksMiddlewareTest {
             verify(bookmarksStorage).deleteNode(folder.guid)
             verify(lastSavedFolderCache).setGuid(null)
         }
+
+    @Test
+    fun `GIVEN editing a bookmark WHEN edit fails THAN last saved location does not change`() = runTestOnMain {
+        val tree = generateBookmarkTree()
+        `when`(bookmarksStorage.countBookmarksInTrees(listOf(BookmarkRoot.Menu.id, BookmarkRoot.Toolbar.id, BookmarkRoot.Unfiled.id))).thenReturn(0u)
+        `when`(bookmarksStorage.getTree(BookmarkRoot.Mobile.id)).thenReturn(Result.success(tree))
+        val bookmark = tree.children?.first { it.type == BookmarkNodeType.ITEM }!!
+        val bookmarkItem = BookmarkItem.Bookmark(title = bookmark.title!!, guid = bookmark.guid, url = bookmark.url!!, previewImageUrl = bookmark.url!!, position = bookmark.position)
+        `when`(bookmarksStorage.updateNode(eq(bookmark.guid), any())).thenReturn(Result.failure(IllegalStateException()))
+        `when`(lastSavedFolderCache.getGuid()).thenReturn(bookmark.parentGuid)
+
+        val middleware = buildMiddleware()
+        val store = middleware.makeStore()
+
+        store.dispatch(BookmarksListMenuAction.Bookmark.EditClicked(bookmarkItem))
+        store.dispatch(EditBookmarkAction.TitleChanged(""))
+        store.dispatch(BackClicked)
+
+        verify(lastSavedFolderCache, never()).setGuid(anyString())
+    }
 
     @Test
     fun `GIVEN editing a bookmark WHEN edit fails THEN result is reported`() = runTestOnMain {

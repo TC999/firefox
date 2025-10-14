@@ -84,6 +84,11 @@
   -->
   <string name="felt_privacy_info_card_subtitle_2">%1$s elimina os seus cookies, histórico e dados do site quando fecha todos os seus separadores privados. %2$s</string>
   <!--
+    Description of private browsing mode displayed to users on the homepage when they enable private mode.
+    %1$s is the name of the app (for example "Firefox").
+  -->
+  <string name="felt_privacy_info_card_subtitle_3">O %1$s elimina os seus cookies, histórico e dados de sites quando fecha todos os seus separadores privados.</string>
+  <!--
     Clickable portion of the explanation for private browsing that links the user to our
     about privacy page.
     This string is used in felt_privacy_info_card_subtitle as the text for the link.
@@ -588,6 +593,14 @@
   <string name="onboarding_redesign_set_default_browser_title">Obtenha uma proteção automática contra a monitorização por predefinição</string>
   <!-- Set to default browser onboarding redesign body. -->
   <string name="onboarding_redesign_set_default_browser_body">Um toque ajuda a impedir que as empresas espiem os seus cliques.</string>
+  <!-- Sync onboarding redesign title. 'Firefox' is intentionally hardcoded. -->
+  <string name="onboarding_redesign_sync_title" tools:ignore="BrandUsage">Sincronize onde quer que utilize o Firefox</string>
+  <!-- Sync onboarding redesign body. -->
+  <string name="onboarding_redesign_sync_body">Obtenha marcadores, separadores e palavras-passe em qualquer dispositivo. Tudo protegido com encriptação.</string>
+  <!-- Sync onboarding redesign positive button text. -->
+  <string name="onboarding_redesign_sync_positive_button">Iniciar sincronização</string>
+  <!-- Sync onboarding redesign negative button text. -->
+  <string name="onboarding_redesign_sync_negative_button">Agora não</string>
   <!-- Marketing onboarding page title. 'Firefox' is intentionally hardcoded. -->
   <string name="onboarding_marketing_title" tools:ignore="BrandUsage,UnusedResources">Ajude o Firefox a crescer</string>
   <!-- Marketing onboarding page body. 'Firefox' is intentionally hardcoded. -->
@@ -711,9 +724,9 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">Abrir ligações num separador privado</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">Permitir capturas de ecrã na navegação privada</string>
+  <string name="preferences_allow_screenshots_in_private_mode">Permitir capturas de ecrã na navegação privada</string>
   <!-- Will inform the user of the risk of activating Allow screenshots in private browsing option -->
-  <string name="preferences_screenshots_in_private_mode_disclaimer" tools:ignore="UnusedResources" moz:removedIn="144">Se permitido, os separadores privados também ficarão visíveis quando várias aplicações estiverem abertas</string>
+  <string name="preferences_screenshots_in_private_mode_disclaimer">Se permitido, os separadores privados também ficarão visíveis quando várias aplicações estiverem abertas</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">Adicionar um atalho de navegação privada</string>
   <!-- Preference for enabling "HTTPS-Only" mode -->
@@ -721,7 +734,8 @@
   <!-- Preference title for using the screen lock to hide tabs in private browsing -->
   <string name="preferences_pbm_lock_screen_title">Utilize o bloqueio de ecrã para ocultar separadores na navegação privada</string>
   <!-- Informs the user how to access the tabs when "Use screen lock to hide tabs in private browsing" is enabled -->
-  <string name="preferences_pbm_lock_screen_summary_2">Veja separadores com a sua impressão digital, PIN ou desbloqueio facial.</string>
+  <string name="preferences_pbm_lock_screen_summary_3">Veja separadores com a sua impressão digital, PIN ou desbloqueio face. Ativar isso também impede a captura de ecrã e a partilha.</string>
+  <string name="preferences_pbm_lock_screen_summary_2" tools:ignore="UnusedResources" moz:removedIn="144">Veja separadores com a sua impressão digital, PIN ou desbloqueio facial.</string>
   <!-- Label for cookie banner section in quick settings panel. -->
   <string name="cookie_banner_blocker">Bloqueador de faixas de cookies</string>
   <!-- Preference for removing cookie/consent banners from sites automatically in private mode. See reduce_cookie_banner_summary for additional context. -->
@@ -1472,7 +1486,9 @@
   <!-- Content description for tabs tray multiselect menu -->
   <string name="tab_tray_multiselect_menu_content_description">Menu de separadores selecionados</string>
   <!-- Title text displayed for a homepage tab in the tabs tray. -->
-  <string name="tab_tray_homepage_tab">Página inicial</string>
+  <string name="tab_tray_homepage_tab" tools:ignore="UnusedResources" moz:removedIn="145">Página inicial</string>
+  <!-- Title text displayed for a homepage tab in the tabs tray. %s is a placeholder that will be replaced by app name. -->
+  <string name="tab_tray_homepage_tab_2">Página inicial do %s</string>
   <!-- Content description (not visible, for screen readers etc.): Removes tab from collection button. Removes the selected tab from collection when pressed -->
   <string name="remove_tab_from_collection">Remover separador da coleção</string>
   <!-- Text for button to enter multiselect mode in tabs tray -->
@@ -1508,9 +1524,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">Eliminar histórico</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Histórico eliminado</string>
+  <string name="history_delete_multiple_items_snackbar">Histórico eliminado</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Eliminado %1$s</string>
+  <string name="history_delete_single_item_snackbar">Eliminado %1$s</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">Eliminar</string>
   <!--
@@ -1715,6 +1731,10 @@
   <string name="webcompat_reporter_dismiss_success_snackbar_text" moz:removedIn="144" tools:ignore="UnusedResources">Fechar</string>
   <!-- Placeholder text for the description field to prompt the user on what they should type. -->
   <string name="webcompat_reporter_problem_description_placeholder_text">O que aconteceu? O que deveria ter acontecido?</string>
+  <!-- Label of the checkbox on the “Report broken site” screen for sending URLS blocked by Enhanced Tracking Protection. -->
+  <string name="webcompat_reporter_etp_checkbox_text">Enviar URLs bloqueados pela proteção contra a monitorização</string>
+  <!-- Description text for the checkbox on the “Report broken site” screen for sending URLS blocked by Enhanced Tracking Protection. It informs the user when checked, the report will include the list of URLs that were blocked by Enhanced Tracking Protection on the current page. -->
+  <string name="webcompat_reporter_etp_checkbox_description">A proteção melhorada contra a monitorização pode bloquear rastreadores e scripts que alguns sites precisam para funcionar corretamente.</string>
   <!--
     These reason strings are dropdown options on a WebCompat reporter form, indicating what is broken on the site.
 
@@ -2695,6 +2715,10 @@
   <string name="saved_login_hide_password">Ocultar palavra-passe</string>
   <!-- Message displayed in biometric prompt displayed for authentication before allowing users to view their passwords -->
   <string name="logins_biometric_prompt_message_2">Desbloqueie para ver as palavras-passe guardadas</string>
+  <!-- Button for unlocking logins on the biometric lock screen -->
+  <string name="logins_biometric_unlock_button">Desbloquear</string>
+  <!-- Button for leaving logins on the biometric lock screen -->
+  <string name="logins_biometric_leave_button">Sair</string>
   <!-- Title of warning dialog if users have no device authentication set up -->
   <string name="logins_warning_dialog_title_2">Proteja as suas palavras-passe guardadas</string>
   <!-- Message of warning dialog if users have no device authentication set up -->
@@ -3588,6 +3612,16 @@
   <string name="debug_drawer_add_new_address">Adicionar novo endereço ao idioma selecionado</string>
   <!-- The title of the button for deleting in the debug drawer all addresses. -->
   <string name="debug_drawer_delete_all_addresses">Eliminar todos os endereços</string>
+  <!--
+    Debug drawer credit cards
+
+    The title of the credit cards feature in the Debug Drawer.
+  -->
+  <string name="debug_drawer_credit_cards_title">Cartões de crédito</string>
+  <!-- The title of the button in the debug drawer for adding a new credit card -->
+  <string name="debug_drawer_add_new_credit_card">Adicionar novo cartão de crédito</string>
+  <!-- The title of the button for deleting in the debug drawer all addresses. -->
+  <string name="debug_drawer_delete_all_credit_cards">Eliminar todos os cartões de crédito</string>
   <!--
     Debug drawer "contextual feature recommendation" (CFR) tools
 

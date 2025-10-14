@@ -243,6 +243,7 @@ class NodeHTTPSServerCode extends BaseNodeHTTPServerCode {
     const options = {
       key: fs.readFileSync(__dirname + "/http2-cert.key"),
       cert: fs.readFileSync(__dirname + "/http2-cert.pem"),
+      maxHeaderSize: 128 * 1024,
     };
     const https = require("https");
     global.server = https.createServer(
@@ -487,6 +488,33 @@ export class NodeProxyFilter {
   }
 }
 
+export class Http3ProxyFilter {
+  constructor(host, port, flags, pathTemplate, auth) {
+    this._host = host;
+    this._port = port;
+    this._flags = flags;
+    this._pathTemplate = pathTemplate;
+    this._auth = auth;
+    this.QueryInterface = ChromeUtils.generateQI(["nsIProtocolProxyFilter"]);
+  }
+  applyFilter(uri, pi, cb) {
+    const pps =
+      Cc["@mozilla.org/network/protocol-proxy-service;1"].getService();
+    cb.onProxyFilterResult(
+      pps.newMASQUEProxyInfo(
+        this._host,
+        this._port,
+        this._pathTemplate,
+        this._auth,
+        "",
+        this._flags,
+        1000,
+        null
+      )
+    );
+  }
+}
+
 class HTTPProxyCode {
   static async startServer(port) {
     const http = require("http");
@@ -613,7 +641,10 @@ class HTTP2ProxyCode {
                 );
               } catch (e) {
                 // The channel may have been closed already.
-                if (e.message != "The stream has been destroyed") {
+                if (
+                  e.code !== "ERR_HTTP2_INVALID_STREAM" &&
+                  !e.message.includes("The stream has been destroyed")
+                ) {
                   throw e;
                 }
               }
@@ -645,17 +676,35 @@ class HTTP2ProxyCode {
       }
       if (headers[":method"] !== "CONNECT") {
         // Only accept CONNECT requests
-        stream.respond({ ":status": 405 });
+        try {
+          stream.respond({ ":status": 405 });
+        } catch (e) {
+          if (
+            e.code !== "ERR_HTTP2_INVALID_STREAM" &&
+            !e.message.includes("The stream has been destroyed")
+          ) {
+            throw e;
+          }
+        }
         stream.end();
         return;
       }
 
       const authorization_token = headers["proxy-authorization"];
       if (auth && !authorization_token) {
-        stream.respond({
-          ":status": 407,
-          "proxy-authenticate": "Basic realm='foo'",
-        });
+        try {
+          stream.respond({
+            ":status": 407,
+            "proxy-authenticate": "Basic realm='foo'",
+          });
+        } catch (e) {
+          if (
+            e.code !== "ERR_HTTP2_INVALID_STREAM" &&
+            !e.message.includes("The stream has been destroyed")
+          ) {
+            throw e;
+          }
+        }
         stream.end();
         return;
       }
@@ -667,7 +716,16 @@ class HTTP2ProxyCode {
         try {
           global.socketCounts[socket.remotePort] =
             (global.socketCounts[socket.remotePort] || 0) + 1;
-          stream.respond({ ":status": 200 });
+          try {
+            stream.respond({ ":status": 200 });
+          } catch (e) {
+            if (
+              e.code !== "ERR_HTTP2_INVALID_STREAM" &&
+              !e.message.includes("The stream has been destroyed")
+            ) {
+              throw e;
+            }
+          }
           socket.pipe(stream);
           stream.pipe(socket);
         } catch (exception) {
@@ -682,7 +740,16 @@ class HTTP2ProxyCode {
           // If we already sent headers when the socket connected
           // then sending the status again would throw.
           if (!stream.sentHeaders) {
-            stream.respond({ ":status": status });
+            try {
+              stream.respond({ ":status": status });
+            } catch (e) {
+              if (
+                e.code !== "ERR_HTTP2_INVALID_STREAM" &&
+                !e.message.includes("The stream has been destroyed")
+              ) {
+                throw e;
+              }
+            }
           }
           stream.end();
         } catch (exception) {
@@ -718,6 +785,11 @@ export class NodeHTTP2ProxyServer extends BaseHTTPProxy {
   /// @port - default 0
   ///    when provided, will attempt to listen on that port.
   async start(port = 0, auth, maxConcurrentStreams = 100) {
+    await this.startWithoutProxyFilter(port, auth, maxConcurrentStreams);
+    this.registerFilter();
+  }
+
+  async startWithoutProxyFilter(port = 0, auth, maxConcurrentStreams = 100) {
     if (!this._skipCert) {
       await BaseNodeServer.installCert("proxy-ca.pem");
     }
@@ -730,8 +802,6 @@ export class NodeHTTP2ProxyServer extends BaseHTTPProxy {
     this._port = await this.execute(
       `HTTP2ProxyCode.startServer(${port}, ${auth}, ${maxConcurrentStreams})`
     );
-
-    this.registerFilter();
   }
 
   async socketCount(port) {
@@ -827,7 +897,16 @@ class NodeWebSocketHttp2ServerCode extends BaseNodeHTTPServerCode {
 
     global.h2Server.on("stream", (stream, headers) => {
       if (headers[":method"] === "CONNECT") {
-        stream.respond();
+        try {
+          stream.respond();
+        } catch (e) {
+          if (
+            e.code !== "ERR_HTTP2_INVALID_STREAM" &&
+            !e.message.includes("The stream has been destroyed")
+          ) {
+            throw e;
+          }
+        }
 
         const ws = new WS(null);
         stream.setNoDelay = () => {};
@@ -842,7 +921,16 @@ class NodeWebSocketHttp2ServerCode extends BaseNodeHTTPServerCode {
           ws.send("test");
         });
       } else {
-        stream.respond();
+        try {
+          stream.respond();
+        } catch (e) {
+          if (
+            e.code !== "ERR_HTTP2_INVALID_STREAM" &&
+            !e.message.includes("The stream has been destroyed")
+          ) {
+            throw e;
+          }
+        }
         stream.end("ok");
       }
     });
@@ -1007,6 +1095,12 @@ export class HTTP3Server {
   port() {
     return this._port;
   }
+  masque_proxy_port() {
+    return this._masque_proxy_port;
+  }
+  no_response_port() {
+    return this._no_response_port;
+  }
   domain() {
     return `localhost`;
   }
@@ -1028,15 +1122,17 @@ export class HTTP3Server {
 
     /* eslint-disable no-control-regex */
     const regex =
-      /HTTP3 server listening on ports (\d+), (\d+), (\d+), (\d+) and (\d+). EchConfig is @([\x00-\x7F]+)@/;
+      /HTTP3 server listening on ports (\d+), (\d+), (\d+), (\d+), (\d+) and (\d+). EchConfig is @([\x00-\x7F]+)@/;
 
     // Execute the regex on the input string
     let match = regex.exec(result.output);
 
     if (match) {
       // Extract the ports as an array of numbers
-      let ports = match.slice(1, 6).map(Number);
+      let ports = match.slice(1, 7).map(Number);
       this._port = ports[0];
+      this._no_response_port = ports[4];
+      this._masque_proxy_port = ports[5];
       return ports[0];
     }
 

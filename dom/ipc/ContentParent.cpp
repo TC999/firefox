@@ -231,6 +231,7 @@
 #if defined(MOZ_WIDGET_GTK) || defined(XP_WIN)
 #  include "nsIconChannel.h"
 #endif
+#include "XPCSelfHostedShmem.h"
 #include "nsFrameLoaderOwner.h"
 #include "nsMemoryInfoDumper.h"
 #include "nsMemoryReporterManager.h"
@@ -429,9 +430,6 @@ uint32_t ContentParent::sMaxContentProcesses = 0;
 
 /* static */
 LogModule* ContentParent::GetLog() { return gProcessLog; }
-
-/* static */
-uint32_t ContentParent::sPageLoadEventCounter = 0;
 
 #define NS_IPC_IOSERVICE_SET_OFFLINE_TOPIC "ipc:network:set-offline"
 #define NS_IPC_IOSERVICE_SET_CONNECTIVITY_TOPIC "ipc:network:set-connectivity"
@@ -2415,7 +2413,9 @@ bool ContentParent::BeginSubprocessLaunch(ProcessPriority aPriority) {
   // shared across processes. We add command line arguments to pass a file
   // handle and its content length, to minimize the startup time of content
   // processes.
-  ::mozilla::ipc::ExportSharedJSInit(*mSubprocess, extraArgs);
+  if (xpc::SelfHostedShmem::SelfHostedUseSharedMemory()) {
+    ::mozilla::ipc::ExportSharedJSInit(*mSubprocess, extraArgs);
+  }
 
   // Register ContentParent as an observer for changes to any pref
   // whose prefix matches the empty string, i.e. all of them.  The
@@ -6332,39 +6332,14 @@ mozilla::ipc::IPCResult ContentParent::RecvRecordPageLoadEvent(
                                 aAndroidAppLinkLaunchTypeIdentifier);
 #endif
 
-  // If the etld information exists, then we need to send it using a special
+  // If the domain information exists, then we need to send it using a special
   // page load event ping that is sent via ohttp and stripped of any information
   // that can be used to fingerprint the client.  Otherwise, use the regular
   // pageload event ping.
   if (aPageloadEventData.HasDomain()) {
-    // If the event is a page_load_domain event, then immediately send it.
-    mozilla::glean::perf::PageLoadDomainExtra extra =
-        aPageloadEventData.ToPageLoadDomainExtra();
-    mozilla::glean::perf::page_load_domain.Record(mozilla::Some(extra));
-
-    // The etld events must be sent by themselves for privacy preserving
-    // reasons.
-    NS_SUCCEEDED(NS_DispatchToMainThreadQueue(
-        NS_NewRunnableFunction(
-            "PageloadBaseDomainPingIdleTask",
-            [] {
-              mozilla::glean_pings::PageloadBaseDomain.Submit("pageload"_ns);
-            }),
-        EventQueuePriority::Idle));
+    aPageloadEventData.SendAsPageLoadDomainEvent();
   } else {
-    mozilla::glean::perf::PageLoadExtra extra =
-        aPageloadEventData.ToPageLoadExtra();
-    mozilla::glean::perf::page_load.Record(mozilla::Some(extra));
-
-    // Send the PageLoadPing after every 10 page loads, or on startup.
-    if (++sPageLoadEventCounter >= 10) {
-      NS_SUCCEEDED(NS_DispatchToMainThreadQueue(
-          NS_NewRunnableFunction(
-              "PageLoadPingIdleTask",
-              [] { mozilla::glean_pings::Pageload.Submit("threshold"_ns); }),
-          EventQueuePriority::Idle));
-      sPageLoadEventCounter = 0;
-    }
+    aPageloadEventData.SendAsPageLoadEvent();
   }
   return IPC_OK();
 }
@@ -7609,24 +7584,25 @@ mozilla::ipc::IPCResult ContentParent::RecvHistoryCommit(
 mozilla::ipc::IPCResult ContentParent::RecvHistoryGo(
     const MaybeDiscarded<BrowsingContext>& aContext, int32_t aOffset,
     uint64_t aHistoryEpoch, bool aRequireUserInteraction, bool aUserActivation,
-    HistoryGoResolver&& aResolveRequestedIndex) {
+    bool aCheckForCancelation, HistoryGoResolver&& aResolveRequestedIndex) {
   if (!aContext.IsNullOrDiscarded()) {
     RefPtr<CanonicalBrowsingContext> canonical = aContext.get_canonical();
-    aResolveRequestedIndex(
-        canonical->HistoryGo(aOffset, aHistoryEpoch, aRequireUserInteraction,
-                             aUserActivation, Some(ChildID())));
+    aResolveRequestedIndex(canonical->HistoryGo(
+        aOffset, aHistoryEpoch, aRequireUserInteraction, aUserActivation,
+        aCheckForCancelation, Some(ChildID())));
   }
   return IPC_OK();
 }
 
 mozilla::ipc::IPCResult ContentParent::RecvNavigationTraverse(
     const MaybeDiscarded<BrowsingContext>& aContext, const nsID& aKey,
-    uint64_t aHistoryEpoch, bool aUserActivation,
+    uint64_t aHistoryEpoch, bool aUserActivation, bool aCheckForCancelation,
     NavigationTraverseResolver&& aResolver) {
   if (!aContext.IsNullOrDiscarded()) {
     RefPtr<CanonicalBrowsingContext> canonical = aContext.get_canonical();
     canonical->NavigationTraverse(aKey, aHistoryEpoch, aUserActivation,
-                                  Some(ChildID()), aResolver);
+                                  aCheckForCancelation, Some(ChildID()),
+                                  aResolver);
   }
   return IPC_OK();
 }

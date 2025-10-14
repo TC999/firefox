@@ -130,15 +130,12 @@ ALLOWED_DESPITE_PREFIX = {
     "unicode-ident",  # Impractical to require icu_properties at this time
     "unicode-normalization",  # Exception until bug 1986265 is fixed.
     "unicode-width",  # icu_properties has the raw data but not the algorithm
-    "unic-char-property",  # Until https://github.com/denoland/rust-urlpattern/pull/67 is fixed
-    "unic-char-range",  # Until https://github.com/denoland/rust-urlpattern/pull/67 is fixed
-    "unic-common",  # Until https://github.com/denoland/rust-urlpattern/pull/67 is fixed
-    "unic-ucd-ident",  # Until https://github.com/denoland/rust-urlpattern/pull/67 is fixed
-    "unic-ucd-version",  # Until https://github.com/denoland/rust-urlpattern/pull/67 is fixed
     "unic-langid",  # We want to migrate to icu_locale eventually
     "unic-langid-ffi",  # FFI for previous
     "unic-langid-impl",  # Implementation detail of unic-langid
 }
+
+SEEN_ALLOWED_DESPITE_PREFIX = set()
 
 PACKAGES_WE_ALWAYS_WANT_AN_OVERRIDE_OF = [
     "autocfg",
@@ -153,6 +150,7 @@ def dont_want_package(name):
     if reason := PACKAGES_WE_DONT_WANT.get(name):
         return reason
     if name in ALLOWED_DESPITE_PREFIX:
+        SEEN_ALLOWED_DESPITE_PREFIX.add(name)
         return None
     for prefix, reason in PREFIXES_WE_DONT_WANT.items():
         if name.startswith(prefix):
@@ -179,6 +177,9 @@ class VendorRust(MozbuildObject):
                 ]
             }
         )
+
+    def generate_diff_stream(self):
+        return self.repository.diff_stream()
 
     def log(self, level, action, params, format_str):
         if level >= logging.WARNING:
@@ -692,6 +693,17 @@ license file's hash.
                     failed = True
                 grouped[package["name"]].append(package)
 
+            for name in ALLOWED_DESPITE_PREFIX:
+                if name not in SEEN_ALLOWED_DESPITE_PREFIX:
+                    self.log(
+                        logging.ERROR,
+                        "unused_allowed_despite_prefix",
+                        {"crate": name},
+                        "ALLOWED_DESPITE_PREFIX contains {crate}, "
+                        "but that crate is not actually used (anymore?).",
+                    )
+                    failed = True
+
             for name, packages in grouped.items():
                 # Allow to have crates of the same name when one depends on the other.
                 num = len(
@@ -990,9 +1002,9 @@ The changes from `mach vendor rust` will NOT be added to version control.
                     notice=CARGO_LOCK_NOTICE,
                 ),
             )
-            self.repository.forget_add_remove_files(vendor_dir)
-            self.repository.clean_directory(vendor_dir)
             if not force:
+                self.repository.forget_add_remove_files(vendor_dir)
+                self.repository.clean_directory(vendor_dir)
                 return False
 
         # Only warn for large imports, since we may just have large code

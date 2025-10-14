@@ -601,9 +601,9 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">Digeriñ an ereoù en un ivinell brevez</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">Aotren an tapadennoù-skramm er merdeiñ prevez</string>
+  <string name="preferences_allow_screenshots_in_private_mode">Aotren an tapadennoù-skramm er merdeiñ prevez</string>
   <!-- Will inform the user of the risk of activating Allow screenshots in private browsing option -->
-  <string name="preferences_screenshots_in_private_mode_disclaimer" tools:ignore="UnusedResources" moz:removedIn="144">Mard eo aotreet, an ivinelloù prevez a vo hewel pa vo meur a arload digor</string>
+  <string name="preferences_screenshots_in_private_mode_disclaimer">Mard eo aotreet, an ivinelloù prevez a vo hewel pa vo meur a arload digor</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">Ouzhpennañ ur verradenn merdeiñ prevez</string>
   <!-- Preference for enabling "HTTPS-Only" mode -->
@@ -1223,7 +1223,7 @@
   <!-- Content description for tabs tray multiselect menu -->
   <string name="tab_tray_multiselect_menu_content_description">Lañser an ivinelloù diuzet</string>
   <!-- Title text displayed for a homepage tab in the tabs tray. -->
-  <string name="tab_tray_homepage_tab">Degemer</string>
+  <string name="tab_tray_homepage_tab" tools:ignore="UnusedResources" moz:removedIn="145">Degemer</string>
   <!-- Content description (not visible, for screen readers etc.): Removes tab from collection button. Removes the selected tab from collection when pressed -->
   <string name="remove_tab_from_collection">Dilemel an ivinell eus an dastumad</string>
   <!-- Text for button to enter multiselect mode in tabs tray -->
@@ -1259,9 +1259,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">Dilemel ar roll istor</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Roll istor dilamet</string>
+  <string name="history_delete_multiple_items_snackbar">Roll istor dilamet</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Dilamet %1$s</string>
+  <string name="history_delete_single_item_snackbar">Dilamet %1$s</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">Dilemel</string>
   <!--

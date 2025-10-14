@@ -2097,7 +2097,7 @@ export var Policies = {
     onBeforeAddons(manager, param) {
       setAndLockPref("network.http.http3.enable_kyber", param);
       setAndLockPref("security.tls.enable_kyber", param);
-      setAndLockPref("media.webrtc.enable_pq_dtls", param);
+      setAndLockPref("media.webrtc.enable_pq_hybrid_kex", param);
     },
   },
 
@@ -3219,7 +3219,7 @@ function installAddonFromURL(url, extensionID, addon) {
         lazy.log.error(
           `Installation failed - ${lazy.AddonManager.errorToString(
             install.error
-          )} - {url}`
+          )} - ${url}`
         );
       },
       /* eslint-disable-next-line no-shadow */

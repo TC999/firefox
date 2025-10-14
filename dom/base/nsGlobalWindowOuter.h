@@ -27,7 +27,6 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/EventListenerManager.h"
 #include "mozilla/FlushType.h"
-#include "mozilla/LinkedList.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/BrowsingContext.h"
@@ -844,7 +843,7 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
 
  protected:
   // Helper for getComputedStyle and getDefaultComputedStyle
-  already_AddRefed<nsICSSDeclaration> GetComputedStyleHelperOuter(
+  already_AddRefed<nsDOMCSSDeclaration> GetComputedStyleHelperOuter(
       mozilla::dom::Element& aElt, const nsAString& aPseudoElt,
       bool aDefaultStylesOnly, mozilla::ErrorResult& aRv);
 

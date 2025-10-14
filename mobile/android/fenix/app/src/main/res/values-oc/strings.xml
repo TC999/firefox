@@ -597,9 +597,9 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">Dobrir los ligams en navigacion privada</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">Permetre las capturas d’ecran en navegacion privada</string>
+  <string name="preferences_allow_screenshots_in_private_mode">Permetre las capturas d’ecran en navegacion privada</string>
   <!-- Will inform the user of the risk of activating Allow screenshots in private browsing option -->
-  <string name="preferences_screenshots_in_private_mode_disclaimer" tools:ignore="UnusedResources" moz:removedIn="144">Se permés, los onglets privats seràn tanben visibles quand mantunas aplicacions son dubèrtas</string>
+  <string name="preferences_screenshots_in_private_mode_disclaimer">Se permés, los onglets privats seràn tanben visibles quand mantunas aplicacions son dubèrtas</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">Ajustar un acorchi per la navegacion privada</string>
   <!-- Preference for enabling "HTTPS-Only" mode -->
@@ -1237,7 +1237,7 @@
   <!-- Content description for tabs tray multiselect menu -->
   <string name="tab_tray_multiselect_menu_content_description">Menú dels onglets seleccionats</string>
   <!-- Title text displayed for a homepage tab in the tabs tray. -->
-  <string name="tab_tray_homepage_tab">Pagina d\'acuèlh</string>
+  <string name="tab_tray_homepage_tab" tools:ignore="UnusedResources" moz:removedIn="145">Pagina d\'acuèlh</string>
   <!-- Content description (not visible, for screen readers etc.): Removes tab from collection button. Removes the selected tab from collection when pressed -->
   <string name="remove_tab_from_collection">Suprimir l’onglet de la colleccion</string>
   <!-- Text for button to enter multiselect mode in tabs tray -->
@@ -1273,9 +1273,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">Escafar l’istoric</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Istoric escafat</string>
+  <string name="history_delete_multiple_items_snackbar">Istoric escafat</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">%1$s suprimit</string>
+  <string name="history_delete_single_item_snackbar">%1$s suprimit</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">Suprimir</string>
   <!--

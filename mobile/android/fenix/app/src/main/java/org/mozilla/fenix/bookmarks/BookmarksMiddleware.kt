@@ -223,12 +223,10 @@ internal class BookmarksMiddleware(
                         val editState = preReductionState.bookmarksEditFolderState
                         getNavController().popBackStack()
                         scope.launch(ioDispatcher) {
-                            if (editState.folder.title.isNotEmpty()) {
-                                preReductionState.createBookmarkInfo()?.also {
-                                    val result = bookmarksStorage.updateNode(editState.folder.guid, it)
-                                    if (result.isFailure) {
-                                        reportResultGlobally(BookmarksGlobalResultReport.EditFolderFailed)
-                                    }
+                            preReductionState.createBookmarkInfo()?.also {
+                                val result = bookmarksStorage.updateNode(editState.folder.guid, it)
+                                if (result.isFailure) {
+                                    reportResultGlobally(BookmarksGlobalResultReport.EditFolderFailed)
                                 }
                             }
                             context.store.tryDispatchLoadFor(preReductionState.currentFolder.guid)
@@ -240,21 +238,20 @@ internal class BookmarksMiddleware(
                             exitBookmarks()
                         }
                         scope.launch(ioDispatcher) {
-                            val newBookmarkTitle = preReductionState.bookmarksEditBookmarkState.bookmark.title
-                            if (newBookmarkTitle.isNotEmpty()) {
-                                preReductionState.createBookmarkInfo()?.also {
-                                    val result = bookmarksStorage.updateNode(
-                                        guid = preReductionState.bookmarksEditBookmarkState.bookmark.guid,
-                                        info = it,
-                                    )
-                                    if (result.isFailure) {
-                                        reportResultGlobally(BookmarksGlobalResultReport.EditBookmarkFailed)
-                                    } else {
+                            preReductionState.createBookmarkInfo()?.also {
+                                val result = bookmarksStorage.updateNode(
+                                    guid = preReductionState.bookmarksEditBookmarkState.bookmark.guid,
+                                    info = it,
+                                )
+                                if (result.isFailure) {
+                                    reportResultGlobally(BookmarksGlobalResultReport.EditBookmarkFailed)
+                                } else {
+                                    if (preReductionState.bookmarksEditBookmarkState.edited) {
                                         lastSavedFolderCache.setGuid(it.parentGuid)
                                     }
                                 }
-                                context.store.tryDispatchLoadFor(preReductionState.currentFolder.guid)
                             }
+                            context.store.tryDispatchLoadFor(preReductionState.currentFolder.guid)
                         }
                     }
                     // list screen cases
@@ -373,6 +370,10 @@ internal class BookmarksMiddleware(
                         }
                     }
                 }
+            }
+            is SelectFolderAction.SortMenu -> scope.launch {
+                context.store.tryDispatchLoadFolders()
+                saveBookmarkSortOrder(context.store.state.sortOrder)
             }
             is InitEditLoaded,
             SnackbarAction.Undo,
@@ -706,7 +707,9 @@ private fun BookmarksState.createBookmarkInfo() = when {
         BookmarkInfo(
             parentGuid = state.parent.guid,
             position = bookmarkItems.firstOrNull { it.guid == state.folder.guid }?.position,
-            title = state.folder.title,
+            title = state.folder.title.ifEmpty {
+                bookmarkItems.firstOrNull { it.guid == state.folder.guid }?.title
+            },
             url = null,
         )
     }
@@ -714,7 +717,9 @@ private fun BookmarksState.createBookmarkInfo() = when {
         BookmarkInfo(
             parentGuid = state.folder.guid,
             position = bookmarkItems.firstOrNull { it.guid == state.bookmark.guid }?.position,
-            title = state.bookmark.title,
+            title = state.bookmark.title.ifEmpty {
+                bookmarkItems.firstOrNull { it.guid == state.bookmark.guid }?.title
+            },
             url = state.bookmark.url,
         )
     }

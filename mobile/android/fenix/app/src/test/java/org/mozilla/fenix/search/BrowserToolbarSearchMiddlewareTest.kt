@@ -5,6 +5,7 @@
 package org.mozilla.fenix.search
 
 import android.os.Looper
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle.State.RESUMED
 import androidx.lifecycle.LifecycleOwner
 import androidx.navigation.NavController
@@ -29,11 +30,13 @@ import mozilla.components.compose.browser.toolbar.concept.Action.SearchSelectorA
 import mozilla.components.compose.browser.toolbar.store.BrowserEditToolbarAction.SearchAborted
 import mozilla.components.compose.browser.toolbar.store.BrowserEditToolbarAction.SearchQueryUpdated
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction.CommitUrl
-import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction.ToggleEditMode
+import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction.EnterEditMode
+import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction.ExitEditMode
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarInteraction.BrowserToolbarEvent
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarStore
 import mozilla.components.compose.browser.toolbar.store.EnvironmentCleared
 import mozilla.components.compose.browser.toolbar.store.EnvironmentRehydrated
+import mozilla.components.concept.engine.EngineSession
 import mozilla.components.concept.toolbar.AutocompleteProvider
 import mozilla.components.support.test.ext.joinBlocking
 import mozilla.components.support.test.middleware.CaptureActionsMiddleware
@@ -45,6 +48,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -54,10 +58,13 @@ import org.mozilla.fenix.NavGraphDirections
 import org.mozilla.fenix.R
 import org.mozilla.fenix.browser.BrowserFragmentDirections
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode.Normal
+import org.mozilla.fenix.browser.browsingmode.BrowsingMode.Private
 import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
 import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.Components
 import org.mozilla.fenix.components.appstate.AppAction
+import org.mozilla.fenix.components.appstate.AppAction.QrScannerAction.QrScannerInputAvailable
+import org.mozilla.fenix.components.appstate.AppAction.QrScannerAction.QrScannerInputConsumed
 import org.mozilla.fenix.components.appstate.AppAction.QrScannerAction.QrScannerRequested
 import org.mozilla.fenix.components.appstate.AppAction.SearchAction.SearchEnded
 import org.mozilla.fenix.components.appstate.AppAction.SearchAction.SearchStarted
@@ -111,6 +118,15 @@ class BrowserToolbarSearchMiddlewareTest {
         every { navigate(any<Int>()) } just Runs
     }
     val browsingModeManager: BrowsingModeManager = mockk()
+    private lateinit var fragment: Fragment
+
+    @Before
+    fun setup() {
+        fragment = spyk(Fragment()).apply {
+            every { context } returns testContext
+        }
+        every { fragment.getViewLifecycleOwner() } returns lifecycleOwner
+    }
 
     @Test
     fun `GIVEN an environment was already set WHEN it is cleared THEN reset it to null`() {
@@ -128,7 +144,7 @@ class BrowserToolbarSearchMiddlewareTest {
     fun `WHEN the toolbar enters in edit mode THEN a new search selector button is added`() {
         val (_, store) = buildMiddlewareAndAddToStore()
 
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
 
         assertSearchSelectorEquals(
             expectedSearchSelector(),
@@ -140,7 +156,7 @@ class BrowserToolbarSearchMiddlewareTest {
     fun `WHEN the toolbar enters in edit mode with non-blank query THEN a clear button is shown`() {
         val (_, store) = buildMiddlewareAndAddToStore()
 
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
         store.dispatch(SearchQueryUpdated("test"))
 
         assertEquals(
@@ -153,7 +169,7 @@ class BrowserToolbarSearchMiddlewareTest {
     fun `WHEN the toolbar enters in edit mode with blank query THEN a qr scanner button is shown`() {
         val (_, store) = buildMiddlewareAndAddToStore()
 
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
         store.dispatch(SearchQueryUpdated(""))
 
         assertEquals(
@@ -166,7 +182,7 @@ class BrowserToolbarSearchMiddlewareTest {
     fun `WHEN the toolbar enters in edit mode with blank query AND user starts typing THEN qr button is replaced by clear button`() {
         val (_, store) = buildMiddlewareAndAddToStore()
 
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
         store.dispatch(SearchQueryUpdated(""))
 
         assertEquals(
@@ -186,7 +202,7 @@ class BrowserToolbarSearchMiddlewareTest {
     fun `WHEN the toolbar enters in edit mode with non-blank query AND the clear button is clicked THEN text is cleared and telemetry is recorded`() {
         val (_, store) = buildMiddlewareAndAddToStore()
         store.dispatch(SearchQueryUpdated("test"))
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
 
         val clearButton = store.state.editState.editActionsEnd.last() as ActionButtonRes
         assertEquals(expectedClearButton, clearButton)
@@ -203,7 +219,7 @@ class BrowserToolbarSearchMiddlewareTest {
                 fakeSearchState().customSearchEngines.first()
         }
         val (_, store) = buildMiddlewareAndAddToStore(appStore = appStore)
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
 
         val qrButton = store.state.editState.editActionsEnd.last() as ActionButtonRes
         assertEquals(expectedQrButton, qrButton)
@@ -222,7 +238,7 @@ class BrowserToolbarSearchMiddlewareTest {
         val middleware = spyk(buildMiddleware(appStore = appStore))
         every { middleware.isSpeechRecognitionAvailable() } returns true
         val store = buildStore(middleware)
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
 
         val voiceSearchButton = store.state.editState.editActionsEnd.last() as ActionButtonRes
         assertEquals(expectedVoiceSearchButton, voiceSearchButton)
@@ -247,7 +263,7 @@ class BrowserToolbarSearchMiddlewareTest {
         val appStore = AppStore(middlewares = listOf(captorMiddleware))
         val (_, store) = buildMiddlewareAndAddToStore(appStore = appStore)
         appStore.dispatch(SearchStarted())
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
         store.dispatch(SearchQueryUpdated("test"))
         assertTrue(store.state.isEditMode())
         assertTrue(appStore.state.searchState.isSearchActive)
@@ -270,7 +286,7 @@ class BrowserToolbarSearchMiddlewareTest {
     fun `GIVEN the search selector menu is open WHEN a menu item is clicked THEN update the selected search engine and rebuild the menu`() {
         val (_, store) = buildMiddlewareAndAddToStore()
         val newEngineSelection = fakeSearchState().searchEngineShortcuts.last()
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
         assertSearchSelectorEquals(
             expectedSearchSelector(),
             store.state.editState.editActionsStart[0] as SearchSelectorAction,
@@ -288,7 +304,7 @@ class BrowserToolbarSearchMiddlewareTest {
     fun `GIVEN the search selector menu is open while in display mode WHEN a menu item is clicked THEN enter edit mode`() {
         val (_, store) = buildMiddlewareAndAddToStore()
         val newEngineSelection = fakeSearchState().searchEngineShortcuts.last()
-        store.dispatch(ToggleEditMode(false))
+        store.dispatch(ExitEditMode)
         assertFalse(store.state.isEditMode())
 
         store.dispatch(SearchSelectorItemClicked(newEngineSelection))
@@ -307,7 +323,7 @@ class BrowserToolbarSearchMiddlewareTest {
         configureAutocompleteProvidersInComponents()
         val store = buildStore(middleware)
 
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
 
         assertEquals(
             listOf(
@@ -330,7 +346,7 @@ class BrowserToolbarSearchMiddlewareTest {
         configureAutocompleteProvidersInComponents()
         val (_, store) = buildMiddlewareAndAddToStore()
 
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
 
         assertEquals(
             listOf(
@@ -349,7 +365,7 @@ class BrowserToolbarSearchMiddlewareTest {
         configureAutocompleteProvidersInComponents()
         val (_, store) = buildMiddlewareAndAddToStore()
 
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
 
         assertEquals(
             listOf(
@@ -368,7 +384,7 @@ class BrowserToolbarSearchMiddlewareTest {
         configureAutocompleteProvidersInComponents()
         val (_, store) = buildMiddlewareAndAddToStore()
 
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
 
         assertEquals(
             listOf(components.core.domainsAutocompleteProvider),
@@ -467,7 +483,7 @@ class BrowserToolbarSearchMiddlewareTest {
         val store = buildStore(middleware)
 
         store.dispatch(SearchSelectorItemClicked(mockk(relaxed = true))).joinBlocking()
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
 
         assertEquals(
             emptyList<AutocompleteProvider>(),
@@ -481,7 +497,7 @@ class BrowserToolbarSearchMiddlewareTest {
     fun `WHEN the search engines are updated in BrowserStore THEN update the search selector and search providers`() {
         val browserStore = BrowserStore()
         val (_, store) = buildMiddlewareAndAddToStore(browserStore = browserStore)
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
         val newSearchEngines = fakeSearchState().applicationSearchEngines
 
         browserStore.dispatch(ApplicationSearchEnginesLoaded(newSearchEngines)).joinBlocking()
@@ -505,7 +521,7 @@ class BrowserToolbarSearchMiddlewareTest {
         )
         val browserStore = BrowserStore()
         val (_, store) = buildMiddlewareAndAddToStore(appStore, browserStore)
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
         val newSearchEngines = fakeSearchState().applicationSearchEngines
 
         browserStore.dispatch(ApplicationSearchEnginesLoaded(newSearchEngines)).joinBlocking()
@@ -779,9 +795,9 @@ class BrowserToolbarSearchMiddlewareTest {
         val middleware = spyk(buildMiddleware(appStore = appStore))
         every { middleware.isSpeechRecognitionAvailable() } returns true
         val store = buildStore(middleware)
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
 
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
 
         val actions = store.state.editState.editActionsEnd
         assertEquals(2, actions.size)
@@ -794,13 +810,120 @@ class BrowserToolbarSearchMiddlewareTest {
         val middleware = spyk(buildMiddleware(appStore = appStore))
         every { middleware.isSpeechRecognitionAvailable() } returns false
         val store = buildStore(middleware)
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
         store.dispatch(SearchQueryUpdated(""))
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
 
         val actions = store.state.editState.editActionsEnd
         assertTrue(actions.size == 1)
         assertEquals(expectedQrButton, actions.last())
+    }
+
+    @Test
+    fun `GIVEN QR scan while in normal browsing mode WHEN receiving a result THEN open it as a new normal tab`() {
+        val appStoreActionsCaptor = CaptureActionsMiddleware<AppState, AppAction>()
+        val appStore = AppStore(middlewares = listOf(appStoreActionsCaptor))
+        val browserUseCases: FenixBrowserUseCases = mockk(relaxed = true)
+        every { components.useCases.fenixBrowserUseCases } returns browserUseCases
+        val browsingModeManager: BrowsingModeManager = mockk(relaxed = true) {
+            every { mode } returns Normal
+        }
+        val (_, store) = buildMiddlewareAndAddToStore(
+            appStore = appStore,
+            components = components,
+            browsingModeManager = browsingModeManager,
+        )
+        store.dispatch(EnterEditMode)
+        val qrScannerButton = store.state.editState.editActionsEnd.last() as ActionButtonRes
+
+        store.dispatch(qrScannerButton.onClick as BrowserToolbarEvent).joinBlocking()
+        appStore.dispatch(QrScannerInputAvailable("mozilla.test")).joinBlocking()
+        shadowOf(Looper.getMainLooper()).idle() // wait for observing and processing qr scan result
+
+        assertEquals("mozilla.test", store.state.editState.query)
+        appStoreActionsCaptor.assertLastAction(QrScannerInputConsumed::class)
+        verify {
+            browserUseCases.loadUrlOrSearch(
+                searchTermOrURL = "mozilla.test",
+                newTab = true,
+                flags = EngineSession.LoadUrlFlags.external(),
+                private = false,
+            )
+        }
+        verify { navController.navigate(R.id.action_global_browser) }
+    }
+
+    @Test
+    fun `GIVEN QR scan while in private browsing mode WHEN receiving a result THEN open it as a new private tab`() {
+        val appStoreActionsCaptor = CaptureActionsMiddleware<AppState, AppAction>()
+        val appStore = AppStore(middlewares = listOf(appStoreActionsCaptor))
+        val browserUseCases: FenixBrowserUseCases = mockk(relaxed = true)
+        every { components.useCases.fenixBrowserUseCases } returns browserUseCases
+        val browsingModeManager: BrowsingModeManager = mockk(relaxed = true) {
+            every { mode } returns Private
+        }
+        val (_, store) = buildMiddlewareAndAddToStore(
+            appStore = appStore,
+            components = components,
+            browsingModeManager = browsingModeManager,
+        )
+        store.dispatch(EnterEditMode)
+        val qrScannerButton = store.state.editState.editActionsEnd.last() as ActionButtonRes
+
+        store.dispatch(qrScannerButton.onClick as BrowserToolbarEvent).joinBlocking()
+        appStore.dispatch(QrScannerInputAvailable("test.mozilla")).joinBlocking()
+        shadowOf(Looper.getMainLooper()).idle() // wait for observing and processing qr scan result
+
+        assertEquals("test.mozilla", store.state.editState.query)
+        appStoreActionsCaptor.assertLastAction(QrScannerInputConsumed::class)
+        verify {
+            browserUseCases.loadUrlOrSearch(
+                searchTermOrURL = "test.mozilla",
+                newTab = true,
+                flags = EngineSession.LoadUrlFlags.external(),
+                private = true,
+            )
+        }
+        verify { navController.navigate(R.id.action_global_browser) }
+    }
+
+    @Test
+    fun `GIVEN QR scan starteds from browser WHEN receiving a result THEN open it in the same tab`() {
+        val appStoreActionsCaptor = CaptureActionsMiddleware<AppState, AppAction>()
+        val appStore = AppStore(
+            initialState = AppState(
+                searchState = AppSearchState.EMPTY.copy(sourceTabId = "test"),
+            ),
+            middlewares = listOf(appStoreActionsCaptor),
+        )
+        val browserUseCases: FenixBrowserUseCases = mockk(relaxed = true)
+        every { components.useCases.fenixBrowserUseCases } returns browserUseCases
+        val browsingModeManager: BrowsingModeManager = mockk(relaxed = true) {
+            every { mode } returns Normal
+        }
+        val (_, store) = buildMiddlewareAndAddToStore(
+            appStore = appStore,
+            components = components,
+            browsingModeManager = browsingModeManager,
+        )
+        store.dispatch(EnterEditMode)
+        val qrScannerButton = store.state.editState.editActionsEnd.last() as ActionButtonRes
+
+        store.dispatch(qrScannerButton.onClick as BrowserToolbarEvent).joinBlocking()
+        appStore.dispatch(QrScannerInputAvailable("test.com")).joinBlocking()
+        shadowOf(Looper.getMainLooper()).idle() // wait for observing and processing qr scan result
+
+        assertEquals("test.com", store.state.editState.query)
+        appStoreActionsCaptor.assertLastAction(QrScannerInputConsumed::class)
+        verify {
+            browserUseCases.loadUrlOrSearch(
+                searchTermOrURL = "test.com",
+                newTab = false,
+                flags = EngineSession.LoadUrlFlags.external(),
+                private = false,
+            )
+        }
+        verify { navController.navigate(R.id.action_global_browser) }
     }
 
     @Test
@@ -812,7 +935,7 @@ class BrowserToolbarSearchMiddlewareTest {
         val middleware = spyk(buildMiddleware(appStore = appStore))
         every { middleware.isSpeechRecognitionAvailable() } returns true
         val store = buildStore(middleware)
-        store.dispatch(ToggleEditMode(true))
+        store.dispatch(EnterEditMode)
         val voiceAction = store.state.editState.editActionsEnd.first() as ActionButtonRes
 
         store.dispatch(voiceAction.onClick as BrowserToolbarEvent)
@@ -854,19 +977,17 @@ class BrowserToolbarSearchMiddlewareTest {
         browserStore: BrowserStore = this.browserStore,
         components: Components = this.components,
         settings: Settings = this.settings,
-        lifecycleOwner: LifecycleOwner = this.lifecycleOwner,
         navController: NavController = this.navController,
         browsingModeManager: BrowsingModeManager = this.browsingModeManager,
     ): Pair<BrowserToolbarSearchMiddleware, BrowserToolbarStore> {
         val middleware = buildMiddleware(appStore, browserStore, components, settings)
-        val store = buildStore(middleware, lifecycleOwner, navController, browsingModeManager)
+        val store = buildStore(middleware, navController, browsingModeManager)
 
         return middleware to store
     }
 
     private fun buildStore(
         middleware: BrowserToolbarSearchMiddleware = buildMiddleware(),
-        lifecycleOwner: LifecycleOwner = this.lifecycleOwner,
         navController: NavController = this.navController,
         browsingModeManager: BrowsingModeManager = this.browsingModeManager,
     ) = BrowserToolbarStore(
@@ -875,7 +996,7 @@ class BrowserToolbarSearchMiddlewareTest {
             it.dispatch(
                 EnvironmentRehydrated(
                     BrowserToolbarEnvironment(
-                        testContext, lifecycleOwner, navController, browsingModeManager,
+                        testContext, fragment, navController, browsingModeManager,
                     ),
                 ),
             )

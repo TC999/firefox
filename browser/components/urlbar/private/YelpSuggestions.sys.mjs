@@ -204,7 +204,7 @@ export class YelpSuggestions extends SuggestProvider {
       bottomTextL10n: { id: "firefox-suggest-yelp-bottom-text" },
       iconBlob: suggestion.icon_blob,
     };
-    let highlights = {};
+    let payloadHighlights = {};
 
     if (
       lazy.UrlbarPrefs.get("yelpServiceResultDistinction") &&
@@ -221,24 +221,24 @@ export class YelpSuggestions extends SuggestProvider {
       };
     } else {
       payload.title = title;
-      highlights.title = titleHighlights;
+      payloadHighlights.title = titleHighlights;
     }
 
-    return Object.assign(
-      new lazy.UrlbarResult(
-        lazy.UrlbarUtils.RESULT_TYPE.URL,
-        lazy.UrlbarUtils.RESULT_SOURCE.SEARCH,
-        payload,
-        highlights
-      ),
-      resultProperties
-    );
+    return new lazy.UrlbarResult({
+      type: lazy.UrlbarUtils.RESULT_TYPE.URL,
+      source: lazy.UrlbarUtils.RESULT_SOURCE.SEARCH,
+      ...resultProperties,
+      payload,
+      payloadHighlights,
+    });
   }
 
   /**
    * @typedef {object} L10nItem
    * @property {Values<RESULT_MENU_COMMAND>} [name]
+   *   The name of the command.
    * @property {{id: string}} [l10n]
+   *   The id of the l10n string to use for the translation.
    */
 
   /**

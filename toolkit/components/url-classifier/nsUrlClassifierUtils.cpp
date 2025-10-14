@@ -342,8 +342,25 @@ static const struct {
   const char* mLocalListName;
   const char* mServerListName;
 } THREAT_NAME_CONV_TABLE_V5[] = {
-    {"goog-malware-proto", "mw-4b"},           {"googpub-phish-proto", "se-4b"},
-    {"goog-unwanted-proto", "uws-4b"},         {"goog-harmful-proto", "pha-4b"},
+    {"goog-malware-proto", "mw-4b"},
+// Unlike the SafeBrowsing V4, the SafeBrowsing V5 only has one social
+// engineering list. We need to map the goog-phish-proto and googpub-phish-proto
+// to the V5 social engineering list name according to the official build flag
+// because the official build uses goog-phish-proto. This is also needed for
+// the backward compatibility.
+#ifdef MOZILLA_OFFICIAL
+    {"goog-phish-proto", "se-4b"},
+#else
+    {"googpub-phish-proto", "se-4b"},
+#endif
+// Map the goog-unwanted-proto to different V5 list name on Android because
+// SafeBrowsing V5 provides a different unwanted list for Android.
+#ifndef MOZ_WIDGET_ANDROID
+    {"goog-unwanted-proto", "uws-4b"},
+#else
+    {"goog-unwanted-proto", "uwsa-4b"},
+#endif
+    {"goog-harmful-proto", "pha-4b"},
     {"test-google5-malware-proto", "test-4b"},
 };
 
@@ -426,8 +443,9 @@ nsUrlClassifierUtils::GetTelemetryProvider(const nsACString& aTableName,
   // Exceptionlist known providers to avoid reporting on private ones.
   // An empty provider is treated as "other"
   if (!"mozilla"_ns.Equals(aProvider) && !"google"_ns.Equals(aProvider) &&
-      !"google4"_ns.Equals(aProvider) && !"baidu"_ns.Equals(aProvider) &&
-      !"mozcn"_ns.Equals(aProvider) && !"yandex"_ns.Equals(aProvider) &&
+      !"google4"_ns.Equals(aProvider) && !"google5"_ns.Equals(aProvider) &&
+      !"baidu"_ns.Equals(aProvider) && !"mozcn"_ns.Equals(aProvider) &&
+      !"yandex"_ns.Equals(aProvider) &&
       !nsLiteralCString(TESTING_TABLE_PROVIDER_NAME).Equals(aProvider)) {
     aProvider.AssignLiteral("other");
   }

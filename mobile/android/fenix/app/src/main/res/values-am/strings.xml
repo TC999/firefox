@@ -614,17 +614,16 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">አገናኞችን በግል ትር ውስጥ ክፈት</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">በግል አሰሳ ውስጥ ቅጽበታዊ ገጽ እይታዎችን ፍቀድ</string>
+  <string name="preferences_allow_screenshots_in_private_mode">በግል አሰሳ ውስጥ ቅጽበታዊ ገጽ እይታዎችን ፍቀድ</string>
   <!-- Will inform the user of the risk of activating Allow screenshots in private browsing option -->
-  <string name="preferences_screenshots_in_private_mode_disclaimer" tools:ignore="UnusedResources" moz:removedIn="144">ከተፈቀደ፣ ብዙ መተግበሪያዎች ሲከፈቱ የግል ትሮችም ይታያሉ</string>
+  <string name="preferences_screenshots_in_private_mode_disclaimer">ከተፈቀደ፣ ብዙ መተግበሪያዎች ሲከፈቱ የግል ትሮችም ይታያሉ</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">የግል አሰሳ አቋራጭ ያክሉ</string>
   <!-- Preference for enabling "HTTPS-Only" mode -->
   <string name="preferences_https_only_title">HTTPS-ብቻ ሁነታ</string>
   <!-- Preference title for using the screen lock to hide tabs in private browsing -->
   <string name="preferences_pbm_lock_screen_title">በግል አሰሳ ውስጥ ትሮችን ለመደበቅ የማያ ገጽ መቆለፊያን ይጠቀሙ</string>
-  <!-- Informs the user how to access the tabs when "Use screen lock to hide tabs in private browsing" is enabled -->
-  <string name="preferences_pbm_lock_screen_summary_2">በጣት አሻራ፣ ፒን ወይም በመልክ መክፈቻ ትሮችን ይመልከቱ።</string>
+  <string name="preferences_pbm_lock_screen_summary_2" tools:ignore="UnusedResources" moz:removedIn="144">በጣት አሻራ፣ ፒን ወይም በመልክ መክፈቻ ትሮችን ይመልከቱ።</string>
   <!-- Label for cookie banner section in quick settings panel. -->
   <string name="cookie_banner_blocker">የኩኪ ባነር ማገጃ</string>
   <!-- Preference for removing cookie/consent banners from sites automatically in private mode. See reduce_cookie_banner_summary for additional context. -->
@@ -1304,7 +1303,7 @@
   <!-- Content description for tabs tray multiselect menu -->
   <string name="tab_tray_multiselect_menu_content_description">የተመረጡ የትሮች ምናሌ</string>
   <!-- Title text displayed for a homepage tab in the tabs tray. -->
-  <string name="tab_tray_homepage_tab">መነሻ ገጽ</string>
+  <string name="tab_tray_homepage_tab" tools:ignore="UnusedResources" moz:removedIn="145">መነሻ ገጽ</string>
   <!-- Content description (not visible, for screen readers etc.): Removes tab from collection button. Removes the selected tab from collection when pressed -->
   <string name="remove_tab_from_collection">ትርን ከስብስብ ያስወግዱ</string>
   <!-- Text for button to enter multiselect mode in tabs tray -->
@@ -1340,9 +1339,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">ታሪክ ሰርዝ</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">ታሪክ ተሰርዟል</string>
+  <string name="history_delete_multiple_items_snackbar">ታሪክ ተሰርዟል</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">%1$s ተሰርዟል</string>
+  <string name="history_delete_single_item_snackbar">%1$s ተሰርዟል</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">ሰርዝ</string>
   <!--

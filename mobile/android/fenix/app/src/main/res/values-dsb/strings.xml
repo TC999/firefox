@@ -84,6 +84,11 @@
   -->
   <string name="felt_privacy_info_card_subtitle_2">%1$s waše cookieje, historiju a sedłowe daty wulašujo, gaž wšykne swóje priwatne rejtariki zacynjaśo. %2$s</string>
   <!--
+    Description of private browsing mode displayed to users on the homepage when they enable private mode.
+    %1$s is the name of the app (for example "Firefox").
+  -->
+  <string name="felt_privacy_info_card_subtitle_3">%1$s waše cookieje, historiju a sedłowe daty wulašujo, gaž wšykne swóje priwatne rejtariki zacynjaśo.</string>
+  <!--
     Clickable portion of the explanation for private browsing that links the user to our
     about privacy page.
     This string is used in felt_privacy_info_card_subtitle as the text for the link.
@@ -588,6 +593,14 @@
   <string name="onboarding_redesign_set_default_browser_title">Wobstarajśo se awtomatiski pśeslědowański \u0020šćit pó standarźe</string>
   <!-- Set to default browser onboarding redesign body. -->
   <string name="onboarding_redesign_set_default_browser_body">Jaden dotyknjenje pomaga, pśedewześam zawoboraś, waše kliknjenja wusnuchliś.</string>
+  <!-- Sync onboarding redesign title. 'Firefox' is intentionally hardcoded. -->
+  <string name="onboarding_redesign_sync_title" tools:ignore="BrandUsage">Synchronizěrujśo wšuźi, źož Firefox wužywaśo</string>
+  <!-- Sync onboarding redesign body. -->
+  <string name="onboarding_redesign_sync_body">Wobstarajśo se cytańske znamjenja, rejtariki a gronidła na kuždem rěźe. Wšykne ze skoděrowanim šćitane.</string>
+  <!-- Sync onboarding redesign positive button text. -->
+  <string name="onboarding_redesign_sync_positive_button">Synchronizaciju zachopiś</string>
+  <!-- Sync onboarding redesign negative button text. -->
+  <string name="onboarding_redesign_sync_negative_button">Nic něnto</string>
   <!-- Marketing onboarding page title. 'Firefox' is intentionally hardcoded. -->
   <string name="onboarding_marketing_title" tools:ignore="BrandUsage,UnusedResources">Pomgajśo nam, Firefox rosć daś</string>
   <!-- Marketing onboarding page body. 'Firefox' is intentionally hardcoded. -->
@@ -711,9 +724,9 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">Wótkaze w priwatnem rejtariku wócyniś</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">Fota wobrazowki w priwatnem modusu dowóliś</string>
+  <string name="preferences_allow_screenshots_in_private_mode">Fota wobrazowki w priwatnem modusu dowóliś</string>
   <!-- Will inform the user of the risk of activating Allow screenshots in private browsing option -->
-  <string name="preferences_screenshots_in_private_mode_disclaimer" tools:ignore="UnusedResources" moz:removedIn="144">Jolic dowólone, budu priwatne rejtariki teke widobne, gaž někotare nałoženja su wócynjone</string>
+  <string name="preferences_screenshots_in_private_mode_disclaimer">Jolic dowólone, budu priwatne rejtariki teke widobne, gaž někotare nałoženja su wócynjone</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">Skrotconku za priwatny modus pśidaś</string>
   <!-- Preference for enabling "HTTPS-Only" mode -->
@@ -721,7 +734,8 @@
   <!-- Preference title for using the screen lock to hide tabs in private browsing -->
   <string name="preferences_pbm_lock_screen_title">Wužywajśo zawěru wobrazowki, aby rejtariki w priwatnem modusu schował</string>
   <!-- Informs the user how to access the tabs when "Use screen lock to hide tabs in private browsing" is enabled -->
-  <string name="preferences_pbm_lock_screen_summary_2">Pokažćo rejtariki ze swójim palcowym wótśišćom, PIN abo woblicowym wótwórjenim.</string>
+  <string name="preferences_pbm_lock_screen_summary_3">Woglědajśo se rejtariki ze swójim palcowym wótśišćom, PIN abo wótwórjanim pśez woblico. Gaž to zmóžnjaśo, se fotam wobrazowki a źělenjeju zajźujo.</string>
+  <string name="preferences_pbm_lock_screen_summary_2" tools:ignore="UnusedResources" moz:removedIn="144">Pokažćo rejtariki ze swójim palcowym wótśišćom, PIN abo woblicowym wótwórjenim.</string>
   <!-- Label for cookie banner section in quick settings panel. -->
   <string name="cookie_banner_blocker">Blokěrowak cookiejowych chórgojow</string>
   <!-- Preference for removing cookie/consent banners from sites automatically in private mode. See reduce_cookie_banner_summary for additional context. -->
@@ -1472,7 +1486,9 @@
   <!-- Content description for tabs tray multiselect menu -->
   <string name="tab_tray_multiselect_menu_content_description">Meni wubranych rejtarikow</string>
   <!-- Title text displayed for a homepage tab in the tabs tray. -->
-  <string name="tab_tray_homepage_tab">Startowy bok</string>
+  <string name="tab_tray_homepage_tab" tools:ignore="UnusedResources" moz:removedIn="145">Startowy bok</string>
+  <!-- Title text displayed for a homepage tab in the tabs tray. %s is a placeholder that will be replaced by app name. -->
+  <string name="tab_tray_homepage_tab_2">startowy bok %s</string>
   <!-- Content description (not visible, for screen readers etc.): Removes tab from collection button. Removes the selected tab from collection when pressed -->
   <string name="remove_tab_from_collection">Rejtaŕk ze zběrki wótwónoźeś</string>
   <!-- Text for button to enter multiselect mode in tabs tray -->
@@ -1508,9 +1524,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">Historiju wulašowaś</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Historija jo se wulašowała</string>
+  <string name="history_delete_multiple_items_snackbar">Historija jo se wulašowała</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">%1$s jo se wulašował</string>
+  <string name="history_delete_single_item_snackbar">%1$s jo se wulašował</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">Lašowaś</string>
   <!--
@@ -1715,6 +1731,10 @@
   <string name="webcompat_reporter_dismiss_success_snackbar_text" moz:removedIn="144" tools:ignore="UnusedResources">Zacyniś</string>
   <!-- Placeholder text for the description field to prompt the user on what they should type. -->
   <string name="webcompat_reporter_problem_description_placeholder_text">Co jo se stało? Co měło se staś?</string>
+  <!-- Label of the checkbox on the “Report broken site” screen for sending URLS blocked by Enhanced Tracking Protection. -->
+  <string name="webcompat_reporter_etp_checkbox_text">URL pósłaś, kótarež su se blokěrowali pśez pśeslědowański šćit</string>
+  <!-- Description text for the checkbox on the “Report broken site” screen for sending URLS blocked by Enhanced Tracking Protection. It informs the user when checked, the report will include the list of URLs that were blocked by Enhanced Tracking Protection on the current page. -->
+  <string name="webcompat_reporter_etp_checkbox_description">Pólěpšony pśeslědowański šćit móžo pśeslědowaki a skripty blokěrowaś, aby někotare websedła korektnje funkcioněrowali.</string>
   <!--
     These reason strings are dropdown options on a WebCompat reporter form, indicating what is broken on the site.
 
@@ -2695,6 +2715,10 @@
   <string name="saved_login_hide_password">Gronidła schowaś</string>
   <!-- Message displayed in biometric prompt displayed for authentication before allowing users to view their passwords -->
   <string name="logins_biometric_prompt_message_2">Za zwobraznjowanje wašych skłaźonych kreditowych gronidłow wótwóriś</string>
+  <!-- Button for unlocking logins on the biometric lock screen -->
+  <string name="logins_biometric_unlock_button">Wótwóriś</string>
+  <!-- Button for leaving logins on the biometric lock screen -->
+  <string name="logins_biometric_leave_button">Spušćiś</string>
   <!-- Title of warning dialog if users have no device authentication set up -->
   <string name="logins_warning_dialog_title_2">Zawěsććo swóje skłaźone gronidła</string>
   <!-- Message of warning dialog if users have no device authentication set up -->
@@ -3588,6 +3612,16 @@
   <string name="debug_drawer_add_new_address">Nowu adresu za wubranu narodnu šemu pśidaś</string>
   <!-- The title of the button for deleting in the debug drawer all addresses. -->
   <string name="debug_drawer_delete_all_addresses">Wšykne adrese lašowaś</string>
+  <!--
+    Debug drawer credit cards
+
+    The title of the credit cards feature in the Debug Drawer.
+  -->
+  <string name="debug_drawer_credit_cards_title">Kreditowe kórty</string>
+  <!-- The title of the button in the debug drawer for adding a new credit card -->
+  <string name="debug_drawer_add_new_credit_card">Nowu kreditowu kórtu pśidaś</string>
+  <!-- The title of the button for deleting in the debug drawer all addresses. -->
+  <string name="debug_drawer_delete_all_credit_cards">Wšykne kreditowe kórty lašowaś</string>
   <!--
     Debug drawer "contextual feature recommendation" (CFR) tools
 

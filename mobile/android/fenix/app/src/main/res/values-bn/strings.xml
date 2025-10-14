@@ -171,7 +171,7 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">লিঙ্ক ব্যক্তিগত ট্যাবে খুলুন</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">ব্যক্তিগত ব্রাউজিং এ স্ক্রিনশটের অনুমতি দিন</string>
+  <string name="preferences_allow_screenshots_in_private_mode">ব্যক্তিগত ব্রাউজিং এ স্ক্রিনশটের অনুমতি দিন</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">ব্যক্তিগত ব্রাউজিং শর্টকাটে যুক্ত করুন</string>
   <!-- Preference for accessibility -->
@@ -389,9 +389,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">ইতিহাস মুছুন</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">ইতিহাস মুছে ফেলা হয়েছে</string>
+  <string name="history_delete_multiple_items_snackbar">ইতিহাস মুছে ফেলা হয়েছে</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">%1$s মুছে ফেলা হয়েছে</string>
+  <string name="history_delete_single_item_snackbar">%1$s মুছে ফেলা হয়েছে</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">মুছুন</string>
   <!--

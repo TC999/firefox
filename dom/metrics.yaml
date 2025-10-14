@@ -226,6 +226,15 @@ perf:
         description: |
           ETLD+1 domain of website visited.
         type: string
+      channel:
+        description: |
+          Release channel of the build. Either "nightly" or "release" only.
+        type: string
+      app_version_major:
+        description: |
+          Major version number.
+        type: quantity
+        unit: integer
     send_in_pings:
       - pageload-base-domain
 
@@ -372,6 +381,38 @@ perf:
       - acreskey@mozilla.com
     expires: never
     telemetry_mirror: DNS_PERF_FIRST_BYTE_MS
+
+  cold_applink_process_launch_to_load_uri:
+    type: timing_distribution
+    time_unit: millisecond
+    description: |
+      The duration from cold process launch to load URI for an android cold applink.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1990344
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1990344
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - perf-telemetry-alerts@mozilla.com
+      - android-probes@mozilla.com
+    expires: never
+
+  cold_applink_main_to_load_uri:
+    type: timing_distribution
+    time_unit: millisecond
+    description: |
+      The duration from StartupTimeline::MAIN to load URI for an android cold applink.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1991160
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1991160
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - perf-telemetry-alerts@mozilla.com
+      - android-probes@mozilla.com
+    expires: never
 
 performance.pageload:
   load_time:

@@ -524,6 +524,9 @@ task-priority:
 
 taskgraph:
     register: gecko_taskgraph:register
+    repositories:
+        gecko:
+            name: 'Mozilla Firefox'
 
 workers:
     aliases:
@@ -598,9 +601,13 @@ workers:
             implementation: beetmover
             os: linux
             worker-type:
-                by-release-level:
-                    production: '{trust-domain}-3-beetmover'
-                    staging: '{trust-domain}-1-beetmover'
+                by-project:
+                    # Autoland needs level 3 for integration beetmover tasks
+                    autoland: '{trust-domain}-3-beetmover'
+                    default:
+                        by-release-level:
+                            production: '{trust-domain}-3-beetmover'
+                            staging: '{trust-domain}-1-beetmover'
         beetmover-android:
             provisioner: scriptworker-k8s
             implementation: scriptworker-beetmover
@@ -752,11 +759,6 @@ workers:
             implementation: generic-worker
             os: linux
             worker-type: 't-linux-xlarge-2204-wayland'
-        t-linux-wayland-vm:
-            provisioner: '{trust-domain}-t'
-            implementation: generic-worker
-            os: linux
-            worker-type: 't-linux-vm-2204-wayland'
         t-linux-2204-wayland-snap:
             provisioner: '{trust-domain}-t'
             implementation: generic-worker
@@ -828,7 +830,7 @@ workers:
             implementation: generic-worker
             os: windows
             worker-type: '{alias}'
-        win11-64-24h2(|-gpu|-source|-large):
+        win11-64-24h2(|-gpu|-source|-large|-webgpu):
             provisioner: 'gecko-t'
             implementation: generic-worker
             os: windows
@@ -963,14 +965,14 @@ mac-signing:
                       - "/"  # The .app
 
 expiration-policy:
-    by-project:
-        try:
+    by-level:
+        '1':
             default: 28 days
             shortest: 7 days
             short: 14 days
             medium: 28 days
             long: 28 days
-        autoland:
+        '3':
             default: 1 year
             shortest: 14 days
             short: 3 months

@@ -123,8 +123,9 @@ export class UrlbarProviderTabToSearch extends UrlbarProvider {
    * with this provider, to save on resources.
    *
    * @param {UrlbarQueryContext} queryContext The query context object
+   * @param {UrlbarController} controller The current controller.
    */
-  async isActive(queryContext) {
+  async isActive(queryContext, controller) {
     return (
       queryContext.searchString &&
       queryContext.tokens.length == 1 &&
@@ -133,8 +134,8 @@ export class UrlbarProviderTabToSearch extends UrlbarProvider {
       !(
         (await this.queryInstance
           .getProvider(lazy.UrlbarProviderGlobalActions.name)
-          ?.isActive()) &&
-        lazy.ActionsProviderContextualSearch.isActive(queryContext)
+          ?.isActive(queryContext, controller)) &&
+        lazy.ActionsProviderContextualSearch.isActive(queryContext, controller)
       )
     );
   }
@@ -360,27 +361,27 @@ export class UrlbarProviderTabToSearch extends UrlbarProvider {
 }
 
 function makeOnboardingResult(engine, satisfiesAutofillThreshold = false) {
-  let result = new lazy.UrlbarResult(
-    UrlbarUtils.RESULT_TYPE.DYNAMIC,
-    UrlbarUtils.RESULT_SOURCE.SEARCH,
-    {
+  return new lazy.UrlbarResult({
+    type: UrlbarUtils.RESULT_TYPE.DYNAMIC,
+    source: UrlbarUtils.RESULT_SOURCE.SEARCH,
+    resultSpan: 2,
+    suggestedIndex: 1,
+    payload: {
       engine: engine.name,
       searchUrlDomainWithoutSuffix: searchUrlDomainWithoutSuffix(engine),
       providesSearchMode: true,
       icon: UrlbarUtils.ICON.SEARCH_GLASS,
       dynamicType: DYNAMIC_RESULT_TYPE,
       satisfiesAutofillThreshold,
-    }
-  );
-  result.resultSpan = 2;
-  result.suggestedIndex = 1;
-  return result;
+    },
+  });
 }
 
 function makeResult(context, engine, satisfiesAutofillThreshold = false) {
-  let result = new lazy.UrlbarResult(
-    UrlbarUtils.RESULT_TYPE.SEARCH,
-    UrlbarUtils.RESULT_SOURCE.SEARCH,
+  return new lazy.UrlbarResult({
+    type: UrlbarUtils.RESULT_TYPE.SEARCH,
+    source: UrlbarUtils.RESULT_SOURCE.SEARCH,
+    suggestedIndex: 1,
     ...lazy.UrlbarResult.payloadAndSimpleHighlights(context.tokens, {
       engine: engine.name,
       isGeneralPurposeEngine: engine.isGeneralPurposeEngine,
@@ -389,10 +390,8 @@ function makeResult(context, engine, satisfiesAutofillThreshold = false) {
       icon: UrlbarUtils.ICON.SEARCH_GLASS,
       query: "",
       satisfiesAutofillThreshold,
-    })
-  );
-  result.suggestedIndex = 1;
-  return result;
+    }),
+  });
 }
 
 function searchUrlDomainWithoutSuffix(engine) {

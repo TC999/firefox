@@ -72,6 +72,7 @@
 #include "mozilla/dom/Navigation.h"
 #include "mozilla/dom/NavigationBinding.h"
 #include "mozilla/dom/NavigationHistoryEntry.h"
+#include "mozilla/dom/NavigationUtils.h"
 #include "mozilla/dom/PerformanceNavigation.h"
 #include "mozilla/dom/PermissionMessageUtils.h"
 #include "mozilla/dom/PolicyContainer.h"
@@ -289,7 +290,7 @@ static mozilla::LazyLogModule gDocShellAndDOMWindowLeakLogging(
 #endif
 static mozilla::LazyLogModule gDocShellLeakLog("nsDocShellLeak");
 extern mozilla::LazyLogModule gPageCacheLog;
-extern mozilla::LazyLogModule gNavigationLog;
+extern mozilla::LazyLogModule gNavigationAPILog;
 mozilla::LazyLogModule gSHLog("SessionHistory");
 extern mozilla::LazyLogModule gSHIPBFCacheLog;
 
@@ -981,7 +982,8 @@ bool nsDocShell::MaybeHandleSubframeHistory(
   nsCOMPtr<nsIDocShell> parentDS(do_QueryInterface(parentAsItem));
 
   if (!parentDS || parentDS == static_cast<nsIDocShell*>(this)) {
-    if (mBrowsingContext && mBrowsingContext->IsTop()) {
+    if (mBrowsingContext && mBrowsingContext->IsTop() &&
+        !aLoadState->HistoryBehavior()) {
       // This is the root docshell. If we got here while
       // executing an onLoad Handler,this load will not go
       // into session history.
@@ -1137,7 +1139,7 @@ bool nsDocShell::MaybeHandleSubframeHistory(
   if (mCurrentURI &&
       (!NS_IsAboutBlank(mCurrentURI) || currentChildEntry || mLoadingEntry ||
        mActiveEntry) &&
-      !aLoadState->ShouldNotForceReplaceInOnLoad()) {
+      !aLoadState->HistoryBehavior()) {
     // This is a pre-existing subframe. If
     // 1. The load of this frame was not originally initiated by session
     //    history directly (i.e. (!shEntry) condition succeeded, but it can
@@ -3970,8 +3972,7 @@ nsresult nsDocShell::ReloadNavigable(
     if (navigation &&
         !navigation->FirePushReplaceReloadNavigateEvent(
             *aCx, NavigationType::Reload, destinationURL,
-            /* aIsSameDocument */ false, /* aIsSync */ false,
-            Some(aUserInvolvement),
+            /* aIsSameDocument */ false, Some(aUserInvolvement),
             /* aSourceElement*/ nullptr, /* aFormDataEntryList */ nullptr,
             destinationNavigationAPIState,
             /* aClassiCHistoryAPIState */ nullptr)) {
@@ -5049,6 +5050,19 @@ nsresult nsDocShell::SetCurScrollPosEx(int32_t aCurHorizontalPos,
                             scrollMode);
 
   return NS_OK;
+}
+
+void nsDocShell::RestoreScrollPosFromActiveSHE() {
+  nscoord bx = 0;
+  nscoord by = 0;
+  if ((mozilla::SessionHistoryInParent() ? !!mActiveEntry : !!mOSHE)) {
+    if (mozilla::SessionHistoryInParent()) {
+      mActiveEntry->GetScrollPosition(&bx, &by);
+    } else {
+      mOSHE->GetScrollPosition(&bx, &by);
+    }
+    SetCurScrollPosEx(bx, by);
+  }
 }
 
 void nsDocShell::SetScrollbarPreference(mozilla::ScrollbarPreference aPref) {
@@ -8730,6 +8744,7 @@ struct SameDocumentNavigationState {
   bool mSameExceptHashes = false;
   bool mSecureUpgradeURI = false;
   bool mHistoryNavBetweenSameDoc = false;
+  bool mIdentical = false;
 };
 
 bool nsDocShell::IsSameDocumentNavigation(nsDocShellLoadState* aLoadState,
@@ -8834,6 +8849,12 @@ bool nsDocShell::IsSameDocumentNavigation(nsDocShellLoadState* aLoadState,
                                 &aState.mHistoryNavBetweenSameDoc);
     }
   }
+
+  // Two URIs are identical if they're same except hashes, they both have
+  // hashes, and their hashes are the same.
+  aState.mIdentical = aState.mSameExceptHashes &&
+                      (aState.mNewURIHasRef == aState.mCurrentURIHasRef) &&
+                      aState.mCurrentHash.Equals(aState.mNewHash);
 
   // A same document navigation happens when we navigate between two SHEntries
   // for the same document. We do a same document navigation under two
@@ -8955,7 +8976,7 @@ nsresult nsDocShell::HandleSameDocumentNavigation(
         // Step 4
         bool shouldContinue = navigation->FirePushReplaceReloadNavigateEvent(
             jsapi.cx(), aLoadState->GetNavigationType(), newURI,
-            /* aIsSameDocument */ true, /* aIsSync */ true,
+            /* aIsSameDocument */ true,
             Some(aLoadState->UserNavigationInvolvement()), sourceElement,
             /* aFormDataEntryList */ nullptr,
             /* aNavigationAPIState */ destinationNavigationAPIState,
@@ -9374,7 +9395,7 @@ nsresult nsDocShell::HandleSameDocumentNavigation(
   // reference to avoid null derefs. See bug 914521.
   if (win) {
     if (RefPtr navigation = win->Navigation()) {
-      MOZ_LOG(gNavigationLog, LogLevel::Debug,
+      MOZ_LOG(gNavigationAPILog, LogLevel::Debug,
               ("nsDocShell %p triggering a navigation event from "
                "HandleSameDocumentNavigation",
                this));
@@ -9382,10 +9403,8 @@ nsresult nsDocShell::HandleSameDocumentNavigation(
       // https://html.spec.whatwg.org/multipage/browsing-the-web.html#updating-the-document
       navigation->UpdateEntriesForSameDocumentNavigation(
           mActiveEntry.get(),
-          LOAD_TYPE_HAS_FLAGS(mLoadType, LOAD_FLAGS_REPLACE_HISTORY)
-              ? NavigationType::Replace
-          : aLoadState->LoadIsFromSessionHistory() ? NavigationType::Traverse
-                                                   : NavigationType::Push);
+          NavigationUtils::NavigationTypeFromLoadType(mLoadType).valueOr(
+              NavigationType::Push));
     }
 
     // Fire a hashchange event URIs differ, and only in their hashes.
@@ -9466,6 +9485,59 @@ uint32_t nsDocShell::GetLoadTypeForFormSubmission(
              : LOAD_LINK;
 }
 
+static void MaybeConvertToReplaceLoad(nsDocShellLoadState* aLoadState,
+                                      Document* aExtantDocument,
+                                      bool aIdenticalURI,
+                                      bool aHasActiveEntry) {
+  // MaybeConvertToReplaceLoad implements steps 12 and 13 of #navigate, but
+  // since we're not yet using historyBehavior for all types of loads and
+  // configurations, we need to sometimes bail and revert to the old way of
+  // handling push to replace load conversion. The different cases we can't
+  // handle are:
+  //
+  // * When we don't have an active document
+  // * When a document doesn't yet have a session history entry
+  // * When we don't use SHIP
+  // * When we don't use historyBehavior
+  if (!aExtantDocument || !aHasActiveEntry ||
+      !mozilla::SessionHistoryInParent() || !aLoadState->HistoryBehavior()) {
+    aLoadState->ResetHistoryBehavior();
+    return;
+  }
+
+  bool convertToReplaceLoad = aLoadState->NeedsCompletelyLoadedDocument() &&
+                              !aExtantDocument->IsCompletelyLoaded();
+  if (const auto& historyBehavior = aLoadState->HistoryBehavior();
+      !convertToReplaceLoad && historyBehavior &&
+      *historyBehavior == NavigationHistoryBehavior::Auto) {
+    convertToReplaceLoad = aIdenticalURI;
+    if (convertToReplaceLoad && aExtantDocument->GetPrincipal()) {
+      aExtantDocument->GetPrincipal()->Equals(aLoadState->TriggeringPrincipal(),
+                                              &convertToReplaceLoad);
+    }
+  }
+
+  convertToReplaceLoad =
+      convertToReplaceLoad || nsContentUtils::NavigationMustBeAReplace(
+                                  *aLoadState->URI(), *aExtantDocument);
+
+  if (convertToReplaceLoad) {
+    MOZ_LOG_FMT(gNavigationAPILog, LogLevel::Debug,
+                "Convert to replace when navigating from {} to {}, {}",
+                *aExtantDocument->GetDocumentURI(), *aLoadState->URI(),
+                (aLoadState->NeedsCompletelyLoadedDocument() &&
+                 !nsContentUtils::NavigationMustBeAReplace(*aLoadState->URI(),
+                                                           *aExtantDocument))
+                    ? "needs completely loaded document"
+                    : "navigation must be a replace");
+    aLoadState->SetLoadType(MaybeAddLoadFlags(
+        aLoadState->LoadType(), nsIWebNavigation::LOAD_FLAGS_REPLACE_HISTORY));
+    aLoadState->SetHistoryBehavior(NavigationHistoryBehavior::Replace);
+  } else {
+    aLoadState->SetHistoryBehavior(NavigationHistoryBehavior::Push);
+  }
+}
+
 // InternalLoad performs several of the steps from
 // https://html.spec.whatwg.org/#navigate.
 nsresult nsDocShell::InternalLoad(nsDocShellLoadState* aLoadState,
@@ -9525,6 +9597,13 @@ nsresult nsDocShell::InternalLoad(nsDocShellLoadState* aLoadState,
   bool sameDocument =
       IsSameDocumentNavigation(aLoadState, sameDocumentNavigationState) &&
       !aLoadState->GetPendingRedirectedChannel();
+
+  if (mLoadType != LOAD_ERROR_PAGE &&
+      !aLoadState->HasLoadFlags(LOAD_FLAGS_FROM_EXTERNAL)) {
+    MaybeConvertToReplaceLoad(aLoadState, GetExtantDocument(),
+                              sameDocumentNavigationState.mIdentical,
+                              !!mActiveEntry);
+  }
 
   // Note: We do this check both here and in BrowsingContext::
   // LoadURI/InternalLoad, since document-specific sandbox flags are only
@@ -9620,6 +9699,10 @@ nsresult nsDocShell::InternalLoad(nsDocShellLoadState* aLoadState,
                                         /* aIsInitialDocument */ false);
     if (NS_FAILED(rv)) {
       return NS_ERROR_FAILURE;
+    }
+
+    if (Document* doc = GetDocument()) {
+      doc->DisallowBFCaching();
     }
   }
 
@@ -9721,7 +9804,7 @@ nsresult nsDocShell::InternalLoad(nsDocShellLoadState* aLoadState,
           // Step 21.4
           bool shouldContinue = navigation->FirePushReplaceReloadNavigateEvent(
               jsapi.cx(), aLoadState->GetNavigationType(), destinationURL,
-              /* aIsSameDocument */ false, /* aIsSync */ false,
+              /* aIsSameDocument */ false,
               Some(aLoadState->UserNavigationInvolvement()), sourceElement,
               formData.forget(), navigationAPIStateForFiring,
               /* aClassicHistoryAPIState */ nullptr);
@@ -10504,6 +10587,14 @@ nsresult nsDocShell::PerformTrustedTypesPreNavigationCheck(
   if (csp->GetRequireTrustedTypesForDirectiveState() ==
       RequireTrustedTypesForDirectiveState::NONE) {
     return NS_OK;
+  }
+
+  // Exempt web extension content scripts from trusted types policies defined by
+  // the page in which they are running.
+  if (auto principal = BasePrincipal::Cast(aLoadState->TriggeringPrincipal())) {
+    if (principal->ContentScriptAddonPolicyCore()) {
+      return NS_OK;
+    }
   }
 
   // If disposion is enforce for require-trusted-types-for, then we return
@@ -11827,7 +11918,7 @@ nsDocShell::AddState(JS::Handle<JS::Value> aData, const nsAString& aTitle,
       bool shouldContinue = navigation->FirePushReplaceReloadNavigateEvent(
           aCx, aReplace ? NavigationType::Replace : NavigationType::Push,
           newURI,
-          /* aIsSameDocument */ true, /* aIsSync */ true,
+          /* aIsSameDocument */ true,
           /* aUserInvolvement */ Nothing(),
           /* aSourceElement */ nullptr, /* aFormDataEntryList */ nullptr,
           /* aNavigationAPIState */ nullptr, scContainer);
@@ -12084,7 +12175,7 @@ nsresult nsDocShell::UpdateURLAndHistory(
   aDocument->SetStateObject(aData);
 
   if (RefPtr navigation = aDocument->GetInnerWindow()->Navigation()) {
-    MOZ_LOG(gNavigationLog, LogLevel::Debug,
+    MOZ_LOG(gNavigationAPILog, LogLevel::Debug,
             ("nsDocShell %p triggering a navigation event for a same-document "
              "navigation from UpdateURLAndHistory -> isReplace: %s",
              this, isReplace ? "true" : "false"));
@@ -12552,9 +12643,11 @@ void nsDocShell::MaybeFireTraverseHistory(nsDocShellLoadState* aLoadState) {
     return;
   }
 
+  nsCOMPtr activeURI = mActiveEntry->GetURIOrInheritedForAboutBlank();
+  nsCOMPtr<nsIURI> loadingURI = aLoadState->GetLoadingSessionHistoryInfo()
+                                    ->mInfo.GetURIOrInheritedForAboutBlank();
   if (NS_FAILED(nsContentUtils::GetSecurityManager()->CheckSameOriginURI(
-          mActiveEntry->GetURI(),
-          aLoadState->GetLoadingSessionHistoryInfo()->mInfo.GetURI(),
+          activeURI, loadingURI,
           /*reportError=*/true,
           /*fromPrivateWindow=*/false))) {
     return;
@@ -14308,7 +14401,7 @@ void nsDocShell::MoveLoadingToActiveEntry(bool aExpired, uint32_t aCacheKey,
         navigation->InitializeHistoryEntries(loadingEntry->mContiguousEntries,
                                              mActiveEntry.get());
 
-        MOZ_LOG_FMT(gNavigationLog, LogLevel::Debug,
+        MOZ_LOG_FMT(gNavigationAPILog, LogLevel::Debug,
                     "Before creating NavigationActivation, "
                     "triggeringEntry={}, triggeringType={}",
                     fmt::ptr(loadingEntry->mTriggeringEntry
@@ -14499,18 +14592,14 @@ void nsDocShell::InformNavigationAPIAboutAbortingNavigation() {
     return;
   }
 
-  // Step 3
-  if (!navigation->HasOngoingNavigateEvent()) {
-    return;
-  }
-
   AutoJSAPI jsapi;
   if (!jsapi.Init(navigation->GetOwnerGlobal())) {
     return;
   }
 
-  // Step 4
-  navigation->AbortOngoingNavigation(jsapi.cx());
+  // Steps 3 & 4
+  // See https://github.com/whatwg/html/issues/11579
+  navigation->InnerInformAboutAbortingNavigation(jsapi.cx());
 }
 
 // https://html.spec.whatwg.org/#inform-the-navigation-api-about-child-navigable-destruction

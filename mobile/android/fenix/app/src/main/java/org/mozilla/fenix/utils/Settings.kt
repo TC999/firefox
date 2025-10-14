@@ -46,11 +46,12 @@ import org.mozilla.fenix.components.settings.featureFlagPreference
 import org.mozilla.fenix.components.settings.lazyFeatureFlagPreference
 import org.mozilla.fenix.components.toolbar.ToolbarPosition
 import org.mozilla.fenix.debugsettings.addresses.SharedPrefsAddressesDebugLocalesRepository
+import org.mozilla.fenix.ext.TALL_SCREEN_HEIGHT_DP
+import org.mozilla.fenix.ext.WIDE_SCREEN_WIDTH_DP
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.getPreferenceKey
 import org.mozilla.fenix.ext.pixelSizeFor
 import org.mozilla.fenix.home.pocket.ContentRecommendationsFeatureHelper
-import org.mozilla.fenix.home.toolbar.isTallWindow
 import org.mozilla.fenix.home.topsites.TopSitesConfigConstants.TOP_SITES_MAX_COUNT
 import org.mozilla.fenix.nimbus.CookieBannersSection
 import org.mozilla.fenix.nimbus.FxNimbus
@@ -602,6 +603,19 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         key = appContext.getPreferenceKey(R.string.pref_key_terms_prompt_enabled),
         default = { FxNimbus.features.termsOfUsePrompt.value().enabled },
         featureFlag = true,
+    )
+
+    /**
+     * The maximum number of times the Terms of Use prompt should be displayed.
+     */
+    var termsOfUseMaxDisplayCount = FxNimbus.features.termsOfUsePrompt.value().maxDisplayCount
+
+    /**
+     * The total number of times the Terms of Use prompt has been displayed.
+     */
+    var termsOfUsePromptDisplayedCount by intPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_terms_prompt_displayed_count),
+        default = 0,
     )
 
     /**
@@ -1926,6 +1940,11 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         default = true,
     )
 
+    var isSettingsSearchEnabled by booleanPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_allow_settings_search),
+        default = { FxNimbus.features.settingsSearch.value().enabled },
+    )
+
     var isTabStripEnabled by booleanPreference(
         appContext.getPreferenceKey(R.string.pref_key_tab_strip_show),
         default = FxNimbus.features.tabStrip.value().enabled &&
@@ -2295,6 +2314,14 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     )
 
     /**
+     * Indicates if the private browsing mode redesign is enabled.
+     */
+    var enablePrivateBrowsingModeRedesign by booleanPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_enable_private_browsing_mode_redesign),
+        default = FeatureFlags.PRIVATE_BROWSING_MODE_REDESIGN,
+    )
+
+    /**
      * Indicates if the Unified Trust Panel is enabled.
      */
     var enableUnifiedTrustPanel by lazyFeatureFlagPreference(
@@ -2433,66 +2460,22 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         get() = FxNimbus.features.remoteTabManagement.value().closeTabsEnabled
 
     /**
-     * Returns the height of the bottom toolbar.
-     *
-     * The bottom toolbar can consist of:
-     *  - a combination of address bar, navigation bar & a microsurvey.
-     *  - be absent.
-     *
-     *  @param includeNavBarIfEnabled If true and the navigation bar feature is enabled it's height
-     *  will be included in the calculation.
-     */
-    fun getBottomToolbarHeight(includeNavBarIfEnabled: Boolean = true): Int {
-        val isMicrosurveyEnabled = shouldShowMicrosurveyPrompt
-        val isToolbarAtBottom = toolbarPosition == ToolbarPosition.BOTTOM
-
-        val microsurveyHeight = if (isMicrosurveyEnabled) {
-            appContext.pixelSizeFor(R.dimen.browser_microsurvey_height)
-        } else {
-            0
-        }
-
-        val toolbarHeight = if (isToolbarAtBottom) {
-            browserToolbarHeight
-        } else {
-            0
-        }
-
-        val navBarHeight = if (includeNavBarIfEnabled && shouldUseExpandedToolbar && appContext.isTallWindow()) {
-            appContext.pixelSizeFor(R.dimen.browser_navbar_height)
-        } else {
-            0
-        }
-
-        return microsurveyHeight + toolbarHeight + navBarHeight
-    }
-
-    /**
-     * Returns the height of the top toolbar.
-     *
-     * @param includeTabStripIfAvailable If true and the tab strip feature is enabled it's height
-     * will be included in the calculation.
-     */
-    fun getTopToolbarHeight(includeTabStripIfAvailable: Boolean = true): Int {
-        val isToolbarAtTop = toolbarPosition == ToolbarPosition.TOP
-        val toolbarHeight = browserToolbarHeight
-
-        return if (includeTabStripIfAvailable && isTabStripEnabled) {
-            toolbarHeight + appContext.pixelSizeFor(R.dimen.tab_strip_height)
-        } else if (isToolbarAtTop) {
-            toolbarHeight
-        } else {
-            0
-        }
-    }
-
-    /**
      * Returns the height of the browser toolbar height.
      */
     val browserToolbarHeight: Int
         get() = appContext.pixelSizeFor(
             when (shouldUseComposableToolbar) {
-                true -> R.dimen.composable_browser_toolbar_height
+                true -> {
+                    val isTallWindow = appContext.resources.configuration.screenHeightDp > TALL_SCREEN_HEIGHT_DP
+                    val isWideWindow = appContext.resources.configuration.screenWidthDp > WIDE_SCREEN_WIDTH_DP
+                    when (
+                        toolbarPosition == ToolbarPosition.BOTTOM && shouldUseExpandedToolbar &&
+                                isTallWindow && !isWideWindow
+                    ) {
+                        true -> R.dimen.composable_browser_toolbar_height_small
+                        false -> R.dimen.composable_browser_toolbar_height
+                    }
+                }
                 false -> R.dimen.browser_toolbar_height
             },
         )

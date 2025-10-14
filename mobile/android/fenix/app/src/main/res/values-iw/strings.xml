@@ -84,6 +84,11 @@
   -->
   <string name="felt_privacy_info_card_subtitle_2">‏%1$s מוחק את העוגיות, ההיסטוריה ונתוני האתר שלך כאשר כל הלשוניות הפרטיות שלך נסגרות. %2$s</string>
   <!--
+    Description of private browsing mode displayed to users on the homepage when they enable private mode.
+    %1$s is the name of the app (for example "Firefox").
+  -->
+  <string name="felt_privacy_info_card_subtitle_3">‏%1$s מוחק את העוגיות, ההיסטוריה ונתוני האתר שלך כאשר כל הלשוניות הפרטיות שלך נסגרות.</string>
+  <!--
     Clickable portion of the explanation for private browsing that links the user to our
     about privacy page.
     This string is used in felt_privacy_info_card_subtitle as the text for the link.
@@ -586,6 +591,14 @@
   <string name="onboarding_redesign_set_default_browser_title">קבלת הגנת מעקב אוטומטית כברירת מחדל</string>
   <!-- Set to default browser onboarding redesign body. -->
   <string name="onboarding_redesign_set_default_browser_body">הקשה אחת מסייעת לעצור חברות לרגל אחר הלחיצות שלך.</string>
+  <!-- Sync onboarding redesign title. 'Firefox' is intentionally hardcoded. -->
+  <string name="onboarding_redesign_sync_title" tools:ignore="BrandUsage">סנכרון בכל מקום בו Firefox משמש אותך</string>
+  <!-- Sync onboarding redesign body. -->
+  <string name="onboarding_redesign_sync_body">קבלת סימניות, לשוניות וססמאות בכל מכשיר. הכל מוגן באמצעות הצפנה.</string>
+  <!-- Sync onboarding redesign positive button text. -->
+  <string name="onboarding_redesign_sync_positive_button">התחלה בסנכרון</string>
+  <!-- Sync onboarding redesign negative button text. -->
+  <string name="onboarding_redesign_sync_negative_button">לא כעת</string>
   <!-- Marketing onboarding page title. 'Firefox' is intentionally hardcoded. -->
   <string name="onboarding_marketing_title" tools:ignore="BrandUsage,UnusedResources">עזרו לנו להצמיח את Firefox</string>
   <!-- Marketing onboarding page body. 'Firefox' is intentionally hardcoded. -->
@@ -709,9 +722,9 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">פתיחת קישורים בלשונית פרטית</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">לאפשר צילומי מסך בגלישה פרטית</string>
+  <string name="preferences_allow_screenshots_in_private_mode">לאפשר צילומי מסך בגלישה פרטית</string>
   <!-- Will inform the user of the risk of activating Allow screenshots in private browsing option -->
-  <string name="preferences_screenshots_in_private_mode_disclaimer" tools:ignore="UnusedResources" moz:removedIn="144">אם אפשרות זו מופעלת, לשוניות פרטיות תהיינה מוצגות כאשר מספר יישומונים פתוחים</string>
+  <string name="preferences_screenshots_in_private_mode_disclaimer">אם אפשרות זו מופעלת, לשוניות פרטיות תהיינה מוצגות כאשר מספר יישומונים פתוחים</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">הוספת קיצור דרך לגלישה פרטית</string>
   <!-- Preference for enabling "HTTPS-Only" mode -->
@@ -719,7 +732,8 @@
   <!-- Preference title for using the screen lock to hide tabs in private browsing -->
   <string name="preferences_pbm_lock_screen_title">שימוש בנעילת מסך כדי להסתיר לשוניות בגלישה פרטית</string>
   <!-- Informs the user how to access the tabs when "Use screen lock to hide tabs in private browsing" is enabled -->
-  <string name="preferences_pbm_lock_screen_summary_2">הצגת לשוניות באמצעות בטביעת האצבע שלך, קוד PIN או זיהוי פנים.</string>
+  <string name="preferences_pbm_lock_screen_summary_3">צפייה בלשוניות שלך באמצעות טביעת האצבע שלך, קוד PIN או זיהוי פנים. הפעלת אפשרות זו מונעת גם צילום ושיתוף מסך.</string>
+  <string name="preferences_pbm_lock_screen_summary_2" tools:ignore="UnusedResources" moz:removedIn="144">הצגת לשוניות באמצעות בטביעת האצבע שלך, קוד PIN או זיהוי פנים.</string>
   <!-- Label for cookie banner section in quick settings panel. -->
   <string name="cookie_banner_blocker">חוסם כרזות עוגיות</string>
   <!-- Preference for removing cookie/consent banners from sites automatically in private mode. See reduce_cookie_banner_summary for additional context. -->
@@ -1470,7 +1484,9 @@
   <!-- Content description for tabs tray multiselect menu -->
   <string name="tab_tray_multiselect_menu_content_description">תפריט לשוניות נבחרות</string>
   <!-- Title text displayed for a homepage tab in the tabs tray. -->
-  <string name="tab_tray_homepage_tab">דף הבית</string>
+  <string name="tab_tray_homepage_tab" tools:ignore="UnusedResources" moz:removedIn="145">דף הבית</string>
+  <!-- Title text displayed for a homepage tab in the tabs tray. %s is a placeholder that will be replaced by app name. -->
+  <string name="tab_tray_homepage_tab_2">דף הבית של %s</string>
   <!-- Content description (not visible, for screen readers etc.): Removes tab from collection button. Removes the selected tab from collection when pressed -->
   <string name="remove_tab_from_collection">הסרת לשונית מהאוסף</string>
   <!-- Text for button to enter multiselect mode in tabs tray -->
@@ -1506,9 +1522,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">מחיקת היסטוריה</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">ההיסטוריה נמחקה</string>
+  <string name="history_delete_multiple_items_snackbar">ההיסטוריה נמחקה</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">נמחק %1$s</string>
+  <string name="history_delete_single_item_snackbar">נמחק %1$s</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">מחיקה</string>
   <!--
@@ -1713,6 +1729,10 @@
   <string name="webcompat_reporter_dismiss_success_snackbar_text" moz:removedIn="144" tools:ignore="UnusedResources">סגירה</string>
   <!-- Placeholder text for the description field to prompt the user on what they should type. -->
   <string name="webcompat_reporter_problem_description_placeholder_text">מה קרה? מה היה צריך לקרות?</string>
+  <!-- Label of the checkbox on the “Report broken site” screen for sending URLS blocked by Enhanced Tracking Protection. -->
+  <string name="webcompat_reporter_etp_checkbox_text">שליחת כתובות האתרים הנחסמים על־ידי הגנת המעקב</string>
+  <!-- Description text for the checkbox on the “Report broken site” screen for sending URLS blocked by Enhanced Tracking Protection. It informs the user when checked, the report will include the list of URLs that were blocked by Enhanced Tracking Protection on the current page. -->
+  <string name="webcompat_reporter_etp_checkbox_description">הגנת מעקב מתקדמת עשויה לחסום רכיבי מעקב ותסריטים המשמשים חלק מהאתרים כדי לעבוד כראוי.</string>
   <!--
     These reason strings are dropdown options on a WebCompat reporter form, indicating what is broken on the site.
 
@@ -2691,6 +2711,10 @@
   <string name="saved_login_hide_password">הסתרת ססמה</string>
   <!-- Message displayed in biometric prompt displayed for authentication before allowing users to view their passwords -->
   <string name="logins_biometric_prompt_message_2">יש לבטל את הנעילה כדי להציג את הססמאות השמורות שלך</string>
+  <!-- Button for unlocking logins on the biometric lock screen -->
+  <string name="logins_biometric_unlock_button">שחרור נעילה</string>
+  <!-- Button for leaving logins on the biometric lock screen -->
+  <string name="logins_biometric_leave_button">לעזוב</string>
   <!-- Title of warning dialog if users have no device authentication set up -->
   <string name="logins_warning_dialog_title_2">אבטחת הססמאות השמורות שלך</string>
   <!-- Message of warning dialog if users have no device authentication set up -->
@@ -3580,6 +3604,16 @@
   <string name="debug_drawer_add_new_address">הוספת כתובת חדשה עבור השפה הנבחרת</string>
   <!-- The title of the button for deleting in the debug drawer all addresses. -->
   <string name="debug_drawer_delete_all_addresses">מחיקת כל הכתובות</string>
+  <!--
+    Debug drawer credit cards
+
+    The title of the credit cards feature in the Debug Drawer.
+  -->
+  <string name="debug_drawer_credit_cards_title">כרטיסי אשראי</string>
+  <!-- The title of the button in the debug drawer for adding a new credit card -->
+  <string name="debug_drawer_add_new_credit_card">הוספת כרטיס אשראי חדש</string>
+  <!-- The title of the button for deleting in the debug drawer all addresses. -->
+  <string name="debug_drawer_delete_all_credit_cards">מחיקת כל כרטיסי האשראי</string>
   <!--
     Debug drawer "contextual feature recommendation" (CFR) tools
 

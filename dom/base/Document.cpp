@@ -78,7 +78,6 @@
 #include "mozilla/Likely.h"
 #include "mozilla/Logging.h"
 #include "mozilla/LookAndFeel.h"
-#include "mozilla/MacroForEach.h"
 #include "mozilla/MappedDeclarationsBuilder.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MediaFeatureChange.h"
@@ -1391,6 +1390,7 @@ Document::Document(const char* aContentType)
       mHaveFiredTitleChange(false),
       mIsShowing(false),
       mVisible(true),
+      mIsCompletelyLoaded(false),
       mRemovedFromDocShell(false),
       // mAllowDNSPrefetch starts true, so that we can always reliably && it
       // with various values that might disable it.  Since we never prefetch
@@ -1416,6 +1416,7 @@ Document::Document(const char* aContentType)
       mStyleSheetChangeEventsEnabled(false),
       mDevToolsAnonymousAndShadowEventsEnabled(false),
       mPausedByDevTools(false),
+      mForceNonNativeTheme(false),
       mIsSrcdocDocument(false),
       mHasDisplayDocument(false),
       mFontFaceSetDirty(true),
@@ -10540,7 +10541,9 @@ void Document::Close(ErrorResult& rv) {
 }
 
 void Document::WriteCommon(const Sequence<OwningTrustedHTMLOrString>& aText,
-                           bool aNewlineTerminate, mozilla::ErrorResult& rv) {
+                           bool aNewlineTerminate,
+                           nsIPrincipal* aSubjectPrincipal,
+                           mozilla::ErrorResult& rv) {
   bool isTrusted = true;
   auto getAsString =
       [&isTrusted](const OwningTrustedHTMLOrString& aTrustedHTMLOrString) {
@@ -10554,7 +10557,7 @@ void Document::WriteCommon(const Sequence<OwningTrustedHTMLOrString>& aText,
   // Fast path the common case
   if (aText.Length() == 1) {
     WriteCommon(*getAsString(aText[0]), aNewlineTerminate,
-                aText[0].IsTrustedHTML(), rv);
+                aText[0].IsTrustedHTML(), aSubjectPrincipal, rv);
   } else {
     // XXXbz it would be nice if we could pass all the strings to the parser
     // without having to do all this copying and then ask it to start
@@ -10563,12 +10566,13 @@ void Document::WriteCommon(const Sequence<OwningTrustedHTMLOrString>& aText,
     for (size_t i = 0; i < aText.Length(); ++i) {
       text.Append(*getAsString(aText[i]));
     }
-    WriteCommon(text, aNewlineTerminate, isTrusted, rv);
+    WriteCommon(text, aNewlineTerminate, isTrusted, aSubjectPrincipal, rv);
   }
 }
 
 void Document::WriteCommon(const nsAString& aText, bool aNewlineTerminate,
-                           bool aIsTrusted, ErrorResult& aRv) {
+                           bool aIsTrusted, nsIPrincipal* aSubjectPrincipal,
+                           ErrorResult& aRv) {
 #ifdef DEBUG
   {
     // Assert that we do not use or accidentally introduce doc.write()
@@ -10606,7 +10610,8 @@ void Document::WriteCommon(const nsAString& aText, bool aNewlineTerminate,
     compliantString =
         TrustedTypeUtils::GetTrustedTypesCompliantStringForTrustedHTML(
             aText, aNewlineTerminate ? sinkWriteLn : sinkWrite,
-            kTrustedTypesOnlySinkGroup, *this, compliantStringHolder, aRv);
+            kTrustedTypesOnlySinkGroup, *this, aSubjectPrincipal,
+            compliantStringHolder, aRv);
     if (aRv.Failed()) {
       return;
     }
@@ -10696,13 +10701,13 @@ void Document::WriteCommon(const nsAString& aText, bool aNewlineTerminate,
 }
 
 void Document::Write(const Sequence<OwningTrustedHTMLOrString>& aText,
-                     ErrorResult& rv) {
-  WriteCommon(aText, false, rv);
+                     nsIPrincipal* aSubjectPrincipal, ErrorResult& rv) {
+  WriteCommon(aText, false, aSubjectPrincipal, rv);
 }
 
 void Document::Writeln(const Sequence<OwningTrustedHTMLOrString>& aText,
-                       ErrorResult& rv) {
-  WriteCommon(aText, true, rv);
+                       nsIPrincipal* aSubjectPrincipal, ErrorResult& rv) {
+  WriteCommon(aText, true, aSubjectPrincipal, rv);
 }
 
 void* Document::GenerateParserKey(void) {
@@ -12568,6 +12573,8 @@ void Document::OnPageShow(bool aPersisted, EventTarget* aDispatchStartTarget,
   if (auto* wgc = GetWindowGlobalChild()) {
     wgc->UnblockBFCacheFor(BFCacheStatus::PAGE_LOADING);
   }
+
+  mIsCompletelyLoaded = true;
 }
 
 static void DispatchFullscreenChange(Document& aDocument, nsINode* aTarget) {
@@ -13431,13 +13438,18 @@ bool Document::IsActive() const {
          !GetBrowsingContext()->IsInBFCache();
 }
 
-bool Document::HasBeenScrolled() const {
-  nsGlobalWindowInner* window = nsGlobalWindowInner::Cast(GetInnerWindow());
-  if (!window) {
-    return false;
+uint32_t Document::LastScrollGeneration() const {
+  if (nsPresContext* pc = GetPresContext()) {
+    pc->LastScrollGeneration();
   }
-  if (ScrollContainerFrame* frame = window->GetScrollContainerFrame()) {
-    return frame->HasBeenScrolled();
+
+  return 0;
+}
+
+bool Document::HasBeenScrolledSince(
+    const uint32_t& aLastScrollGeneration) const {
+  if (nsPresContext* pc = GetPresContext()) {
+    pc->HasBeenScrolledSince(aLastScrollGeneration);
   }
 
   return false;
@@ -14850,6 +14862,18 @@ NS_INTERFACE_MAP_END
 NS_IMPL_CYCLE_COLLECTING_ADDREF(UnblockParsingPromiseHandler)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(UnblockParsingPromiseHandler)
 
+void Document::SetForceNonNativeTheme(bool aForce) {
+  if (mForceNonNativeTheme == aForce) {
+    return;
+  }
+  mForceNonNativeTheme = aForce;
+  if (auto* pc = GetPresContext()) {
+    pc->MediaFeatureValuesChanged(
+        {MediaFeatureChangeReason::PreferenceChange},
+        MediaFeatureChangePropagation::JustThisDocument);
+  }
+}
+
 already_AddRefed<Promise> Document::BlockParsing(
     Promise& aPromise, const BlockParsingOptions& aOptions, ErrorResult& aRv) {
   RefPtr<Promise> resultPromise =
@@ -15977,7 +16001,8 @@ void Document::HideAllPopoversUntil(nsINode& aEndpoint,
   auto closeAllOpenPopovers = [&aFocusPreviousElement, &aFireEvents,
                                this]() MOZ_CAN_RUN_SCRIPT_FOR_DEFINITION {
     while (RefPtr<Element> topmost = GetTopmostAutoPopover()) {
-      HidePopover(*topmost, aFocusPreviousElement, aFireEvents, IgnoreErrors());
+      HidePopover(*topmost, aFocusPreviousElement, aFireEvents,
+                  /* aSource */ nullptr, IgnoreErrors());
     }
   };
 
@@ -16023,7 +16048,8 @@ void Document::HideAllPopoversUntil(nsINode& aEndpoint,
       if (!topmost) {
         break;
       }
-      HidePopover(*topmost, aFocusPreviousElement, fireEvents, IgnoreErrors());
+      HidePopover(*topmost, aFocusPreviousElement, fireEvents,
+                  /* aSource */ nullptr, IgnoreErrors());
     }
 
     repeatingHide = needRepeatingHide();
@@ -16035,7 +16061,8 @@ void Document::HideAllPopoversUntil(nsINode& aEndpoint,
 
 // https://html.spec.whatwg.org/#hide-popover-algorithm
 void Document::HidePopover(Element& aPopover, bool aFocusPreviousElement,
-                           bool aFireEvents, ErrorResult& aRv) {
+                           bool aFireEvents, Element* aSource,
+                           ErrorResult& aRv) {
   RefPtr<nsGenericHTMLElement> popoverHTMLEl =
       nsGenericHTMLElement::FromNode(aPopover);
   NS_ASSERTION(popoverHTMLEl, "Not a HTML element");
@@ -16103,7 +16130,6 @@ void Document::HidePopover(Element& aPopover, bool aFocusPreviousElement,
 
   auto* data = popoverHTMLEl->GetPopoverData();
   MOZ_ASSERT(data, "Should have popover data");
-  data->SetInvoker(nullptr);
 
   // 9. If fireEvents is true:
   // Fire beforetoggle event and re-check popover validity.
@@ -16113,8 +16139,8 @@ void Document::HidePopover(Element& aPopover, bool aFocusPreviousElement,
     // initialized to "closed" at element. Intentionally ignore the return value
     // here as only on open event for beforetoggle the cancelable attribute is
     // initialized to true.
-    popoverHTMLEl->FireToggleEvent(u"open"_ns, u"closed"_ns,
-                                   u"beforetoggle"_ns);
+    popoverHTMLEl->FireToggleEvent(u"open"_ns, u"closed"_ns, u"beforetoggle"_ns,
+                                   aSource);
 
     // 9.2. If autoPopoverListContainsElement is true and document's showing
     // auto popover list's last item is not element, then run hide all popovers
@@ -16136,7 +16162,7 @@ void Document::HidePopover(Element& aPopover, bool aFocusPreviousElement,
     // 9.4. XXX: See below
 
     // 9.5. Set element's implicit anchor element to null.
-    // (TODO)
+    data->SetInvoker(nullptr);
   }
 
   // 9.4. Request an element to be removed from the top layer given element.
@@ -16145,7 +16171,7 @@ void Document::HidePopover(Element& aPopover, bool aFocusPreviousElement,
   RemovePopoverFromTopLayer(aPopover);
 
   // 11. Set element's popover invoker to null.
-  // (TODO)
+  data->SetInvoker(nullptr);
 
   // 12. Set element's opened in popover mode to null.
   // 13. Set element's popover visibility state to hidden.
@@ -16156,7 +16182,8 @@ void Document::HidePopover(Element& aPopover, bool aFocusPreviousElement,
   // 14. If fireEvents is true, then queue a popover toggle event task given
   // element, "open", and "closed". Queue popover toggle event task.
   if (fireEvents) {
-    popoverHTMLEl->QueuePopoverEventTask(PopoverVisibilityState::Showing);
+    popoverHTMLEl->QueuePopoverEventTask(PopoverVisibilityState::Showing,
+                                         aSource);
   }
 
   // 15. Let previouslyFocusedElement be element's previously focused element.

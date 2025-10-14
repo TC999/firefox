@@ -84,6 +84,11 @@
   -->
   <string name="felt_privacy_info_card_subtitle_2">Mae %1$s yn dileu eich cwcis, hanes, a data gwefan pan fyddwch yn cau eich holl dabiau preifat. %2$s</string>
   <!--
+    Description of private browsing mode displayed to users on the homepage when they enable private mode.
+    %1$s is the name of the app (for example "Firefox").
+  -->
+  <string name="felt_privacy_info_card_subtitle_3">Mae %1$s yn dileu eich cwcis, hanes, a data gwefan pan fyddwch yn cau eich holl dabiau preifat.</string>
+  <!--
     Clickable portion of the explanation for private browsing that links the user to our
     about privacy page.
     This string is used in felt_privacy_info_card_subtitle as the text for the link.
@@ -588,6 +593,14 @@
   <string name="onboarding_redesign_set_default_browser_title">Cael diogelwch tracio awtomatig fel rhagosodiad</string>
   <!-- Set to default browser onboarding redesign body. -->
   <string name="onboarding_redesign_set_default_browser_body">Mae un tap yn helpu i atal cwmnïau rhag ysbïo ar eich cliciau.</string>
+  <!-- Sync onboarding redesign title. 'Firefox' is intentionally hardcoded. -->
+  <string name="onboarding_redesign_sync_title" tools:ignore="BrandUsage">Cydweddu ym mhob man rydych chi\'n defnyddio Firefox</string>
+  <!-- Sync onboarding redesign body. -->
+  <string name="onboarding_redesign_sync_body">Cael nodau tudalen, tabiau a chyfrineiriau ar unrhyw ddyfais. Pob un wedi\'i ddiogelu ag amgryptio.</string>
+  <!-- Sync onboarding redesign positive button text. -->
+  <string name="onboarding_redesign_sync_positive_button">Cychwyn cydweddu</string>
+  <!-- Sync onboarding redesign negative button text. -->
+  <string name="onboarding_redesign_sync_negative_button">Nid nawr</string>
   <!-- Marketing onboarding page title. 'Firefox' is intentionally hardcoded. -->
   <string name="onboarding_marketing_title" tools:ignore="BrandUsage,UnusedResources">Helpwch ni i dyfu Firefox</string>
   <!-- Marketing onboarding page body. 'Firefox' is intentionally hardcoded. -->
@@ -711,9 +724,9 @@
   <!-- Preference for opening links in a private tab -->
   <string name="preferences_open_links_in_a_private_tab">Agor dolen mewn tab preifat</string>
   <!-- Preference for allowing screenshots to be taken while in a private tab -->
-  <string name="preferences_allow_screenshots_in_private_mode" tools:ignore="UnusedResources" moz:removedIn="144">Caniatáu lluniau sgrin o fewn pori preifat</string>
+  <string name="preferences_allow_screenshots_in_private_mode">Caniatáu lluniau sgrin o fewn pori preifat</string>
   <!-- Will inform the user of the risk of activating Allow screenshots in private browsing option -->
-  <string name="preferences_screenshots_in_private_mode_disclaimer" tools:ignore="UnusedResources" moz:removedIn="144">Os fydd yn cael ei ganiatáu, bydd tabiau preifat hefyd yn weladwy pan fydd sawl ap ar agor</string>
+  <string name="preferences_screenshots_in_private_mode_disclaimer">Os fydd yn cael ei ganiatáu, bydd tabiau preifat hefyd yn weladwy pan fydd sawl ap ar agor</string>
   <!-- Preference for adding private browsing shortcut -->
   <string name="preferences_add_private_browsing_shortcut">Ychwanegu llwybr byr pori preifat</string>
   <!-- Preference for enabling "HTTPS-Only" mode -->
@@ -721,7 +734,8 @@
   <!-- Preference title for using the screen lock to hide tabs in private browsing -->
   <string name="preferences_pbm_lock_screen_title">Defnyddiwch glo sgrin i guddio tabiau wrth bori\'n breifat</string>
   <!-- Informs the user how to access the tabs when "Use screen lock to hide tabs in private browsing" is enabled -->
-  <string name="preferences_pbm_lock_screen_summary_2">Gweld tabiau gydag ôl bys, datgloi wyneb, neu PIN.</string>
+  <string name="preferences_pbm_lock_screen_summary_3">Gweld tabiau gyda\'ch bys brintiau, PIN, neu ddatgloi wyneb. Mae troi hwn ymlaen hefyd yn atal cipio sgrin a rhannu.</string>
+  <string name="preferences_pbm_lock_screen_summary_2" tools:ignore="UnusedResources" moz:removedIn="144">Gweld tabiau gydag ôl bys, datgloi wyneb, neu PIN.</string>
   <!-- Label for cookie banner section in quick settings panel. -->
   <string name="cookie_banner_blocker">Rhwystrydd Baneri Cwcis</string>
   <!-- Preference for removing cookie/consent banners from sites automatically in private mode. See reduce_cookie_banner_summary for additional context. -->
@@ -803,7 +817,7 @@
   <!-- Preference description for banner about signing in -->
   <string name="preferences_sign_in_description_2" tools:ignore="UnusedResources" moz:removedIn="145">Mewngofnodwch i gydweddu tabiau, nodau tudalen, cyfrineiriau, a rhagor.</string>
   <!-- Preference description shown in the banner prompting the user to sign in for sync features -->
-  <string name="preferences_sign_in_description">Cysoni tabiau, nodau tudalen, cyfrineiriau, a mwy.</string>
+  <string name="preferences_sign_in_description">Cydweddu tabiau, nodau tudalen, cyfrineiriau, a rhagor.</string>
   <!-- Preference shown instead of account display name while account profile information isn't available yet. -->
   <string name="preferences_account_default_name_2">Cyfrif Mozilla</string>
   <!-- Preference text for account title when there was an error syncing FxA -->
@@ -1472,7 +1486,9 @@
   <!-- Content description for tabs tray multiselect menu -->
   <string name="tab_tray_multiselect_menu_content_description">Dewislen tabiau penodol</string>
   <!-- Title text displayed for a homepage tab in the tabs tray. -->
-  <string name="tab_tray_homepage_tab">Tudalen Cartref</string>
+  <string name="tab_tray_homepage_tab" tools:ignore="UnusedResources" moz:removedIn="145">Tudalen Cartref</string>
+  <!-- Title text displayed for a homepage tab in the tabs tray. %s is a placeholder that will be replaced by app name. -->
+  <string name="tab_tray_homepage_tab_2">Tudalen cartref %s</string>
   <!-- Content description (not visible, for screen readers etc.): Removes tab from collection button. Removes the selected tab from collection when pressed -->
   <string name="remove_tab_from_collection">Tynnu tab o’r casgliad</string>
   <!-- Text for button to enter multiselect mode in tabs tray -->
@@ -1508,9 +1524,9 @@
   <!-- Text for the button to clear all history -->
   <string name="history_delete_all">Dileu hanes</string>
   <!-- Text for the snackbar to confirm that multiple browsing history items has been deleted -->
-  <string name="history_delete_multiple_items_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Hanes wedi’i Ddileu</string>
+  <string name="history_delete_multiple_items_snackbar">Hanes wedi’i Ddileu</string>
   <!-- Text for the snackbar to confirm that a single browsing history item has been deleted. %1$s is the shortened URL of the deleted history item. -->
-  <string name="history_delete_single_item_snackbar" tools:ignore="UnusedResources" moz:removedIn="143">Wedi dileu %1$s</string>
+  <string name="history_delete_single_item_snackbar">Wedi dileu %1$s</string>
   <!-- Context description text for the button to delete a single history item -->
   <string name="history_delete_item">Dileu</string>
   <!--
@@ -1715,6 +1731,10 @@
   <string name="webcompat_reporter_dismiss_success_snackbar_text" moz:removedIn="144" tools:ignore="UnusedResources">Cau</string>
   <!-- Placeholder text for the description field to prompt the user on what they should type. -->
   <string name="webcompat_reporter_problem_description_placeholder_text">Beth ddigwyddodd? Beth ddylai fod wedi digwydd?</string>
+  <!-- Label of the checkbox on the “Report broken site” screen for sending URLS blocked by Enhanced Tracking Protection. -->
+  <string name="webcompat_reporter_etp_checkbox_text">Anfon URLau wedi\'u rhwystro gan ddiogelwch rhag tracio</string>
+  <!-- Description text for the checkbox on the “Report broken site” screen for sending URLS blocked by Enhanced Tracking Protection. It informs the user when checked, the report will include the list of URLs that were blocked by Enhanced Tracking Protection on the current page. -->
+  <string name="webcompat_reporter_etp_checkbox_description">Gall Diogelwch Tracio Uwch rwystro tracwyr a sgriptiau sydd eu hangen ar rai gwefannau i weithio\'n iawn.</string>
   <!--
     These reason strings are dropdown options on a WebCompat reporter form, indicating what is broken on the site.
 
@@ -2695,6 +2715,10 @@
   <string name="saved_login_hide_password">Cuddio cyfrinair</string>
   <!-- Message displayed in biometric prompt displayed for authentication before allowing users to view their passwords -->
   <string name="logins_biometric_prompt_message_2">Datgloi i weld eich cyfrineiriau wedi\'u cadw</string>
+  <!-- Button for unlocking logins on the biometric lock screen -->
+  <string name="logins_biometric_unlock_button">Datgloi</string>
+  <!-- Button for leaving logins on the biometric lock screen -->
+  <string name="logins_biometric_leave_button">Gadael</string>
   <!-- Title of warning dialog if users have no device authentication set up -->
   <string name="logins_warning_dialog_title_2">Diogelwch eich cyfrineiriau wedi\'u cadw</string>
   <!-- Message of warning dialog if users have no device authentication set up -->
@@ -3588,6 +3612,16 @@
   <string name="debug_drawer_add_new_address">Ychwanegu cyfeiriad newydd ar gyfer y locale a ddewiswyd</string>
   <!-- The title of the button for deleting in the debug drawer all addresses. -->
   <string name="debug_drawer_delete_all_addresses">Dileu pob cyfeiriad</string>
+  <!--
+    Debug drawer credit cards
+
+    The title of the credit cards feature in the Debug Drawer.
+  -->
+  <string name="debug_drawer_credit_cards_title">Cardiau credyd</string>
+  <!-- The title of the button in the debug drawer for adding a new credit card -->
+  <string name="debug_drawer_add_new_credit_card">Ychwanegu cerdyn credyd newydd</string>
+  <!-- The title of the button for deleting in the debug drawer all addresses. -->
+  <string name="debug_drawer_delete_all_credit_cards">Dileu pob cerdyn credyd</string>
   <!--
     Debug drawer "contextual feature recommendation" (CFR) tools
 

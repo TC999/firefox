@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* eslint-env mozilla/browser-window */
-
 "use strict";
 
 // Wrap in a block to prevent leaking to window scope.
@@ -2468,6 +2466,7 @@
         label.style.height = "";
         label.style.left = "";
         label.style.top = "";
+        label.style.maxWidth = "";
         label.removeAttribute("dragtarget");
       }
       let periphery = draggedTabDocument.getElementById(
