@@ -10,10 +10,9 @@
 
 #include "modules/rtp_rtcp/source/rtp_sender_video.h"
 
-#include <stdlib.h>
-#include <string.h>
-
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -22,7 +21,6 @@
 
 #include "absl/algorithm/container.h"
 #include "absl/memory/memory.h"
-#include "absl/strings/match.h"
 #include "api/array_view.h"
 #include "api/crypto/frame_encryptor_interface.h"
 #include "api/field_trials_view.h"
@@ -41,8 +39,6 @@
 #include "api/video/video_layers_allocation.h"
 #include "api/video/video_rotation.h"
 #include "api/video/video_timing.h"
-#include "common_video/corruption_detection_converters.h"
-#include "common_video/frame_instrumentation_data.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "modules/rtp_rtcp/source/absolute_capture_time_sender.h"
 #include "modules/rtp_rtcp/source/corruption_detection_extension.h"
@@ -179,9 +175,9 @@ RTPSenderVideo::RTPSenderVideo(const Config& config)
       post_encode_overhead_bitrate_(/*max_window_size=*/TimeDelta::Seconds(1)),
       frame_encryptor_(config.frame_encryptor),
       require_frame_encryption_(config.require_frame_encryption),
-      generic_descriptor_auth_experiment_(!absl::StartsWith(
-          config.field_trials->Lookup("WebRTC-GenericDescriptorAuth"),
-          "Disabled")),
+      generic_descriptor_auth_experiment_(
+          !config.field_trials->IsDisabled("WebRTC-GenericDescriptorAuth")),
+      raw_packetization_(config.raw_packetization),
       absolute_capture_time_sender_(config.clock),
       frame_transformer_delegate_(
           config.frame_transformer
@@ -487,26 +483,9 @@ void RTPSenderVideo::AddRtpHeaderExtensions(const RTPVideoHeader& video_header,
   }
 
   if (last_packet && video_header.frame_instrumentation_data) {
-    std::optional<CorruptionDetectionMessage> message;
-    if (const auto* data = std::get_if<FrameInstrumentationData>(
-            &(*video_header.frame_instrumentation_data))) {
-      message =
-          ConvertFrameInstrumentationDataToCorruptionDetectionMessage(*data);
-    } else if (const auto* sync_data =
-                   std::get_if<FrameInstrumentationSyncData>(
-                       &(*video_header.frame_instrumentation_data))) {
-      message = ConvertFrameInstrumentationSyncDataToCorruptionDetectionMessage(
-          *sync_data);
-    } else {
-      RTC_DCHECK_NOTREACHED();
-    }
-
-    if (message.has_value()) {
-      packet->SetExtension<CorruptionDetectionExtension>(*message);
-    } else {
-      RTC_LOG(LS_WARNING) << "Failed to convert frame instrumentation data to "
-                             "corruption detection message.";
-    }
+    packet->SetExtension<CorruptionDetectionExtension>(
+        CorruptionDetectionMessage::FromFrameInstrumentationData(
+            *video_header.frame_instrumentation_data));
   }
 }
 
@@ -520,6 +499,9 @@ bool RTPSenderVideo::SendVideo(int payload_type,
                                TimeDelta expected_retransmission_time,
                                std::vector<uint32_t> csrcs) {
   RTC_CHECK_RUNS_SERIALIZED(&send_checker_);
+
+  // TODO(b/446768451): Add a check that Codec type can only be absent when
+  // using raw packetization once downstream projects have been updated.
 
   if (video_header.frame_type == VideoFrameType::kEmptyFrame)
     return true;
@@ -697,7 +679,8 @@ bool RTPSenderVideo::SendVideo(int payload_type,
   }
 
   std::unique_ptr<RtpPacketizer> packetizer =
-      RtpPacketizer::Create(codec_type, payload, limits, video_header);
+      RtpPacketizer::Create(raw_packetization_ ? std::nullopt : codec_type,
+                            payload, limits, video_header);
 
   const size_t num_packets = packetizer->NumPackets();
 

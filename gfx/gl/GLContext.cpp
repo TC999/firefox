@@ -49,7 +49,6 @@
 
 #include "OGLShaderProgram.h"  // for ShaderProgramType
 
-#include "mozilla/DebugOnly.h"
 #include "mozilla/Maybe.h"
 
 #ifdef XP_MACOSX
@@ -941,6 +940,17 @@ bool GLContext::InitImpl() {
   }
 
   mMaxTexOrRbSize = std::min(mMaxTextureSize, mMaxRenderbufferSize);
+
+#ifdef MOZ_WIDGET_ANDROID
+  if (Renderer() == GLRenderer::SamsungXclipse && jni::GetAPIVersion() >= 35) {
+    // On Samsung Xclipse GPUs on Android 15 attribute values for the final
+    // vertex in a buffer may be incorrect. Padding the buffer to contain
+    // enough space for an additional vertex avoids the issue. See bug 1983036.
+    GLint maxVertexAttribStride;
+    raw_fGetIntegerv(LOCAL_GL_MAX_VERTEX_ATTRIB_STRIDE, &maxVertexAttribStride);
+    mVertexBufferExtraPadding = Some(maxVertexAttribStride);
+  }
+#endif
 
   ////////////////////////////////////////////////////////////////////////////
 
@@ -1837,23 +1847,19 @@ void GLContext::AttachBuffersToFB(GLuint colorTex, GLuint colorRB,
     fFramebufferTexture2D(LOCAL_GL_FRAMEBUFFER, LOCAL_GL_COLOR_ATTACHMENT0,
                           target, colorTex, 0);
   } else if (colorRB) {
-    // On the Android 4.3 emulator, IsRenderbuffer may return false incorrectly.
-    MOZ_GL_ASSERT(this, fIsRenderbuffer(colorRB) ||
-                            Renderer() == GLRenderer::AndroidEmulator);
+    MOZ_GL_ASSERT(this, fIsRenderbuffer(colorRB));
     fFramebufferRenderbuffer(LOCAL_GL_FRAMEBUFFER, LOCAL_GL_COLOR_ATTACHMENT0,
                              LOCAL_GL_RENDERBUFFER, colorRB);
   }
 
   if (depthRB) {
-    MOZ_GL_ASSERT(this, fIsRenderbuffer(depthRB) ||
-                            Renderer() == GLRenderer::AndroidEmulator);
+    MOZ_GL_ASSERT(this, fIsRenderbuffer(depthRB));
     fFramebufferRenderbuffer(LOCAL_GL_FRAMEBUFFER, LOCAL_GL_DEPTH_ATTACHMENT,
                              LOCAL_GL_RENDERBUFFER, depthRB);
   }
 
   if (stencilRB) {
-    MOZ_GL_ASSERT(this, fIsRenderbuffer(stencilRB) ||
-                            Renderer() == GLRenderer::AndroidEmulator);
+    MOZ_GL_ASSERT(this, fIsRenderbuffer(stencilRB));
     fFramebufferRenderbuffer(LOCAL_GL_FRAMEBUFFER, LOCAL_GL_STENCIL_ATTACHMENT,
                              LOCAL_GL_RENDERBUFFER, stencilRB);
   }
@@ -2714,7 +2720,7 @@ void MesaMemoryLeakWorkaround() {
 
   if (foundPath) {
     // Deliberately leak to prevent unload
-    Unused << dlopen(foundPath->get(), RTLD_LAZY);
+    (void)dlopen(foundPath->get(), RTLD_LAZY);
   }
 #endif  // XP_LINUX but not ANDROID
 }

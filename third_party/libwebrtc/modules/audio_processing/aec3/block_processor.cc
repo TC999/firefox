@@ -9,9 +9,8 @@
  */
 #include "modules/audio_processing/aec3/block_processor.h"
 
-#include <stddef.h>
-
 #include <atomic>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -242,7 +241,8 @@ std::unique_ptr<BlockProcessor> BlockProcessor::Create(
     const EchoCanceller3Config& config,
     int sample_rate_hz,
     size_t num_render_channels,
-    size_t num_capture_channels) {
+    size_t num_capture_channels,
+    NeuralResidualEchoEstimator* neural_residual_echo_estimator) {
   std::unique_ptr<RenderDelayBuffer> render_buffer(
       RenderDelayBuffer::Create(config, sample_rate_hz, num_render_channels));
   std::unique_ptr<RenderDelayController> delay_controller;
@@ -250,8 +250,9 @@ std::unique_ptr<BlockProcessor> BlockProcessor::Create(
     delay_controller.reset(RenderDelayController::Create(config, sample_rate_hz,
                                                          num_capture_channels));
   }
-  std::unique_ptr<EchoRemover> echo_remover = EchoRemover::Create(
-      env, config, sample_rate_hz, num_render_channels, num_capture_channels);
+  std::unique_ptr<EchoRemover> echo_remover =
+      EchoRemover::Create(env, config, sample_rate_hz, num_render_channels,
+                          num_capture_channels, neural_residual_echo_estimator);
   return Create(config, sample_rate_hz, num_render_channels,
                 num_capture_channels, std::move(render_buffer),
                 std::move(delay_controller), std::move(echo_remover));
@@ -263,14 +264,16 @@ std::unique_ptr<BlockProcessor> BlockProcessor::Create(
     int sample_rate_hz,
     size_t num_render_channels,
     size_t num_capture_channels,
-    std::unique_ptr<RenderDelayBuffer> render_buffer) {
+    std::unique_ptr<RenderDelayBuffer> render_buffer,
+    NeuralResidualEchoEstimator* neural_residual_echo_estimator) {
   std::unique_ptr<RenderDelayController> delay_controller;
   if (!config.delay.use_external_delay_estimator) {
     delay_controller.reset(RenderDelayController::Create(config, sample_rate_hz,
                                                          num_capture_channels));
   }
-  std::unique_ptr<EchoRemover> echo_remover = EchoRemover::Create(
-      env, config, sample_rate_hz, num_render_channels, num_capture_channels);
+  std::unique_ptr<EchoRemover> echo_remover =
+      EchoRemover::Create(env, config, sample_rate_hz, num_render_channels,
+                          num_capture_channels, neural_residual_echo_estimator);
   return Create(config, sample_rate_hz, num_render_channels,
                 num_capture_channels, std::move(render_buffer),
                 std::move(delay_controller), std::move(echo_remover));

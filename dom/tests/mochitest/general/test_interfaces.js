@@ -1,4 +1,4 @@
-/** Test for Bug 766694 **/
+/** Test for Bug 766694 */
 
 // This is a list of all interfaces that are exposed to every webpage.
 // Please only add things to this list with great care and proper review
@@ -260,9 +260,9 @@ let interfaceNamesInGlobalScope = [
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "CSSPageRule", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
-  { name: "CSSPositionTryDescriptors", insecureContext: true, nightly: true },
+  { name: "CSSPositionTryDescriptors", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
-  { name: "CSSPositionTryRule", insecureContext: true, nightly: true },
+  { name: "CSSPositionTryRule", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "CSSPropertyRule", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -272,7 +272,7 @@ let interfaceNamesInGlobalScope = [
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "CSSRuleList", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
-  { name: "CSSScopeRule", insecureContext: true, nightly: true },
+  { name: "CSSScopeRule", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "CSSStartingStyleRule", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -996,25 +996,55 @@ let interfaceNamesInGlobalScope = [
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "NamedNodeMap", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
-  { name: "NavigateEvent", insecureContext: true, disabled: true },
+  {
+    name: "NavigateEvent",
+    insecureContext: true,
+    sessionHistoryInParent: true,
+  },
   // IMPORTANT: Do not change this list without review from a DOM peer!
-  { name: "Navigation", insecureContext: true, disabled: true },
+  {
+    name: "Navigation",
+    insecureContext: true,
+    sessionHistoryInParent: true,
+  },
   // IMPORTANT: Do not change this list without review from a DOM peer!
-  { name: "NavigationActivation", insecureContext: true, disabled: true },
+  {
+    name: "NavigationActivation",
+    insecureContext: true,
+    sessionHistoryInParent: true,
+  },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   {
     name: "NavigationCurrentEntryChangeEvent",
     insecureContext: true,
-    disabled: true,
+    sessionHistoryInParent: true,
   },
   // IMPORTANT: Do not change this list without review from a DOM peer!
-  { name: "NavigationDestination", insecureContext: true, disabled: true },
+  {
+    name: "NavigationDestination",
+    insecureContext: true,
+    sessionHistoryInParent: true,
+  },
   // IMPORTANT: Do not change this list without review from a DOM peer!
-  { name: "NavigationHistoryEntry", insecureContext: true, disabled: true },
+  {
+    name: "NavigationHistoryEntry",
+    insecureContext: true,
+    sessionHistoryInParent: true,
+  },
+  // IMPORTANT: Do not change this list without review from a DOM peer!
+  {
+    name: "NavigationPrecommitController",
+    insecureContext: true,
+    sessionHistoryInParent: true,
+  },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   "NavigationPreloadManager",
   // IMPORTANT: Do not change this list without review from a DOM peer!
-  { name: "NavigationTransition", insecureContext: true, disabled: true },
+  {
+    name: "NavigationTransition",
+    insecureContext: true,
+    sessionHistoryInParent: true,
+  },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "Navigator", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -1415,7 +1445,7 @@ let interfaceNamesInGlobalScope = [
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "SVGViewElement", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
-  { name: "Sanitizer", disabled: true },
+  { name: "Sanitizer", insecureContext: true, earlyBetaOrEarlier: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "Scheduler", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -1578,6 +1608,8 @@ let interfaceNamesInGlobalScope = [
   { name: "VideoPlaybackQuality", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "ViewTransition", insecureContext: true },
+  // IMPORTANT: Do not change this list without review from a DOM peer!
+  { name: "ViewTransitionTypeSet", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "VisualViewport", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -1778,6 +1810,12 @@ let interfaceNamesInGlobalScope = [
   { name: "mozInnerScreenY", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "name", insecureContext: true },
+  // IMPORTANT: Do not change this list without review from a DOM peer!
+  {
+    name: "navigation",
+    insecureContext: true,
+    sessionHistoryInParent: true,
+  },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "navigator", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!

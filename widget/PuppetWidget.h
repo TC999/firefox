@@ -71,10 +71,10 @@ class PuppetWidget final : public nsIWidget,
   // PuppetWidget creation is infallible, hence InfallibleCreate(), which
   // Create() calls.
   using nsIWidget::Create;  // for Create signature not overridden here
-  nsresult Create(nsIWidget* aParent, const LayoutDeviceIntRect& aRect,
-                  widget::InitData* aInitData = nullptr) override;
-  void InfallibleCreate(nsIWidget* aParent, const LayoutDeviceIntRect& aRect,
-                        widget::InitData* aInitData = nullptr);
+  nsresult Create(nsIWidget* aParent, const LayoutDeviceIntRect&,
+                  const widget::InitData&) override;
+  void InfallibleCreate(nsIWidget* aParent, const LayoutDeviceIntRect&,
+                        const widget::InitData&);
 
   void InitIMEState();
 
@@ -85,16 +85,15 @@ class PuppetWidget final : public nsIWidget,
   bool IsVisible() const override { return mVisible; }
 
   // Widget position is controlled by the parent process via BrowserChild.
-  void Move(double aX, double aY) override {}
-
-  void Resize(double aWidth, double aHeight, bool aRepaint) override;
-  void Resize(double aX, double aY, double aWidth, double aHeight,
-              bool aRepaint) override {
-    if (!mBounds.IsEqualXY(aX, aY)) {
-      NotifyWindowMoved(aX, aY);
+  void Move(const DesktopPoint&) override {}
+  void Resize(const DesktopSize&, bool aRepaint) override;
+  void Resize(const DesktopRect& aRect, bool aRepaint) override {
+    auto targetRect = gfx::RoundedToInt(aRect * GetDesktopToDeviceScale());
+    if (mBounds.TopLeft() != targetRect.TopLeft()) {
+      NotifyWindowMoved(targetRect.X(), targetRect.Y());
     }
-    mBounds.MoveTo(aX, aY);
-    return Resize(aWidth, aHeight, aRepaint);
+    mBounds.MoveTo(targetRect.TopLeft());
+    return Resize(aRect.Size(), aRepaint);
   }
 
   // XXX/cjones: copying gtk behavior here; unclear what disabling a
@@ -131,8 +130,7 @@ class PuppetWidget final : public nsIWidget,
   void InitEvent(WidgetGUIEvent& aEvent,
                  LayoutDeviceIntPoint* aPoint = nullptr);
 
-  nsresult DispatchEvent(WidgetGUIEvent* aEvent,
-                         nsEventStatus& aStatus) override;
+  nsEventStatus DispatchEvent(WidgetGUIEvent* aEvent) override;
   ContentAndAPZEventStatus DispatchInputEvent(
       WidgetInputEvent* aEvent) override;
   void SetConfirmedTargetAPZC(
@@ -220,6 +218,7 @@ class PuppetWidget final : public nsIWidget,
   // Get the screen position of the application window.
   LayoutDeviceIntPoint GetWindowPosition();
 
+  LayoutDeviceIntRect GetBounds() override;
   LayoutDeviceIntRect GetScreenBounds() override;
 
   nsresult SynthesizeNativeKeyEvent(
@@ -318,8 +317,6 @@ class PuppetWidget final : public nsIWidget,
   bool GetCaretRect(LayoutDeviceIntRect& aCaretRect, uint32_t aCaretOffset);
   uint32_t GetCaretOffset();
 
-  nsIWidgetListener* GetCurrentWidgetListener();
-
   // When this widget caches input context and currently managed by
   // IMEStateManager, the cache is valid.
   bool HaveValidInputContextCache() const;
@@ -371,6 +368,8 @@ class PuppetWidget final : public nsIWidget,
 
  private:
   nsSizeMode mSizeMode;
+
+  LayoutDeviceIntRect mBounds;
 
   bool mNeedIMEStateInit;
   // When remote process requests to commit/cancel a composition, the

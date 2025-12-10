@@ -26,7 +26,6 @@
 #include "mozilla/ScrollContainerFrame.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/TouchEvents.h"
-#include "nsView.h"
 #include "nsGkAtoms.h"
 
 #include "AnchorPositioningUtils.h"
@@ -107,9 +106,7 @@ void nsCoreUtils::DispatchClickEvent(XULTreeElement* aTree, int32_t aRowIndex,
   nsIFrame* rootFrame = presShell->GetRootFrame();
 
   nsPoint offset;
-  nsCOMPtr<nsIWidget> rootWidget =
-      rootFrame->GetView()->GetNearestWidget(&offset);
-
+  nsCOMPtr<nsIWidget> rootWidget = rootFrame->GetNearestWidget(offset);
   RefPtr<nsPresContext> presContext = presShell->GetPresContext();
 
   int32_t cnvdX = presContext->CSSPixelsToDevPixels(tcX + int32_t(rect.x) + 1) +
@@ -237,14 +234,15 @@ nsresult nsCoreUtils::ScrollSubstringTo(nsIFrame* aFrame, nsRange* aRange,
     return NS_ERROR_FAILURE;
   }
 
-  nsPresContext* presContext = aFrame->PresContext();
-
-  nsCOMPtr<nsISelectionController> selCon;
-  aFrame->GetSelectionController(presContext, getter_AddRefs(selCon));
-  NS_ENSURE_TRUE(selCon, NS_ERROR_FAILURE);
-
-  RefPtr<dom::Selection> selection =
-      selCon->GetSelection(nsISelectionController::SELECTION_ACCESSIBILITY);
+  const RefPtr<dom::Selection> selection = [&]() -> dom::Selection* {
+    nsISelectionController* const selCon = aFrame->GetSelectionController();
+    NS_ENSURE_TRUE(selCon, nullptr);
+    return selCon->GetSelection(
+        nsISelectionController::SELECTION_ACCESSIBILITY);
+  }();
+  if (MOZ_UNLIKELY(!selection)) {
+    return NS_ERROR_FAILURE;
+  }
 
   selection->RemoveAllRanges(IgnoreErrors());
   selection->AddRangeAndSelectFramesAndNotifyListeners(*aRange, IgnoreErrors());
@@ -732,7 +730,7 @@ nsIFrame* nsCoreUtils::GetPositionedFrameForAnchor(
           continue;
         }
         const auto* data = referencedAnchors->Lookup(name.AsAtom());
-        if (data && *data && data->ref().mOrigin) {
+        if (data && *data && data->ref().mOffsetData) {
           if (aAnchorFrame ==
               aPresShell->GetAnchorPosAnchor(name.AsAtom(), frame)) {
             if (positionedFrame) {

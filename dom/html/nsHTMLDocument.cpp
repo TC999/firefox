@@ -7,7 +7,6 @@
 #include "nsHTMLDocument.h"
 
 #include "DocumentInlines.h"
-#include "mozilla/DebugOnly.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/StaticPrefs_intl.h"
 #include "mozilla/css/Loader.h"
@@ -29,7 +28,6 @@
 #include "nsHTMLParts.h"
 #include "nsICachingChannel.h"
 #include "nsIDocumentViewer.h"
-#include "nsIHTMLContentSink.h"
 #include "nsIPrincipal.h"
 #include "nsIProtocolHandler.h"
 #include "nsIScriptContext.h"
@@ -59,7 +57,6 @@
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StyleSheet.h"
 #include "mozilla/StyleSheetInlines.h"
-#include "mozilla/Unused.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/HTMLBodyElement.h"
 #include "mozilla/dom/HTMLDocumentBinding.h"
@@ -102,8 +99,8 @@ static bool IsAsciiCompatible(const Encoding* aEncoding) {
 nsresult NS_NewHTMLDocument(Document** aInstancePtrResult,
                             nsIPrincipal* aPrincipal,
                             nsIPrincipal* aPartitionedPrincipal,
-                            bool aLoadedAsData) {
-  RefPtr<nsHTMLDocument> doc = new nsHTMLDocument();
+                            mozilla::dom::LoadedAsData aLoadedAsData) {
+  RefPtr<nsHTMLDocument> doc = new nsHTMLDocument(aLoadedAsData);
 
   nsresult rv = doc->Init(aPrincipal, aPartitionedPrincipal);
 
@@ -112,14 +109,15 @@ nsresult NS_NewHTMLDocument(Document** aInstancePtrResult,
     return rv;
   }
 
-  doc->SetLoadedAsData(aLoadedAsData, /* aConsiderForMemoryReporting */ true);
+  doc->SetLoadedAsData(aLoadedAsData != mozilla::dom::LoadedAsData::No,
+                       /* aConsiderForMemoryReporting */ true);
   doc.forget(aInstancePtrResult);
 
   return NS_OK;
 }
 
-nsHTMLDocument::nsHTMLDocument()
-    : Document("text/html"),
+nsHTMLDocument::nsHTMLDocument(mozilla::dom::LoadedAsData aLoadedAsData)
+    : Document("text/html", aLoadedAsData),
       mContentListHolder(nullptr),
       mNumForms(0),
       mLoadFlags(0),
@@ -145,7 +143,9 @@ nsresult nsHTMLDocument::Init(nsIPrincipal* aPrincipal,
 
   // Now reset the compatibility mode of the CSSLoader
   // to match our compat mode.
-  CSSLoader()->SetCompatibilityMode(mCompatMode);
+  if (mCSSLoader) {
+    mCSSLoader->SetCompatibilityMode(mCompatMode);
+  }
 
   return NS_OK;
 }
@@ -333,16 +333,6 @@ nsresult nsHTMLDocument::StartDocumentLoad(
     loadAsHtml5 = false;
   }
 
-  // TODO: Proper about:blank treatment is bug 543435
-  if (loadAsHtml5 && view) {
-    // mDocumentURI hasn't been set, yet, so get the URI from the channel
-    nsCOMPtr<nsIURI> uri;
-    aChannel->GetURI(getter_AddRefs(uri));
-    if (NS_IsAboutBlankAllowQueryAndFragment(uri)) {
-      loadAsHtml5 = false;
-    }
-  }
-
   nsresult rv = Document::StartDocumentLoad(aCommand, aChannel, aLoadGroup,
                                             aContainer, aDocListener, aReset);
   if (NS_FAILED(rv)) {
@@ -370,6 +360,17 @@ nsresult nsHTMLDocument::StartDocumentLoad(
       }
     } else if (mViewSource && !html) {
       html5Parser->MarkAsNotScriptCreated("view-source-xml");
+    } else if (view && NS_IsAboutBlank(uri)) {
+      // Sadness: There are Chromium-originating WPTs that assume that
+      // as soon as `iframe.contentWindow.location.href == "about:blank"`,
+      // the about:blank DOM exists even for _non-initial_ navigations to
+      // about:blank. Since Chromium-originating WPTs manage to expect this,
+      // chances are that Web content might expect this as well, and the
+      // expectation was valid in Gecko previously. Therefore, let's
+      // special-case even _non-initial_ about:blank.
+      // /content-security-policy/inheritance/history-iframe.sub.html
+      // /content-security-policy/inheritance/window-open-local-after-network-scheme.sub.html
+      html5Parser->MarkAsNotScriptCreated("about-blank");
     } else {
       html5Parser->MarkAsNotScriptCreated(aCommand);
     }
@@ -486,15 +487,8 @@ nsresult nsHTMLDocument::StartDocumentLoad(
       mParser->SetContentSink(xmlsink);
     }
   } else {
-    if (loadAsHtml5) {
-      html5Parser->Initialize(this, uri, docShell, aChannel);
-    } else {
-      // about:blank *only*
-      nsCOMPtr<nsIHTMLContentSink> htmlsink;
-      NS_NewHTMLContentSink(getter_AddRefs(htmlsink), this, uri, docShell,
-                            aChannel);
-      mParser->SetContentSink(htmlsink);
-    }
+    MOZ_ASSERT(loadAsHtml5);
+    html5Parser->Initialize(this, uri, docShell, aChannel);
   }
 
   // parser the content of the URI
@@ -730,7 +724,7 @@ nsresult nsHTMLDocument::Clone(dom::NodeInfo* aNodeInfo,
   NS_ASSERTION(aNodeInfo->NodeInfoManager() == mNodeInfoManager,
                "Can't import this document into another document!");
 
-  RefPtr<nsHTMLDocument> clone = new nsHTMLDocument();
+  RefPtr<nsHTMLDocument> clone = new nsHTMLDocument(LoadedAsData::AsData);
   nsresult rv = CloneDocHelper(clone.get());
   NS_ENSURE_SUCCESS(rv, rv);
 

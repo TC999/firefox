@@ -408,7 +408,7 @@ newtab-wallpaper-abstract-purple-green = Preliv vijolične in zelene svetlobe
 newtab-wallpaper-abstract-blue-purple-waves = Modre in vijolične valovite oblike
 newtab-wallpaper-abstract-black-waves = Črne valovite oblike
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Fotografije
 newtab-wallpaper-beach-at-sunrise = Plaža ob sončnem vzhodu
@@ -437,6 +437,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -479,8 +483,15 @@ newtab-weather-menu-change-temperature-units-fahrenheit = Preklopi na stopinje F
 newtab-weather-menu-change-temperature-units-celsius = Preklopi na stopinje Celzija
 newtab-weather-menu-hide-weather = Skrij vreme na novem zavihku
 newtab-weather-menu-learn-more = Več o tem
+newtab-weather-menu-detect-my-location = Zaznaj mojo lokacijo
 # This message is shown if user is working offline
 newtab-weather-error-not-available = Podatki o vremenu trenutno niso na voljo.
+newtab-weather-opt-in-not-now =
+    .label = Ne zdaj
+newtab-weather-opt-in-yes =
+    .label = Da
+# We'll be showing static (fake) weather data if the user has not opted in to using their location
+newtab-weather-static-city = New York
 
 ## Topic Labels
 
@@ -647,6 +658,9 @@ newtab-widget-lists-input-menu-move-up = Premakni gor
 newtab-widget-lists-input-menu-move-down = Premakni dol
 newtab-widget-lists-input-menu-delete = Izbriši
 newtab-widget-lists-input-menu-edit = Uredi
+# the + symbol emphasises the functionality of adding a new list
+newtab-widget-lists-dropdown-create =
+    .label = + Ustvari nov seznam
 newtab-widget-lists-name-label-default =
     .label = Seznam opravil
 newtab-widget-lists-name-placeholder-default =
@@ -654,6 +668,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Nov seznam
+newtab-widget-section-title = Pripomočki
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Skrij pripomočke
+    .aria-label = Skrij vse pripomočke
+newtab-widget-section-maximize =
+    .title = Razširi pripomočke
+    .aria-label = Povečaj vse pripomočke na polno velikost
+newtab-widget-section-minimize =
+    .title = Pomanjšaj pripomočke
+    .aria-label = Skrči vse pripomočke
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -666,10 +691,6 @@ newtab-widget-timer-mode-focus =
     .label = Osredotočite se
 newtab-widget-timer-mode-break =
     .label = Premor
-newtab-widget-timer-play =
-    .title = Predvajaj
-newtab-widget-timer-pause =
-    .title = Ustavi
 newtab-widget-timer-label-play =
     .label = Predvajaj
 newtab-widget-timer-label-pause =
@@ -680,8 +701,7 @@ newtab-widget-timer-menu-notifications = Izklopi obvestila
 newtab-widget-timer-menu-notifications-on = Vklopi obvestila
 newtab-widget-timer-menu-hide = Skrij odštevalnik
 newtab-widget-timer-menu-learn-more = Več o tem
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Podrsajte za več
+newtab-widget-message-title = Ostanite osredotočeni s seznami in vgrajenim časovnikom
 newtab-promo-card-title = Podprite { -brand-product-name(sklon: "tozilnik") }
 newtab-promo-card-body = Naši sponzorji podpirajo naše poslanstvo ustvarjanja boljšega spleta
 newtab-promo-card-cta = Več o tem

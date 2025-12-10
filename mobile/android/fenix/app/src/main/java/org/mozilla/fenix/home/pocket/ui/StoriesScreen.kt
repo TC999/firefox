@@ -9,20 +9,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -30,6 +28,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import mozilla.components.compose.base.annotation.FlexibleWindowLightDarkPreview
+import mozilla.components.compose.base.button.IconButton
 import mozilla.components.compose.base.theme.layout.AcornWindowSize
 import mozilla.components.compose.base.utils.BackInvokedHandler
 import org.mozilla.fenix.R
@@ -49,29 +48,33 @@ fun StoriesScreen(
     interactor: PocketStoriesInteractor,
     onNavigationIconClick: () -> Unit,
 ) {
+    LaunchedEffect(Unit) {
+        interactor.onDiscoverMoreScreenViewed()
+    }
+
     BackInvokedHandler {
         onNavigationIconClick()
     }
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Text(
                         text = stringResource(R.string.pocket_stories_header_2),
-                        color = MaterialTheme.colorScheme.onSurface,
                         style = FirefoxTheme.typography.headline5,
                     )
                 },
-                modifier = Modifier
-                    .fillMaxWidth(),
                 navigationIcon = {
-                    IconButton(onClick = onNavigationIconClick) {
+                    IconButton(
+                        onClick = onNavigationIconClick,
+                        contentDescription = stringResource(R.string.stories_back_button_content_description),
+                    ) {
                         Icon(
                             painter = painterResource(iconsR.drawable.mozac_ic_back_24),
-                            contentDescription = stringResource(R.string.stories_back_button_content_description),
-                            tint = MaterialTheme.colorScheme.onSurface,
+                            contentDescription = null,
                         )
                     }
                 },
@@ -82,7 +85,6 @@ fun StoriesScreen(
                 scrollBehavior = scrollBehavior,
             )
         },
-        containerColor = MaterialTheme.colorScheme.surface,
         modifier = Modifier
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -150,7 +152,7 @@ private fun ShortcutsScreenPreviews() {
     FirefoxTheme {
         StoriesScreen(
             state = ContentRecommendationsState(
-                pocketStories = FakeHomepagePreview.pocketStories(),
+                pocketStories = FakeHomepagePreview.stories(),
             ),
             interactor = FakeHomepagePreview.storiesInteractor,
             onNavigationIconClick = {},

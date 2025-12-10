@@ -28,7 +28,14 @@ class SampleIterator {
   bool HasNext();
   already_AddRefed<mozilla::MediaRawData> GetNextHeader();
   Result<already_AddRefed<mozilla::MediaRawData>, MediaResult> GetNext();
-  void Seek(const media::TimeUnit& aTime);
+
+  // The default seek mode finds the closest sync sample at or before the target
+  // time. Setting the mode to `First` allows seeking to the earliest sync
+  // sample instead, which is only used in a specific case.
+  enum class SyncSampleMode { Closest, First };
+  void Seek(const media::TimeUnit& aTime,
+            SyncSampleMode aMode = SyncSampleMode::Closest);
+
   media::TimeUnit GetNextKeyframeTime();
 
  private:
@@ -37,7 +44,7 @@ class SampleIterator {
   // Gets the sample description entry for the current moof, or nullptr if
   // called without a valid current moof.
   SampleDescriptionEntry* GetSampleDescriptionEntry();
-  CencSampleEncryptionInfoEntry* GetSampleEncryptionEntry();
+  const CencSampleEncryptionInfoEntry* GetSampleEncryptionEntry() const;
 
   // Determines the encryption scheme in use for the current sample. If the
   // the scheme cannot be unambiguously determined, will return an error with

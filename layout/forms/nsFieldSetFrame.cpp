@@ -125,7 +125,7 @@ class nsDisplayFieldSetBorder final : public nsPaintedDisplayItem {
 
 void nsDisplayFieldSetBorder::Paint(nsDisplayListBuilder* aBuilder,
                                     gfxContext* aCtx) {
-  Unused << static_cast<nsFieldSetFrame*>(mFrame)->PaintBorder(
+  (void)static_cast<nsFieldSetFrame*>(mFrame)->PaintBorder(
       aBuilder, *aCtx, ToReferenceFrame(), GetPaintRect(aBuilder, aCtx));
 }
 
@@ -229,6 +229,7 @@ void nsFieldSetFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
 
   if (GetPrevInFlow()) {
     DisplayOverflowContainers(aBuilder, aLists);
+    DisplayAbsoluteContinuations(aBuilder, aLists);
   }
 
   nsDisplayListCollection contentDisplayItems(aBuilder);
@@ -698,8 +699,6 @@ void nsFieldSetFrame::Reflow(nsPresContext* aPresContext,
                                           containerSize);
 
     legend->SetPosition(wm, actualLegendPos, containerSize);
-    nsContainerFrame::PositionFrameView(legend);
-    nsContainerFrame::PositionChildViews(legend);
   }
 
   // Skip our block-end border if we're INCOMPLETE.

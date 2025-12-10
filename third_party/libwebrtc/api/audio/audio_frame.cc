@@ -10,9 +10,8 @@
 
 #include "api/audio/audio_frame.h"
 
-#include <string.h>
-
 #include <cstdint>
+#include <cstring>
 #include <optional>
 
 #include "api/array_view.h"
@@ -20,7 +19,6 @@
 #include "api/audio/channel_layout.h"
 #include "api/rtp_packet_infos.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 
@@ -60,7 +58,6 @@ void AudioFrame::ResetWithoutMuting() {
   channel_layout_ = CHANNEL_LAYOUT_NONE;
   speech_type_ = kUndefined;
   vad_activity_ = kVadUnknown;
-  profile_timestamp_ms_ = 0;
   packet_infos_ = RtpPacketInfos();
   absolute_capture_timestamp_ms_ = std::nullopt;
 }
@@ -126,18 +123,6 @@ void AudioFrame::CopyFrom(const AudioFrame& src) {
   if (!muted_ && !data.empty()) {
     memcpy(&data_[0], &data[0], sizeof(int16_t) * data.size());
   }
-}
-
-void AudioFrame::UpdateProfileTimeStamp() {
-  profile_timestamp_ms_ = TimeMillis();
-}
-
-int64_t AudioFrame::ElapsedProfileTimeMs() const {
-  if (profile_timestamp_ms_ == 0) {
-    // Profiling has not been activated.
-    return -1;
-  }
-  return TimeSince(profile_timestamp_ms_);
 }
 
 const int16_t* AudioFrame::data() const {

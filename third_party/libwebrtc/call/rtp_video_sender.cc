@@ -23,7 +23,6 @@
 
 #include "absl/algorithm/container.h"
 #include "absl/base/nullability.h"
-#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "api/array_view.h"
 #include "api/call/bitrate_allocation.h"
@@ -103,7 +102,7 @@ bool PayloadTypeSupportsSkippingFecPackets(absl::string_view payload_name,
     return true;
   }
   if (codecType == kVideoCodecGeneric &&
-      absl::StartsWith(trials.Lookup("WebRTC-GenericPictureId"), "Enabled")) {
+      trials.IsEnabled("WebRTC-GenericPictureId")) {
     return true;
   }
   return false;
@@ -123,8 +122,7 @@ bool ShouldDisableRedAndUlpfec(bool flexfec_enabled,
 
   bool should_disable_red_and_ulpfec = false;
 
-  if (absl::StartsWith(trials.Lookup("WebRTC-DisableUlpFecExperiment"),
-                       "Enabled")) {
+  if (trials.IsEnabled("WebRTC-DisableUlpFecExperiment")) {
     RTC_LOG(LS_INFO) << "Experiment to disable sending ULPFEC is enabled.";
     should_disable_red_and_ulpfec = true;
   }
@@ -326,6 +324,8 @@ std::vector<RtpStreamSender> CreateRtpStreamSenders(
     }
     video_config.frame_transformer = frame_transformer;
     video_config.task_queue_factory = &env.task_queue_factory();
+    video_config.raw_packetization = rtp_config.raw_payload;
+
     auto sender_video = std::make_unique<RTPSenderVideo>(video_config);
     rtp_streams.emplace_back(std::move(rtp_rtcp), std::move(sender_video),
                              std::move(fec_generator));
@@ -406,9 +406,8 @@ RtpVideoSender::RtpVideoSender(
     const CryptoOptions& crypto_options,
     scoped_refptr<FrameTransformerInterface> frame_transformer)
     : env_(env),
-      use_frame_rate_for_overhead_(absl::StartsWith(
-          env.field_trials().Lookup("WebRTC-Video-UseFrameRateForOverhead"),
-          "Enabled")),
+      use_frame_rate_for_overhead_(
+          env.field_trials().IsEnabled("WebRTC-Video-UseFrameRateForOverhead")),
       has_packet_feedback_(TransportSeqNumExtensionConfigured(rtp_config)),
       transport_queue_(*transport_queue),
       active_(false),
@@ -724,10 +723,10 @@ DataRate RtpVideoSender::GetPostEncodeOverhead() const {
   return post_encode_overhead;
 }
 
-void RtpVideoSender::DeliverRtcp(const uint8_t* packet, size_t length) {
+void RtpVideoSender::DeliverRtcp(ArrayView<const uint8_t> packet) {
   // Runs on a network thread.
   for (const RtpStreamSender& stream : rtp_streams_)
-    stream.rtp_rtcp->IncomingRtcpPacket(MakeArrayView(packet, length));
+    stream.rtp_rtcp->IncomingRtcpPacket(packet);
 }
 
 void RtpVideoSender::ConfigureSsrcs(

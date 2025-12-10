@@ -18,7 +18,6 @@
 #include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/gfx/Matrix.h"
 #include "nsAccessibilityService.h"
-#include "mozilla/Unused.h"
 #include "nsAccUtils.h"
 #include "nsFocusManager.h"
 #include "nsTextEquivUtils.h"
@@ -29,9 +28,9 @@
 
 #ifdef A11Y_LOG
 #  include "Logging.h"
-#  define VERIFY_CACHE(domain)                                     \
-    if (logging::IsEnabled(logging::eCache)) {                     \
-      Unused << mDoc->SendVerifyCache(mID, domain, mCachedFields); \
+#  define VERIFY_CACHE(domain)                                 \
+    if (logging::IsEnabled(logging::eCache)) {                 \
+      (void)mDoc->SendVerifyCache(mID, domain, mCachedFields); \
     }
 #else
 #  define VERIFY_CACHE(domain) \
@@ -227,31 +226,79 @@ void RemoteAccessible::ApplyCache(CacheUpdateType aUpdateType,
 
 ENameValueFlag RemoteAccessible::Name(nsString& aName) const {
   if (RequestDomainsIfInactive(CacheDomain::NameAndDescription |
-                               CacheDomain::Text)) {
+                               CacheDomain::Text | CacheDomain::Relations) ||
+      !mCachedFields) {
     aName.SetIsVoid(true);
     return eNameOK;
   }
 
-  ENameValueFlag nameFlag = eNameOK;
-  if (mCachedFields) {
-    if (IsText()) {
-      mCachedFields->GetAttribute(CacheKey::Text, aName);
-      return eNameOK;
+  if (IsText()) {
+    mCachedFields->GetAttribute(CacheKey::Text, aName);
+    return eNameOK;
+  }
+
+  if (mCachedFields->GetAttribute(CacheKey::Name, aName)) {
+    VERIFY_CACHE(CacheDomain::NameAndDescription);
+    return eNameOK;
+  }
+
+  if (auto maybeAriaLabelIds = mCachedFields->GetAttribute<nsTArray<uint64_t>>(
+          nsGkAtoms::aria_labelledby)) {
+    RemoteAccIterator iter(*maybeAriaLabelIds, Document());
+    nsTextEquivUtils::GetTextEquivFromAccIterable(this, &iter, aName);
+    aName.CompressWhitespace();
+  }
+
+  if (!aName.IsEmpty()) {
+    return eNameFromRelations;
+  }
+
+  if (auto accRelMapEntry = mDoc->mReverseRelations.Lookup(ID())) {
+    nsTArray<uint64_t> relationCandidateIds;
+    for (const auto& data : kRelationTypeAtoms) {
+      if (data.mAtom != nsGkAtoms::_for || data.mValidTag != nsGkAtoms::label) {
+        continue;
+      }
+
+      if (auto labelIds = accRelMapEntry.Data().Lookup(&data)) {
+        RemoteAccIterator iter(*labelIds, Document());
+        nsTextEquivUtils::GetTextEquivFromAccIterable(this, &iter, aName);
+        aName.CompressWhitespace();
+      }
     }
-    auto cachedNameFlag =
-        mCachedFields->GetAttribute<int32_t>(CacheKey::NameValueFlag);
-    if (cachedNameFlag) {
-      nameFlag = static_cast<ENameValueFlag>(*cachedNameFlag);
-    }
-    if (mCachedFields->GetAttribute(CacheKey::Name, aName)) {
-      VERIFY_CACHE(CacheDomain::NameAndDescription);
-      return nameFlag;
-    }
+    aName.CompressWhitespace();
+  }
+
+  if (!aName.IsEmpty()) {
+    return eNameFromRelations;
+  }
+
+  ArrayAccIterator iter(LegendsOrCaptions());
+  nsTextEquivUtils::GetTextEquivFromAccIterable(this, &iter, aName);
+  aName.CompressWhitespace();
+
+  if (!aName.IsEmpty()) {
+    return eNameFromRelations;
+  }
+
+  nsTextEquivUtils::GetNameFromSubtree(this, aName);
+  if (!aName.IsEmpty()) {
+    return eNameFromSubtree;
+  }
+
+  if (mCachedFields->GetAttribute(CacheKey::Tooltip, aName)) {
+    VERIFY_CACHE(CacheDomain::NameAndDescription);
+    return eNameFromTooltip;
+  }
+
+  if (mCachedFields->GetAttribute(CacheKey::CssAltContent, aName)) {
+    VERIFY_CACHE(CacheDomain::NameAndDescription);
+    return eNameOK;
   }
 
   MOZ_ASSERT(aName.IsEmpty());
   aName.SetIsVoid(true);
-  return nameFlag;
+  return eNameOK;
 }
 
 EDescriptionValueFlag RemoteAccessible::Description(
@@ -302,7 +349,8 @@ void RemoteAccessible::Value(nsString& aValue) const {
 
     const nsRoleMapEntry* roleMapEntry = ARIARoleMap();
     // Value of textbox is a textified subtree.
-    if (roleMapEntry && roleMapEntry->Is(nsGkAtoms::textbox)) {
+    if ((roleMapEntry && roleMapEntry->Is(nsGkAtoms::textbox)) ||
+        (IsGeneric() && IsEditableRoot())) {
       nsTextEquivUtils::GetTextEquivFromSubtree(this, aValue);
       return;
     }
@@ -420,7 +468,7 @@ bool RemoteAccessible::SetCurValue(double aValue) {
     return false;
   }
 
-  Unused << mDoc->SendSetCurValue(mID, aValue);
+  (void)mDoc->SendSetCurValue(mID, aValue);
   return true;
 }
 
@@ -711,16 +759,11 @@ Maybe<nsRect> RemoteAccessible::RetrieveCachedBounds() const {
   }
 
   ASSERT_DOMAINS_ACTIVE(CacheDomain::Bounds);
-  Maybe<const nsTArray<int32_t>&> maybeArray =
-      mCachedFields->GetAttribute<nsTArray<int32_t>>(
+  Maybe<const UniquePtr<nsRect>&> maybeRect =
+      mCachedFields->GetAttribute<UniquePtr<nsRect>>(
           CacheKey::ParentRelativeBounds);
-  if (maybeArray) {
-    const nsTArray<int32_t>& relativeBoundsArr = *maybeArray;
-    MOZ_ASSERT(relativeBoundsArr.Length() == 4,
-               "Incorrectly sized bounds array");
-    nsRect relativeBoundsRect(relativeBoundsArr[0], relativeBoundsArr[1],
-                              relativeBoundsArr[2], relativeBoundsArr[3]);
-    return Some(relativeBoundsRect);
+  if (maybeRect) {
+    return Some(*(*maybeRect));
   }
 
   return Nothing();
@@ -776,7 +819,8 @@ bool RemoteAccessible::ApplyTransform(nsRect& aCumulativeBounds) const {
   return true;
 }
 
-bool RemoteAccessible::ApplyScrollOffset(nsRect& aBounds) const {
+bool RemoteAccessible::ApplyScrollOffset(nsRect& aBounds,
+                                         float aResolution) const {
   ASSERT_DOMAINS_ACTIVE(CacheDomain::ScrollPosition);
   Maybe<const nsTArray<int32_t>&> maybeScrollPosition =
       mCachedFields->GetAttribute<nsTArray<int32_t>>(CacheKey::ScrollPosition);
@@ -793,7 +837,8 @@ bool RemoteAccessible::ApplyScrollOffset(nsRect& aBounds) const {
   // moves up/closer to the origin).
   nsPoint scrollOffset(-scrollPosition[0], -scrollPosition[1]);
 
-  aBounds.MoveBy(scrollOffset.x, scrollOffset.y);
+  aBounds.MoveBy(scrollOffset.x * aResolution * aResolution,
+                 scrollOffset.y * aResolution * aResolution);
 
   // Return true here even if the scroll offset was 0,0 because the RV is used
   // as a scroll container indicator. Non-scroll containers won't have cached
@@ -893,11 +938,16 @@ LayoutDeviceIntRect RemoteAccessible::BoundsWithOffset(
       bounds.SetRectY(bounds.y + internalRect.y, internalRect.height);
     }
 
-    Unused << ApplyTransform(bounds);
+    (void)ApplyTransform(bounds);
     // Now apply the parent-relative offset.
     bounds.MoveBy(maybeBounds->TopLeft());
 
     ApplyCrossDocOffset(bounds);
+
+    Maybe<float> res =
+        mDoc->mCachedFields->GetAttribute<float>(CacheKey::Resolution);
+    MOZ_ASSERT(res, "No cached document resolution found.");
+    const float resolution = res.valueOr(1.0f);
 
     LayoutDeviceIntRect devPxBounds;
     const Accessible* acc = Parent();
@@ -948,7 +998,8 @@ LayoutDeviceIntRect RemoteAccessible::BoundsWithOffset(
           // happens in this loop instead of both inside and outside of
           // the loop (like ApplyTransform).
           // Never apply scroll offsets past a fixed container.
-          const bool hasScrollArea = remoteAcc->ApplyScrollOffset(bounds);
+          const bool hasScrollArea =
+              remoteAcc->ApplyScrollOffset(bounds, resolution);
 
           // If we are hit testing and the Accessible has a scroll area, ensure
           // that the bounds we've calculated so far are constrained to the
@@ -974,7 +1025,7 @@ LayoutDeviceIntRect RemoteAccessible::BoundsWithOffset(
           // The transform matrix we cache (if any) is meant to operate on
           // self-relative rects. Therefore, we must apply the transform before
           // we make bounds parent-relative.
-          Unused << remoteAcc->ApplyTransform(bounds);
+          (void)remoteAcc->ApplyTransform(bounds);
           // Regardless of whether this is a doc, we should offset `bounds`
           // by the bounds retrieved here. This is how we build screen
           // coordinates from relative coordinates.
@@ -1270,41 +1321,65 @@ Relation RemoteAccessible::RelationByType(RelationType aType) const {
   // the cached relations need to take precedence. For example, a <figure> with
   // both aria-labelledby and a <figcaption> must return two LABELLED_BY
   // targets: the aria-labelledby and then the <figcaption>.
-  auto AddChildWithTag = [this, &rel](nsAtom* aTarget) {
-    uint32_t count = ChildCount();
-    for (uint32_t c = 0; c < count; ++c) {
-      RemoteAccessible* child = RemoteChildAt(c);
-      MOZ_ASSERT(child);
-      if (child->TagName() == aTarget) {
-        rel.AppendTarget(child);
-      }
-    }
-  };
   if (aType == RelationType::LABELLED_BY) {
-    auto tag = TagName();
-    if (tag == nsGkAtoms::figure) {
-      AddChildWithTag(nsGkAtoms::figcaption);
-    } else if (tag == nsGkAtoms::fieldset) {
-      AddChildWithTag(nsGkAtoms::legend);
-    }
+    rel.AppendIter(new ArrayAccIterator(LegendsOrCaptions()));
   } else if (aType == RelationType::LABEL_FOR) {
-    auto tag = TagName();
-    if (tag == nsGkAtoms::figcaption) {
-      if (RemoteAccessible* parent = RemoteParent()) {
-        if (parent->TagName() == nsGkAtoms::figure) {
-          rel.AppendTarget(parent);
-        }
-      }
-    } else if (tag == nsGkAtoms::legend) {
-      if (RemoteAccessible* parent = RemoteParent()) {
-        if (parent->TagName() == nsGkAtoms::fieldset) {
-          rel.AppendTarget(parent);
-        }
-      }
+    if (RemoteAccessible* labelTarget = LegendOrCaptionFor()) {
+      rel.AppendTarget(labelTarget);
     }
   }
 
   return rel;
+}
+
+nsTArray<Accessible*> RemoteAccessible::LegendsOrCaptions() const {
+  nsTArray<Accessible*> children;
+  auto AddChildWithTag = [this, &children](nsAtom* aTarget) {
+    uint32_t count = ChildCount();
+    for (uint32_t c = 0; c < count; ++c) {
+      Accessible* child = ChildAt(c);
+      MOZ_ASSERT(child);
+      if (child->TagName() == aTarget) {
+        children.AppendElement(child);
+      }
+    }
+  };
+
+  auto tag = TagName();
+  if (tag == nsGkAtoms::figure) {
+    AddChildWithTag(nsGkAtoms::figcaption);
+  } else if (tag == nsGkAtoms::fieldset) {
+    AddChildWithTag(nsGkAtoms::legend);
+  } else if (tag == nsGkAtoms::table) {
+    AddChildWithTag(nsGkAtoms::caption);
+  }
+
+  return children;
+}
+
+RemoteAccessible* RemoteAccessible::LegendOrCaptionFor() const {
+  auto tag = TagName();
+  if (tag == nsGkAtoms::figcaption) {
+    if (RemoteAccessible* parent = RemoteParent()) {
+      if (parent->TagName() == nsGkAtoms::figure) {
+        return parent;
+      }
+    }
+  } else if (tag == nsGkAtoms::legend) {
+    if (RemoteAccessible* parent = RemoteParent()) {
+      if (parent->TagName() == nsGkAtoms::fieldset) {
+        return parent;
+      }
+    }
+  } else if (tag == nsGkAtoms::caption) {
+    if (RemoteAccessible* parent = RemoteParent()) {
+      if (parent->TagName() == nsGkAtoms::table) {
+        return parent;
+      }
+    }
+  }
+
+  return nullptr;
 }
 
 void RemoteAccessible::AppendTextTo(nsAString& aText, uint32_t aStartOffset,
@@ -1547,7 +1622,7 @@ void RemoteAccessible::DOMNodeClass(nsString& aClass) const {
 
 void RemoteAccessible::ScrollToPoint(uint32_t aScrollType, int32_t aX,
                                      int32_t aY) {
-  Unused << mDoc->SendScrollToPoint(mID, aScrollType, aX, aY);
+  (void)mDoc->SendScrollToPoint(mID, aScrollType, aX, aY);
 }
 
 bool RemoteAccessible::IsScrollable() const {
@@ -1561,10 +1636,26 @@ bool RemoteAccessible::IsPopover() const {
   return mCachedFields && mCachedFields->HasAttribute(CacheKey::PopupType);
 }
 
+bool RemoteAccessible::IsEditable() const {
+  if (RequestDomainsIfInactive(CacheDomain::State)) {
+    return false;
+  }
+
+  if (mCachedFields) {
+    if (auto rawState =
+            mCachedFields->GetAttribute<uint64_t>(CacheKey::State)) {
+      VERIFY_CACHE(CacheDomain::State);
+      return (*rawState & states::EDITABLE) != 0;
+    }
+  }
+
+  return false;
+}
+
 #if !defined(XP_WIN)
 void RemoteAccessible::Announce(const nsString& aAnnouncement,
                                 uint16_t aPriority) {
-  Unused << mDoc->SendAnnounce(mID, aAnnouncement, aPriority);
+  (void)mDoc->SendAnnounce(mID, aAnnouncement, aPriority);
 }
 #endif  // !defined(XP_WIN)
 
@@ -1585,8 +1676,8 @@ void RemoteAccessible::ScrollSubstringToPoint(int32_t aStartOffset,
                                               int32_t aEndOffset,
                                               uint32_t aCoordinateType,
                                               int32_t aX, int32_t aY) {
-  Unused << mDoc->SendScrollSubstringToPoint(mID, aStartOffset, aEndOffset,
-                                             aCoordinateType, aX, aY);
+  (void)mDoc->SendScrollSubstringToPoint(mID, aStartOffset, aEndOffset,
+                                         aCoordinateType, aX, aY);
 }
 
 RefPtr<const AccAttributes> RemoteAccessible::GetCachedTextAttributes() {
@@ -1617,11 +1708,23 @@ already_AddRefed<AccAttributes> RemoteAccessible::DefaultTextAttributes() {
   if (RequestDomainsIfInactive(CacheDomain::Text)) {
     return nullptr;
   }
-  RefPtr<const AccAttributes> attrs = GetCachedTextAttributes();
+
   RefPtr<AccAttributes> result = new AccAttributes();
-  if (attrs) {
-    attrs->CopyTo(result);
+  for (RemoteAccessible* parent = this; parent;
+       parent = parent->RemoteParent()) {
+    if (!parent->IsHyperText()) {
+      // We are only interested in hypertext nodes for defaults, not in text
+      // leafs or non hypertext nodes.
+      continue;
+    }
+
+    if (RefPtr<const AccAttributes> parentAttrs =
+            parent->GetCachedTextAttributes()) {
+      // Update our text attributes with any parent entries we don't have.
+      parentAttrs->CopyTo(result, true);
+    }
   }
+
   return result.forget();
 }
 
@@ -1728,8 +1831,8 @@ already_AddRefed<AccAttributes> RemoteAccessible::Attributes() {
                                CacheDomain::State |      // State
                                CacheDomain::Viewport |   // State
                                CacheDomain::Table |  // TableIsProbablyForLayout
-                               CacheDomain::DOMNodeIDAndClass  // DOMNodeID
-                               )) {
+                               CacheDomain::DOMNodeIDAndClass |  // DOMNodeID
+                               CacheDomain::Relations)) {
     return attributes.forget();
   }
 
@@ -1847,6 +1950,26 @@ already_AddRefed<AccAttributes> RemoteAccessible::Attributes() {
     mCachedFields->GetAttribute(CacheKey::PopupType, popupType);
     if (!popupType.IsEmpty()) {
       attributes->SetAttribute(nsGkAtoms::ispopup, std::move(popupType));
+    }
+
+    if (auto hasActions =
+            mCachedFields->GetAttribute<bool>(CacheKey::HasActions)) {
+      attributes->SetAttribute(nsGkAtoms::hasActions, *hasActions);
+    }
+
+    nsString detailsFrom;
+    if (mCachedFields->HasAttribute(nsGkAtoms::aria_details)) {
+      detailsFrom.AssignLiteral("aria-details");
+    } else if (mCachedFields->HasAttribute(nsGkAtoms::commandfor)) {
+      detailsFrom.AssignLiteral("command-for");
+    } else if (mCachedFields->HasAttribute(nsGkAtoms::popovertarget)) {
+      detailsFrom.AssignLiteral("popover-target");
+    } else if (mCachedFields->HasAttribute(nsGkAtoms::target)) {
+      detailsFrom.AssignLiteral("css-anchor");
+    }
+
+    if (!detailsFrom.IsEmpty()) {
+      attributes->SetAttribute(nsGkAtoms::details_from, std::move(detailsFrom));
     }
   }
 
@@ -2039,7 +2162,7 @@ bool RemoteAccessible::DoAction(uint8_t aIndex) const {
     return false;
   }
 
-  Unused << mDoc->SendDoActionAsync(mID, aIndex);
+  (void)mDoc->SendDoActionAsync(mID, aIndex);
   return true;
 }
 
@@ -2067,7 +2190,7 @@ bool RemoteAccessible::RemoveFromSelection(int32_t aSelectionNum) {
     return false;
   }
 
-  Unused << mDoc->SendRemoveTextSelection(mID, aSelectionNum);
+  (void)mDoc->SendRemoveTextSelection(mID, aSelectionNum);
 
   return true;
 }
@@ -2182,7 +2305,7 @@ bool RemoteAccessible::HasPrimaryAction() const {
 }
 
 void RemoteAccessible::TakeFocus() const {
-  Unused << mDoc->SendTakeFocus(mID);
+  (void)mDoc->SendTakeFocus(mID);
   auto* bp = static_cast<dom::BrowserParent*>(mDoc->Manager());
   MOZ_ASSERT(bp);
   if (nsFocusManager::GetFocusedElementStatic() == bp->GetOwnerElement()) {
@@ -2213,7 +2336,7 @@ void RemoteAccessible::TakeFocus() const {
     if (embeddedDoc->IsTopLevelInContentProcess()) {
       // We only need to focus OOP iframes because these are where we cross
       // process boundaries.
-      Unused << embedderRemote->mDoc->SendTakeFocus(embedderRemote->mID);
+      (void)embedderRemote->mDoc->SendTakeFocus(embedderRemote->mID);
     }
     embeddedDoc = embedderRemote->mDoc;
     embedder = embeddedDoc->Parent();
@@ -2221,7 +2344,7 @@ void RemoteAccessible::TakeFocus() const {
 }
 
 void RemoteAccessible::ScrollTo(uint32_t aHow) const {
-  Unused << mDoc->SendScrollTo(mID, aHow);
+  (void)mDoc->SendScrollTo(mID, aHow);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2362,12 +2485,10 @@ bool RemoteAccessible::UnselectAll() {
   return success;
 }
 
-void RemoteAccessible::TakeSelection() {
-  Unused << mDoc->SendTakeSelection(mID);
-}
+void RemoteAccessible::TakeSelection() { (void)mDoc->SendTakeSelection(mID); }
 
 void RemoteAccessible::SetSelected(bool aSelect) {
-  Unused << mDoc->SendSetSelected(mID, aSelect);
+  (void)mDoc->SendSetSelected(mID, aSelect);
 }
 
 TableAccessible* RemoteAccessible::AsTable() {
@@ -2508,15 +2629,13 @@ void RemoteAccessible::Language(nsAString& aLocale) {
   }
 
   if (IsHyperText() || IsText()) {
-    if (auto attrs = GetCachedTextAttributes()) {
-      attrs->GetAttribute(nsGkAtoms::language, aLocale);
-    }
-    if (IsText() && aLocale.IsEmpty()) {
-      // If a leaf has the same language as its parent HyperTextAccessible, it
-      // won't be cached in the leaf's text attributes. Check the parent.
-      if (RemoteAccessible* parent = RemoteParent()) {
-        if (auto attrs = parent->GetCachedTextAttributes()) {
-          attrs->GetAttribute(nsGkAtoms::language, aLocale);
+    for (RemoteAccessible* parent = this; parent;
+         parent = parent->RemoteParent()) {
+      // Climb up the tree to find where the nearest language attribute is.
+      if (RefPtr<const AccAttributes> attrs =
+              parent->GetCachedTextAttributes()) {
+        if (attrs->GetAttribute(nsGkAtoms::language, aLocale)) {
+          return;
         }
       }
     }
@@ -2526,27 +2645,27 @@ void RemoteAccessible::Language(nsAString& aLocale) {
 }
 
 void RemoteAccessible::ReplaceText(const nsAString& aText) {
-  Unused << mDoc->SendReplaceText(mID, aText);
+  (void)mDoc->SendReplaceText(mID, aText);
 }
 
 void RemoteAccessible::InsertText(const nsAString& aText, int32_t aPosition) {
-  Unused << mDoc->SendInsertText(mID, aText, aPosition);
+  (void)mDoc->SendInsertText(mID, aText, aPosition);
 }
 
 void RemoteAccessible::CopyText(int32_t aStartPos, int32_t aEndPos) {
-  Unused << mDoc->SendCopyText(mID, aStartPos, aEndPos);
+  (void)mDoc->SendCopyText(mID, aStartPos, aEndPos);
 }
 
 void RemoteAccessible::CutText(int32_t aStartPos, int32_t aEndPos) {
-  Unused << mDoc->SendCutText(mID, aStartPos, aEndPos);
+  (void)mDoc->SendCutText(mID, aStartPos, aEndPos);
 }
 
 void RemoteAccessible::DeleteText(int32_t aStartPos, int32_t aEndPos) {
-  Unused << mDoc->SendDeleteText(mID, aStartPos, aEndPos);
+  (void)mDoc->SendDeleteText(mID, aStartPos, aEndPos);
 }
 
 void RemoteAccessible::PasteText(int32_t aPosition) {
-  Unused << mDoc->SendPasteText(mID, aPosition);
+  (void)mDoc->SendPasteText(mID, aPosition);
 }
 
 size_t RemoteAccessible::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) {

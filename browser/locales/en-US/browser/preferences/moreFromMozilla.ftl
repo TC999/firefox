@@ -35,13 +35,12 @@ more-from-moz-firefox-relay-button = Get { -relay-brand-short-name }
 ## These strings are for the Mozilla Monitor card in about:preferences moreFromMozilla page
 
 more-from-moz-mozilla-monitor-title = { -mozmonitor-brand-name }
-more-from-moz-mozilla-monitor-us-description = Automatically take back your exposed personal info.
 more-from-moz-mozilla-monitor-global-description = Get alerts when your data has been in a breach.
 more-from-moz-mozilla-monitor-button = Get { -monitor-brand-short-name }
 
 ## These strings are for the Solo card in about:preferences moreFromMozilla page
 
-more-from-moz-solo-title = { -solo-ai-brand-name } AI
+more-from-moz-solo-title-2 = { -solo-ai-brand-name } AI Website Creator
 more-from-moz-solo-description = Create your website instantly and connect your own custom domain for free.
 more-from-moz-solo-button = Try { -solo-ai-brand-name }
 

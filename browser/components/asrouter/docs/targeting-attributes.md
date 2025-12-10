@@ -17,6 +17,8 @@ Please note that some targeting attributes require stricter controls on the tele
 * [attributionData](#attributiondata)
 * [backgroundTaskName](#backgroundtaskname)
 * [backupsInfo](#backupsinfo)
+* [backupArchiveEnabled](#backuparchiveenabled)
+* [backupRestoreEnabled](#backuprestoreenabled)
 * [blockedCountByType](#blockedcountbytype)
 * [browserIsSelected](#browserisselected)
 * [browserSettings](#browsersettings)
@@ -27,6 +29,7 @@ Please note that some targeting attributes require stricter controls on the tele
 * [currentTabGroups](#currenttabgroups)
 * [currentTabInstalledAsWebApp](#currenttabinstalledaswebapp)
 * [currentProfileId](#currentprofileid)
+* [profileGroupProfileCount](#profileGroupProfileCount)
 * [defaultPDFHandler](#defaultpdfhandler)
 * [devToolsOpenedCount](#devtoolsopenedcount)
 * [distributionId](#distributionid)
@@ -50,6 +53,7 @@ Please note that some targeting attributes require stricter controls on the tele
 * [isDefaultBrowserUncached](#isdefaultbrowseruncached)
 * [isDefaultHandler](#isdefaulthandler)
 * [isDeviceMigration](#isdevicemigration)
+* [isEncryptedBackup](#isEncryptedBackup)
 * [isFxAEnabled](#isfxaenabled)
 * [isFxASignedIn](#isfxasignedin)
 * [isMajorUpgrade](#ismajorupgrade)
@@ -92,7 +96,6 @@ Please note that some targeting attributes require stricter controls on the tele
 * [usesFirefoxSync](#usesfirefoxsync)
 * [xpinstallEnabled](#xpinstallenabled)
 * [totalSearches](#totalsearches)
-* [isEncryptedBackup](#isEncryptedBackup)
 
 ## Detailed usage
 
@@ -1166,6 +1169,11 @@ Returns the stable profile group ID used for data reporting.
 
 The integer-valued identifier of the current selectable profile, as reported by `SelectableProfileService`, converted to a string.
 
+### `profileGroupProfileCount`
+
+The number of profiles in the current profile group or zero if either the
+feature is not enabled or the user has not created any profiles.
+
 ### `backupsInfo`
 
 Provides information about the backups a user has in the default directory.
@@ -1185,6 +1193,14 @@ declare const backupsInfo: {
   backupFileToRestore: string | null;
 };
 ```
+
+### `backupArchiveEnabled`
+
+Indicates whether the archive function is enabled by BackupService.
+
+### `backupRestoreEnabled`
+
+Indicates whether the restore function is enabled by BackupService.
 
 ### `isEncryptedBackup`
 

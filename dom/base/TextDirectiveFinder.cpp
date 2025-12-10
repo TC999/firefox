@@ -9,6 +9,7 @@
 #include "TextDirectiveUtil.h"
 #include "fragmentdirectives_ffi_generated.h"
 #include "mozilla/CycleCollectedUniquePtr.h"
+#include "mozilla/ToString.h"
 #include "mozilla/glean/DomMetrics.h"
 #include "nsFind.h"
 #include "nsRange.h"
@@ -77,6 +78,9 @@ nsTArray<RefPtr<nsRange>> TextDirectiveFinder::FindTextDirectivesInDocument() {
       textDirectiveRanges.AppendElement(range);
       TEXT_FRAGMENT_LOG("Found text directive '{}'",
                         ToString(textDirective).c_str());
+      if (RefPtr startNode = range->GetStartContainer()) {
+        startNode->QueueAncestorRevealingAlgorithm();
+      }
     } else {
       uninvokedTextDirectives.AppendElement(std::move(textDirective));
     }

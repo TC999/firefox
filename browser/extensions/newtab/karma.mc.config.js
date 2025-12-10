@@ -272,13 +272,6 @@ module.exports = function (config) {
                 lines: 75,
                 branches: 50,
               },
-            "content-src/components/DiscoveryStreamComponents/TrendingSearches/TrendingSearches.jsx":
-              {
-                statements: 0,
-                lines: 0,
-                functions: 0,
-                branches: 0,
-              },
             "content-src/components/DiscoveryStreamComponents/**/*.jsx": {
               statements: 80.95,
               lines: 80.95,
@@ -305,8 +298,8 @@ module.exports = function (config) {
               branches: 0,
             },
             "content-src/components/Weather/Weather.jsx": {
-              statements: 51.1,
-              lines: 52.38,
+              statements: 50,
+              lines: 50.94,
               functions: 31.2,
               branches: 31.2,
             },
@@ -335,7 +328,7 @@ module.exports = function (config) {
               statements: 80,
               lines: 80,
               functions: 99,
-              branches: 64,
+              branches: 62,
             },
             "content-src/components/CustomizeMenu/**/*.jsx": {
               statements: 68,

@@ -12,6 +12,7 @@ import androidx.test.espresso.intent.rule.IntentsRule
 import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
+import org.mozilla.fenix.customannotations.SkipLeaks
 import org.mozilla.fenix.customannotations.SmokeTest
 import org.mozilla.fenix.helpers.AppAndSystemHelper.assertExternalAppOpens
 import org.mozilla.fenix.helpers.AppAndSystemHelper.assertNativeAppOpens
@@ -23,7 +24,7 @@ import org.mozilla.fenix.helpers.Constants.PackageName.GOOGLE_DOCS
 import org.mozilla.fenix.helpers.HomeActivityTestRule
 import org.mozilla.fenix.helpers.MatcherHelper.itemWithResIdAndText
 import org.mozilla.fenix.helpers.MatcherHelper.itemWithText
-import org.mozilla.fenix.helpers.TestAssetHelper
+import org.mozilla.fenix.helpers.TestAssetHelper.getGenericAsset
 import org.mozilla.fenix.helpers.TestHelper.clickSnackbarButton
 import org.mozilla.fenix.helpers.TestHelper.mDevice
 import org.mozilla.fenix.helpers.TestHelper.verifySnackBarText
@@ -171,6 +172,7 @@ class DownloadTest : TestSetup() {
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1114970
     @Test
+    @SkipLeaks(reasons = ["https://bugzilla.mozilla.org/show_bug.cgi?id=2004099"])
     fun deleteDownloadedFileTest() {
         downloadRobot {
             openPageAndDownloadFile(url = downloadTestPage.toUri(), downloadFile = "smallZip.zip")
@@ -351,8 +353,7 @@ class DownloadTest : TestSetup() {
     @SmokeTest
     @Test
     fun saveAsPdfFunctionalityTest() {
-        val genericURL =
-            TestAssetHelper.getGenericAsset(mockWebServer, 3)
+        val genericURL = mockWebServer.getGenericAsset(3)
         downloadFile = "pdfForm.pdf"
 
         navigationToolbar {

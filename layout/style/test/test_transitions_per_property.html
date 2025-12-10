@@ -42,7 +42,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=435441
 /* eslint-disable dot-notation */
 
 
-/** Test for Bug 435441 **/
+/** Test for Bug 435441 */
 
 SimpleTest.requestLongerTimeout(2);
 SimpleTest.waitForExplicitFinish();
@@ -214,6 +214,7 @@ var supported_properties = {
                          /* test_length_percent_pair_unclamped */ ],
     "mask-size": [ test_background_size_transition,
                    test_length_percent_pair_clamped ],
+    "math-depth": [ test_integer_transition ],
     "max-height": [ test_length_transition, test_percent_transition,
                     test_length_clamped, test_percent_clamped ],
     "max-width": [ test_length_transition, test_percent_transition,
@@ -373,6 +374,12 @@ supported_properties["content-visibility"] = [test_content_visibility_transition
 if (IsCSSPropertyPrefEnabled("layout.css.zoom.enabled")) {
   Object.assign(supported_properties, {
     "zoom": [ test_number_transition, test_percent_transition ],
+  });
+}
+
+if (IsCSSPropertyPrefEnabled("layout.css.text-decoration-inset.enabled")) {
+  Object.assign(supported_properties, {
+    "text-decoration-inset": [ test_length_transition ],
   });
 }
 

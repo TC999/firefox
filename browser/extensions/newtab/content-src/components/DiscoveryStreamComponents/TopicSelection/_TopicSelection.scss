@@ -50,7 +50,7 @@
   .title {
     text-align: center;
     font-size: var(--font-size-xlarge);
-    font-weight: var(--font-weight-bold);
+    font-weight: var(--heading-font-weight);
     margin-block-end: var(--space-small);
   }
 
@@ -117,11 +117,22 @@
     }
 
     &:has(input:checked) {
+      /**
+       * @backward-compat { version 147 }
+       *
+       * Replace this with `--border-color-selected` once 147 hits release.
+       */
       border-color: var(--color-accent-primary);
     }
 
     &:focus-within {
       outline-offset: 2px;
+
+      /**
+       * @backward-compat { version 147 }
+       *
+       * Replace this with `--border-color-selected` once 147 hits release.
+       */
       outline: 2px solid var(--color-accent-primary);
     }
 

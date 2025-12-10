@@ -407,7 +407,7 @@ newtab-wallpaper-abstract-purple-green = Purple and green light gradient
 newtab-wallpaper-abstract-blue-purple-waves = Blue and purple wavy shapes
 newtab-wallpaper-abstract-black-waves = Black wavy shapes
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Photographs
 newtab-wallpaper-beach-at-sunrise = Beach at sunrise
@@ -436,6 +436,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -664,6 +668,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = New list
+newtab-widget-section-title = Widgets
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Hide widgets
+    .aria-label = Hide all widgets
+newtab-widget-section-maximize =
+    .title = Expand widgets
+    .aria-label = Expand all widgets to full size
+newtab-widget-section-minimize =
+    .title = Minimise widgets
+    .aria-label = Collapse all widgets to compact size
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -676,10 +691,6 @@ newtab-widget-timer-mode-focus =
     .label = Focus
 newtab-widget-timer-mode-break =
     .label = Break
-newtab-widget-timer-play =
-    .title = Play
-newtab-widget-timer-pause =
-    .title = Pause
 newtab-widget-timer-label-play =
     .label = Play
 newtab-widget-timer-label-pause =
@@ -690,8 +701,6 @@ newtab-widget-timer-menu-notifications = Turn off notifications
 newtab-widget-timer-menu-notifications-on = Turn on notifications
 newtab-widget-timer-menu-hide = Hide timer
 newtab-widget-timer-menu-learn-more = Learn more
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Scroll for more
 newtab-widget-message-title = Stay focused with lists and a built-in timer
 # to-dos stands for "things to do".
 newtab-widget-message-copy = From quick reminders to daily to-dos, focus sessions to stretch breaks — stay on task and on time.

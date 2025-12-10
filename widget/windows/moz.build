@@ -58,7 +58,6 @@ EXPORTS.mozilla.widget += [
     "nsWindowLoggedMessages.h",
     "WinCompositorWidget.h",
     "WinCompositorWindowThread.h",
-    "WindowsEMF.h",
     "WindowsSMTCProvider.h",
     "WinEventObserver.h",
     "WinMessages.h",
@@ -114,6 +113,7 @@ UNIFIED_SOURCES += [
     "WinCompositorWindowThread.cpp",
     "WindowHook.cpp",
     "WindowsConsole.cpp",
+    "WindowsTestDebug.cpp",
     "WinEventObserver.cpp",
     "WinIMEHandler.cpp",
     "WinMouseScrollHandler.cpp",
@@ -165,13 +165,9 @@ if CONFIG["NS_PRINTING"]:
         "nsPrintDialogUtil.cpp",
     ]
 
-if CONFIG["MOZ_ENABLE_SKIA_PDF"]:
-    UNIFIED_SOURCES += [
-        "WindowsEMF.cpp",
-    ]
-
 XPIDL_SOURCES += [
     "nsIAlertsServiceRust.idl",
+    "nsIWindowsTestDebug.idl",
 ]
 
 XPIDL_MODULE = "widget_windows"
@@ -215,6 +211,7 @@ USE_LIBS += [
 OS_LIBS += [
     "ktmw32",
     "rpcrt4",
+    "shcore",
     "urlmon",
     "winmm",
 ]

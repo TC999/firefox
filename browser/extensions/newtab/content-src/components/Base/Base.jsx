@@ -338,11 +338,11 @@ export class BaseContent extends React.PureComponent {
     const CSS_VAR_SPACE_XXLARGE = 32.04; // Custom Acorn themed variable (8 * 0.267rem);
 
     let layout = {
-      outerWrapperPaddingTop: 24,
-      searchWrapperPaddingTop: 16,
+      outerWrapperPaddingTop: 32.04,
+      searchWrapperPaddingTop: 16.02,
       searchWrapperPaddingBottom: CSS_VAR_SPACE_XXLARGE,
-      searchWrapperFixedScrollPaddingTop: 27,
-      searchWrapperFixedScrollPaddingBottom: 27,
+      searchWrapperFixedScrollPaddingTop: 24.03,
+      searchWrapperFixedScrollPaddingBottom: 24.03,
       searchInnerWrapperMinHeight: 52,
       logoAndWordmarkWrapperHeight: 0,
       logoAndWordmarkWrapperMarginBottom: 0,
@@ -469,11 +469,15 @@ export class BaseContent extends React.PureComponent {
     let url = "";
     let color = "transparent";
     let newTheme = colorMode;
+    let backgroundPosition = "center";
 
     // if no selected wallpaper fallback to browser/theme styles
     if (!selectedWallpaper) {
       global.document?.body.style.removeProperty("--newtab-wallpaper");
       global.document?.body.style.removeProperty("--newtab-wallpaper-color");
+      global.document?.body.style.removeProperty(
+        "--newtab-wallpaper-backgroundPosition"
+      );
       global.document?.body.classList.remove("lightWallpaper", "darkWallpaper");
       return;
     }
@@ -482,6 +486,8 @@ export class BaseContent extends React.PureComponent {
     if (selectedWallpaper === "custom" && uploadedWallpaperUrl) {
       url = uploadedWallpaperUrl;
       color = "transparent";
+      // Note: There is no method to set a specific background position for custom wallpapers
+      backgroundPosition = "center";
       newTheme = uploadedWallpaperTheme || colorMode;
     } else if (wallpaperList) {
       const wallpaper = wallpaperList.find(
@@ -498,6 +504,7 @@ export class BaseContent extends React.PureComponent {
         // standard wallpaper & solid colors
       } else if (selectedWallpaper) {
         url = wallpaper?.wallpaperUrl || "";
+        backgroundPosition = wallpaper?.background_position || "center";
         color = wallpaper?.solid_color || "transparent";
         newTheme = wallpaper?.theme || colorMode;
         // if a solid color, determine if dark or light
@@ -511,6 +518,10 @@ export class BaseContent extends React.PureComponent {
     global.document?.body.style.setProperty(
       "--newtab-wallpaper",
       `url(${url})`
+    );
+    global.document?.body.style.setProperty(
+      "--newtab-wallpaper-backgroundPosition",
+      backgroundPosition
     );
     global.document?.body.style.setProperty(
       "--newtab-wallpaper-color",
@@ -650,13 +661,13 @@ export class BaseContent extends React.PureComponent {
         prefs[PREF_INFERRED_PERSONALIZATION_USER],
       topSitesRowsCount: prefs.topSitesRows,
       weatherEnabled: prefs.showWeather,
-      trendingSearchEnabled: prefs["trendingSearch.enabled"],
     };
 
     const pocketRegion = prefs["feeds.system.topstories"];
     const mayHaveInferredPersonalization =
       prefs[PREF_INFERRED_PERSONALIZATION_SYSTEM];
-    const mayHaveWeather = prefs["system.showWeather"];
+    const mayHaveWeather =
+      prefs["system.showWeather"] || prefs.trainhopConfig?.weather?.enabled;
     const supportUrl = prefs["support.url"];
 
     // Weather can be enabled and not rendered in the top right corner
@@ -690,14 +701,8 @@ export class BaseContent extends React.PureComponent {
     const enabledWidgets = {
       listsEnabled: prefs["widgets.lists.enabled"],
       timerEnabled: prefs["widgets.focusTimer.enabled"],
-      trendingSearchEnabled: prefs["trendingSearch.enabled"],
       weatherEnabled: prefs.showWeather,
     };
-
-    // Trending Searches experiment pref check
-    const mayHaveTrendingSearch =
-      prefs["system.trendingSearch.enabled"] &&
-      prefs["trendingSearch.defaultSearchEngine"].toLowerCase() === "google";
 
     // Mobile Download Promo Pref Checks
     const mobileDownloadPromoEnabled = prefs["mobileDownloadModal.enabled"];
@@ -779,36 +784,6 @@ export class BaseContent extends React.PureComponent {
 
     return (
       <div className={featureClassName}>
-        {/* Floating menu for customize menu toggle */}
-        <menu className="personalizeButtonWrapper">
-          <CustomizeMenu
-            onClose={this.closeCustomizationMenu}
-            onOpen={this.openCustomizationMenu}
-            openPreferences={this.openPreferences}
-            setPref={this.setPref}
-            enabledSections={enabledSections}
-            enabledWidgets={enabledWidgets}
-            wallpapersEnabled={wallpapersEnabled}
-            activeWallpaper={activeWallpaper}
-            pocketRegion={pocketRegion}
-            mayHaveTopicSections={mayHavePersonalizedTopicSections}
-            mayHaveInferredPersonalization={mayHaveInferredPersonalization}
-            mayHaveWeather={mayHaveWeather}
-            mayHaveTrendingSearch={mayHaveTrendingSearch}
-            mayHaveWidgets={mayHaveWidgets}
-            mayHaveTimerWidget={mayHaveTimerWidget}
-            mayHaveListsWidget={mayHaveListsWidget}
-            showing={customizeMenuVisible}
-          />
-          {this.shouldShowOMCHighlight("CustomWallpaperHighlight") && (
-            <MessageWrapper dispatch={this.props.dispatch}>
-              <WallpaperFeatureHighlight
-                position="inset-block-start inset-inline-start"
-                dispatch={this.props.dispatch}
-              />
-            </MessageWrapper>
-          )}
-        </menu>
         <div className="weatherWrapper">
           {shouldDisplayWeather && (
             <ErrorBoundary>
@@ -887,6 +862,35 @@ export class BaseContent extends React.PureComponent {
             <TopicSelection supportUrl={supportUrl} />
           )}
         </div>
+        {/* Floating menu for customize menu toggle */}
+        <menu className="personalizeButtonWrapper">
+          <CustomizeMenu
+            onClose={this.closeCustomizationMenu}
+            onOpen={this.openCustomizationMenu}
+            openPreferences={this.openPreferences}
+            setPref={this.setPref}
+            enabledSections={enabledSections}
+            enabledWidgets={enabledWidgets}
+            wallpapersEnabled={wallpapersEnabled}
+            activeWallpaper={activeWallpaper}
+            pocketRegion={pocketRegion}
+            mayHaveTopicSections={mayHavePersonalizedTopicSections}
+            mayHaveInferredPersonalization={mayHaveInferredPersonalization}
+            mayHaveWeather={mayHaveWeather}
+            mayHaveWidgets={mayHaveWidgets}
+            mayHaveTimerWidget={mayHaveTimerWidget}
+            mayHaveListsWidget={mayHaveListsWidget}
+            showing={customizeMenuVisible}
+          />
+          {this.shouldShowOMCHighlight("CustomWallpaperHighlight") && (
+            <MessageWrapper dispatch={this.props.dispatch}>
+              <WallpaperFeatureHighlight
+                position="inset-block-start inset-inline-start"
+                dispatch={this.props.dispatch}
+              />
+            </MessageWrapper>
+          )}
+        </menu>
       </div>
     );
   }

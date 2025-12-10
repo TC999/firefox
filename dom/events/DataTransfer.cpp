@@ -6,7 +6,6 @@
 
 #include "DataTransfer.h"
 
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/BasicEvents.h"
 #include "mozilla/CheckedInt.h"
@@ -14,7 +13,6 @@
 #include "mozilla/ClipboardReadRequestChild.h"
 #include "mozilla/Span.h"
 #include "mozilla/StaticPrefs_dom.h"
-#include "mozilla/Unused.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/DOMStringList.h"
@@ -119,17 +117,10 @@ DataTransfer::DataTransfer(
     nsISupports* aParent, EventMessage aEventMessage, bool aIsExternal,
     mozilla::Maybe<nsIClipboard::ClipboardType> aClipboardType)
     : mParent(aParent),
-      mDropEffect(nsIDragService::DRAGDROP_ACTION_NONE),
-      mEffectAllowed(nsIDragService::DRAGDROP_ACTION_UNINITIALIZED),
       mEventMessage(aEventMessage),
-      mCursorState(false),
       mMode(ModeForEvent(aEventMessage)),
       mIsExternal(aIsExternal),
-      mUserCancelled(false),
-      mIsCrossDomainSubFrameDrop(false),
-      mClipboardType(aClipboardType),
-      mDragImageX(0),
-      mDragImageY(0) {
+      mClipboardType(aClipboardType) {
   mItems = new DataTransferItemList(this);
 
   // For external usage, cache the data from the native clipboard or drag.
@@ -150,16 +141,9 @@ DataTransfer::DataTransfer(nsISupports* aParent, EventMessage aEventMessage,
                            nsITransferable* aTransferable)
     : mParent(aParent),
       mTransferable(aTransferable),
-      mDropEffect(nsIDragService::DRAGDROP_ACTION_NONE),
-      mEffectAllowed(nsIDragService::DRAGDROP_ACTION_UNINITIALIZED),
       mEventMessage(aEventMessage),
-      mCursorState(false),
       mMode(ModeForEvent(aEventMessage)),
-      mIsExternal(true),
-      mUserCancelled(false),
-      mIsCrossDomainSubFrameDrop(false),
-      mDragImageX(0),
-      mDragImageY(0) {
+      mIsExternal(true) {
   mItems = new DataTransferItemList(this);
 
   // XXX Currently, we cannot make DataTransfer grabs mTransferable for long
@@ -183,16 +167,8 @@ DataTransfer::DataTransfer(nsISupports* aParent, EventMessage aEventMessage,
 DataTransfer::DataTransfer(nsISupports* aParent, EventMessage aEventMessage,
                            const nsAString& aString)
     : mParent(aParent),
-      mDropEffect(nsIDragService::DRAGDROP_ACTION_NONE),
-      mEffectAllowed(nsIDragService::DRAGDROP_ACTION_UNINITIALIZED),
       mEventMessage(aEventMessage),
-      mCursorState(false),
-      mMode(ModeForEvent(aEventMessage)),
-      mIsExternal(false),
-      mUserCancelled(false),
-      mIsCrossDomainSubFrameDrop(false),
-      mDragImageX(0),
-      mDragImageY(0) {
+      mMode(ModeForEvent(aEventMessage)) {
   mItems = new DataTransferItemList(this);
 
   nsCOMPtr<nsIPrincipal> sysPrincipal = nsContentUtils::GetSystemPrincipal();
@@ -214,7 +190,6 @@ DataTransfer::DataTransfer(
     DataTransferItemList* aItems, Element* aDragImage, uint32_t aDragImageX,
     uint32_t aDragImageY, bool aShowFailAnimation)
     : mParent(aParent),
-      mDropEffect(nsIDragService::DRAGDROP_ACTION_NONE),
       mEffectAllowed(aEffectAllowed),
       mEventMessage(aEventMessage),
       mCursorState(aCursorState),

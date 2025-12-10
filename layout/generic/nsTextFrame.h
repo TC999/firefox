@@ -160,7 +160,7 @@ class nsTextFrame : public nsIFrame {
 
     void InitializeForMeasure();
 
-    void GetSpacing(Range aRange, Spacing* aSpacing) const final;
+    bool GetSpacing(Range aRange, Spacing* aSpacing) const final;
     gfxFloat GetHyphenWidth() const final;
     void GetHyphenationBreaks(Range aRange,
                               HyphenType* aBreakBefore) const final;
@@ -175,7 +175,7 @@ class nsTextFrame : public nsIFrame {
       return mTextRun->GetAppUnitsPerDevUnit();
     }
 
-    void GetSpacingInternal(Range aRange, Spacing* aSpacing,
+    bool GetSpacingInternal(Range aRange, Spacing* aSpacing,
                             bool aIgnoreTabs) const;
 
     /**
@@ -259,10 +259,10 @@ class nsTextFrame : public nsIFrame {
     int32_t mLength;
 
     // space for each whitespace char
-    const gfxFloat mWordSpacing;
+    const nscoord mWordSpacing;
 
     // space for each letter
-    const gfxFloat mLetterSpacing;
+    const nscoord mLetterSpacing;
 
     // If TextAutospace exists, inter-script spacing applies.
     Maybe<mozilla::TextAutospace> mTextAutospace;
@@ -483,7 +483,7 @@ class nsTextFrame : public nsIFrame {
   void AddInlinePrefISize(const mozilla::IntrinsicSizeInput& aInput,
                           InlinePrefISizeData* aData) override;
   SizeComputationResult ComputeSize(
-      gfxContext* aRenderingContext, mozilla::WritingMode aWM,
+      const SizeComputationInput& aSizingInput, mozilla::WritingMode aWM,
       const mozilla::LogicalSize& aCBSize, nscoord aAvailableISize,
       const mozilla::LogicalSize& aMargin,
       const mozilla::LogicalSize& aBorderPadding,
@@ -982,19 +982,8 @@ class nsTextFrame : public nsIFrame {
 
     LineDecoration(const LineDecoration& aOther) = default;
 
-    bool operator==(const LineDecoration& aOther) const {
-      return mFrame == aOther.mFrame && mStyle == aOther.mStyle &&
-             mColor == aOther.mColor &&
-             mBaselineOffset == aOther.mBaselineOffset &&
-             mTextUnderlinePosition == aOther.mTextUnderlinePosition &&
-             mTextUnderlineOffset == aOther.mTextUnderlineOffset &&
-             mTextDecorationThickness == aOther.mTextDecorationThickness &&
-             mAllowInkSkipping == aOther.mAllowInkSkipping;
-    }
-
-    bool operator!=(const LineDecoration& aOther) const {
-      return !(*this == aOther);
-    }
+    bool operator==(const LineDecoration& aOther) const = default;
+    bool operator!=(const LineDecoration& aOther) const = default;
   };
   struct TextDecorations {
     AutoTArray<LineDecoration, 1> mOverlines, mUnderlines, mStrikes;
@@ -1007,13 +996,8 @@ class nsTextFrame : public nsIFrame {
     bool HasUnderline() const { return !mUnderlines.IsEmpty(); }
     bool HasOverline() const { return !mOverlines.IsEmpty(); }
     bool HasStrikeout() const { return !mStrikes.IsEmpty(); }
-    bool operator==(const TextDecorations& aOther) const {
-      return mOverlines == aOther.mOverlines &&
-             mUnderlines == aOther.mUnderlines && mStrikes == aOther.mStrikes;
-    }
-    bool operator!=(const TextDecorations& aOther) const {
-      return !(*this == aOther);
-    }
+    bool operator==(const TextDecorations& aOther) const = default;
+    bool operator!=(const TextDecorations& aOther) const = default;
   };
   enum TextDecorationColorResolution { eResolvedColors, eUnresolvedColors };
   void GetTextDecorations(nsPresContext* aPresContext,
@@ -1050,11 +1034,13 @@ class nsTextFrame : public nsIFrame {
    */
   void DrawSelectionDecorations(
       gfxContext* aContext, const LayoutDeviceRect& aDirtyRect,
-      mozilla::SelectionType aSelectionType, nsTextPaintStyle& aTextPaintStyle,
-      const TextRangeStyle& aRangeStyle, const Point& aPt,
-      gfxFloat aICoordInFrame, gfxFloat aWidth, gfxFloat aAscent,
-      const gfxFont::Metrics& aFontMetrics, DrawPathCallbacks* aCallbacks,
-      bool aVertical, mozilla::StyleTextDecorationLine aDecoration);
+      mozilla::SelectionType aSelectionType, nsAtom* aHighlightName,
+      nsTextPaintStyle& aTextPaintStyle, const TextRangeStyle& aRangeStyle,
+      const Point& aPt, gfxFloat aICoordInFrame, gfxFloat aWidth,
+      gfxFloat aAscent, const gfxFont::Metrics& aFontMetrics,
+      DrawPathCallbacks* aCallbacks, bool aVertical,
+      mozilla::StyleTextDecorationLine aDecoration, const Range& aGlyphRange,
+      PropertyProvider* aProvider);
 
   void PaintDecorationLine(const PaintDecorationLineParams& aParams);
   /**

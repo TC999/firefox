@@ -408,7 +408,7 @@ newtab-wallpaper-abstract-purple-green = Фіолетовий і зелений 
 newtab-wallpaper-abstract-blue-purple-waves = Сині та фіолетові хвилясті форми
 newtab-wallpaper-abstract-black-waves = Чорні хвилясті форми
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Фотографії
 newtab-wallpaper-beach-at-sunrise = Пляж на сході сонця
@@ -437,6 +437,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -479,8 +483,16 @@ newtab-weather-menu-change-temperature-units-fahrenheit = Перемкнути �
 newtab-weather-menu-change-temperature-units-celsius = Перемкнути на градуси Цельсія
 newtab-weather-menu-hide-weather = Сховати погоду на новій вкладці
 newtab-weather-menu-learn-more = Докладніше
+newtab-weather-menu-detect-my-location = Визначити моє розташування
 # This message is shown if user is working offline
 newtab-weather-error-not-available = Дані про погоду зараз недоступні.
+newtab-weather-opt-in-see-weather = Хочете бачити погоду для вашого розташування?
+newtab-weather-opt-in-not-now =
+    .label = Не зараз
+newtab-weather-opt-in-yes =
+    .label = Так
+# We'll be showing static (fake) weather data if the user has not opted in to using their location
+newtab-weather-static-city = Нью-Йорк
 
 ## Topic Labels
 
@@ -572,7 +584,7 @@ newtab-new-user-custom-wallpaper-cta = Спробувати зараз
 
 ## Strings for download mobile highlight
 
-newtab-download-mobile-highlight-title = Завантажити { -brand-product-name } для мобільних пристроїв
+newtab-download-mobile-highlight-title = Завантажте { -brand-product-name } для мобільних пристроїв
 # "Scan the code" refers to scanning the QR code that appears above the body text that leads to Firefox for mobile download.
 newtab-download-mobile-highlight-body-variant-a = Скануйте код, щоб безпечно переглядати вебсторінки в дорозі.
 newtab-download-mobile-highlight-body-variant-b = Продовжуйте з того місця, де зупинилися, синхронізуючи вкладки, паролі тощо.
@@ -647,6 +659,9 @@ newtab-widget-lists-input-menu-move-up = Посунути вгору
 newtab-widget-lists-input-menu-move-down = Посунути вниз
 newtab-widget-lists-input-menu-delete = Видалити
 newtab-widget-lists-input-menu-edit = Редагувати
+# the + symbol emphasises the functionality of adding a new list
+newtab-widget-lists-dropdown-create =
+    .label = + Створити новий список
 newtab-widget-lists-name-label-default =
     .label = Список завдань
 newtab-widget-lists-name-placeholder-default =
@@ -654,6 +669,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Новий список
+newtab-widget-section-title = Віджети
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Приховати віджети
+    .aria-label = Приховати всі віджети
+newtab-widget-section-maximize =
+    .title = Розгорнути віджети
+    .aria-label = Розгорнути всі віджети до повного розміру
+newtab-widget-section-minimize =
+    .title = Згорнути віджети
+    .aria-label = Згорнути всі віджети до компактного розміру
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -666,10 +692,6 @@ newtab-widget-timer-mode-focus =
     .label = Зосередження
 newtab-widget-timer-mode-break =
     .label = Перерва
-newtab-widget-timer-play =
-    .title = Відтворити
-newtab-widget-timer-pause =
-    .title = Призупинити
 newtab-widget-timer-label-play =
     .label = Відтворити
 newtab-widget-timer-label-pause =
@@ -680,8 +702,6 @@ newtab-widget-timer-menu-notifications = Вимкнути сповіщення
 newtab-widget-timer-menu-notifications-on = Увімкнути сповіщення
 newtab-widget-timer-menu-hide = Приховати таймер
 newtab-widget-timer-menu-learn-more = Докладніше
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Прокрутіть, щоб переглянути більше
 newtab-widget-message-title = Будьте зосередженими завдяки спискам і вбудованому таймеру
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Миттєві нагадування, щоденні справи, сеанси зосередження і перерви – контролюйте свої завдання і виконуйте їх вчасно.

@@ -8,18 +8,16 @@
 #include "mozilla/ipc/GeckoChildProcessHost.h"
 
 #include "mozilla/AppShutdown.h"
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/Components.h"
 #include "mozilla/FilePreferences.h"
 #include "mozilla/ChaosMode.h"
+#include "mozilla/HelperMacros.h"
 #include "mozilla/CmdLineAndEnvUtils.h"
 #include "mozilla/IOInterposer.h"
 #include "mozilla/ipc/UtilityProcessChild.h"
 #include "mozilla/Likely.h"
-#include "mozilla/MemoryChecking.h"
-#include "mozilla/Poison.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/PreferenceSheet.h"
 #include "mozilla/Printf.h"
@@ -34,7 +32,6 @@
 #include "mozilla/glean/SecuritySandboxMetrics.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/Try.h"
-#include "mozilla/Utf8.h"
 #include "mozilla/intl/LocaleService.h"
 #include "mozilla/JSONWriter.h"
 #include "mozilla/gfx/gfxVars.h"
@@ -107,8 +104,6 @@
 #ifdef XP_MACOSX
 #  include "gfxPlatformMac.h"
 #endif
-
-#include "mozilla/Unused.h"
 
 #ifdef XP_WIN
 #  include "nsIWinAppHelper.h"
@@ -315,8 +310,8 @@ extern const char gToolkitBuildID[];
 
 static nsIProfileLock* gProfileLock;
 #if defined(MOZ_HAS_REMOTE)
-MOZ_RUNINIT static RefPtr<nsRemoteService> gRemoteService;
-MOZ_RUNINIT static RefPtr<nsStartupLock> gStartupLock;
+constinit static RefPtr<nsRemoteService> gRemoteService;
+constinit static RefPtr<nsStartupLock> gStartupLock;
 #endif
 
 int gRestartArgc;
@@ -332,10 +327,10 @@ int gKioskMonitor = -1;
 
 bool gAllowContentAnalysisArgPresent = false;
 
-MOZ_CONSTINIT nsString gAbsoluteArgv0Path;
+constinit nsString gAbsoluteArgv0Path;
 
 #if defined(XP_WIN)
-MOZ_CONSTINIT nsString gProcessStartupShortcut;
+constinit nsString gProcessStartupShortcut;
 #endif
 
 #if defined(MOZ_WIDGET_GTK)
@@ -353,7 +348,7 @@ MOZ_CONSTINIT nsString gProcessStartupShortcut;
 #endif
 
 #if defined(MOZ_WAYLAND)
-MOZ_RUNINIT std::unique_ptr<WaylandProxy> gWaylandProxy;
+constinit std::unique_ptr<WaylandProxy> gWaylandProxy;
 #endif
 
 #include "BinaryPath.h"
@@ -384,7 +379,6 @@ bool RunningGTest() { return RunGTest; }
 using namespace mozilla;
 using namespace mozilla::widget;
 using namespace mozilla::startup;
-using mozilla::Unused;
 using mozilla::dom::ContentChild;
 using mozilla::dom::ContentParent;
 using mozilla::dom::quota::QuotaManager;
@@ -1275,8 +1269,8 @@ nsXULAppInfo::GetRemoteType(nsACString& aRemoteType) {
   return NS_OK;
 }
 
-MOZ_CONSTINIT static nsCString gLastAppVersion;
-MOZ_CONSTINIT static nsCString gLastAppBuildID;
+constinit static nsCString gLastAppVersion;
+constinit static nsCString gLastAppBuildID;
 
 NS_IMETHODIMP
 nsXULAppInfo::GetLastAppVersion(nsACString& aResult) {
@@ -2308,8 +2302,8 @@ static void SetupAlteredPrefetchPref() {
 }
 
 static void ReflectSkeletonUIPrefToRegistry(const char* aPref, void* aData) {
-  Unused << aPref;
-  Unused << aData;
+  (void)aPref;
+  (void)aData;
 
   RefPtr<nsToolkitProfileService> mProfileSvc;
   mProfileSvc = NS_GetToolkitProfileService();
@@ -2323,20 +2317,20 @@ static void ReflectSkeletonUIPrefToRegistry(const char* aPref, void* aData) {
     nsCString themeId;
     Preferences::GetCString(kPrefThemeId, themeId);
     if (themeId.EqualsLiteral("default-theme@mozilla.org")) {
-      Unused << SetPreXULSkeletonUIThemeId(ThemeMode::Default);
+      (void)SetPreXULSkeletonUIThemeId(ThemeMode::Default);
     } else if (themeId.EqualsLiteral("firefox-compact-dark@mozilla.org")) {
-      Unused << SetPreXULSkeletonUIThemeId(ThemeMode::Dark);
+      (void)SetPreXULSkeletonUIThemeId(ThemeMode::Dark);
     } else if (themeId.EqualsLiteral("firefox-compact-light@mozilla.org")) {
-      Unused << SetPreXULSkeletonUIThemeId(ThemeMode::Light);
+      (void)SetPreXULSkeletonUIThemeId(ThemeMode::Light);
     } else {
       shouldBeEnabled = false;
     }
   } else if (shouldBeEnabled) {
-    Unused << SetPreXULSkeletonUIThemeId(ThemeMode::Default);
+    (void)SetPreXULSkeletonUIThemeId(ThemeMode::Default);
   }
 
   if (GetPreXULSkeletonUIEnabled() != shouldBeEnabled) {
-    Unused << SetPreXULSkeletonUIEnabledIfAllowed(shouldBeEnabled);
+    (void)SetPreXULSkeletonUIEnabledIfAllowed(shouldBeEnabled);
   }
 }
 
@@ -2356,8 +2350,8 @@ NS_IMPL_ISUPPORTS(ShowProfileSelectorObserver, nsIObserver);
 NS_IMETHODIMP
 ShowProfileSelectorObserver::Observe(nsISupports* aSubject, const char* aTopic,
                                      const char16_t* aData) {
-  Unused << aSubject;
-  Unused << aData;
+  (void)aSubject;
+  (void)aData;
   if (!strcmp(aTopic, "profile-show-selector-changed")) {
     ReflectSkeletonUIPrefToRegistry(nullptr, nullptr);
   }
@@ -3032,7 +3026,7 @@ static ReturnAbortOnError ShowProfileSelector(
 
 static bool gDoMigration = false;
 static bool gDoProfileReset = false;
-MOZ_RUNINIT static nsCOMPtr<nsIToolkitProfile> gResetOldProfile;
+constinit static nsCOMPtr<nsIToolkitProfile> gResetOldProfile;
 
 static nsresult LockProfile(nsINativeAppSupport* aNative, nsIFile* aRootDir,
                             nsIFile* aLocalDir, nsIToolkitProfile* aProfile,
@@ -3624,10 +3618,10 @@ static void WriteVersion(nsIFile* aProfileDir, const nsCString& aVersion,
   file->AppendNative(FILE_COMPATIBILITY_INFO);
 
   nsAutoCString platformDir;
-  Unused << aXULRunnerDir->GetPersistentDescriptor(platformDir);
+  (void)aXULRunnerDir->GetPersistentDescriptor(platformDir);
 
   nsAutoCString appDir;
-  if (aAppDir) Unused << aAppDir->GetPersistentDescriptor(appDir);
+  if (aAppDir) (void)aAppDir->GetPersistentDescriptor(appDir);
 
   PRFileDesc* fd;
   nsresult rv = file->OpenNSPRFileDesc(PR_WRONLY | PR_CREATE_FILE | PR_TRUNCATE,
@@ -3993,8 +3987,8 @@ static void SetupConsoleForBackgroundTask(
       !EnvHasValue("MOZ_BACKGROUNDTASKS_IGNORE_NO_OUTPUT")) {
     // Suppress output, somewhat crudely.  We need to suppress stderr as well
     // as stdout because assertions, of which there are many, write to stderr.
-    Unused << freopen("/dev/null", "w", stdout);
-    Unused << freopen("/dev/null", "w", stderr);
+    [[maybe_unused]] FILE* r0 = freopen("/dev/null", "w", stdout);
+    [[maybe_unused]] FILE* r1 = freopen("/dev/null", "w", stderr);
     return;
   }
 #  endif
@@ -4436,8 +4430,8 @@ int XREMain::XRE_mainInit(bool* aExitFlag) {
     // Remove the --backgroundtask arg now that it has been saved in
     // gRestartArgv.
     const char* tmpBackgroundTaskName = nullptr;
-    Unused << CheckArg("backgroundtask", &tmpBackgroundTaskName,
-                       CheckArgFlag::RemoveArg);
+    (void)CheckArg("backgroundtask", &tmpBackgroundTaskName,
+                   CheckArgFlag::RemoveArg);
   }
 #endif
 
@@ -4460,6 +4454,12 @@ int XREMain::XRE_mainInit(bool* aExitFlag) {
   // These arguments do nothing in platforms with no remoting support but we
   // should remove them from the command line anyway.
   CheckArg("new-instance");
+#endif
+
+#ifndef XP_WIN
+  // This command line argument is only implemented on Windows. It should be
+  // removed from the command line if present on other platforms.
+  CheckArg("wait-for-browser");
 #endif
 
   ar = CheckArg("offline");
@@ -4700,7 +4700,7 @@ bool XREMain::CheckLastStartupWasCrash() {
   // doesn't already exist, it is created, and will be removed at the end of
   // the startup crash detection window.
   AutoFDClose fd;
-  Unused << crashFile.inspect()->OpenNSPRFileDesc(
+  (void)crashFile.inspect()->OpenNSPRFileDesc(
       PR_WRONLY | PR_CREATE_FILE | PR_EXCL, 0666, getter_Transfers(fd));
   return !fd;
 }
@@ -5296,7 +5296,7 @@ int XREMain::XRE_mainStartup(bool* aExitFlag) {
   // Re-register components to catch potential changes.
   nsCOMPtr<nsIFile> flagFile;
   if (mAppData->directory) {
-    Unused << mAppData->directory->Clone(getter_AddRefs(flagFile));
+    (void)mAppData->directory->Clone(getter_AddRefs(flagFile));
   }
   if (flagFile) {
     flagFile->AppendNative(FILE_INVALIDATE_CACHES);
@@ -5405,7 +5405,7 @@ int XREMain::XRE_mainStartup(bool* aExitFlag) {
     // It's used as template to create display connections
     // for different threads.
     if (IsWaylandEnabled()) {
-      MOZ_UNUSED(WaylandDisplayGet());
+      (void)WaylandDisplayGet();
     }
 #endif
 #ifdef MOZ_WIDGET_GTK

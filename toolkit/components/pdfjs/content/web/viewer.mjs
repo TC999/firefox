@@ -21,8 +21,8 @@
  */
 
 /**
- * pdfjsVersion = 5.4.315
- * pdfjsBuild = 8ba18075f
+ * pdfjsVersion = 5.4.466
+ * pdfjsBuild = 36de2d976
  */
 /******/ // The require scope
 /******/ var __webpack_require__ = {};
@@ -1462,6 +1462,7 @@ class BaseExternalServices {
   updateFindMatchesCount(data) {}
   initPassiveLoading() {}
   reportTelemetry(data) {}
+  reportText(data) {}
   async createL10n() {
     throw new Error("Not implemented: createL10n");
   }
@@ -2174,6 +2175,9 @@ class ExternalServices extends BaseExternalServices {
   reportTelemetry(data) {
     FirefoxCom.request("reportTelemetry", data);
   }
+  reportText(data) {
+    FirefoxCom.request("reportText", data);
+  }
   updateEditorStates(data) {
     FirefoxCom.request("updateEditorStates", data);
   }
@@ -2289,6 +2293,11 @@ class NewAltTextManager {
     });
     textarea.addEventListener("input", () => {
       this.#toggleTitleAndDisclaimer();
+    });
+    textarea.addEventListener("keydown", e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !saveButton.disabled) {
+        this.#save();
+      }
     });
     eventBus._on("enableguessalttext", ({
       value
@@ -2532,7 +2541,7 @@ class NewAltTextManager {
     this.#overlayManager.closeIfActive(this.#dialog);
   }
   #close() {
-    const canvas = this.#imagePreview.firstChild;
+    const canvas = this.#imagePreview.firstElementChild;
     canvas.remove();
     canvas.width = canvas.height = 0;
     this.#imageData = null;
@@ -2676,7 +2685,7 @@ class ImageAltTextSettings {
   async #download(isFromUI = false) {
     if (isFromUI) {
       this.#downloadModelButton.disabled = true;
-      const span = this.#downloadModelButton.firstChild;
+      const span = this.#downloadModelButton.firstElementChild;
       span.setAttribute("data-l10n-id", "pdfjs-editor-alt-text-settings-downloading-model-button");
       await this.#mlManager.downloadModel("altText");
       span.setAttribute("data-l10n-id", "pdfjs-editor-alt-text-settings-download-model-button");
@@ -2785,6 +2794,11 @@ class AltTextManager {
     saveButton.addEventListener("click", this.#save.bind(this));
     optionDescription.addEventListener("change", onUpdateUIState);
     optionDecorative.addEventListener("change", onUpdateUIState);
+    textarea.addEventListener("keydown", e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !saveButton.disabled) {
+        this.#save();
+      }
+    });
     this.#overlayManager.register(dialog);
   }
   #createSVGElement() {
@@ -3297,7 +3311,172 @@ class CaretBrowsingMode {
   }
 }
 
+;// ./web/sidebar.js
+
+const RESIZE_TIMEOUT = 400;
+class Sidebar {
+  #initialWidth = 0;
+  #width = 0;
+  #coefficient;
+  #resizeTimeout = null;
+  #resizer;
+  #isResizerOnTheLeft;
+  #isKeyboardResizing = false;
+  #resizeObserver = null;
+  constructor({
+    sidebar,
+    resizer,
+    toggleButton
+  }, ltr, isResizerOnTheLeft) {
+    this._sidebar = sidebar;
+    this.#coefficient = ltr === isResizerOnTheLeft ? -1 : 1;
+    this.#resizer = resizer;
+    this.#isResizerOnTheLeft = isResizerOnTheLeft;
+    const style = window.getComputedStyle(sidebar);
+    this.#initialWidth = this.#width = parseFloat(style.getPropertyValue("--sidebar-width"));
+    resizer.ariaValueMin = parseFloat(style.getPropertyValue("--sidebar-min-width"));
+    resizer.ariaValueMax = parseFloat(style.getPropertyValue("--sidebar-max-width"));
+    resizer.ariaValueNow = this.#width;
+    this.#makeSidebarResizable();
+    toggleButton.addEventListener("click", this.toggle.bind(this));
+    this._isOpen = false;
+    sidebar.hidden = true;
+  }
+  #makeSidebarResizable() {
+    const sidebarStyle = this._sidebar.style;
+    let pointerMoveAC;
+    const cancelResize = () => {
+      this.#resizeTimeout = null;
+      this._sidebar.classList.remove("resizing");
+      pointerMoveAC?.abort();
+      pointerMoveAC = null;
+      this.#resizeObserver?.disconnect();
+      this.#resizeObserver = null;
+      this.#isKeyboardResizing = false;
+      this.onStopResizing();
+    };
+    this.#resizer.addEventListener("pointerdown", e => {
+      if (pointerMoveAC) {
+        cancelResize();
+        return;
+      }
+      this.onStartResizing();
+      const {
+        clientX
+      } = e;
+      stopEvent(e);
+      let prevX = clientX;
+      pointerMoveAC = new AbortController();
+      const {
+        signal
+      } = pointerMoveAC;
+      const sidebar = this._sidebar;
+      sidebar.classList.add("resizing");
+      const parentStyle = sidebar.parentElement.style;
+      parentStyle.minWidth = 0;
+      this.#resizeObserver?.disconnect();
+      this.#resizeObserver = new ResizeObserver(([{
+        borderBoxSize: [{
+          inlineSize
+        }]
+      }]) => {
+        prevX += this.#width - inlineSize;
+        this.#setWidth(inlineSize);
+      });
+      this.#resizeObserver.observe(sidebar);
+      window.addEventListener("contextmenu", noContextMenu, {
+        signal
+      });
+      window.addEventListener("pointermove", ev => {
+        if (!pointerMoveAC) {
+          return;
+        }
+        stopEvent(ev);
+        sidebarStyle.width = `${Math.round(this.#width + this.#coefficient * (ev.clientX - prevX))}px`;
+      }, {
+        signal,
+        capture: true
+      });
+      window.addEventListener("blur", cancelResize, {
+        signal
+      });
+      window.addEventListener("pointerup", ev => {
+        if (pointerMoveAC) {
+          cancelResize();
+          stopEvent(ev);
+        }
+      }, {
+        signal
+      });
+    });
+    this.#resizer.addEventListener("keydown", e => {
+      const {
+        key
+      } = e;
+      const isArrowLeft = key === "ArrowLeft";
+      if (isArrowLeft || key === "ArrowRight") {
+        if (!this.#isKeyboardResizing) {
+          this._sidebar.classList.add("resizing");
+          this.#isKeyboardResizing = true;
+          this.#resizeObserver?.disconnect();
+          this.#resizeObserver = new ResizeObserver(([{
+            borderBoxSize: [{
+              inlineSize
+            }]
+          }]) => {
+            this.#setWidth(inlineSize);
+          });
+          this.#resizeObserver.observe(this._sidebar);
+          this.onStartResizing();
+        }
+        const base = e.ctrlKey || e.metaKey ? 10 : 1;
+        const dx = base * (isArrowLeft ? -1 : 1);
+        clearTimeout(this.#resizeTimeout);
+        this.#resizeTimeout = setTimeout(cancelResize, RESIZE_TIMEOUT);
+        sidebarStyle.width = `${Math.round(this.#width + this.#coefficient * dx)}px`;
+        stopEvent(e);
+      }
+    });
+  }
+  #setWidth(newWidth) {
+    this.#width = newWidth;
+    this.#resizer.ariaValueNow = Math.round(newWidth);
+    if (this.#isResizerOnTheLeft) {
+      this._sidebar.parentElement.style.insetInlineStart = `${(this.#initialWidth - newWidth).toFixed(3)}px`;
+    }
+    this.onResizing(newWidth);
+  }
+  get width() {
+    return this.#width;
+  }
+  set width(newWidth) {
+    if (!this.#resizeObserver) {
+      this.#resizeObserver = new ResizeObserver(([{
+        borderBoxSize: [{
+          inlineSize
+        }]
+      }]) => {
+        this.#setWidth(inlineSize);
+      });
+      this.#resizeObserver.observe(this._sidebar);
+    }
+    this._sidebar.style.width = `${newWidth}px`;
+    clearTimeout(this.#resizeTimeout);
+    this.#resizeTimeout = setTimeout(() => {
+      this.#resizeObserver.disconnect();
+      this.#resizeObserver = null;
+    }, RESIZE_TIMEOUT);
+  }
+  onStartResizing() {}
+  onStopResizing() {}
+  onResizing(_newWidth) {}
+  toggle(visibility = !this._isOpen) {
+    this._sidebar.hidden = !(this._isOpen = visibility);
+  }
+}
+
 ;// ./web/comment_manager.js
+
 
 
 class CommentManager {
@@ -3364,12 +3543,11 @@ class CommentManager {
     this.#popup.destroy();
   }
 }
-class CommentSidebar {
+class CommentSidebar extends Sidebar {
   #annotations = null;
   #eventBus;
   #boundCommentClick = this.#commentClick.bind(this);
   #boundCommentKeydown = this.#commentKeydown.bind(this);
-  #sidebar;
   #closeButton;
   #commentsList;
   #commentCount;
@@ -3381,11 +3559,6 @@ class CommentSidebar {
   #elementsToAnnotations = null;
   #idsToElements = null;
   #uiManager = null;
-  #minWidth = 0;
-  #maxWidth = 0;
-  #initialWidth = 0;
-  #width = 0;
-  #ltr;
   constructor({
     learnMoreUrl,
     sidebar,
@@ -3396,7 +3569,11 @@ class CommentSidebar {
     closeButton,
     commentToolbarButton
   }, eventBus, linkService, popup, dateFormat, ltr) {
-    this.#sidebar = sidebar;
+    super({
+      sidebar,
+      resizer: sidebarResizer,
+      toggleButton: commentToolbarButton
+    }, ltr, true);
     this.#sidebarTitle = sidebarTitle;
     this.#commentsList = commentsList;
     this.#commentCount = commentCount;
@@ -3405,13 +3582,7 @@ class CommentSidebar {
     this.#closeButton = closeButton;
     this.#popup = popup;
     this.#dateFormat = dateFormat;
-    this.#ltr = ltr;
     this.#eventBus = eventBus;
-    const style = window.getComputedStyle(sidebar);
-    this.#minWidth = parseFloat(style.getPropertyValue("--sidebar-min-width"));
-    this.#maxWidth = parseFloat(style.getPropertyValue("--sidebar-max-width"));
-    this.#initialWidth = this.#width = parseFloat(style.getPropertyValue("--sidebar-width"));
-    this.#makeSidebarResizable(sidebarResizer);
     closeButton.addEventListener("click", () => {
       eventBus.dispatch("switchannotationeditormode", {
         source: this,
@@ -3429,70 +3600,6 @@ class CommentSidebar {
     };
     commentToolbarButton.addEventListener("keydown", keyDownCallback);
     sidebar.addEventListener("keydown", keyDownCallback);
-    this.#sidebar.hidden = true;
-  }
-  #makeSidebarResizable(resizer) {
-    let pointerMoveAC;
-    const cancelResize = () => {
-      this.#width = MathClamp(this.#width, this.#minWidth, this.#maxWidth);
-      this.#sidebar.classList.remove("resizing");
-      pointerMoveAC?.abort();
-      pointerMoveAC = null;
-    };
-    resizer.addEventListener("pointerdown", e => {
-      if (pointerMoveAC) {
-        cancelResize();
-        return;
-      }
-      const {
-        clientX
-      } = e;
-      stopEvent(e);
-      let prevX = clientX;
-      pointerMoveAC = new AbortController();
-      const {
-        signal
-      } = pointerMoveAC;
-      const sign = this.#ltr ? -1 : 1;
-      const sidebar = this.#sidebar;
-      const sidebarStyle = sidebar.style;
-      sidebar.classList.add("resizing");
-      const parentStyle = sidebar.parentElement.style;
-      parentStyle.minWidth = 0;
-      window.addEventListener("contextmenu", noContextMenu, {
-        signal
-      });
-      window.addEventListener("pointermove", ev => {
-        if (!pointerMoveAC) {
-          return;
-        }
-        stopEvent(ev);
-        const {
-          clientX: x
-        } = ev;
-        const newWidth = this.#width += sign * (x - prevX);
-        prevX = x;
-        if (newWidth > this.#maxWidth || newWidth < this.#minWidth) {
-          return;
-        }
-        sidebarStyle.width = `${newWidth.toFixed(3)}px`;
-        parentStyle.insetInlineStart = `${(this.#initialWidth - newWidth).toFixed(3)}px`;
-      }, {
-        signal,
-        capture: true
-      });
-      window.addEventListener("blur", cancelResize, {
-        signal
-      });
-      window.addEventListener("pointerup", ev => {
-        if (pointerMoveAC) {
-          cancelResize();
-          stopEvent(ev);
-        }
-      }, {
-        signal
-      });
-    });
   }
   setUIManager(uiManager) {
     this.#uiManager = uiManager;
@@ -3512,7 +3619,7 @@ class CommentSidebar {
     } else {
       this.#setCommentsCount();
     }
-    this.#sidebar.hidden = false;
+    this._sidebar.hidden = false;
     this.#eventBus.dispatch("reporttelemetry", {
       source: this,
       details: {
@@ -3524,7 +3631,7 @@ class CommentSidebar {
     });
   }
   hide() {
-    this.#sidebar.hidden = true;
+    this._sidebar.hidden = true;
     this.#commentsList.replaceChildren();
     this.#elementsToAnnotations = null;
     this.#idsToElements = null;
@@ -3547,7 +3654,7 @@ class CommentSidebar {
     if (!element) {
       return;
     }
-    this.#sidebar.scrollTop = element.offsetTop - this.#sidebar.offsetTop;
+    this._sidebar.scrollTop = element.offsetTop - this._sidebar.offsetTop;
     for (const el of this.#commentsList.children) {
       el.classList.toggle("selected", el === element);
     }
@@ -3576,8 +3683,8 @@ class CommentSidebar {
     if (index >= this.#annotations.length) {
       return;
     }
-    this.#setDate(element.firstChild, modificationDate || creationDate);
-    this.#setText(element.lastChild, richText, contentsObj);
+    this.#setDate(element.firstElementChild, modificationDate || creationDate);
+    this.#setText(element.lastElementChild, richText, contentsObj);
     this.#annotations.splice(index, 1);
     index = binarySearchFirstItem(this.#annotations, a => this.#sortComments(a, annotation) >= 0);
     this.#annotations.splice(index, 0, annotation);
@@ -3849,6 +3956,11 @@ class CommentDialog {
     saveButton.addEventListener("click", this.#save.bind(this));
     textInput.addEventListener("input", () => {
       saveButton.disabled = textInput.value === this.#previousText;
+    });
+    textInput.addEventListener("keydown", e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !saveButton.disabled) {
+        this.#save();
+      }
     });
     let pointerMoveAC;
     const cancelDrag = () => {
@@ -4301,10 +4413,17 @@ class CommentPopup {
     if (!correctPosition) {
       this.#editor.commentPopupPosition = [x, y];
     } else {
-      const widthRatio = this._popupWidth / this.#editor.parentBoundingClientRect.width;
+      const parentRect = this.#editor.parentBoundingClientRect;
+      const widthRatio = this._popupWidth / parentRect.width;
       if (this.#isLTR && x + widthRatio > 1 || !this.#isLTR && x - widthRatio >= 0) {
         const buttonWidth = this.#editor.commentButtonWidth;
         x -= widthRatio - buttonWidth;
+      }
+      const margin = 0.01;
+      if (this.#isLTR) {
+        x = Math.max(x, -parentRect.x / parentRect.width + margin);
+      } else {
+        x = Math.min(x, (window.innerWidth - parentRect.x) / parentRect.width - widthRatio - margin);
       }
     }
     this.#posX = x;
@@ -5143,6 +5262,7 @@ class PDFDocumentProperties {
 }
 
 ;// ./web/pdf_find_utils.js
+
 const CharacterType = {
   SPACE: 0,
   ALPHA_LETTER: 1,
@@ -5212,7 +5332,7 @@ function getCharacterType(charCode) {
 }
 let NormalizeWithNFKC;
 function getNormalizeWithNFKC() {
-  NormalizeWithNFKC ||= ` ¨ª¯²-µ¸-º¼-¾Ĳ-ĳĿ-ŀŉſǄ-ǌǱ-ǳʰ-ʸ˘-˝ˠ-ˤʹͺ;΄-΅·ϐ-ϖϰ-ϲϴ-ϵϹևٵ-ٸक़-य़ড়-ঢ়য়ਲ਼ਸ਼ਖ਼-ਜ਼ਫ਼ଡ଼-ଢ଼ำຳໜ-ໝ༌གྷཌྷདྷབྷཛྷཀྵჼᴬ-ᴮᴰ-ᴺᴼ-ᵍᵏ-ᵪᵸᶛ-ᶿẚ-ẛάέήίόύώΆ᾽-῁ΈΉ῍-῏ΐΊ῝-῟ΰΎ῭-`ΌΏ´-῾ - ‑‗․-… ″-‴‶-‷‼‾⁇-⁉⁗ ⁰-ⁱ⁴-₎ₐ-ₜ₨℀-℃℅-ℇ℉-ℓℕ-№ℙ-ℝ℠-™ℤΩℨK-ℭℯ-ℱℳ-ℹ℻-⅀ⅅ-ⅉ⅐-ⅿ↉∬-∭∯-∰〈-〉①-⓪⨌⩴-⩶⫝̸ⱼ-ⱽⵯ⺟⻳⼀-⿕　〶〸-〺゛-゜ゟヿㄱ-ㆎ㆒-㆟㈀-㈞㈠-㉇㉐-㉾㊀-㏿ꚜ-ꚝꝰꟲ-ꟴꟸ-ꟹꭜ-ꭟꭩ豈-嗀塚晴凞-羽蘒諸逸-都飯-舘並-龎ﬀ-ﬆﬓ-ﬗיִײַ-זּטּ-לּמּנּ-סּףּ-פּצּ-ﮱﯓ-ﴽﵐ-ﶏﶒ-ﷇﷰ-﷼︐-︙︰-﹄﹇-﹒﹔-﹦﹨-﹫ﹰ-ﹲﹴﹶ-ﻼ！-ﾾￂ-ￇￊ-ￏￒ-ￗￚ-ￜ￠-￦`;
+  NormalizeWithNFKC ||= `\xA0¨ª¯²-µ¸-º¼-¾Ĳ-ĳĿ-ŀŉſǄ-ǌǱ-ǳʰ-ʸ˘-˝ˠ-ˤʹͺ;΄-΅·ϐ-ϖϰ-ϲϴ-ϵϹևٵ-ٸक़-य़ড়-ঢ়য়ਲ਼ਸ਼ਖ਼-ਜ਼ਫ਼ଡ଼-ଢ଼ำຳໜ-ໝ༌གྷཌྷདྷབྷཛྷཀྵჼᴬ-ᴮᴰ-ᴺᴼ-ᵍᵏ-ᵪᵸᶛ-ᶿẚ-ẛάέήίόύώΆ᾽-῁ΈΉ῍-῏ΐΊ῝-῟ΰΎ῭-`ΌΏ´-῾ - ‑‗․-… ″-‴‶-‷‼‾⁇-⁉⁗ ⁰-ⁱ⁴-₎ₐ-ₜ₨℀-℃℅-ℇ℉-ℓℕ-№ℙ-ℝ℠-™ℤΩℨK-ℭℯ-ℱℳ-ℹ℻-⅀ⅅ-ⅉ⅐-ⅿ↉∬-∭∯-∰〈-〉①-⓪⨌⩴-⩶⫝̸ⱼ-ⱽⵯ⺟⻳⼀-⿕　〶〸-〺゛-゜ゟヿㄱ-ㆎ㆒-㆟㈀-㈞㈠-㉇㉐-㉾㊀-㏿ꚜ-ꚝꝰ꟱-ꟴꟸ-ꟹꭜ-ꭟꭩ豈-嗀塚晴凞-羽蘒諸逸-都飯-舘並-龎ﬀ-ﬆﬓ-ﬗיִײַ-זּטּ-לּמּנּ-סּףּ-פּצּ-ﮱﯓ-ﴽﵐ-ﶏﶒ-ﷇﷰ-﷼︐-︙︰-﹄﹇-﹒﹔-﹦﹨-﹫ﹰ-ﹲﹴﹶ-ﻼ！-ﾾￂ-ￇￊ-ￏￒ-ￗￚ-ￜ￠-￦`;
   return NormalizeWithNFKC;
 }
 
@@ -5244,7 +5364,7 @@ const CHARACTERS_TO_NORMALIZE = {
 const DIACRITICS_EXCEPTION = new Set([0x3099, 0x309a, 0x094d, 0x09cd, 0x0a4d, 0x0acd, 0x0b4d, 0x0bcd, 0x0c4d, 0x0ccd, 0x0d3b, 0x0d3c, 0x0d4d, 0x0dca, 0x0e3a, 0x0eba, 0x0f84, 0x1039, 0x103a, 0x1714, 0x1734, 0x17d2, 0x1a60, 0x1b44, 0x1baa, 0x1bab, 0x1bf2, 0x1bf3, 0x2d7f, 0xa806, 0xa82c, 0xa8c4, 0xa953, 0xa9c0, 0xaaf6, 0xabed, 0x0c56, 0x0f71, 0x0f72, 0x0f7a, 0x0f7b, 0x0f7c, 0x0f7d, 0x0f80, 0x0f74]);
 let DIACRITICS_EXCEPTION_STR;
 const DIACRITICS_REG_EXP = /\p{M}+/gu;
-const SPECIAL_CHARS_REG_EXP = /([.*+?^${}()|[\]\\])|(\p{P})|(\s+)|(\p{M})|(\p{L})/gu;
+const SPECIAL_CHARS_REG_EXP = /([*+^${}()|[\]\\])|(\p{P}+)|(\s+)|(\p{M})|(\p{L})/gu;
 const NOT_DIACRITIC_FROM_END_REG_EXP = /([^\p{M}])\p{M}*$/u;
 const NOT_DIACRITIC_FROM_START_REG_EXP = /^\p{M}*([^\p{M}])/u;
 const SYLLABLES_REG_EXP = /[\uAC00-\uD7AF\uFA6C\uFACF-\uFAD1\uFAD5-\uFAD7]+/g;
@@ -5640,12 +5760,24 @@ class PDFFindController {
       matchDiacritics
     } = this.#state;
     let isUnicode = false;
+    const addExtraWhitespaces = (original, fixed) => {
+      if (original === query) {
+        return fixed;
+      }
+      if (query.startsWith(original)) {
+        return `${fixed}[ ]*`;
+      }
+      if (query.endsWith(original)) {
+        return `[ ]*${fixed}`;
+      }
+      return `[ ]*${fixed}[ ]*`;
+    };
     query = query.replaceAll(SPECIAL_CHARS_REG_EXP, (match, p1, p2, p3, p4, p5) => {
       if (p1) {
-        return `[ ]*\\${p1}[ ]*`;
+        return addExtraWhitespaces(p1, `\\${p1}`);
       }
       if (p2) {
-        return `[ ]*${p2}[ ]*`;
+        return addExtraWhitespaces(p2, p2.replaceAll(/[.?]/g, "\\$&"));
       }
       if (p3) {
         return "[ ]+";
@@ -8371,6 +8503,51 @@ class PDFSidebar {
   }
 }
 
+;// ./web/pdf_text_extractor.js
+class PdfTextExtractor {
+  #pdfViewer;
+  #externalServices;
+  #textPromise;
+  #pendingRequests = new Set();
+  constructor(externalServices) {
+    this.#externalServices = externalServices;
+    window.addEventListener("requestTextContent", ({
+      detail
+    }) => {
+      this.extractTextContent(detail.requestId);
+    });
+  }
+  setViewer(pdfViewer) {
+    this.#pdfViewer = pdfViewer;
+    if (this.#pdfViewer && this.#pendingRequests.size) {
+      for (const pendingRequest of this.#pendingRequests) {
+        this.extractTextContent(pendingRequest);
+      }
+      this.#pendingRequests.clear();
+    }
+  }
+  async extractTextContent(requestId) {
+    if (!this.#pdfViewer) {
+      this.#pendingRequests.add(requestId);
+      return;
+    }
+    if (!this.#textPromise) {
+      const textPromise = this.#textPromise = this.#pdfViewer.getAllText();
+      textPromise.then(() => {
+        setTimeout(() => {
+          if (this.#textPromise === textPromise) {
+            this.#textPromise = null;
+          }
+        }, 5000);
+      });
+    }
+    this.#externalServices.reportText({
+      text: await this.#textPromise,
+      requestId
+    });
+  }
+}
+
 ;// ./web/pdf_thumbnail_view.js
 
 
@@ -8378,16 +8555,16 @@ class PDFSidebar {
 const DRAW_UPSCALE_FACTOR = 2;
 const MAX_NUM_SCALING_STEPS = 3;
 const THUMBNAIL_WIDTH = 98;
-function zeroCanvas(c) {
-  c.width = 0;
-  c.height = 0;
-}
 class TempImageFactory {
-  static #tempCanvas = null;
   static getCanvas(width, height) {
-    const tempCanvas = this.#tempCanvas ||= document.createElement("canvas");
-    tempCanvas.width = width;
-    tempCanvas.height = height;
+    let tempCanvas;
+    if (FeatureTest.isOffscreenCanvasSupported) {
+      tempCanvas = new OffscreenCanvas(width, height);
+    } else {
+      tempCanvas = document.createElement("canvas");
+      tempCanvas.width = width;
+      tempCanvas.height = height;
+    }
     const ctx = tempCanvas.getContext("2d", {
       alpha: false
     });
@@ -8395,13 +8572,7 @@ class TempImageFactory {
     ctx.fillStyle = "rgb(255, 255, 255)";
     ctx.fillRect(0, 0, width, height);
     ctx.restore();
-    return [tempCanvas, tempCanvas.getContext("2d")];
-  }
-  static destroyCanvas() {
-    if (this.#tempCanvas) {
-      zeroCanvas(this.#tempCanvas);
-    }
-    this.#tempCanvas = null;
+    return [tempCanvas, ctx];
   }
 }
 class PDFThumbnailView {
@@ -8434,24 +8605,21 @@ class PDFThumbnailView {
     this.renderTask = null;
     this.renderingState = RenderingStates.INITIAL;
     this.resume = null;
-    const anchor = document.createElement("a");
-    anchor.href = linkService.getAnchorUrl("#page=" + id);
+    const anchor = this.anchor = document.createElement("a");
+    anchor.href = linkService.getAnchorUrl(`#page=${id}`);
     anchor.setAttribute("data-l10n-id", "pdfjs-thumb-page-title");
     anchor.setAttribute("data-l10n-args", this.#pageL10nArgs);
-    anchor.onclick = function () {
+    anchor.onclick = () => {
       linkService.goToPage(id);
       return false;
     };
-    this.anchor = anchor;
-    const div = document.createElement("div");
-    div.className = "thumbnail";
+    const div = this.div = document.createElement("div");
+    div.classList.add("thumbnail", "missingThumbnailImage");
     div.setAttribute("data-page-number", this.id);
-    this.div = div;
     this.#updateDims();
-    const img = document.createElement("div");
-    img.className = "thumbnailImage";
-    this._placeholderImg = img;
-    div.append(img);
+    const image = this.image = document.createElement("img");
+    image.className = "thumbnailImage";
+    div.append(image);
     anchor.append(div);
     container.append(anchor);
   }
@@ -8461,14 +8629,10 @@ class PDFThumbnailView {
       height
     } = this.viewport;
     const ratio = width / height;
-    this.canvasWidth = THUMBNAIL_WIDTH;
-    this.canvasHeight = this.canvasWidth / ratio | 0;
-    this.scale = this.canvasWidth / width;
-    const {
-      style
-    } = this.div;
-    style.setProperty("--thumbnail-width", `${this.canvasWidth}px`);
-    style.setProperty("--thumbnail-height", `${this.canvasHeight}px`);
+    const canvasWidth = this.canvasWidth = THUMBNAIL_WIDTH;
+    const canvasHeight = this.canvasHeight = canvasWidth / ratio | 0;
+    this.scale = canvasWidth / width;
+    this.div.style.height = `${canvasHeight}px`;
   }
   setPdfPage(pdfPage) {
     this.pdfPage = pdfPage;
@@ -8483,12 +8647,17 @@ class PDFThumbnailView {
   reset() {
     this.cancelRendering();
     this.renderingState = RenderingStates.INITIAL;
-    this.div.removeAttribute("data-loaded");
-    this.image?.replaceWith(this._placeholderImg);
     this.#updateDims();
-    if (this.image) {
-      this.image.removeAttribute("src");
-      delete this.image;
+    const {
+      image
+    } = this;
+    const url = image.src;
+    if (url) {
+      URL.revokeObjectURL(url);
+      image.removeAttribute("data-l10n-id");
+      image.removeAttribute("data-l10n-args");
+      image.src = "";
+      this.div.classList.add("missingThumbnailImage");
     }
   }
   update({
@@ -8512,11 +8681,11 @@ class PDFThumbnailView {
     this.resume = null;
   }
   #getPageDrawContext(upscaleFactor = 1) {
-    const canvas = document.createElement("canvas");
     const outputScale = new OutputScale();
     const width = upscaleFactor * this.canvasWidth,
       height = upscaleFactor * this.canvasHeight;
     outputScale.limitCanvas(width, height, this.maxCanvasPixels, this.maxCanvasDim);
+    const canvas = document.createElement("canvas");
     canvas.width = width * outputScale.sx | 0;
     canvas.height = height * outputScale.sy | 0;
     const transform = outputScale.scaled ? [outputScale.sx, 0, 0, outputScale.sy, 0, 0] : null;
@@ -8525,20 +8694,27 @@ class PDFThumbnailView {
       transform
     };
   }
-  #convertCanvasToImage(canvas) {
+  async #convertCanvasToImage(canvas) {
     if (this.renderingState !== RenderingStates.FINISHED) {
       throw new Error("#convertCanvasToImage: Rendering has not finished.");
     }
     const reducedCanvas = this.#reduceImage(canvas);
-    const image = document.createElement("img");
-    image.className = "thumbnailImage";
+    const {
+      image
+    } = this;
+    const {
+      promise,
+      resolve
+    } = Promise.withResolvers();
+    reducedCanvas.toBlob(resolve);
+    const blob = await promise;
+    image.src = URL.createObjectURL(blob);
     image.setAttribute("data-l10n-id", "pdfjs-thumb-page-canvas");
     image.setAttribute("data-l10n-args", this.#pageL10nArgs);
-    image.src = reducedCanvas.toDataURL();
-    this.image = image;
-    this.div.setAttribute("data-loaded", true);
-    this._placeholderImg.replaceWith(image);
-    zeroCanvas(reducedCanvas);
+    this.div.classList.remove("missingThumbnailImage");
+    if (!FeatureTest.isOffscreenCanvasSupported) {
+      reducedCanvas.width = reducedCanvas.height = 0;
+    }
   }
   async draw() {
     if (this.renderingState !== RenderingStates.INITIAL) {
@@ -8586,7 +8762,6 @@ class PDFThumbnailView {
       await renderTask.promise;
     } catch (e) {
       if (e instanceof RenderingCancelledException) {
-        zeroCanvas(canvas);
         return;
       }
       error = e;
@@ -8596,8 +8771,7 @@ class PDFThumbnailView {
       }
     }
     this.renderingState = RenderingStates.FINISHED;
-    this.#convertCanvasToImage(canvas);
-    zeroCanvas(canvas);
+    await this.#convertCanvasToImage(canvas);
     this.eventBus.dispatch("thumbnailrendered", {
       source: this,
       pageNumber: this.id,
@@ -8671,18 +8845,19 @@ class PDFThumbnailView {
   setPageLabel(label) {
     this.pageLabel = typeof label === "string" ? label : null;
     this.anchor.setAttribute("data-l10n-args", this.#pageL10nArgs);
-    if (this.renderingState !== RenderingStates.FINISHED) {
-      return;
-    }
-    this.image?.setAttribute("data-l10n-args", this.#pageL10nArgs);
+    this.image.setAttribute("data-l10n-args", this.#pageL10nArgs);
   }
 }
 
 ;// ./web/pdf_thumbnail_viewer.js
 
 
-const THUMBNAIL_SCROLL_MARGIN = -19;
 const THUMBNAIL_SELECTED_CLASS = "selected";
+const SCROLL_OPTIONS = {
+  behavior: "instant",
+  container: "nearest",
+  block: "nearest"
+};
 class PDFThumbnailViewer {
   constructor({
     container,
@@ -8754,9 +8929,7 @@ class PDFThumbnailViewer {
         }
       }
       if (shouldScroll) {
-        scrollIntoView(thumbnailView.div, {
-          top: THUMBNAIL_SCROLL_MARGIN
-        });
+        thumbnailView.div.scrollIntoView(SCROLL_OPTIONS);
       }
     }
     this._currentPageNumber = pageNumber;
@@ -8788,7 +8961,6 @@ class PDFThumbnailViewer {
         thumbnail.reset();
       }
     }
-    TempImageFactory.destroyCanvas();
   }
   #resetView() {
     this._thumbnails = [];
@@ -8815,9 +8987,10 @@ class PDFThumbnailViewer {
       const viewport = firstPdfPage.getViewport({
         scale: 1
       });
+      const fragment = document.createDocumentFragment();
       for (let pageNum = 1; pageNum <= pagesCount; ++pageNum) {
         const thumbnail = new PDFThumbnailView({
-          container: this.container,
+          container: fragment,
           eventBus: this.eventBus,
           id: pageNum,
           defaultViewport: viewport.clone(),
@@ -8834,6 +9007,7 @@ class PDFThumbnailViewer {
       this._thumbnails[0]?.setPdfPage(firstPdfPage);
       const thumbnailView = this._thumbnails[this._currentPageNumber - 1];
       thumbnailView.div.classList.add(THUMBNAIL_SELECTED_CLASS);
+      this.container.append(fragment);
     }).catch(reason => {
       console.error("Unable to initialize thumbnail viewer", reason);
     });
@@ -9793,6 +9967,7 @@ class PDFPageDetailView extends BasePDFPageView {
 
 ;// ./web/struct_tree_layer_builder.js
 
+
 const PDF_ROLE_TO_HTML_ROLE = {
   Document: null,
   DocumentFragment: null,
@@ -9835,6 +10010,24 @@ const PDF_ROLE_TO_HTML_ROLE = {
   Formula: null,
   Artifact: null
 };
+const MathMLElements = new Set(["math", "merror", "mfrac", "mi", "mmultiscripts", "mn", "mo", "mover", "mpadded", "mprescripts", "mroot", "mrow", "ms", "mspace", "msqrt", "mstyle", "msub", "msubsup", "msup", "mtable", "mtd", "mtext", "mtr", "munder", "munderover", "semantics"]);
+const MathMLNamespace = "http://www.w3.org/1998/Math/MathML";
+class MathMLSanitizer {
+  static get sanitizer() {
+    return shadow(this, "sanitizer", FeatureTest.isSanitizerSupported ? new Sanitizer({
+      elements: [...MathMLElements].map(name => ({
+        name,
+        namespace: MathMLNamespace
+      })),
+      replaceWithChildrenElements: [{
+        name: "maction",
+        namespace: MathMLNamespace
+      }],
+      attributes: ["dir", "displaystyle", "mathbackground", "mathcolor", "mathsize", "scriptlevel", "encoding", "display", "linethickness", "intent", "arg", "form", "fence", "separator", "lspace", "rspace", "stretchy", "symmetric", "maxsize", "minsize", "largeop", "movablelimits", "width", "height", "depth", "voffset", "accent", "accentunder", "columnspan", "rowspan"],
+      comments: false
+    }) : null);
+  }
+}
 const HEADING_PATTERN = /^H(\d+)$/;
 class StructTreeLayerBuilder {
   #promise;
@@ -9965,11 +10158,32 @@ class StructTreeLayerBuilder {
     if (!node) {
       return null;
     }
-    const element = document.createElement("span");
+    let element;
     if ("role" in node) {
       const {
         role
       } = node;
+      if (MathMLElements.has(role)) {
+        element = document.createElementNS(MathMLNamespace, role);
+        let text = "";
+        for (const {
+          type,
+          id
+        } of node.children || []) {
+          if (type !== "content" || !id) {
+            continue;
+          }
+          const elem = document.getElementById(id);
+          if (!elem) {
+            continue;
+          }
+          text += elem.textContent.trim() || "";
+          elem.ariaHidden = "true";
+        }
+        element.textContent = text;
+      } else {
+        element = document.createElement("span");
+      }
       const match = role.match(HEADING_PATTERN);
       if (match) {
         element.setAttribute("role", "heading");
@@ -9980,7 +10194,29 @@ class StructTreeLayerBuilder {
       if (role === "Figure" && this.#addImageInTextLayer(node, element)) {
         return element;
       }
+      if (role === "Formula") {
+        if (node.mathML && MathMLSanitizer.sanitizer) {
+          element.setHTML(node.mathML, {
+            sanitizer: MathMLSanitizer.sanitizer
+          });
+          for (const {
+            id
+          } of node.children || []) {
+            if (!id) {
+              continue;
+            }
+            const elem = document.getElementById(id);
+            if (elem) {
+              elem.ariaHidden = true;
+            }
+          }
+        }
+        if (!node.mathML && node.children.length === 1 && node.children[0].role !== "math") {
+          element = document.createElementNS(MathMLNamespace, "math");
+        }
+      }
     }
+    element ||= document.createElement("span");
     this.#setAttributes(node, element);
     if (node.children) {
       if (node.children.length === 1 && "id" in node.children[0]) {
@@ -10126,21 +10362,19 @@ class TextAccessibilityManager {
     const parent = child.parentNode;
     return parent?.classList.contains("markedContent") ? parent.id : null;
   }
-  moveElementInDOM(container, element, contentElement, isRemovable, filter, inserter) {
+  moveElementInDOM(container, element, contentElement, isRemovable) {
     const id = this.addPointerInTextLayer(contentElement, isRemovable);
     if (!container.hasChildNodes()) {
       container.append(element);
       return id;
     }
-    const children = Array.from(container.childNodes).filter(node => node !== element && (!filter || filter(node)));
+    const children = Array.from(container.childNodes).filter(node => node !== element);
     if (children.length === 0) {
       return id;
     }
     const index = binarySearchFirstItem(children, node => TextAccessibilityManager.#compareElementPositions(element, node) < 0);
     if (index === 0) {
       children[0].before(element);
-    } else if (inserter) {
-      inserter(children[index - 1], element);
     } else {
       children[index - 1].after(element);
     }
@@ -11400,7 +11634,7 @@ class PDFViewer {
   #textLayerMode = TextLayerMode.ENABLE;
   #viewerAlert = null;
   constructor(options) {
-    const viewerVersion = "5.4.315";
+    const viewerVersion = "5.4.466";
     if (version !== viewerVersion) {
       throw new Error(`The API version "${version}" does not match the Viewer version "${viewerVersion}".`);
     }
@@ -12929,7 +13163,7 @@ class PDFViewer {
     const updater = async () => {
       this.#cleanupSwitchAnnotationEditorMode();
       this.#annotationEditorMode = mode;
-      await this.#annotationEditorUIManager.updateMode(mode, editId, isFromKeyboard, mustEnterInEditMode, editComment);
+      await this.#annotationEditorUIManager.updateMode(mode, editId, true, isFromKeyboard, mustEnterInEditMode, editComment);
       if (mode !== this.#annotationEditorMode || pdfDocument !== this.pdfDocument) {
         return;
       }
@@ -14570,6 +14804,7 @@ class ViewHistory {
 
 
 
+
 const FORCE_PAGES_LOADED_TIMEOUT = 10000;
 const ViewOnLoad = {
   UNKNOWN: -1,
@@ -14592,6 +14827,7 @@ const PDFViewerApplication = {
   pdfPresentationMode: null,
   pdfDocumentProperties: null,
   pdfLinkService: null,
+  pdfTextExtractor: null,
   pdfHistory: null,
   pdfSidebar: null,
   pdfOutlineViewer: null,
@@ -14672,6 +14908,7 @@ const PDFViewerApplication = {
       AppOptions.set("externalLinkTarget", LinkTarget.TOP);
     }
     await this._initializeViewerComponents();
+    this.pdfTextExtractor = new PdfTextExtractor(this.externalServices);
     this.bindEvents();
     this.bindWindowEvents();
     this._initializedCapability.settled = true;
@@ -15168,6 +15405,7 @@ const PDFViewerApplication = {
       this.pdfViewer.setDocument(null);
       this.pdfLinkService.setDocument(null);
       this.pdfDocumentProperties?.setDocument(null);
+      this.pdfTextExtractor?.setViewer(null);
     }
     this.pdfLinkService.externalLinkEnabled = true;
     this.store = null;
@@ -15358,6 +15596,7 @@ const PDFViewerApplication = {
     this.pdfDocumentProperties?.setDocument(pdfDocument);
     const pdfViewer = this.pdfViewer;
     pdfViewer.setDocument(pdfDocument);
+    this.pdfTextExtractor.setViewer(pdfViewer);
     const {
       firstPagePromise,
       onePageRendered,
@@ -15551,17 +15790,16 @@ const PDFViewerApplication = {
       info,
       metadata,
       contentDispositionFilename,
-      contentLength
+      contentLength,
+      hasStructTree
     } = await pdfDocument.getMetadata();
     if (pdfDocument !== this.pdfDocument) {
       return;
     }
-    if (info.collectedSignatureCertificates) {
-      this.externalServices.reportTelemetry({
-        type: "signatureCertificates",
-        data: info.collectedSignatureCertificates
-      });
-    }
+    this.externalServices.reportTelemetry({
+      type: "taggedPDF",
+      data: hasStructTree
+    });
     this.documentInfo = info;
     this.metadata = metadata;
     this._contentDispositionFilename ??= contentDispositionFilename;

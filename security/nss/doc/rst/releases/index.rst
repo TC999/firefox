@@ -8,6 +8,9 @@ Release Notes
    :glob:
    :hidden:
 
+   nss_3_119.rst
+   nss_3_118_1.rst
+   nss_3_118.rst
    nss_3_117.rst
    nss_3_116.rst
    nss_3_115_1.rst
@@ -15,6 +18,7 @@ Release Notes
    nss_3_114_1.rst
    nss_3_114.rst
    nss_3_113.rst
+   nss_3_112_2.rst
    nss_3_112_1.rst
    nss_3_112.rst
    nss_3_111.rst
@@ -94,8 +98,9 @@ Release Notes
 
 .. note::
 
-   **NSS 3.117** is the latest version of NSS.
-   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_117_release_notes`
+   **NSS 3.119** is the latest version of NSS.
+   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_119_release_notes`
 
-   **NSS 3.112.1 (ESR)** is the latest ESR version of NSS.
-   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_112_1_release_notes`
+   **NSS 3.112.2 (ESR)** is the latest ESR version of NSS.
+   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_112_2_release_notes`
+

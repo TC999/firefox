@@ -27,6 +27,7 @@ use crate::stylesheets::container_rule::{
     ContainerInfo, ContainerSizeQuery, ContainerSizeQueryResult,
 };
 use crate::stylist::Stylist;
+use crate::values::generics::ClampToNonNegative;
 use crate::values::specified::font::QueryFontMetricsFlags;
 use crate::values::specified::length::FontBaseSize;
 use crate::{ArcSlice, Atom, One};
@@ -37,8 +38,7 @@ use std::cmp;
 use std::f32;
 use std::ops::{Add, Sub};
 
-pub use self::align::{AlignContent, AlignItems, JustifyContent, JustifyItems, SelfAlignment};
-pub use self::align::{AlignSelf, JustifySelf};
+pub use self::align::{ContentDistribution, ItemPlacement, JustifyItems, SelfAlignment};
 pub use self::angle::Angle;
 pub use self::animation::{
     AnimationComposition, AnimationDirection, AnimationDuration, AnimationFillMode,
@@ -113,7 +113,7 @@ pub use self::text::{OverflowWrap, RubyPosition, TextOverflow, WordBreak, WordSp
 pub use self::text::{TextAlign, TextAlignLast, TextEmphasisPosition, TextEmphasisStyle};
 pub use self::text::{TextAutospace, TextUnderlinePosition};
 pub use self::text::{
-    TextDecorationLength, TextDecorationSkipInk, TextDecorationTrim, TextJustify,
+    TextDecorationInset, TextDecorationLength, TextDecorationSkipInk, TextJustify,
 };
 pub use self::time::Time;
 pub use self::transform::{Rotate, Scale, Transform, TransformBox, TransformOperation};
@@ -399,7 +399,7 @@ impl<'a> Context<'a> {
             flags |= QueryFontMetricsFlags::USE_USER_FONT_SET
         }
         self.device()
-            .query_font_metrics(vertical, font, size, flags)
+            .query_font_metrics(vertical, font, size, flags, /* track_changes = */ true)
     }
 
     /// The current viewport size, used to resolve viewport units.
@@ -799,20 +799,6 @@ impl IsParallelTo for (Number, Number, Number) {
 /// A wrapper of Number, but the value >= 0.
 pub type NonNegativeNumber = NonNegative<CSSFloat>;
 
-impl ToAnimatedValue for NonNegativeNumber {
-    type AnimatedValue = CSSFloat;
-
-    #[inline]
-    fn to_animated_value(self, _: &crate::values::animated::Context) -> Self::AnimatedValue {
-        self.0
-    }
-
-    #[inline]
-    fn from_animated_value(animated: Self::AnimatedValue) -> Self {
-        animated.max(0.).into()
-    }
-}
-
 impl From<CSSFloat> for NonNegativeNumber {
     #[inline]
     fn from(number: CSSFloat) -> NonNegativeNumber {
@@ -843,16 +829,16 @@ impl One for NonNegativeNumber {
 pub type ZeroToOneNumber = ZeroToOne<CSSFloat>;
 
 impl ToAnimatedValue for ZeroToOneNumber {
-    type AnimatedValue = CSSFloat;
+    type AnimatedValue = Self;
 
     #[inline]
     fn to_animated_value(self, _: &crate::values::animated::Context) -> Self::AnimatedValue {
-        self.0
+        self
     }
 
     #[inline]
     fn from_animated_value(animated: Self::AnimatedValue) -> Self {
-        Self(animated.max(0.).min(1.))
+        Self(animated.0.max(0.).min(1.))
     }
 }
 
@@ -904,6 +890,7 @@ impl From<GreaterThanOrEqualToOneNumber> for CSSFloat {
     MallocSizeOf,
     PartialEq,
     ToAnimatedZero,
+    ToAnimatedValue,
     ToCss,
     ToResolvedValue,
 )]
@@ -913,13 +900,13 @@ pub enum NumberOrPercentage {
     Number(Number),
 }
 
-impl NumberOrPercentage {
+impl ClampToNonNegative for NumberOrPercentage {
     fn clamp_to_non_negative(self) -> Self {
         match self {
             NumberOrPercentage::Percentage(p) => {
                 NumberOrPercentage::Percentage(p.clamp_to_non_negative())
             },
-            NumberOrPercentage::Number(n) => NumberOrPercentage::Number(n.max(0.)),
+            NumberOrPercentage::Number(n) => NumberOrPercentage::Number(n.clamp_to_non_negative()),
         }
     }
 }
@@ -961,20 +948,6 @@ impl NonNegativeNumberOrPercentage {
     #[inline]
     pub fn hundred_percent() -> Self {
         NonNegative(NumberOrPercentage::Percentage(Percentage::hundred()))
-    }
-}
-
-impl ToAnimatedValue for NonNegativeNumberOrPercentage {
-    type AnimatedValue = NumberOrPercentage;
-
-    #[inline]
-    fn to_animated_value(self, _: &crate::values::animated::Context) -> Self::AnimatedValue {
-        self.0
-    }
-
-    #[inline]
-    fn from_animated_value(animated: Self::AnimatedValue) -> Self {
-        NonNegative(animated.clamp_to_non_negative())
     }
 }
 

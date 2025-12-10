@@ -720,7 +720,7 @@ class HTMLInputElement final : public TextControlElement,
                                        SelectionMode aSelectMode,
                                        ErrorResult& aRv);
 
-  void ShowPicker(ErrorResult& aRv);
+  MOZ_CAN_RUN_SCRIPT void ShowPicker(ErrorResult& aRv);
 
   bool WebkitDirectoryAttr() const {
     return HasAttr(nsGkAtoms::webkitdirectory);
@@ -784,7 +784,12 @@ class HTMLInputElement final : public TextControlElement,
   void OpenDateTimePicker(const DateTimeValue& aInitialValue);
   void UpdateDateTimePicker(const DateTimeValue& aValue);
   void CloseDateTimePicker();
-  void SetDateTimePickerState(bool aIsOpen);
+
+  /**
+   * Sets open state for the input element, depending on whether the picker is
+   * open or closed.
+   */
+  void SetOpenState(bool aIsOpen);
 
   /*
    * Called from datetime input box binding when inner text fields are focused

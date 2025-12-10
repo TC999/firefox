@@ -202,14 +202,20 @@ XPCOMUtils.defineLazyPreferenceGetter(
 );
 
 XPCOMUtils.defineLazyServiceGetters(lazy, {
-  AUS: ["@mozilla.org/updates/update-service;1", "nsIApplicationUpdateService"],
-  BrowserHandler: ["@mozilla.org/browser/clh;1", "nsIBrowserHandler"],
-  ScreenManager: ["@mozilla.org/gfx/screenmanager;1", "nsIScreenManager"],
+  AUS: [
+    "@mozilla.org/updates/update-service;1",
+    Ci.nsIApplicationUpdateService,
+  ],
+  BrowserHandler: ["@mozilla.org/browser/clh;1", Ci.nsIBrowserHandler],
+  ScreenManager: ["@mozilla.org/gfx/screenmanager;1", Ci.nsIScreenManager],
   TrackingDBService: [
     "@mozilla.org/tracking-db-service;1",
-    "nsITrackingDBService",
+    Ci.nsITrackingDBService,
   ],
-  UpdateCheckSvc: ["@mozilla.org/updates/update-checker;1", "nsIUpdateChecker"],
+  UpdateCheckSvc: [
+    "@mozilla.org/updates/update-checker;1",
+    Ci.nsIUpdateChecker,
+  ],
 });
 
 const FXA_USERNAME_PREF = "services.sync.username";
@@ -231,6 +237,7 @@ const jexlEvaluationCache = new Map();
 
 /**
  * CachedTargetingGetter
+ *
  * @param property {string} Name of the method
  * @param options {any=} Options passed to the method
  * @param updateInterval {number?} Update interval for query. Defaults to FRECENT_SITES_UPDATE_INTERVAL
@@ -421,6 +428,23 @@ export const QueryCache = {
       FRECENT_SITES_UPDATE_INTERVAL,
       ClientID
     ),
+    profileGroupProfileCount: new CachedTargetingGetter(
+      "getProfileGroupProfileCount",
+      null,
+      FRECENT_SITES_UPDATE_INTERVAL,
+      {
+        getProfileGroupProfileCount() {
+          if (
+            !Services.prefs.getBoolPref("browser.profiles.enabled", false) ||
+            !Services.prefs.getBoolPref("browser.profiles.created", false)
+          ) {
+            return 0;
+          }
+
+          return lazy.SelectableProfileService.getProfileCount();
+        },
+      }
+    ),
     backupsInfo: new CachedTargetingGetter(
       "findBackupsInWellKnownLocations",
       null,
@@ -524,11 +548,7 @@ export function getSortedMessages(messages, options = {}) {
  *                    its type (web extenstion or custom url) and the parsed url(s)
  *
  * @param {string} url - A URL string for home page or newtab page
- * @returns {Object} {
- *   isWebExt: boolean,
- *   isCustomUrl: boolean,
- *   urls: Array<{url: string, host: string}>
- * }
+ * @returns  {{isWebExt: boolean, isCustomUrl: boolean, urls: {url: string, host: string}[]}}
  */
 function parseAboutPageURL(url) {
   let ret = {
@@ -565,7 +585,7 @@ function parseAboutPageURL(url) {
 /**
  * Get the number of records in autofill storage, e.g. credit cards/addresses.
  *
- * @param  {Object} [data]
+ * @param  {object} [data]
  * @param  {string} [data.collectionName]
  *         The name used to specify which collection to retrieve records.
  * @param  {string} [data.searchString]
@@ -1106,6 +1126,7 @@ const TargetingGetters = {
 
   /**
    * The distribution id, if any.
+   *
    * @return {string}
    */
   get distributionId() {
@@ -1114,7 +1135,9 @@ const TargetingGetters = {
       .getCharPref("distribution.id", "");
   },
 
-  /** Where the Firefox View button is shown, if at all.
+  /**
+   * Where the Firefox View button is shown, if at all.
+   *
    * @return {string} container of the button if it is shown in the toolbar/overflow menu
    * @return {string} `null` if the button has been removed
    */
@@ -1151,6 +1174,7 @@ const TargetingGetters = {
 
   /**
    * Has the user ever used the Migration Wizard to migrate bookmarks?
+   *
    * @return {boolean} `true` if bookmark migration has occurred.
    */
   get hasMigratedBookmarks() {
@@ -1160,6 +1184,7 @@ const TargetingGetters = {
   /**
    * Has the user ever used the Migration Wizard to migrate passwords from
    * a CSV file?
+   *
    * @return {boolean} `true` if CSV passwords have been imported via the
    *   migration wizard.
    */
@@ -1169,6 +1194,7 @@ const TargetingGetters = {
 
   /**
    * Has the user ever used the Migration Wizard to migrate history?
+   *
    * @return {boolean} `true` if history migration has occurred.
    */
   get hasMigratedHistory() {
@@ -1177,6 +1203,7 @@ const TargetingGetters = {
 
   /**
    * Has the user ever used the Migration Wizard to migrate passwords?
+   *
    * @return {boolean} `true` if password migration has occurred.
    */
   get hasMigratedPasswords() {
@@ -1188,6 +1215,7 @@ const TargetingGetters = {
    * wizard in about:welcome by having
    * "browser.migrate.content-modal.about-welcome-behavior" be equal to
    * "embedded".
+   *
    * @return {boolean} `true` if the embedded migration wizard is enabled.
    */
   get useEmbeddedMigrationWizard() {
@@ -1197,6 +1225,7 @@ const TargetingGetters = {
   /**
    * Returns the version number of the New Tab built-in addon being used
    * by the build.
+   *
    * @return {string}
    */
   get newtabAddonVersion() {
@@ -1205,6 +1234,7 @@ const TargetingGetters = {
 
   /**
    * Whether the user installed Firefox via the RTAMO flow.
+   *
    * @return {boolean} `true` when RTAMO has been used to download Firefox,
    * `false` otherwise.
    */
@@ -1219,6 +1249,7 @@ const TargetingGetters = {
 
   /**
    * Whether the user installed via the device migration flow.
+   *
    * @return {boolean} `true` when the link to download the browser was part
    * of guidance for device migration. `false` otherwise.
    */
@@ -1231,6 +1262,7 @@ const TargetingGetters = {
   /**
    * Whether the user opted into a special message action represented by an
    * installer attribution campaign and this choice still needs to be honored.
+   *
    * @return {string} A special message action to be executed on first-run. For
    * example, `"SET_DEFAULT_BROWSER"` when the user selected to set as default
    * via the install marketing page and set default has not yet been
@@ -1243,7 +1275,8 @@ const TargetingGetters = {
    * The values of the height and width available to the browser to display
    * web content. The available height and width are each calculated taking
    * into account the presence of menu bars, docks, and other similar OS elements
-   * @returns {Object} resolution The resolution object containing width and height
+   *
+   * @returns {object} resolution The resolution object containing width and height
    * @returns {number} resolution.width The available width of the primary monitor
    * @returns {number} resolution.height The available height of the primary monitor
    */
@@ -1315,12 +1348,36 @@ const TargetingGetters = {
     return lazy.SelectableProfileService.currentProfile.id.toString();
   },
 
+  get profileGroupProfileCount() {
+    return QueryCache.getters.profileGroupProfileCount.get();
+  },
+
   get buildId() {
     return parseInt(AppConstants.MOZ_BUILDID, 10);
   },
 
   get backupsInfo() {
     return QueryCache.getters.backupsInfo.get().catch(() => null);
+  },
+
+  get backupArchiveEnabled() {
+    let bs;
+    try {
+      bs = lazy.BackupService.get();
+    } catch {
+      bs = lazy.BackupService.init();
+    }
+    return bs.archiveEnabledStatus.enabled;
+  },
+
+  get backupRestoreEnabled() {
+    let bs;
+    try {
+      bs = lazy.BackupService.get();
+    } catch {
+      bs = lazy.BackupService.init();
+    }
+    return bs.restoreEnabledStatus.enabled;
   },
 
   get isEncryptedBackup() {

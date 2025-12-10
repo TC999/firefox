@@ -47,6 +47,7 @@ import org.mozilla.fenix.FeatureFlags
 import org.mozilla.fenix.GleanMetrics.Addons
 import org.mozilla.fenix.GleanMetrics.CookieBanners
 import org.mozilla.fenix.GleanMetrics.Events
+import org.mozilla.fenix.GleanMetrics.SettingsSearch
 import org.mozilla.fenix.GleanMetrics.TrackingProtection
 import org.mozilla.fenix.GleanMetrics.Translations
 import org.mozilla.fenix.R
@@ -154,7 +155,6 @@ class SettingsFragment : PreferenceFragmentCompat() {
                 getString(R.string.pref_key_show_search_suggestions_in_private),
                 getString(R.string.pref_key_show_trending_search_suggestions),
                 getString(R.string.pref_key_show_recent_search_suggestions),
-                getString(R.string.pref_key_show_shortcuts_suggestions),
             )
         }
 
@@ -217,11 +217,18 @@ class SettingsFragment : PreferenceFragmentCompat() {
         val title = nimbusValidation.settingsTitle
         val suffix = nimbusValidation.settingsPunctuation
         val toolbarTitle = "$title$suffix"
-        if (requireContext().settings().isSettingsSearchEnabled) {
+
+        val showSearch = requireContext().settings().isSettingsSearchEnabled &&
+                (!args.searchInProgress)
+
+        if (showSearch) {
             showToolbarWithIconButton(
                 title = toolbarTitle,
                 iconResId = R.drawable.ic_search,
-                onClick = { },
+                onClick = {
+                    SettingsSearch.opened.record()
+                    findNavController().navigate(R.id.action_settingsFragment_to_settingsSearchFragment)
+                },
             )
         } else {
             showToolbar(toolbarTitle)
@@ -240,7 +247,6 @@ class SettingsFragment : PreferenceFragmentCompat() {
         args.preferenceToScrollTo?.let {
             scrollToPreference(it)
         }
-        profilerViewModel.updateProfilerActiveStatus()
         // Consider finish of `onResume` to be the point at which we consider this fragment as 'created'.
         creatingFragment = false
     }
@@ -309,7 +315,7 @@ class SettingsFragment : PreferenceFragmentCompat() {
     }
 
     @SuppressLint("InflateParams")
-    @Suppress("ComplexMethod", "LongMethod")
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
     override fun onPreferenceTreeClick(preference: Preference): Boolean {
         // Hide the scrollbar so the animation looks smoother
         val recyclerView = requireView().findViewById<RecyclerView>(R.id.recycler_view)

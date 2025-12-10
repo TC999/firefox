@@ -9,7 +9,6 @@
 
 #include <stdint.h>  // for uint64_t
 #include <unordered_map>
-#include "mozilla/Assertions.h"  // for MOZ_ASSERT_HELPER2
 #include "mozilla/Maybe.h"
 #include "mozilla/Monitor.h"        // for Monitor
 #include "mozilla/RefPtr.h"         // for RefPtr
@@ -189,6 +188,10 @@ class CompositorBridgeParentBase : public PCompositorBridgeParent,
       EndRecordingResolver&& aResolve) = 0;
   virtual mozilla::ipc::IPCResult RecvInitialize(
       const LayersId& rootLayerTreeId) = 0;
+  virtual mozilla::ipc::IPCResult RecvInitAPZInputBridge(
+      Endpoint<PAPZInputBridgeParent>&& aEndpoint) = 0;
+  virtual mozilla::ipc::IPCResult RecvInitUiCompositorController(
+      Endpoint<PUiCompositorControllerParent>&& aEndpoint) = 0;
   virtual mozilla::ipc::IPCResult RecvWillClose() = 0;
   virtual mozilla::ipc::IPCResult RecvPause() = 0;
   virtual mozilla::ipc::IPCResult RecvRequestFxrOutput() = 0;
@@ -260,6 +263,10 @@ class CompositorBridgeParent final : public CompositorBridgeParentBase,
 #endif
   mozilla::ipc::IPCResult RecvInitialize(
       const LayersId& aRootLayerTreeId) override;
+  mozilla::ipc::IPCResult RecvInitAPZInputBridge(
+      Endpoint<PAPZInputBridgeParent>&& aEndpoint) override;
+  mozilla::ipc::IPCResult RecvInitUiCompositorController(
+      Endpoint<PUiCompositorControllerParent>&& aEndpoint) override;
   mozilla::ipc::IPCResult RecvWillClose() override;
   mozilla::ipc::IPCResult RecvPause() override;
   mozilla::ipc::IPCResult RecvRequestFxrOutput() override;

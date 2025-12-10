@@ -660,11 +660,11 @@ static CSSTransition* GetCurrentTransitionAt(const Element* aElement,
   return collection->mAnimations.SafeElementAt(aIndex);
 }
 
-nsCSSPropertyID Gecko_ElementTransitions_PropertyAt(const Element* aElement,
-                                                    size_t aIndex) {
+NonCustomCSSPropertyId Gecko_ElementTransitions_PropertyAt(
+    const Element* aElement, size_t aIndex) {
   CSSTransition* transition = GetCurrentTransitionAt(aElement, aIndex);
-  return transition ? transition->TransitionProperty().mID
-                    : nsCSSPropertyID::eCSSProperty_UNKNOWN;
+  return transition ? transition->TransitionProperty().mId
+                    : NonCustomCSSPropertyId::eCSSProperty_UNKNOWN;
 }
 
 const StyleAnimationValue* Gecko_ElementTransitions_EndValueAt(
@@ -694,9 +694,9 @@ double Gecko_GetPositionInSegment(const AnimationPropertySegment* aSegment,
 
 const StyleAnimationValue* Gecko_AnimationGetBaseStyle(
     const RawServoAnimationValueTable* aBaseStyles,
-    const mozilla::AnimatedPropertyID* aProperty) {
+    const mozilla::CSSPropertyId* aProperty) {
   const auto* base = reinterpret_cast<const nsRefPtrHashtable<
-      nsGenericHashKey<AnimatedPropertyID>, StyleAnimationValue>*>(aBaseStyles);
+      nsGenericHashKey<CSSPropertyId>, StyleAnimationValue>*>(aBaseStyles);
   return base->GetWeak(*aProperty);
 }
 
@@ -804,6 +804,39 @@ bool Gecko_MatchViewTransitionClass(
   return vt->MatchClassList(name, *aPtNameAndClassSelector);
 }
 
+static bool IsValidViewTransitionType(nsAtom* aName) {
+  nsDependentAtomString str(aName);
+  return !StringBeginsWith(str, u"-ua-"_ns,
+                           nsASCIICaseInsensitiveStringComparator) &&
+         !str.LowerCaseEqualsASCII("none");
+}
+
+bool Gecko_HasActiveViewTransitionTypes(
+    const mozilla::dom::Document* aDoc,
+    const nsTArray<StyleCustomIdent>* aNames) {
+  MOZ_ASSERT(aDoc);
+  MOZ_ASSERT(aNames);
+  const ViewTransition* vt = aDoc->GetActiveViewTransition();
+  if (!vt) {
+    return false;
+  }
+  const auto& typeList = vt->GetTypeList();
+  if (typeList.IsEmpty()) {
+    return false;
+  }
+  for (const auto& name : *aNames) {
+    if (typeList.Contains(name.AsAtom())) {
+      // NOTE(emilio): This IsValidViewTransitionType() check is not in the spec
+      // and is rather weird, but matches other browsers for now, see:
+      // https://github.com/w3c/csswg-drafts/issues/13141
+      if (IsValidViewTransitionType(name.AsAtom())) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 nsAtom* Gecko_GetXMLLangValue(const Element* aElement) {
   const nsAttrValue* attr =
       aElement->GetParsedAttr(nsGkAtoms::lang, kNameSpaceID_XML);
@@ -834,6 +867,11 @@ bool Gecko_IsTableBorderNonzero(const Element* aElement) {
 bool Gecko_IsSelectListBox(const Element* aElement) {
   const auto* select = HTMLSelectElement::FromNode(aElement);
   return select && !select->IsCombobox();
+}
+
+bool Gecko_LookupAttrValue(const Element* aElement, const nsAtom& aName,
+                           nsAString& aResult) {
+  return aElement->GetAttr(&aName, aResult);
 }
 
 template <typename Implementor>
@@ -1394,11 +1432,9 @@ static already_AddRefed<StyleSheet> LoadImportSheet(
     if (!uri) {
       NS_NewURI(getter_AddRefs(uri), "about:invalid"_ns);
     }
-    emptySheet->SetURIs(uri, uri, uri);
-    emptySheet->SetPrincipal(aURL.ExtraData().Principal());
     nsCOMPtr<nsIReferrerInfo> referrerInfo =
-        ReferrerInfo::CreateForExternalCSSResources(emptySheet);
-    emptySheet->SetReferrerInfo(referrerInfo);
+        ReferrerInfo::CreateForExternalCSSResources(emptySheet, uri);
+    emptySheet->SetURIs(uri, uri, referrerInfo, aURL.ExtraData().Principal());
     emptySheet->SetComplete();
     aParent->AppendStyleSheet(*emptySheet);
     return emptySheet.forget();
@@ -1445,7 +1481,7 @@ void Gecko_LoadStyleSheetAsync(SheetLoadDataHolder* aParentData,
 }
 
 void Gecko_AddPropertyToSet(nsCSSPropertyIDSet* aPropertySet,
-                            nsCSSPropertyID aProperty) {
+                            NonCustomCSSPropertyId aProperty) {
   aPropertySet->AddProperty(aProperty);
 }
 
@@ -1751,6 +1787,10 @@ nsAtom** Gecko_Element_ExportedParts(const nsAttrValue* aValue,
   return reinterpret_cast<nsAtom**>(parts->Elements());
 }
 
+uint64_t Gecko_Element_GetSubtreeBloomFilter(const Element* aElement) {
+  return aElement->GetSubtreeBloomFilter();
+}
+
 bool StyleSingleFontFamily::IsNamedFamily(const nsAString& aFamilyName) const {
   if (!IsFamilyName()) {
     return false;
@@ -1847,58 +1887,6 @@ static bool AnchorSideUsesCBWM(
   return false;
 }
 
-static const nsIFrame* GetAnchorOf(const nsIFrame* aPositioned,
-                                   const nsAtom* aAnchorName) {
-  MOZ_ASSERT(aPositioned, "Must have a positioned frame");
-  const auto* presShell = aPositioned->PresShell();
-  MOZ_ASSERT(presShell, "No PresShell for frame?");
-  return presShell->GetAnchorPosAnchor(aAnchorName, aPositioned);
-}
-
-static Maybe<AnchorPosInfo> GetAnchorPosRect(
-    const nsIFrame* aPositioned, const nsAtom* aAnchorName, bool aCBRectIsvalid,
-    AnchorPosReferenceData* aReferenceData) {
-  if (!aPositioned) {
-    return Nothing{};
-  }
-
-  const auto* anchorName =
-      AnchorPositioningUtils::GetUsedAnchorName(aPositioned, aAnchorName);
-  if (!anchorName) {
-    return Nothing{};
-  }
-
-  MOZ_ASSERT(aPositioned->HasAnyStateBits(NS_FRAME_OUT_OF_FLOW),
-             "Calling GetAnchorPoseRect on non-abspos frame?");
-  const auto* containingBlock = aPositioned->GetParent();
-
-  Maybe<AnchorPosResolutionData>* entry = nullptr;
-
-  if (aReferenceData) {
-    const auto result = aReferenceData->InsertOrModify(anchorName, true);
-    if (result.mAlreadyResolved) {
-      MOZ_ASSERT(result.mEntry, "Entry exists but null?");
-      return result.mEntry->map([&](const AnchorPosResolutionData& aData) {
-        MOZ_ASSERT(aData.mOrigin, "Missing anchor offset resolution.");
-        return AnchorPosInfo{nsRect{aData.mOrigin.ref(), aData.mSize},
-                             containingBlock};
-      });
-    }
-    entry = result.mEntry;
-  }
-
-  const auto* anchor = GetAnchorOf(aPositioned, anchorName);
-  if (!anchor) {
-    // If we have a cached entry, just check that it resolved to nothing last
-    // time as well.
-    MOZ_ASSERT_IF(entry, entry->isNothing());
-    return Nothing{};
-  }
-
-  return AnchorPositioningUtils::GetAnchorPosRect(containingBlock, anchor,
-                                                  aCBRectIsvalid, entry);
-}
-
 bool Gecko_GetAnchorPosOffset(const AnchorPosOffsetResolutionParams* aParams,
                               const nsAtom* aAnchorName,
                               StylePhysicalSide aPropSide,
@@ -1907,22 +1895,36 @@ bool Gecko_GetAnchorPosOffset(const AnchorPosOffsetResolutionParams* aParams,
   if (!aParams || !aParams->mBaseParams.mFrame) {
     return false;
   }
-
-  const auto* anchorName = AnchorPositioningUtils::GetUsedAnchorName(
-      aParams->mBaseParams.mFrame, aAnchorName);
-
-  // Note: No exit on null anchorName: Instead, GetAnchorPosRect may return the
-  // containing block.
-  const auto info = GetAnchorPosRect(
-      aParams->mBaseParams.mFrame, anchorName, !aParams->mCBSize,
-      aParams->mBaseParams.mAnchorPosReferenceData);
-  if (info.isNothing()) {
+  const auto* positioned = aParams->mBaseParams.mFrame;
+  const auto* containingBlock = positioned->GetParent();
+  const auto info = AnchorPositioningUtils::ResolveAnchorPosRect(
+      positioned, containingBlock, aAnchorName, !aParams->mCBSize,
+      aParams->mBaseParams.mCache);
+  if (!info) {
     return false;
+  }
+  if (info->mCompensatesForScroll && aParams->mBaseParams.mCache) {
+    // Without cache (Containing information on default anchor) being available,
+    // we woudln't be able to determine scroll compensation status.
+    const auto axis = [aPropSide]() {
+      switch (aPropSide) {
+        case StylePhysicalSide::Left:
+        case StylePhysicalSide::Right:
+          return PhysicalAxis::Horizontal;
+        case StylePhysicalSide::Top:
+        case StylePhysicalSide::Bottom:
+          break;
+        default:
+          MOZ_ASSERT_UNREACHABLE("Unhandled side?");
+      }
+      return PhysicalAxis::Vertical;
+    }();
+    aParams->mBaseParams.mCache->mReferenceData->AdjustCompensatingForScroll(
+        axis);
   }
   // Compute the offset here in C++, where translating between physical/logical
   // coordinates is easier.
-  const auto& rect = info.ref().mRect;
-  const auto* containingBlock = info.ref().mContainingBlock;
+  const auto& rect = info->mRect;
   const auto usesCBWM = AnchorSideUsesCBWM(aAnchorSideKeyword);
   const auto cbwm = containingBlock->GetWritingMode();
   const auto wm =
@@ -1947,8 +1949,9 @@ bool Gecko_GetAnchorPosOffset(const AnchorPosOffsetResolutionParams* aParams,
       case StyleAnchorSideKeyword::Bottom:
         return GetEdge(wm.LogicalSideForPhysicalSide(eSideBottom));
       case StyleAnchorSideKeyword::Inside:
-      case StyleAnchorSideKeyword::Outside:
         return propEdge;
+      case StyleAnchorSideKeyword::Outside:
+        return GetOppositeEdge(propEdge);
       case StyleAnchorSideKeyword::Start:
       case StyleAnchorSideKeyword::SelfStart:
       case StyleAnchorSideKeyword::Center:
@@ -1998,34 +2001,8 @@ bool Gecko_GetAnchorPosSize(const AnchorPosResolutionParams* aParams,
     return false;
   }
   const auto* positioned = aParams->mFrame;
-
-  const auto* anchorName =
-      AnchorPositioningUtils::GetUsedAnchorName(positioned, aAnchorName);
-  if (!anchorName) {
-    return false;
-  }
-  const auto size = [&]() -> Maybe<nsSize> {
-    Maybe<AnchorPosResolutionData>* entry = nullptr;
-    if (aParams->mAnchorPosReferenceData) {
-      const auto result =
-          aParams->mAnchorPosReferenceData->InsertOrModify(anchorName, false);
-      if (result.mAlreadyResolved) {
-        MOZ_ASSERT(result.mEntry, "Entry exists but null?");
-        return result.mEntry->map(
-            [](const AnchorPosResolutionData& aData) { return aData.mSize; });
-      }
-      entry = result.mEntry;
-    }
-    const auto* anchor = GetAnchorOf(positioned, anchorName);
-    if (!anchor) {
-      return Nothing{};
-    }
-    const auto size = nsLayoutUtils::GetCombinedFragmentRects(anchor).Size();
-    if (entry) {
-      *entry = Some(AnchorPosResolutionData{size, Nothing{}});
-    }
-    return Some(size);
-  }();
+  const auto size = AnchorPositioningUtils::ResolveAnchorPosSize(
+      positioned, aAnchorName, aParams->mCache);
   if (!size) {
     return false;
   }

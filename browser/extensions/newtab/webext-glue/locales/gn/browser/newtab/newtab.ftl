@@ -406,7 +406,7 @@ newtab-wallpaper-abstract-purple-green = Sa’ykuéra pytãũ ha hovyũ rehegua
 newtab-wallpaper-abstract-blue-purple-waves = Hovy ha pytãũva rehegua
 newtab-wallpaper-abstract-black-waves = Hũ ikarẽkarẽva
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Ta’ãnga
 newtab-wallpaper-beach-at-sunrise = Jejahuha ko’ẽmbotávo
@@ -435,6 +435,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -663,6 +667,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Tysýi pyahu
+newtab-widget-section-title = Widgets
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Eñomi widgets
+    .aria-label = Eñomimbaite widgets
+newtab-widget-section-maximize =
+    .title = Emyasãi widgets
+    .aria-label = Emyasãimbaite widgets tuichaháicha
+newtab-widget-section-minimize =
+    .title = Emomichĩ widgets
+    .aria-label = Emomichĩmbaite widgets tuichaháicha
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -675,10 +690,6 @@ newtab-widget-timer-mode-focus =
     .label = Focus
 newtab-widget-timer-mode-break =
     .label = Pytu’u
-newtab-widget-timer-play =
-    .title = Mbopu
-newtab-widget-timer-pause =
-    .title = Mombyta
 newtab-widget-timer-label-play =
     .label = Mbopu
 newtab-widget-timer-label-pause =
@@ -689,8 +700,6 @@ newtab-widget-timer-menu-notifications = Eipe’a ñemomarandu
 newtab-widget-timer-menu-notifications-on = Emyandy marandu’i
 newtab-widget-timer-menu-hide = Eñomi aravopapaha
 newtab-widget-timer-menu-learn-more = Kuaave
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Emongu’e ehechave hag̃ua
 newtab-widget-message-title = Epyta umi tysýi ndive ha aravopapaha reheve
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Mandu’arã guive tembiaporã peve, ñamindu’u ha jepytu’u jehetetirarã, ema’ẽ ne rembiapo ha aravo rehe.

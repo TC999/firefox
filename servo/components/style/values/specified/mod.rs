@@ -23,10 +23,12 @@ use cssparser::{Parser, Token};
 use std::fmt::{self, Write};
 use std::ops::Add;
 use style_traits::values::specified::AllowedNumericType;
-use style_traits::{CssWriter, ParseError, SpecifiedValueInfo, StyleParseErrorKind, ToCss};
+use style_traits::{
+    CssString, CssWriter, NumericValue, ParseError, SpecifiedValueInfo, StyleParseErrorKind, ToCss,
+    ToTyped, TypedValue,
+};
 
-pub use self::align::{AlignContent, AlignItems, AlignSelf, ContentDistribution};
-pub use self::align::{JustifyContent, JustifyItems, JustifySelf, SelfAlignment};
+pub use self::align::{ContentDistribution, ItemPlacement, JustifyItems, SelfAlignment};
 pub use self::angle::{AllowUnitlessZeroAngle, Angle};
 pub use self::animation::{
     AnimationComposition, AnimationDirection, AnimationDuration, AnimationFillMode,
@@ -109,7 +111,7 @@ pub use self::text::{OverflowWrap, TextEmphasisPosition, TextEmphasisStyle, Word
 pub use self::text::{TextAlignKeyword, TextDecorationLine, TextOverflow, WordSpacing};
 pub use self::text::{TextAlignLast, TextAutospace, TextUnderlinePosition};
 pub use self::text::{
-    TextDecorationLength, TextDecorationSkipInk, TextDecorationTrim, TextJustify, TextTransform,
+    TextDecorationInset, TextDecorationLength, TextDecorationSkipInk, TextJustify, TextTransform,
 };
 pub use self::time::Time;
 pub use self::transform::{Rotate, Scale, Transform};
@@ -348,6 +350,14 @@ impl ToCss for Number {
         W: Write,
     {
         serialize_number(self.value, self.calc_clamping_mode.is_some(), dest)
+    }
+}
+
+impl ToTyped for Number {
+    fn to_typed(&self) -> Option<TypedValue> {
+        let value = self.value;
+        let unit = CssString::from("number");
+        Some(TypedValue::Numeric(NumericValue::Unit { value, unit }))
     }
 }
 

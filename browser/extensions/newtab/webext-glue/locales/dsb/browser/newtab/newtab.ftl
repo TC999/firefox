@@ -409,7 +409,7 @@ newtab-wallpaper-abstract-purple-green = Wioletny a zeleny swětłowy pśeběg
 newtab-wallpaper-abstract-blue-purple-waves = Módre a wioletne žwałkate formy
 newtab-wallpaper-abstract-black-waves = Carne žwałkate formy
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Fota
 newtab-wallpaper-beach-at-sunrise = Pśibrjog pśi zejźenju słyńca
@@ -438,6 +438,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -666,6 +670,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Nowa lisćina
+newtab-widget-section-title = Asistenty
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Asistenty schowaś
+    .aria-label = Wšykne asistenty schowaś
+newtab-widget-section-maximize =
+    .title = Asistenty pokazać
+    .aria-label = Wšykne asistenty w połnej wjelikosći pokazaś
+newtab-widget-section-minimize =
+    .title = Asistenty miniměrowaś
+    .aria-label = Wšykne asistenty do kompaktneje wjelikosći złožyś
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -678,10 +693,6 @@ newtab-widget-timer-mode-focus =
     .label = Fokus
 newtab-widget-timer-mode-break =
     .label = Pawza
-newtab-widget-timer-play =
-    .title = Wótgraś
-newtab-widget-timer-pause =
-    .title = Pawza
 newtab-widget-timer-label-play =
     .label = Wótgraś
 newtab-widget-timer-label-pause =
@@ -692,8 +703,6 @@ newtab-widget-timer-menu-notifications = Zdźělenja znjemóžniś
 newtab-widget-timer-menu-notifications-on = Zdźělenja zmóžniś
 newtab-widget-timer-menu-hide = Měritko casa schowaś
 newtab-widget-timer-menu-learn-more = Dalšne informacije
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Za dalšne kulnuś
 newtab-widget-message-title = Wóstańśo koncentrěrowany z lisćinami a zatwarjonym casowym měritkom
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Wót malsnych dopomnjeśow do wšednych nadawkowych lisćinow, koncentrěrujśo se na posejźenja, aby pśestawki pódlejšył – njepópušćajśo a buźćo zdypkom.

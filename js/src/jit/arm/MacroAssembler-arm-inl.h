@@ -327,6 +327,14 @@ void MacroAssembler::add32(Imm32 imm, const Address& dest) {
   ma_str(scratch, dest, scratch2);
 }
 
+void MacroAssembler::add32(const Address& src, Register dest) {
+  ScratchRegisterScope scratch(*this);
+  SecondScratchRegisterScope scratch2(*this);
+
+  ma_ldr(src, scratch, scratch2);
+  ma_add(scratch, dest, SetCC);
+}
+
 void MacroAssembler::addPtr(Register src, Register dest) { ma_add(src, dest); }
 
 void MacroAssembler::addPtr(Imm32 imm, Register dest) {
@@ -564,25 +572,25 @@ void MacroAssembler::mulDoublePtr(ImmPtr imm, Register temp,
   mulDouble(scratchDouble, dest);
 }
 
-void MacroAssembler::quotient32(Register rhs, Register srcDest,
+void MacroAssembler::quotient32(Register lhs, Register rhs, Register dest,
                                 bool isUnsigned) {
   MOZ_ASSERT(ARMFlags::HasIDIV());
   if (isUnsigned) {
-    ma_udiv(srcDest, rhs, srcDest);
+    ma_udiv(lhs, rhs, dest);
   } else {
-    ma_sdiv(srcDest, rhs, srcDest);
+    ma_sdiv(lhs, rhs, dest);
   }
 }
 
-void MacroAssembler::remainder32(Register rhs, Register srcDest,
+void MacroAssembler::remainder32(Register lhs, Register rhs, Register dest,
                                  bool isUnsigned) {
   MOZ_ASSERT(ARMFlags::HasIDIV());
 
   ScratchRegisterScope scratch(*this);
   if (isUnsigned) {
-    ma_umod(srcDest, rhs, srcDest, scratch);
+    ma_umod(lhs, rhs, dest, scratch);
   } else {
-    ma_smod(srcDest, rhs, srcDest, scratch);
+    ma_smod(lhs, rhs, dest, scratch);
   }
 }
 
@@ -2361,8 +2369,9 @@ void MacroAssembler::branchTestMagic(Condition cond, const ValueOperand& value,
   branchTestMagicImpl(cond, value, label);
 }
 
-template <typename T, class L>
-void MacroAssembler::branchTestMagicImpl(Condition cond, const T& t, L label) {
+template <typename T>
+void MacroAssembler::branchTestMagicImpl(Condition cond, const T& t,
+                                         Label* label) {
   cond = testMagic(cond, t);
   ma_b(label, cond);
 }

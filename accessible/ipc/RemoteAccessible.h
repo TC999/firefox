@@ -181,7 +181,7 @@ class RemoteAccessible : public Accessible, public HyperTextAccessibleBase {
 
   // Methods that potentially access a cache.
 
-  virtual ENameValueFlag Name(nsString& aName) const override;
+  virtual ENameValueFlag Name(nsString& aName) const override final;
   virtual EDescriptionValueFlag Description(
       nsString& aDescription) const override;
   virtual void Value(nsString& aValue) const override;
@@ -390,6 +390,10 @@ class RemoteAccessible : public Accessible, public HyperTextAccessibleBase {
 
   virtual bool IsPopover() const override;
 
+  virtual bool HasPrimaryAction() const override;
+
+  virtual bool IsEditable() const override;
+
 #if !defined(XP_WIN)
   void Announce(const nsString& aAnnouncement, uint16_t aPriority);
 #endif  // !defined(XP_WIN)
@@ -455,7 +459,7 @@ class RemoteAccessible : public Accessible, public HyperTextAccessibleBase {
   void SetParent(RemoteAccessible* aParent);
   Maybe<nsRect> RetrieveCachedBounds() const;
   bool ApplyTransform(nsRect& aCumulativeBounds) const;
-  bool ApplyScrollOffset(nsRect& aBounds) const;
+  bool ApplyScrollOffset(nsRect& aBounds, float aResolution) const;
   void ApplyCrossDocOffset(nsRect& aBounds) const;
   void ApplyVisualViewportOffset(nsRect& aBounds) const;
   LayoutDeviceIntRect BoundsWithOffset(
@@ -492,12 +496,13 @@ class RemoteAccessible : public Accessible, public HyperTextAccessibleBase {
 
   virtual void GetPositionAndSetSize(int32_t* aPosInSet,
                                      int32_t* aSetSize) override;
-
-  virtual bool HasPrimaryAction() const override;
-
   nsAtom* GetPrimaryAction() const;
 
   virtual nsTArray<int32_t>& GetCachedHyperTextOffsets() override;
+
+  nsTArray<Accessible*> LegendsOrCaptions() const;
+
+  RemoteAccessible* LegendOrCaptionFor() const;
 
  private:
   /**

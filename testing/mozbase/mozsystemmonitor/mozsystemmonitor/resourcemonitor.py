@@ -27,6 +27,9 @@ class PsutilStub:
                 "write_time",
             ],
         )
+        self.snetio = namedtuple(
+            "snetio", ["bytes_sent", "bytes_recv", "packets_sent", "packets_recv"]
+        )
         self.pcputimes = namedtuple("pcputimes", ["user", "system"])
         self.svmem = namedtuple(
             "svmem",
@@ -57,6 +60,9 @@ class PsutilStub:
 
     def disk_io_counters(self):
         return self.sdiskio(0, 0, 0, 0, 0, 0)
+
+    def net_io_counters(self):
+        return self.snetio(0, 0, 0, 0)
 
     def swap_memory(self):
         return self.sswap(0, 0, 0, 0, 0, 0)
@@ -90,6 +96,18 @@ def get_disk_io_counters():
         io_counters = PsutilStub().disk_io_counters()
 
     return io_counters
+
+
+def get_network_io_counters():
+    try:
+        net_counters = psutil.net_io_counters()
+
+        if net_counters is None:
+            return PsutilStub().net_io_counters()
+    except (RuntimeError, AttributeError):
+        net_counters = PsutilStub().net_io_counters()
+
+    return net_counters
 
 
 def _poll(pipe, poll_interval=0.1):
@@ -127,6 +145,7 @@ def _collect(pipe, poll_interval):
         # Establish initial values.
 
         io_last = get_disk_io_counters()
+        net_io_last = get_network_io_counters()
         swap_last = psutil.swap_memory()
         psutil.cpu_percent(None, True)
         cpu_last = psutil.cpu_times(True)
@@ -175,6 +194,7 @@ def _collect(pipe, poll_interval):
 
         while not _poll(pipe, poll_interval=sleep_interval):
             io = get_disk_io_counters()
+            net_io = get_network_io_counters()
             virt_mem = psutil.virtual_memory()
             swap_mem = psutil.swap_memory()
             cpu_percent = psutil.cpu_percent(None, True)
@@ -189,6 +209,11 @@ def _collect(pipe, poll_interval):
             # TODO Consider patching "delta" API to upstream.
             io_diff = [v - io_last[i] for i, v in enumerate(io)]
             io_last = io
+
+            net_io_diff = [
+                v - net_io_last[i] for i, v in enumerate(net_io[:4])
+            ]  # Only use first 4 fields
+            net_io_last = net_io
 
             cpu_diff = []
             for core, values in enumerate(cpu_times):
@@ -206,6 +231,7 @@ def _collect(pipe, poll_interval):
                     last_time,
                     measured_end_time,
                     io_diff,
+                    net_io_diff,
                     cpu_diff,
                     cpu_percent,
                     list(virt_mem),
@@ -239,9 +265,11 @@ def _collect(pipe, poll_interval):
                     and not arg.startswith("-L")
                 ]
             )
-            pipe.send(("process", pid, create_time, end_time, cmdline, ppid, None))
+            pipe.send(
+                ("process", pid, create_time, end_time, cmdline, ppid, None, None)
+            )
 
-        pipe.send(("done", None, None, None, None, None, None))
+        pipe.send(("done", None, None, None, None, None, None, None))
         pipe.close()
 
     sys.exit(0)
@@ -249,7 +277,7 @@ def _collect(pipe, poll_interval):
 
 SystemResourceUsage = namedtuple(
     "SystemResourceUsage",
-    ["start", "end", "cpu_times", "cpu_percent", "io", "virt", "swap"],
+    ["start", "end", "cpu_times", "cpu_percent", "io", "net_io", "virt", "swap"],
 )
 
 
@@ -355,6 +383,7 @@ class SystemResourceMonitor:
             cpu_percent = psutil.cpu_percent(0.0, True)
             cpu_times = psutil.cpu_times(False)
             io = get_disk_io_counters()
+            net_io = get_network_io_counters()
             virt = psutil.virtual_memory()
             swap = psutil.swap_memory()
         except Exception as e:
@@ -366,6 +395,8 @@ class SystemResourceMonitor:
         self._cpu_times_len = len(cpu_times)
         self._io_type = type(io)
         self._io_len = len(io)
+        # Only use first 4 fields of net_io (bytes_sent, bytes_recv, packets_sent, packets_recv)
+        self._net_io_type = namedtuple("net_io", list(net_io._fields[:4]))
         self._virt_type = type(virt)
         self._virt_len = len(virt)
         self._swap_type = type(swap)
@@ -388,6 +419,18 @@ class SystemResourceMonitor:
 
     def convert_to_monotonic_time(self, timestamp):
         return timestamp - self.start_timestamp + self.start_time
+
+    def get_monotonic_time_from_data(self, data):
+        """Convert structured logging timestamp to monotonic time.
+
+        Args:
+            data: Dictionary with "time" field in milliseconds
+
+        Returns:
+            Monotonic timestamp
+        """
+        time_sec = data["time"] / 1000
+        return self.convert_to_monotonic_time(time_sec)
 
     # Methods to control monitoring.
 
@@ -441,6 +484,7 @@ class SystemResourceMonitor:
                     start_time,
                     end_time,
                     io_diff,
+                    net_io_diff,
                     cpu_diff,
                     cpu_percent,
                     virt_mem,
@@ -454,9 +498,9 @@ class SystemResourceMonitor:
             if start_time == "process":
                 pid = end_time
                 start = self.convert_to_monotonic_time(io_diff)
-                end = self.convert_to_monotonic_time(cpu_diff)
-                cmd = cpu_percent
-                ppid = virt_mem
+                end = self.convert_to_monotonic_time(net_io_diff)
+                cmd = cpu_diff
+                ppid = cpu_percent
                 self.processes.append((pid, start, end, cmd, ppid))
                 continue
 
@@ -467,13 +511,21 @@ class SystemResourceMonitor:
 
             try:
                 io = self._io_type(*io_diff)
+                net_io = self._net_io_type(*net_io_diff)
                 virt = self._virt_type(*virt_mem)
                 swap = self._swap_type(*swap_mem)
                 cpu_times = [self._cpu_times_type(*v) for v in cpu_diff]
 
                 self.measurements.append(
                     SystemResourceUsage(
-                        start_time, end_time, cpu_times, cpu_percent, io, virt, swap
+                        start_time,
+                        end_time,
+                        cpu_times,
+                        cpu_percent,
+                        io,
+                        net_io,
+                        virt,
+                        swap,
                     )
                 )
             except Exception:
@@ -727,11 +779,13 @@ class SystemResourceMonitor:
         """Begin tracking a test with enhanced metadata support.
 
         Args:
-            data: Dictionary containing test data (e.g., {"test": "test_name"})
+            data: Dictionary containing test data (e.g., {"test": "test_name", "time": timestamp})
         """
         if SystemResourceMonitor.instance and "test" in data:
             test_name = data["test"]
-            SystemResourceMonitor.instance._active_markers[test_name] = time.monotonic()
+            SystemResourceMonitor.instance._active_markers[test_name] = (
+                SystemResourceMonitor.instance.get_monotonic_time_from_data(data)
+            )
 
     @staticmethod
     def end_test(data):
@@ -752,7 +806,7 @@ class SystemResourceMonitor:
             return
 
         start = SystemResourceMonitor.instance._active_markers.pop(test_name)
-        end = time.monotonic()
+        end = SystemResourceMonitor.instance.get_monotonic_time_from_data(data)
 
         # Create marker data with test information
         marker_data = {
@@ -760,6 +814,11 @@ class SystemResourceMonitor:
             "test": test_name,
             "name": test_name.split("/")[-1],
         }
+
+        # Include timeout factor if present in extra data
+        extra = data.get("extra", {})
+        if extra and "timeoutfactor" in extra:
+            marker_data["timeoutfactor"] = extra["timeoutfactor"]
 
         status = data.get("status", "")
         if status:
@@ -803,8 +862,7 @@ class SystemResourceMonitor:
         if not SystemResourceMonitor.instance:
             return
 
-        time_sec = data["time"] / 1000
-        timestamp = SystemResourceMonitor.instance.convert_to_monotonic_time(time_sec)
+        timestamp = SystemResourceMonitor.instance.get_monotonic_time_from_data(data)
 
         marker_data = {"type": "TestStatus"}
 
@@ -857,8 +915,7 @@ class SystemResourceMonitor:
         if not SystemResourceMonitor.instance:
             return
 
-        time_sec = data["time"] / 1000
-        timestamp = SystemResourceMonitor.instance.convert_to_monotonic_time(time_sec)
+        timestamp = SystemResourceMonitor.instance.get_monotonic_time_from_data(data)
 
         marker_data = {
             "type": "Crash",
@@ -1096,129 +1153,8 @@ class SystemResourceMonitor:
 
         return max(values)
 
-    def as_dict(self):
-        """Convert the recorded data to a dict, suitable for serialization.
-
-        The returned dict has the following keys:
-
-          version - Integer version number being rendered. Currently 2.
-          cpu_times_fields - A list of the names of the CPU times fields.
-          io_fields - A list of the names of the I/O fields.
-          virt_fields - A list of the names of the virtual memory fields.
-          swap_fields - A list of the names of the swap memory fields.
-          samples - A list of dicts containing low-level measurements.
-          events - A list of lists representing point events. The inner list
-            has 2 elements, the float wall time of the event and the string
-            event name.
-          phases - A list of dicts describing phases. Each phase looks a lot
-            like an entry from samples (see below). Some phases may not have
-            data recorded against them, so some keys may be None.
-          overall - A dict representing overall resource usage. This resembles
-            a sample entry.
-          system - Contains additional information about the system including
-            number of processors and amount of memory.
-
-        Each entry in the sample list is a dict with the following keys:
-
-          start - Float wall time this measurement began on.
-          end - Float wall time this measurement ended on.
-          io - List of numerics for I/O values.
-          virt - List of numerics for virtual memory values.
-          swap - List of numerics for swap memory values.
-          cpu_percent - List of floats representing CPU percent on each core.
-          cpu_times - List of lists. Main list is each core. Inner lists are
-            lists of floats representing CPU times on that core.
-          cpu_percent_mean - Float of mean CPU percent across all cores.
-          cpu_times_sum - List of floats representing the sum of CPU times
-            across all cores.
-          cpu_times_total - Float representing the sum of all CPU times across
-            all cores. This is useful for calculating the percent in each CPU
-            time.
-        """
-
-        o = dict(
-            version=2,
-            cpu_times_fields=list(self._cpu_times_type._fields),
-            io_fields=list(self._io_type._fields),
-            virt_fields=list(self._virt_type._fields),
-            swap_fields=list(self._swap_type._fields),
-            samples=[],
-            phases=[],
-            system={},
-        )
-
-        def populate_derived(e):
-            if e["cpu_percent_cores"]:
-                # pylint --py3k W1619
-                e["cpu_percent_mean"] = sum(e["cpu_percent_cores"]) / len(
-                    e["cpu_percent_cores"]
-                )
-            else:
-                e["cpu_percent_mean"] = None
-
-            if e["cpu_times"]:
-                e["cpu_times_sum"] = [0.0] * self._cpu_times_len
-                for i in range(0, self._cpu_times_len):
-                    e["cpu_times_sum"][i] = sum(core[i] for core in e["cpu_times"])
-
-                e["cpu_times_total"] = sum(e["cpu_times_sum"])
-
-        def phase_entry(name, start, end):
-            e = dict(
-                name=name,
-                start=start,
-                end=end,
-                duration=end - start,
-                cpu_percent_cores=self.aggregate_cpu_percent(phase=name),
-                cpu_times=[list(c) for c in self.aggregate_cpu_times(phase=name)],
-                io=list(self.aggregate_io(phase=name)),
-            )
-            populate_derived(e)
-            return e
-
-        for m in self.measurements:
-            e = dict(
-                start=m.start,
-                end=m.end,
-                io=list(m.io),
-                virt=list(m.virt),
-                swap=list(m.swap),
-                cpu_percent_cores=list(m.cpu_percent),
-                cpu_times=list(list(cpu) for cpu in m.cpu_times),
-            )
-
-            populate_derived(e)
-            o["samples"].append(e)
-
-        if o["samples"]:
-            o["start"] = o["samples"][0]["start"]
-            o["end"] = o["samples"][-1]["end"]
-            o["duration"] = o["end"] - o["start"]
-            o["overall"] = phase_entry(None, o["start"], o["end"])
-        else:
-            o["start"] = None
-            o["end"] = None
-            o["duration"] = None
-            o["overall"] = None
-
-        o["events"] = [list(ev) for ev in self.events]
-
-        for phase, v in self.phases.items():
-            o["phases"].append(phase_entry(phase, v[0], v[1]))
-
-        if have_psutil:
-            o["system"].update(
-                dict(
-                    cpu_logical_count=psutil.cpu_count(logical=True),
-                    cpu_physical_count=psutil.cpu_count(logical=False),
-                    swap_total=psutil.swap_memory()[0],
-                    vmem_total=psutil.virtual_memory()[0],
-                )
-            )
-
-        return o
-
     def as_profile(self):
+        """Convert the recorded data to an object suitable for import into the firefox profiler"""
         profile_time = time.monotonic()
         start_time = self.start_time
         profile = {
@@ -1323,6 +1259,11 @@ class SystemResourceMonitor:
                                 "key": "message",
                                 "label": "Message",
                                 "format": "string",
+                            },
+                            {
+                                "key": "timeoutfactor",
+                                "label": "Timeout Factor",
+                                "format": "integer",
                             },
                             {
                                 "key": "color",
@@ -1452,6 +1393,37 @@ class SystemResourceMonitor:
                         "graphs": [
                             {"key": "read_bytes", "color": "green", "type": "bar"},
                             {"key": "write_bytes", "color": "red", "type": "bar"},
+                        ],
+                    },
+                    {
+                        "name": "NetIO",
+                        "tooltipLabel": "{marker.name}",
+                        "display": [],
+                        "data": [
+                            {
+                                "key": "sent_bytes",
+                                "label": "Sent",
+                                "format": "bytes",
+                            },
+                            {
+                                "key": "sent_count",
+                                "label": "Packets sent",
+                                "format": "integer",
+                            },
+                            {
+                                "key": "recv_bytes",
+                                "label": "Received",
+                                "format": "bytes",
+                            },
+                            {
+                                "key": "recv_count",
+                                "label": "Packets received",
+                                "format": "integer",
+                            },
+                        ],
+                        "graphs": [
+                            {"key": "recv_bytes", "color": "blue", "type": "bar"},
+                            {"key": "sent_bytes", "color": "orange", "type": "bar"},
                         ],
                     },
                     {
@@ -1925,6 +1897,7 @@ class SystemResourceMonitor:
         cpu_string_index = get_string_index("CPU Use")
         memory_string_index = get_string_index("Memory")
         io_string_index = get_string_index("IO")
+        network_string_index = get_string_index("NetIO")
         interval_string_index = get_string_index("Sampling Interval")
         valid_cpu_fields = set()
         for m in self.measurements:
@@ -1990,6 +1963,16 @@ class SystemResourceMonitor:
                 "write_bytes": m.io.write_bytes,
             }
             add_marker(io_string_index, m.start, m.end, markerData)
+
+            # Network IO
+            markerData = {
+                "type": "NetIO",
+                "recv_count": m.net_io.packets_recv,
+                "recv_bytes": m.net_io.bytes_recv,
+                "sent_count": m.net_io.packets_sent,
+                "sent_bytes": m.net_io.bytes_sent,
+            }
+            add_marker(network_string_index, m.start, m.end, markerData)
 
             # Sampling interval marker
             add_marker(

@@ -47,7 +47,7 @@ XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "idleService",
   "@mozilla.org/widget/useridleservice;1",
-  "nsIUserIdleService"
+  Ci.nsIUserIdleService
 );
 
 const TOPIC_TABS_CHANGED = "services.sync.tabs.changed";
@@ -122,7 +122,7 @@ export class FxAccountsCommands {
    * This method can be called either in response to a Push message,
    * or by itself as a "commands recovery" mechanism.
    *
-   * @param {Number} notifiedIndex "Command received" push messages include
+   * @param {number} notifiedIndex "Command received" push messages include
    * the index of the command that triggered the message. We use it as a
    * hint when we have no "last command index" stored.
    */
@@ -465,7 +465,7 @@ export class SendTab extends Command {
 
   /**
    * @param {Device[]} to - Device objects (typically returned by fxAccounts.getDevicesList()).
-   * @param {Object} tab
+   * @param {object} tab
    * @param {string} tab.url
    * @param {string} tab.title
    * @returns A report object, in the shape of
@@ -558,7 +558,7 @@ export class CloseRemoteTab extends Command {
 
   /**
    * @param {Device} target - Device object (typically returned by fxAccounts.getDevicesList()).
-   * @param {String[]} urls - array of urls that should be closed on the remote device
+   * @param {string[]} urls - array of urls that should be closed on the remote device
    */
   async sendCloseTabsCommand(target, urls, flowID) {
     log.info(`Sending tab closures to ${target.id} device.`);

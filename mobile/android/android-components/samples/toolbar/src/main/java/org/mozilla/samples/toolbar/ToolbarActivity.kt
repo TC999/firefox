@@ -358,10 +358,10 @@ class ToolbarActivity : AppCompatActivity() {
             siteInfoIconSecure = 0xFF20123a.toInt(),
             text = 0xFF0c0c0d.toInt(),
             menu = 0xFF20123a.toInt(),
-            separator = 0x1E15141a.toInt(),
+            separator = 0x1E15141a,
             trackingProtection = 0xFF20123a.toInt(),
             emptyIcon = 0xFF20123a.toInt(),
-            hint = 0x1E15141a.toInt(),
+            hint = 0x1E15141a,
         )
 
         binding.toolbar.display.urlFormatter = { url ->
@@ -446,7 +446,7 @@ class ToolbarActivity : AppCompatActivity() {
             text = 0xFF0c0c0d.toInt(),
             title = 0xFF0c0c0d.toInt(),
             menu = 0xFF20123a.toInt(),
-            separator = 0x1E15141a.toInt(),
+            separator = 0x1E15141a,
             trackingProtection = 0xFF20123a.toInt(),
         )
 
@@ -595,7 +595,7 @@ class ToolbarActivity : AppCompatActivity() {
 
     private var loading = MutableLiveData<Boolean>()
 
-    @Suppress("TooGenericExceptionCaught")
+    @Suppress("TooGenericExceptionCaught", "CognitiveComplexMethod")
     private fun simulateReload(view: UrlBoxProgressView? = null) {
         job?.cancel()
 
@@ -641,7 +641,9 @@ class ToolbarActivity : AppCompatActivity() {
         binding.toolbar.invalidateActions()
     }
 
-    private fun Resources.getThemedDrawable(@DrawableRes resId: Int) = ResourcesCompat.getDrawable(this, resId, theme)
+    private fun Resources.getThemedDrawable(
+        @DrawableRes resId: Int,
+    ) = ResourcesCompat.getDrawable(this, resId, theme)
 
     companion object {
         private val PROGRESS_RANGE = 0..100

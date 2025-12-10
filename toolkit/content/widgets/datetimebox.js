@@ -215,7 +215,7 @@ this.DateTimeBoxWidget = class {
     // This is to open the picker when input element is tapped on Android
     // or for type=time inputs (this includes padding area).
     this.isAndroid = this.window.navigator.appVersion.includes("Android");
-    if (this.isAndroid || this.type == "time") {
+    if (this.showPickerOnClick) {
       this.mInputElement.addEventListener(
         "click",
         this,
@@ -434,7 +434,7 @@ this.DateTimeBoxWidget = class {
   setPickerState(aIsOpen) {
     this.log("picker is now " + (aIsOpen ? "opened" : "closed"));
     this.mIsPickerOpen = aIsOpen;
-    this.mInputElement.setDateTimePickerState(aIsOpen);
+    this.mInputElement.setOpenState(aIsOpen);
     // Calendar button's expanded state mirrors this.mIsPickerOpen
     this.updateCalendarButtonState(this.mIsPickerOpen);
   }
@@ -679,8 +679,8 @@ this.DateTimeBoxWidget = class {
     }
 
     switch (aEvent.key) {
-      // Toggle the picker on Space/Enter on Calendar button or Space on input,
-      // close on Escape anywhere.
+      // Toggle the date picker on Space/Enter on Calendar button or Space on input,
+      // time picker on Space on input, close picker on Escape anywhere.
       case "Escape": {
         if (this.mIsPickerOpen) {
           this.closeDateTimePicker();

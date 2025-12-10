@@ -35,6 +35,7 @@ class OriginAttributes;
 namespace dom {
 class FormData;
 class DocShellLoadStateInit;
+struct NavigationAPIMethodTracker;
 }  // namespace dom
 }  // namespace mozilla
 
@@ -442,6 +443,14 @@ class nsDocShellLoadState final {
   nsIStructuredCloneContainer* GetNavigationAPIState() const;
   void SetNavigationAPIState(nsIStructuredCloneContainer* aNavigationAPIState);
 
+  // This is used to pass the navigation API method tracker through the
+  // navigation pipeline for navigate().
+  // See https://html.spec.whatwg.org/#navigation-api-method-tracker
+  mozilla::dom::NavigationAPIMethodTracker* GetNavigationAPIMethodTracker()
+      const;
+  void SetNavigationAPIMethodTracker(
+      mozilla::dom::NavigationAPIMethodTracker* aTracker);
+
   // This is used as the parameter for https://html.spec.whatwg.org/#navigate
   mozilla::dom::NavigationType GetNavigationType() const;
 
@@ -454,6 +463,17 @@ class nsDocShellLoadState final {
   // for the load.
   uint32_t GetAppLinkLaunchType() const;
   void SetAppLinkLaunchType(uint32_t aAppLinkLaunchType);
+
+  // This is used as the getter/setter for the captive portal tab flag.
+  bool GetIsCaptivePortalTab() const;
+  void SetIsCaptivePortalTab(bool aIsCaptivePortalTab);
+
+  void ProhibitInitialAboutBlankHandling() {
+    mIsInitialAboutBlankHandlingProhibited = true;
+  }
+  bool IsInitialAboutBlankHandlingProhibited() {
+    return mIsInitialAboutBlankHandlingProhibited;
+  }
 
  protected:
   // Destructor can't be defaulted or inlined, as header doesn't have all type
@@ -729,10 +749,20 @@ class nsDocShellLoadState final {
 
   RefPtr<nsStructuredCloneContainer> mNavigationAPIState;
 
+  RefPtr<mozilla::dom::NavigationAPIMethodTracker> mNavigationAPIMethodTracker;
+
   RefPtr<mozilla::dom::FormData> mFormDataEntryList;
 
   // App link intent launch type: 0 = unknown, 1 = cold, 2 = warm, 3 = hot.
   uint32_t mAppLinkLaunchType = 0;
+
+  // Whether this is a captive portal tab.
+  bool mIsCaptivePortalTab = false;
+
+  // When this is the initial load and it is loading about:blank, force it
+  // to take the regular load path. It will replace the previous document
+  // and not load synchronous.
+  bool mIsInitialAboutBlankHandlingProhibited;
 };
 
 #endif /* nsDocShellLoadState_h__ */

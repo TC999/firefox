@@ -45,7 +45,6 @@
 #include "mozilla/layers/WebRenderTextureHost.h"
 #include "mozilla/ProfilerMarkerTypes.h"
 #include "mozilla/TimeStamp.h"
-#include "mozilla/Unused.h"
 #include "mozilla/webrender/RenderTextureHostSWGL.h"
 #include "mozilla/webrender/RenderThread.h"
 #include "mozilla/widget/CompositorWidget.h"
@@ -124,6 +123,8 @@ static CrashReporter::Annotation FromWrCrashAnnotation(
       return CrashReporter::Annotation::GraphicsCompileShader;
     case mozilla::wr::CrashAnnotation::DrawShader:
       return CrashReporter::Annotation::GraphicsDrawShader;
+    case mozilla::wr::CrashAnnotation::FontFile:
+      return CrashReporter::Annotation::GraphicsFontFile;
     default:
       MOZ_ASSERT_UNREACHABLE("Unhandled annotation!");
       return CrashReporter::Annotation::Count;
@@ -930,7 +931,7 @@ void WebRenderBridgeParent::ObserveSharedSurfaceRelease(
     const nsTArray<wr::ExternalImageKeyPair>& aPairs,
     const bool& aFromCheckpoint) {
   if (!mDestroyed) {
-    Unused << SendWrReleasedImages(aPairs);
+    (void)SendWrReleasedImages(aPairs);
   }
 
   if (!aFromCheckpoint && mAsyncImageManager) {
@@ -969,7 +970,7 @@ mozilla::ipc::IPCResult WebRenderBridgeParent::RecvUpdateResources(
   wr::TransactionBuilder txn(mApi);
   txn.SetLowPriority(!IsRootWebRenderBridgeParent());
 
-  Unused << GetNextWrEpoch();
+  (void)GetNextWrEpoch();
 
   bool success =
       UpdateResources(aResourceUpdates, aSmallShmems, aLargeShmems, txn);
@@ -1285,8 +1286,7 @@ mozilla::ipc::IPCResult WebRenderBridgeParent::RecvSetDisplayList(
 
   CompositorBridgeParent* cbp = GetRootCompositorBridgeParent();
   uint64_t innerWindowId = cbp ? cbp->GetInnerWindowId() : 0;
-  AUTO_PROFILER_TRACING_MARKER_INNERWINDOWID("Paint", "SetDisplayList",
-                                             GRAPHICS, innerWindowId);
+  AUTO_PROFILER_MARKER_INNERWINDOWID("SetDisplayList", GRAPHICS, innerWindowId);
   UpdateFwdTransactionId(aFwdTransactionId);
 
   // This ensures that destroy operations are always processed. It is not safe
@@ -1353,7 +1353,7 @@ bool WebRenderBridgeParent::ProcessEmptyTransactionUpdates(
   // Update WrEpoch for UpdateResources() and ProcessWebRenderParentCommands().
   // WrEpoch is used to manage ExternalImages lifetimes in
   // AsyncImagePipelineManager.
-  Unused << GetNextWrEpoch();
+  (void)GetNextWrEpoch();
 
   const bool validTransaction = aData.mIdNamespace == mIdNamespace;
   bool success = true;
@@ -1425,7 +1425,7 @@ mozilla::ipc::IPCResult WebRenderBridgeParent::RecvEmptyTransaction(
                                              aTxnURL);
   }
 
-  AUTO_PROFILER_TRACING_MARKER("Paint", "EmptyTransaction", GRAPHICS);
+  AUTO_PROFILER_MARKER("EmptyTransaction", GRAPHICS);
   UpdateFwdTransactionId(aFwdTransactionId);
 
   // This ensures that destroy operations are always processed. It is not safe
@@ -1803,7 +1803,7 @@ void WebRenderBridgeParent::MaybeCaptureScreenPixels() {
   mApi->Readback(TimeStamp::Now(), size, format,
                  Range<uint8_t>(mem.get<uint8_t>(), buffer_size), &needsYFlip);
 
-  Unused << mScreenPixelsTarget->SendScreenPixels(
+  (void)mScreenPixelsTarget->SendScreenPixels(
       std::move(mem), ScreenIntSize(client_size.width, client_size.height),
       needsYFlip);
 
@@ -2056,7 +2056,7 @@ wr::Epoch WebRenderBridgeParent::UpdateWebRender(
   // allocation. Without client side's layout refactoring, we could not finish
   // all old layers/webrender keys removals before new layer/webrender keys
   // allocation. In future, we could address the problem.
-  Unused << SendWrUpdated(mIdNamespace, aTextureFactoryIdentifier);
+  (void)SendWrUpdated(mIdNamespace, aTextureFactoryIdentifier);
   CompositorBridgeParentBase* cBridge = mCompositorBridge;
   // XXX Stop to clear resources if webreder supports resources sharing between
   // different webrender instances.
@@ -2350,8 +2350,8 @@ void WebRenderBridgeParent::CompositeToTarget(VsyncId aId,
 
   CompositorBridgeParent* cbp = GetRootCompositorBridgeParent();
   uint64_t innerWindowId = cbp ? cbp->GetInnerWindowId() : 0;
-  AUTO_PROFILER_TRACING_MARKER_INNERWINDOWID("Paint", "CompositeToTarget",
-                                             GRAPHICS, innerWindowId);
+  AUTO_PROFILER_MARKER_INNERWINDOWID("CompositeToTarget", GRAPHICS,
+                                     innerWindowId);
 
   bool paused = true;
   if (cbp) {
@@ -2673,7 +2673,6 @@ void WebRenderBridgeParent::FlushTransactionIdsForEpoch(
             transactionId.mId, aCompositeStartTime, aRenderStartTime, aEndTime,
             contentFrameTime,
             aStats ? (double(aStats->resource_upload_time) / 1000000.0) : 0.0,
-            aStats ? (double(aStats->gpu_cache_upload_time) / 1000000.0) : 0.0,
             transactionId.mTxnStartTime, transactionId.mRefreshStartTime,
             transactionId.mFwdTime, transactionId.mSceneBuiltTime,
             transactionId.mSkippedComposites, transactionId.mTxnURL));

@@ -7,8 +7,6 @@
 #ifndef mozilla_dom_BrowserParent_h
 #define mozilla_dom_BrowserParent_h
 
-#include <utility>
-
 #include "LiveResizeListener.h"
 #include "Units.h"
 #include "js/TypeDecls.h"
@@ -308,9 +306,7 @@ class BrowserParent final : public PBrowserParent,
       nsTArray<nsCString>&& aTrackingFullHashes,
       const Maybe<mozilla::ContentBlockingNotifier::
                       StorageAccessPermissionGrantedReason>& aReason,
-      const Maybe<mozilla::ContentBlockingNotifier::CanvasFingerprinter>&
-          aCanvasFingerprinter,
-      const Maybe<bool>& aCanvasFingerprinterKnownText);
+      const Maybe<CanvasFingerprintingEvent>& aCanvasFingerprintingEvent);
 
   mozilla::ipc::IPCResult RecvNavigationFinished();
 
@@ -701,8 +697,7 @@ class BrowserParent final : public PBrowserParent,
 
   void NavigateByKey(bool aForward, bool aForDocumentNavigation);
 
-  bool GetDocShellIsActive();
-  void SetDocShellIsActive(bool aDocShellIsActive);
+  bool GetDocShellIsActive() const;
 
   bool GetHasPresented();
   bool GetHasLayers();

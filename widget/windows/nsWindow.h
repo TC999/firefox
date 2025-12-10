@@ -189,21 +189,13 @@ class nsWindow final : public nsIWidget {
 
   // nsIWidget interface
   using nsIWidget::Create;  // for Create signature not overridden here
-  [[nodiscard]] nsresult Create(nsIWidget* aParent,
-                                const LayoutDeviceIntRect& aRect,
-                                InitData* aInitData = nullptr) override;
+  [[nodiscard]] nsresult Create(nsIWidget* aParent, const LayoutDeviceIntRect&,
+                                const InitData&) override;
   void Destroy() override;
   float GetDPI() override;
   double GetDefaultScaleInternal() override;
   void DidClearParent(nsIWidget* aOldParent) override;
   int32_t LogToPhys(double aValue);
-  mozilla::DesktopToLayoutDeviceScale GetDesktopToDeviceScale() override {
-    if (mozilla::widget::WinUtils::IsPerMonitorDPIAware()) {
-      return mozilla::DesktopToLayoutDeviceScale(1.0);
-    } else {
-      return mozilla::DesktopToLayoutDeviceScale(GetDefaultScaleInternal());
-    }
-  }
 
   void Show(bool aState) override;
   bool IsVisible() const override;
@@ -212,10 +204,9 @@ class nsWindow final : public nsIWidget {
   void LockAspectRatio(bool aShouldLock) override;
   const SizeConstraints GetSizeConstraints() override;
   void SetInputRegion(const InputRegion&) override;
-  void Move(double aX, double aY) override;
-  void Resize(double aWidth, double aHeight, bool aRepaint) override;
-  void Resize(double aX, double aY, double aWidth, double aHeight,
-              bool aRepaint) override;
+  void Move(const DesktopPoint&) override;
+  void Resize(const DesktopSize&, bool aRepaint) override;
+  void Resize(const DesktopRect&, bool aRepaint) override;
   void SetSizeMode(nsSizeMode aMode) override;
   nsSizeMode SizeMode() override;
   void GetWorkspaceID(nsAString& workspaceID) override;
@@ -246,8 +237,6 @@ class nsWindow final : public nsIWidget {
   void SetIcon(const nsAString& aIconSpec) override;
   LayoutDeviceIntPoint WidgetToScreenOffset() override;
   LayoutDeviceIntMargin NormalSizeModeClientToWindowMargin() override;
-  nsresult DispatchEvent(mozilla::WidgetGUIEvent* aEvent,
-                         nsEventStatus& aStatus) override;
   void EnableDragDrop(bool aEnable) override;
   void CaptureMouse(bool aCapture);
   void CaptureRollupEvents(bool aDoCapture) override;
@@ -345,6 +334,8 @@ class nsWindow final : public nsIWidget {
   }
 
   bool IsRTL() const { return mIsRTL; }
+
+  bool ShouldAssociateWithWinAppSDK() const;
 
   /**
    * AssociateDefaultIMC() associates or disassociates the default IMC for
@@ -652,7 +643,6 @@ class nsWindow final : public nsIWidget {
   static HWND WindowAtMouse();
   static bool IsTopLevelMouseExit(HWND aWnd);
   LayoutDeviceIntRegion GetRegionToPaint(const PAINTSTRUCT& ps, HDC aDC) const;
-  nsIWidgetListener* GetPaintListener();
 
   void CreateCompositor() override;
   void DestroyCompositor() override;
@@ -831,6 +821,8 @@ class nsWindow final : public nsIWidget {
   // area).
   LayoutDeviceIntRegion mOpaqueRegion;
 
+  LayoutDeviceIntRect mBounds;
+
   // Graphics
   LayoutDeviceIntRect mLastPaintBounds;
   // The region of the window we know is cleared to transparent already,
@@ -859,9 +851,6 @@ class nsWindow final : public nsIWidget {
 
   // Whether we're in the process of sending a WM_SETTEXT ourselves
   bool mSendingSetText = false;
-
-  // Whether we're a PIP window.
-  bool mPIPWindow : 1;
 
   // Whether we are asked to render a mica backdrop.
   bool mMicaBackdrop : 1;

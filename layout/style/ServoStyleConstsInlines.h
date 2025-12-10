@@ -15,6 +15,8 @@
 #include "MainThreadUtils.h"
 #include "mozilla/AspectRatio.h"
 #include "mozilla/EndianUtils.h"
+#include "mozilla/IntegerRange.h"
+#include "mozilla/SVGContentUtils.h"
 #include "mozilla/ServoStyleConsts.h"
 #include "mozilla/URLExtraData.h"
 #include "mozilla/dom/WorkerCommon.h"
@@ -44,6 +46,7 @@ template struct StyleStrong<StyleLockedStyleRule>;
 template struct StyleStrong<StyleLockedImportRule>;
 template struct StyleStrong<StyleLockedKeyframesRule>;
 template struct StyleStrong<StyleMediaRule>;
+template struct StyleStrong<StyleCustomMediaRule>;
 template struct StyleStrong<StyleDocumentRule>;
 template struct StyleStrong<StyleNamespaceRule>;
 template struct StyleStrong<StyleMarginRule>;
@@ -1102,6 +1105,10 @@ inline void StyleFontStyle::ToString(nsACString& aString) const {
 
 inline bool StyleFontWeight::IsBold() const { return *this >= BOLD_THRESHOLD; }
 
+inline bool StyleFontWeight::PreferBold() const {
+  return *this > PREFER_BOLD_THRESHOLD;
+}
+
 inline bool StyleFontStyle::IsItalic() const { return *this == ITALIC; }
 
 inline float StyleFontStyle::ObliqueAngle() const {
@@ -1272,6 +1279,140 @@ inline gfx::Point StyleCoordinatePair<LengthPercentage>::ToGfxPoint(
   MOZ_ASSERT(aBasis);
   return gfx::Point(x.ResolveToCSSPixels(aBasis->Width()),
                     y.ResolveToCSSPixels(aBasis->Height()));
+}
+
+template <>
+inline gfx::Point StyleShapePosition<StyleCSSFloat>::ToGfxPoint(
+    const CSSSize* aBasis) const {
+  return gfx::Point(horizontal, vertical);
+}
+
+template <>
+inline gfx::Point StyleShapePosition<LengthPercentage>::ToGfxPoint(
+    const CSSSize* aBasis) const {
+  MOZ_ASSERT(aBasis);
+  return gfx::Point(horizontal.ResolveToCSSPixels(aBasis->Width()),
+                    vertical.ResolveToCSSPixels(aBasis->Height()));
+}
+
+template <>
+inline gfx::Point
+StyleCommandEndPoint<StyleShapePosition<StyleCSSFloat>,
+                     StyleCSSFloat>::ToGfxPoint(const CSSSize* aBasis) const {
+  if (IsToPosition()) {
+    auto& pos = AsToPosition();
+    return pos.ToGfxPoint();
+  } else {
+    auto& coord = AsByCoordinate();
+    return coord.ToGfxPoint();
+  }
+}
+
+template <>
+inline gfx::Point StyleCommandEndPoint<
+    StyleShapePosition<LengthPercentage>,
+    LengthPercentage>::ToGfxPoint(const CSSSize* aBasis) const {
+  MOZ_ASSERT(aBasis);
+  if (IsToPosition()) {
+    auto& pos = AsToPosition();
+    return pos.ToGfxPoint(aBasis);
+  } else {
+    auto& coord = AsByCoordinate();
+    return coord.ToGfxPoint(aBasis);
+  }
+}
+
+template <>
+inline gfx::Coord StyleAxisEndPoint<StyleCSSFloat>::ToGfxCoord(
+    const StyleCSSFloat* aBasis) const {
+  if (IsToPosition()) {
+    const auto pos = AsToPosition();
+    MOZ_ASSERT(pos.IsLengthPercent());
+    return gfx::Coord(pos.AsLengthPercent());
+  }
+  return gfx::Coord(AsByCoordinate());
+}
+
+template <>
+inline gfx::Coord StyleAxisEndPoint<LengthPercentage>::ToGfxCoord(
+    const StyleCSSFloat* aBasis) const {
+  MOZ_ASSERT(aBasis);
+  if (IsToPosition()) {
+    const auto pos = AsToPosition();
+    MOZ_ASSERT(pos.IsLengthPercent());
+    return gfx::Coord(pos.AsLengthPercent().ResolveToCSSPixels(*aBasis));
+  }
+  return gfx::Coord(AsByCoordinate().ResolveToCSSPixels(*aBasis));
+}
+
+template <>
+inline gfx::Point
+StyleControlPoint<StyleShapePosition<StyleCSSFloat>, StyleCSSFloat>::ToGfxPoint(
+    const gfx::Point aStatePos, const gfx::Point aEndPoint,
+    const CSSSize* aBasis) const {
+  if (IsAbsolute()) {
+    auto& pos = AsAbsolute();
+    return pos.ToGfxPoint();
+  }
+
+  // Else
+  auto& point = AsRelative();
+  auto cp = point.coord.ToGfxPoint();
+  if (point.reference == StyleControlReference::Start) {
+    return cp + aStatePos;
+  } else if (point.reference == StyleControlReference::End) {
+    return cp + aEndPoint;
+  } else {
+    return cp;
+  }
+}
+
+template <>
+inline gfx::Point
+StyleControlPoint<StyleShapePosition<LengthPercentage>,
+                  LengthPercentage>::ToGfxPoint(const gfx::Point aStatePos,
+                                                const gfx::Point aEndPoint,
+                                                const CSSSize* aBasis) const {
+  MOZ_ASSERT(aBasis);
+  if (IsAbsolute()) {
+    auto& pos = AsAbsolute();
+    return pos.ToGfxPoint(aBasis);
+  }
+
+  // Else
+  auto& point = AsRelative();
+  auto cp = point.coord.ToGfxPoint(aBasis);
+  if (point.reference == StyleControlReference::Start) {
+    return cp + aStatePos;
+  } else if (point.reference == StyleControlReference::End) {
+    return cp + aEndPoint;
+  } else {
+    return cp;
+  }
+}
+
+template <>
+inline gfx::Point StyleArcRadii<StyleCSSFloat>::ToGfxPoint(
+    const CSSSize* aBasis) const {
+  return ry.IsSome() ? gfx::Point(rx, ry.AsSome()) : gfx::Point(rx, rx);
+}
+
+template <>
+inline gfx::Point StyleArcRadii<LengthPercentage>::ToGfxPoint(
+    const CSSSize* aBasis) const {
+  MOZ_ASSERT(aBasis);
+  if (ry.IsSome()) {
+    return gfx::Point(rx.ResolveToCSSPixels(aBasis->Width()),
+                      ry.AsSome().ResolveToCSSPixels(aBasis->Height()));
+  }
+
+  // Else percentages are resolved against the direction-agnostic size
+  // of the reference box for both radiuses.
+  // https://drafts.csswg.org/css-shapes-1/#typedef-shape-arc-command
+  const auto directionAgnostic = SVGContentUtils::ComputeNormalizedHypotenuse(
+      aBasis->Width(), aBasis->Height());
+  const auto radius = rx.ResolveToCSSPixels(directionAgnostic);
+  return gfx::Point(radius, radius);
 }
 
 inline StylePhysicalSide ToStylePhysicalSide(mozilla::Side aSide) {

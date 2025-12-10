@@ -8,7 +8,6 @@
 
 #include "SVGGeometryProperty.h"
 #include "imgINotificationObserver.h"
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/FetchPriority.h"
 #include "mozilla/dom/SVGImageElementBinding.h"
@@ -17,7 +16,6 @@
 #include "mozilla/gfx/2D.h"
 #include "nsCOMPtr.h"
 #include "nsContentUtils.h"
-#include "nsIURI.h"
 #include "nsNetUtil.h"
 
 NS_IMPL_NS_NEW_SVG_ELEMENT(Image)
@@ -66,7 +64,7 @@ SVGImageElement::SVGImageElement(
 
 SVGImageElement::~SVGImageElement() { nsImageLoadingContent::Destroy(); }
 
-nsCSSPropertyID SVGImageElement::GetCSSPropertyIdForAttrEnum(
+NonCustomCSSPropertyId SVGImageElement::GetCSSPropertyIdForAttrEnum(
     uint8_t aAttrEnum) {
   switch (aAttrEnum) {
     case ATTR_X:
@@ -335,6 +333,19 @@ void SVGImageElement::DidAnimateAttribute(int32_t aNameSpaceID,
     QueueImageTask(mSrcURI, /* aAlwaysLoad = */ true, /* aNotify = */ true);
   }
   SVGImageElementBase::DidAnimateAttribute(aNameSpaceID, aAttribute);
+}
+
+void SVGImageElement::AddSizeOfExcludingThis(nsWindowSizes& aSizes,
+                                             size_t* aNodeSize) const {
+  SVGElement::AddSizeOfExcludingThis(aSizes, aNodeSize);
+
+  // It is okay to include the size of mSrcURI here even though it might have
+  // strong references from elsewhere because the URI was created for this
+  // object, in nsImageLoadingContent::StringToURI(). Only objects that created
+  // their own URI will call nsIURI::SizeOfIncludingThis().
+  if (mSrcURI) {
+    *aNodeSize += mSrcURI->SizeOfIncludingThis(aSizes.mState.mMallocSizeOf);
+  }
 }
 
 }  // namespace mozilla::dom

@@ -11,12 +11,14 @@
 #include "mozilla/webrender/RendererOGL.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/layers/CompositorThread.h"
+#include "mozilla/HelperMacros.h"
 #include "mozilla/StaticPrefs_gfx.h"
 #include "mozilla/StaticPrefs_webgl.h"
 #include "mozilla/ToString.h"
 #include "mozilla/webrender/RenderCompositor.h"
 #include "mozilla/widget/CompositorWidget.h"
 #include "mozilla/layers/SynchronousTask.h"
+#include "nsDisplayList.h"
 #include "nsThreadUtils.h"
 #include "TextDrawTarget.h"
 #include "malloc_decls.h"
@@ -488,7 +490,7 @@ wr::WebRenderAPI* WebRenderAPI::GetRootAPI() {
   return this;
 }
 
-void WebRenderAPI::UpdateDebugFlags(uint32_t aFlags) {
+void WebRenderAPI::UpdateDebugFlags(uint64_t aFlags) {
   wr_api_set_debug_flags(mDocHandle, wr::DebugFlags{aFlags});
 }
 
@@ -1204,6 +1206,7 @@ void DisplayListBuilder::Begin(layers::DisplayItemCache* aCache) {
   wr_api_begin_builder(mWrState);
 
   mScrollIds.clear();
+  mASRToSpatialIdMap.clear();
   mCurrentSpaceAndClipChain = wr::RootScrollNodeWithChain();
   mClipChainLeaf = Nothing();
   mSuspendedSpaceAndClipChain = Nothing();
@@ -1340,16 +1343,20 @@ wr::WrClipId DisplayListBuilder::DefineRectClip(Maybe<wr::WrSpatialId> aSpace,
 }
 
 wr::WrSpatialId DisplayListBuilder::DefineStickyFrame(
-    const wr::LayoutRect& aContentRect, const float* aTopMargin,
-    const float* aRightMargin, const float* aBottomMargin,
-    const float* aLeftMargin, const StickyOffsetBounds& aVerticalBounds,
+    const ActiveScrolledRoot* aStickyAsr,
+    Maybe<wr::WrSpatialId> aParentSpatialId, const wr::LayoutRect& aContentRect,
+    const float* aTopMargin, const float* aRightMargin,
+    const float* aBottomMargin, const float* aLeftMargin,
+    const StickyOffsetBounds& aVerticalBounds,
     const StickyOffsetBounds& aHorizontalBounds,
     const wr::LayoutVector2D& aAppliedOffset, wr::SpatialTreeItemKey aKey,
     const WrAnimationProperty* aAnimation) {
   auto spatialId = wr_dp_define_sticky_frame(
-      mWrState, mCurrentSpaceAndClipChain.space, aContentRect, aTopMargin,
-      aRightMargin, aBottomMargin, aLeftMargin, aVerticalBounds,
-      aHorizontalBounds, aAppliedOffset, aKey, aAnimation);
+      mWrState, aParentSpatialId.valueOr(mCurrentSpaceAndClipChain.space),
+      aContentRect, aTopMargin, aRightMargin, aBottomMargin, aLeftMargin,
+      aVerticalBounds, aHorizontalBounds, aAppliedOffset, aKey, aAnimation);
+
+  mASRToSpatialIdMap.emplace(aStickyAsr, spatialId);
 
   WRDL_LOG("DefineSticky id=%zu c=%s t=%s r=%s b=%s l=%s v=%s h=%s a=%s\n",
            mWrState, spatialId.id, ToString(aContentRect).c_str(),
@@ -1372,6 +1379,17 @@ Maybe<wr::WrSpatialId> DisplayListBuilder::GetScrollIdForDefinedScrollLayer(
 
   auto it = mScrollIds.find(aViewId);
   if (it == mScrollIds.end()) {
+    return Nothing();
+  }
+
+  return Some(it->second);
+}
+
+Maybe<wr::WrSpatialId> DisplayListBuilder::GetSpatialIdForDefinedStickyLayer(
+    const ActiveScrolledRoot* aASR) const {
+  MOZ_ASSERT(aASR->mKind == ActiveScrolledRoot::ASRKind::Sticky);
+  auto it = mASRToSpatialIdMap.find(aASR);
+  if (it == mASRToSpatialIdMap.end()) {
     return Nothing();
   }
 
@@ -1484,13 +1502,6 @@ void DisplayListBuilder::PushRectWithAnimation(
   wr_dp_push_rect_with_animation(mWrState, aBounds, clip, aIsBackfaceVisible,
                                  &mCurrentSpaceAndClipChain, aColor,
                                  aAnimation);
-}
-
-void DisplayListBuilder::PushClearRect(const wr::LayoutRect& aBounds) {
-  wr::LayoutRect clip = MergeClipLeaf(aBounds);
-  WRDL_LOG("PushClearRect b=%s c=%s\n", mWrState, ToString(aBounds).c_str(),
-           ToString(clip).c_str());
-  wr_dp_push_clear_rect(mWrState, aBounds, clip, &mCurrentSpaceAndClipChain);
 }
 
 void DisplayListBuilder::PushBackdropFilter(

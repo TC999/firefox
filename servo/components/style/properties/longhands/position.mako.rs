@@ -76,9 +76,10 @@ ${helpers.single_keyword(
 
 ${helpers.predefined_type(
     "justify-content",
-    "JustifyContent",
-    "specified::JustifyContent(specified::ContentDistribution::normal())",
+    "ContentDistribution",
+    "specified::ContentDistribution::normal()",
     engines="gecko servo",
+    parse_method="parse_inline",
     spec="https://drafts.csswg.org/css-align/#propdef-justify-content",
     extra_prefixes="webkit",
     animation_type="discrete",
@@ -88,8 +89,9 @@ ${helpers.predefined_type(
 
 ${helpers.predefined_type(
     "align-content",
-    "AlignContent",
-    "specified::AlignContent(specified::ContentDistribution::normal())",
+    "ContentDistribution",
+    "specified::ContentDistribution::normal()",
+    parse_method="parse_block",
     engines="gecko servo",
     spec="https://drafts.csswg.org/css-align/#propdef-align-content",
     extra_prefixes="webkit",
@@ -100,9 +102,10 @@ ${helpers.predefined_type(
 
 ${helpers.predefined_type(
     "align-items",
-    "AlignItems",
-    "specified::AlignItems::normal()",
+    "ItemPlacement",
+    "specified::ItemPlacement::normal()",
     engines="gecko servo",
+    parse_method="parse_block",
     spec="https://drafts.csswg.org/css-align/#propdef-align-items",
     extra_prefixes="webkit",
     animation_type="discrete",
@@ -146,9 +149,10 @@ ${helpers.predefined_type(
 // https://drafts.csswg.org/css-align/#align-self-property
 ${helpers.predefined_type(
     "align-self",
-    "AlignSelf",
-    "specified::AlignSelf(specified::SelfAlignment::auto())",
+    "SelfAlignment",
+    "specified::SelfAlignment::auto()",
     engines="gecko servo",
+    parse_method="parse_block",
     spec="https://drafts.csswg.org/css-align/#align-self-property",
     extra_prefixes="webkit",
     animation_type="discrete",
@@ -157,8 +161,9 @@ ${helpers.predefined_type(
 )}
 ${helpers.predefined_type(
     "justify-self",
-    "JustifySelf",
-    "specified::JustifySelf(specified::SelfAlignment::auto())",
+    "SelfAlignment",
+    "specified::SelfAlignment::auto()",
+    parse_method="parse_inline",
     engines="gecko servo",
     spec="https://drafts.csswg.org/css-align/#justify-self-property",
     animation_type="discrete",
@@ -243,7 +248,7 @@ ${helpers.predefined_type(
 ${helpers.predefined_type(
     "position-anchor",
     "PositionAnchor",
-    "computed::PositionAnchor::auto()",
+    "computed::PositionAnchor::None",
     engines="gecko",
     animation_type="discrete",
     rule_types_allowed=DEFAULT_RULES_AND_POSITION_TRY,
@@ -268,9 +273,9 @@ ${helpers.predefined_type(
 ${helpers.predefined_type(
     "position-visibility",
     "PositionVisibility",
-    "computed::PositionVisibility::ALWAYS",
+    "computed::PositionVisibility::ANCHORS_VISIBLE",
     engines="gecko",
-    initial_specified_value="specified::PositionVisibility::ALWAYS",
+    initial_specified_value="specified::PositionVisibility::ANCHORS_VISIBLE",
     animation_type="discrete",
     gecko_pref="layout.css.anchor-positioning.enabled",
     spec="https://drafts.csswg.org/css-anchor-position-1/#propdef-position-visibility",
@@ -296,7 +301,7 @@ ${helpers.predefined_type(
     engines="gecko",
     initial_specified_value="specified::PositionTryOrder::normal()",
     animation_type="discrete",
-    gecko_pref="layout.css.anchor-positioning.enabled",
+    gecko_pref="layout.css.anchor-positioning.position-try-order.enabled",
     spec="https://drafts.csswg.org/css-anchor-position-1/#position-try-order-property",
     affects="layout",
 )}

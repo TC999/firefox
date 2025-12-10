@@ -48,6 +48,7 @@
 #include "rtc_base/third_party/sigslot/sigslot.h"
 #include "rtc_base/thread.h"
 #include "rtc_base/virtual_socket_server.h"
+#include "test/create_test_field_trials.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 #include "test/wait_until.h"
@@ -81,7 +82,7 @@ class DtlsIceIntegrationTest : public ::testing::TestWithParam<std::tuple<
  private:
   struct Endpoint {
     explicit Endpoint(bool dtls_in_stun, bool pqc_)
-        : env(CreateEnvironment(FieldTrials::CreateNoGlobal(
+        : env(CreateEnvironment(CreateTestFieldTrialsPtr(
               dtls_in_stun ? "WebRTC-IceHandshakeDtls/Enabled/" : ""))),
           dtls_stun_piggyback(dtls_in_stun),
           pqc(pqc_) {}
@@ -126,11 +127,7 @@ class DtlsIceIntegrationTest : public ::testing::TestWithParam<std::tuple<
 
     BuiltInNetworkBehaviorConfig networkBehavior;
     networkBehavior.link_capacity = DataRate::KilobitsPerSec(220);
-    // TODO (webrtc:383141571) : Investigate why this testcase fails for
-    // DTLS 1.3 delay if networkBehavior.queue_delay_ms = 100ms.
-    // - unless both peers support dtls in stun, in which case it passes.
-    // - note: only for dtls1.3, it works for dtls1.2!
-    networkBehavior.queue_delay_ms = 50;
+    networkBehavior.queue_delay_ms = 100;
     networkBehavior.queue_length_packets = 30;
     networkBehavior.loss_percent = 50;
 
@@ -164,8 +161,8 @@ class DtlsIceIntegrationTest : public ::testing::TestWithParam<std::tuple<
       ep.allocator->set_flags(ep.allocator->flags() |
                               PORTALLOCATOR_DISABLE_TCP);
       ep.ice = std::make_unique<P2PTransportChannel>(
-          client ? "client_transport" : "server_transport", 0,
-          ep.allocator.get(), &ep.env.field_trials());
+          ep.env, client ? "client_transport" : "server_transport", 0,
+          ep.allocator.get());
       CryptoOptions crypto_options;
       if (ep.pqc) {
         FieldTrials field_trials("WebRTC-EnableDtlsPqc/Enabled/");
@@ -173,8 +170,7 @@ class DtlsIceIntegrationTest : public ::testing::TestWithParam<std::tuple<
             &field_trials);
       }
       ep.dtls = std::make_unique<DtlsTransportInternalImpl>(
-          ep.ice.get(), crypto_options,
-          /*event_log=*/nullptr, std::get<2>(GetParam()));
+          ep.env, ep.ice.get(), crypto_options, std::get<2>(GetParam()));
 
       // Enable(or disable) the dtls_in_stun parameter before
       // DTLS is negotiated.
@@ -196,11 +192,17 @@ class DtlsIceIntegrationTest : public ::testing::TestWithParam<std::tuple<
                                                    : ICEROLE_CONTROLLED);
       }
       if (client) {
-        ep.ice->SignalCandidateGathered.connect(
-            this, &DtlsIceIntegrationTest::CandidateC2S);
+        ep.ice->SubscribeCandidateGathered(
+            [this](IceTransportInternal* transport,
+                   const Candidate& candidate) {
+              CandidateC2S(transport, candidate);
+            });
       } else {
-        ep.ice->SignalCandidateGathered.connect(
-            this, &DtlsIceIntegrationTest::CandidateS2C);
+        ep.ice->SubscribeCandidateGathered(
+            [this](IceTransportInternal* transport,
+                   const Candidate& candidate) {
+              CandidateS2C(transport, candidate);
+            });
       }
 
       // Setup DTLS.

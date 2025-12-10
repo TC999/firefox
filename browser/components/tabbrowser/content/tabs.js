@@ -13,12 +13,14 @@
   const isTab = element => gBrowser.isTab(element);
   const isTabGroup = element => gBrowser.isTabGroup(element);
   const isTabGroupLabel = element => gBrowser.isTabGroupLabel(element);
+  const isSplitViewWrapper = element => gBrowser.isSplitViewWrapper(element);
 
   class MozTabbrowserTabs extends MozElements.TabsBase {
     static observedAttributes = ["orient"];
 
     #mustUpdateTabMinHeight = false;
     #tabMinHeight = 36;
+    #animatingGroups = new Set();
 
     constructor() {
       super();
@@ -32,10 +34,15 @@
       this.addEventListener("TabHoverEnd", this);
       this.addEventListener("TabGroupLabelHoverStart", this);
       this.addEventListener("TabGroupLabelHoverEnd", this);
-      this.addEventListener("TabGroupExpand", this);
-      this.addEventListener("TabGroupCollapse", this);
+      // Capture collapse/expand early so we mark animating groups before
+      // overflow/underflow handlers run.
+      this.addEventListener("TabGroupExpand", this, true);
+      this.addEventListener("TabGroupCollapse", this, true);
+      this.addEventListener("TabGroupAnimationComplete", this);
       this.addEventListener("TabGroupCreate", this);
       this.addEventListener("TabGroupRemoved", this);
+      this.addEventListener("SplitViewCreated", this);
+      this.addEventListener("SplitViewRemoved", this);
       this.addEventListener("transitionend", this);
       this.addEventListener("dblclick", this);
       this.addEventListener("click", this);
@@ -216,7 +223,24 @@
 
       this.tooltip = "tabbrowser-tab-tooltip";
 
-      this.tabDragAndDrop = new window.TabDragAndDrop(this);
+      Services.prefs.addObserver(
+        "browser.tabs.dragDrop.multiselectStacking",
+        this.boundObserve
+      );
+      this.observe(
+        null,
+        "nsPref:changed",
+        "browser.tabs.dragDrop.multiselectStacking"
+      );
+    }
+
+    #initializeDragAndDrop() {
+      this.tabDragAndDrop = Services.prefs.getBoolPref(
+        "browser.tabs.dragDrop.multiselectStacking",
+        true
+      )
+        ? new window.TabStacking(this)
+        : new window.TabDragAndDrop(this);
       this.tabDragAndDrop.init();
     }
 
@@ -334,25 +358,43 @@
       this.previewPanel?.deactivate(event.target);
     }
 
-    on_TabGroupLabelHoverStart(event) {
+    cancelTabGroupPreview() {
+      this.previewPanel?.panelOpener.clear();
+    }
+
+    showTabGroupPreview(group) {
       if (!this._showTabGroupHoverPreview) {
         return;
       }
       this.ensureTabPreviewPanelLoaded();
-      this.previewPanel.activate(event.target.group);
+      this.previewPanel.activate(group);
+    }
+
+    on_TabGroupLabelHoverStart(event) {
+      this.showTabGroupPreview(event.target.group);
     }
 
     on_TabGroupLabelHoverEnd(event) {
       this.previewPanel?.deactivate(event.target.group);
     }
 
-    on_TabGroupExpand() {
+    on_TabGroupExpand(event) {
       this._invalidateCachedVisibleTabs();
+      this.#animatingGroups.add(event.target.id);
     }
 
-    on_TabGroupCollapse() {
+    on_TabGroupCollapse(event) {
       this._invalidateCachedVisibleTabs();
       this._unlockTabSizing();
+      this.#animatingGroups.add(event.target.id);
+    }
+
+    on_TabGroupAnimationComplete(event) {
+      // Delay clearing the animating flag so overflow/underflow handlers
+      // triggered by the size change can observe it and skip auto-scroll.
+      window.requestAnimationFrame(() => {
+        this.#animatingGroups.delete(event.target.id);
+      });
     }
 
     on_TabGroupCreate() {
@@ -360,6 +402,14 @@
     }
 
     on_TabGroupRemoved() {
+      this._invalidateCachedTabs();
+    }
+
+    on_SplitViewCreated() {
+      this._invalidateCachedTabs();
+    }
+
+    on_SplitViewRemoved() {
       this._invalidateCachedTabs();
     }
 
@@ -644,12 +694,23 @@
           this.ariaFocusedItem = this.selectedItem;
         }
       }
+      let focusReturnedFromGroupPanel = event.relatedTarget?.classList.contains(
+        "group-preview-button"
+      );
+      if (
+        !focusReturnedFromGroupPanel &&
+        this.tablistHasFocus &&
+        isTabGroupLabel(this.ariaFocusedItem)
+      ) {
+        this.showTabGroupPreview(this.ariaFocusedItem.group);
+      }
     }
 
     /**
      * @param {FocusEvent} event
      */
     on_focusout(event) {
+      this.cancelTabGroupPreview();
       if (event.target == this.selectedItem) {
         this.tablistHasFocus = false;
       }
@@ -701,7 +762,10 @@
 
       this.toggleAttribute("overflow", true);
       this._updateCloseButtons();
-      this._handleTabSelect(true);
+
+      if (!this.#animatingGroups.size) {
+        this._handleTabSelect(true);
+      }
 
       document
         .getElementById("tab-preview-panel")
@@ -868,16 +932,17 @@
     /** @type {FocusableItem[]} */
     #focusableItems;
 
+    /** @type {dragAndDropElements[]} */
+    #dragAndDropElements;
+
     /**
      * @returns {FocusableItem[]}
-     * @override tabbox.js:TabsBase
+     * @override
      */
     get ariaFocusableItems() {
       if (this.#focusableItems) {
         return this.#focusableItems;
       }
-
-      let elementIndex = 0;
 
       let unpinnedChildren = Array.from(this.arrowScrollbox.children);
       let pinnedChildren = Array.from(this.pinnedTabsContainer.children);
@@ -885,28 +950,19 @@
       let focusableItems = [];
       for (let child of pinnedChildren) {
         if (isTab(child)) {
-          child.elementIndex = elementIndex++;
           focusableItems.push(child);
         }
       }
       for (let child of unpinnedChildren) {
         if (isTab(child) && child.visible) {
-          child.elementIndex = elementIndex++;
           focusableItems.push(child);
         } else if (isTabGroup(child)) {
-          child.labelElement.elementIndex = elementIndex++;
           focusableItems.push(child.labelElement);
 
           let visibleTabsInGroup = child.tabs.filter(tab => tab.visible);
-          visibleTabsInGroup.forEach(tab => {
-            tab.elementIndex = elementIndex++;
-          });
           focusableItems.push(...visibleTabsInGroup);
         } else if (child.tagName == "tab-split-view-wrapper") {
           let visibleTabsInSplitView = child.tabs.filter(tab => tab.visible);
-          visibleTabsInSplitView.forEach(tab => {
-            tab.elementIndex = elementIndex++;
-          });
           focusableItems.push(...visibleTabsInSplitView);
         }
       }
@@ -914,6 +970,55 @@
       this.#focusableItems = focusableItems;
 
       return this.#focusableItems;
+    }
+
+    /**
+     * @returns {dragAndDropElements[]}
+     * Representation of every drag and drop element including tabs, tab group labels and split view wrapper.
+     * We keep this separate from ariaFocusableItems because not every element for drag n'drop also needs to be
+     * focusable (ex, we don't want the splitview container to be focusable, only its children).
+     */
+    get dragAndDropElements() {
+      if (this.#dragAndDropElements) {
+        return this.#dragAndDropElements;
+      }
+
+      let elementIndex = 0;
+      let dragAndDropElements = [];
+      let unpinnedChildren = Array.from(this.arrowScrollbox.children);
+      let pinnedChildren = Array.from(this.pinnedTabsContainer.children);
+
+      for (let child of [...pinnedChildren, ...unpinnedChildren]) {
+        if (
+          !(
+            (isTab(child) && child.visible) ||
+            isTabGroup(child) ||
+            isSplitViewWrapper(child)
+          )
+        ) {
+          continue;
+        }
+
+        if (isTabGroup(child)) {
+          child.labelElement.elementIndex = elementIndex++;
+          dragAndDropElements.push(child.labelElement);
+
+          let visibleChildren = Array.from(child.children).filter(
+            ele => ele.visible || ele.tagName == "tab-split-view-wrapper"
+          );
+
+          visibleChildren.forEach(tab => {
+            tab.elementIndex = elementIndex++;
+          });
+          dragAndDropElements.push(...visibleChildren);
+        } else {
+          child.elementIndex = elementIndex++;
+          dragAndDropElements.push(child);
+        }
+      }
+
+      this.#dragAndDropElements = dragAndDropElements;
+      return this.#dragAndDropElements;
     }
 
     /**
@@ -934,6 +1039,12 @@
 
       let itemToFocus = this.ariaFocusableItems[newIndex];
       this.ariaFocusedItem = itemToFocus;
+
+      // If the newly-focused item is a tab group label and the group is collapsed,
+      // proactively show the tab group preview
+      if (isTabGroupLabel(this.ariaFocusedItem)) {
+        this.showTabGroupPreview(this.ariaFocusedItem.group);
+      }
     }
 
     _invalidateCachedTabs() {
@@ -947,8 +1058,9 @@
       this.#visibleTabs = null;
       // Focusable items must also be visible, but they do not depend on
       // this.#visibleTabs, so changes to visible tabs need to also invalidate
-      // the focusable items cache
+      // the focusable items and dragAndDropElements cache.
       this.#focusableItems = null;
+      this.#dragAndDropElements = null;
     }
 
     #isMovingTab() {
@@ -967,6 +1079,17 @@
      * @param {boolean} shouldWrap
      */
     advanceSelectedItem(aDir, aWrap) {
+      let groupPanel = this.previewPanel?.tabGroupPanel;
+      if (groupPanel && groupPanel.isActive) {
+        // if the group panel is open, it should receive keyboard focus here
+        // instead of moving to the next item in the tabstrip.
+        groupPanel.focusPanel(aDir);
+        return;
+      }
+
+      // cancel any pending group popup since we expect to deselect the label
+      this.cancelTabGroupPreview();
+
       let { ariaFocusableItems, ariaFocusedIndex } = this;
 
       // Advance relative to the ARIA-focused item if set, otherwise advance
@@ -1003,6 +1126,12 @@
         this._selectNewTab(newItem, aDir, aWrap);
       }
       this.ariaFocusedItem = newItem;
+
+      // If the newly-focused item is a tab group label and the group is collapsed,
+      // proactively show the tab group preview
+      if (isTabGroupLabel(this.ariaFocusedItem)) {
+        this.showTabGroupPreview(this.ariaFocusedItem.group);
+      }
     }
 
     ensureTabPreviewPanelLoaded() {
@@ -1102,9 +1231,12 @@
       }
     }
 
-    observe(aSubject, aTopic) {
+    observe(aSubject, aTopic, aData) {
       switch (aTopic) {
         case "nsPref:changed": {
+          if (aData == "browser.tabs.dragDrop.multiselectStacking") {
+            this.#initializeDragAndDrop();
+          }
           // This is has to deal with changes in
           // privacy.userContext.enabled and
           // privacy.userContext.newTabContainerOnLeftClick.enabled.
@@ -1305,7 +1437,7 @@
           tab.style.setProperty("max-width", aTabWidth, "important");
           if (!isEndTab) {
             // keep tabs the same width
-            tab.style.transition = "none";
+            tab.animationsEnabled = false;
             tabsToReset.push(tab);
           }
         }
@@ -1316,7 +1448,7 @@
             .then(() => {
               window.requestAnimationFrame(() => {
                 for (let tab of tabsToReset) {
-                  tab.style.transition = "";
+                  tab.animationsEnabled = true;
                 }
               });
             });
@@ -1579,6 +1711,10 @@
     destroy() {
       if (this.boundObserve) {
         Services.prefs.removeObserver("privacy.userContext", this.boundObserve);
+        Services.prefs.removeObserver(
+          "browser.tabs.dragDrop.multiselectStacking",
+          this.boundObserve
+        );
       }
       CustomizableUI.removeListener(this);
     }

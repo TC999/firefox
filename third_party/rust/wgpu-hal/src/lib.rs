@@ -1948,7 +1948,7 @@ pub struct SamplerDescriptor<'a> {
     pub address_modes: [wgt::AddressMode; 3],
     pub mag_filter: wgt::FilterMode,
     pub min_filter: wgt::FilterMode,
-    pub mipmap_filter: wgt::FilterMode,
+    pub mipmap_filter: wgt::MipmapFilterMode,
     pub lod_clamp: Range<f32>,
     pub compare: Option<wgt::CompareFunction>,
     // Must in the range [1, 16].
@@ -2361,7 +2361,7 @@ pub struct RenderPipelineDescriptor<
     pub color_targets: &'a [Option<wgt::ColorTargetState>],
     /// If the pipeline will be used with a multiview render pass, this indicates how many array
     /// layers the attachments will have.
-    pub multiview: Option<NonZeroU32>,
+    pub multiview_mask: Option<NonZeroU32>,
     /// The cache which will be used and filled when compiling this pipeline
     pub cache: Option<&'a Pc>,
 }
@@ -2438,6 +2438,36 @@ pub struct CopyExtent {
     pub depth: u32,
 }
 
+impl From<wgt::Extent3d> for CopyExtent {
+    fn from(value: wgt::Extent3d) -> Self {
+        let wgt::Extent3d {
+            width,
+            height,
+            depth_or_array_layers,
+        } = value;
+        Self {
+            width,
+            height,
+            depth: depth_or_array_layers,
+        }
+    }
+}
+
+impl From<CopyExtent> for wgt::Extent3d {
+    fn from(value: CopyExtent) -> Self {
+        let CopyExtent {
+            width,
+            height,
+            depth,
+        } = value;
+        Self {
+            width,
+            height,
+            depth_or_array_layers: depth,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct TextureCopy {
     pub src_base: TextureCopyBase,
@@ -2491,7 +2521,7 @@ pub struct RenderPassDescriptor<'a, Q: DynQuerySet + ?Sized, T: DynTextureView +
     pub sample_count: u32,
     pub color_attachments: &'a [Option<ColorAttachment<'a, T>>],
     pub depth_stencil_attachment: Option<DepthStencilAttachment<'a, T>>,
-    pub multiview: Option<NonZeroU32>,
+    pub multiview_mask: Option<NonZeroU32>,
     pub timestamp_writes: Option<PassTimestampWrites<'a, Q>>,
     pub occlusion_query_set: Option<&'a Q>,
 }

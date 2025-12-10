@@ -94,7 +94,7 @@ class UseCases(
         WebAppUseCases(context, store.value, shortcutManager.value)
     }
 
-    val downloadUseCases by lazyMonitored { DownloadsUseCases(store.value) }
+    val downloadUseCases by lazyMonitored { DownloadsUseCases(store.value, context.applicationContext) }
 
     val contextMenuUseCases by lazyMonitored { ContextMenuUseCases(store.value) }
 
@@ -132,6 +132,7 @@ class UseCases(
 
     val fenixBrowserUseCases by lazyMonitored {
         FenixBrowserUseCases(
+            appStore = appStore.value,
             addNewTabUseCase = tabsUseCases.addTab,
             loadUrlUseCase = sessionUseCases.loadUrl,
             searchUseCases = searchUseCases,

@@ -11,7 +11,6 @@
 #include "HelpersCairo.h"
 #include "BorrowedContext.h"
 #include "FilterNodeSoftware.h"
-#include "mozilla/UniquePtr.h"
 #include "mozilla/Vector.h"
 #include "mozilla/StaticPrefs_gfx.h"
 #include "mozilla/StaticPrefs_print.h"
@@ -42,8 +41,6 @@
 
 #define PIXMAN_DONT_DEFINE_STDINT
 #include "pixman.h"
-
-#include <algorithm>
 
 // 2^23
 #define CAIRO_COORD_MAX (Float(0x7fffff))

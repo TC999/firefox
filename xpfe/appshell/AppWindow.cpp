@@ -161,7 +161,8 @@ NS_INTERFACE_MAP_END
 nsresult AppWindow::Initialize(nsIAppWindow* aParent, nsIAppWindow* aOpener,
                                int32_t aInitialWidth, int32_t aInitialHeight,
                                bool aIsHiddenWindow,
-                               widget::InitData& widgetInitData) {
+                               widget::InitData& widgetInitData,
+                               nsIOpenWindowInfo* aOpenWindowInfo) {
   nsresult rv;
   nsCOMPtr<nsIWidget> parentWidget;
 
@@ -213,7 +214,7 @@ nsresult AppWindow::Initialize(nsIAppWindow* aParent, nsIAppWindow* aOpener,
   mWindow->SetWidgetListener(&mWidgetListenerDelegate);
   rv = mWindow->Create(parentWidget.get(),  // Parent nsIWidget
                        deskRect,            // Widget dimensions
-                       &widgetInitData);    // Widget initialization data
+                       widgetInitData);     // Widget initialization data
   NS_ENSURE_SUCCESS(rv, rv);
 
   LayoutDeviceIntRect r = mWindow->GetClientBounds();
@@ -238,9 +239,9 @@ nsresult AppWindow::Initialize(nsIAppWindow* aParent, nsIAppWindow* aOpener,
   mDocShell->SetTreeOwner(mChromeTreeOwner);
 
   r.MoveTo(0, 0);
-  NS_ENSURE_SUCCESS(
-      mDocShell->InitWindow(mWindow, r.X(), r.Y(), r.Width(), r.Height()),
-      NS_ERROR_FAILURE);
+  NS_ENSURE_SUCCESS(mDocShell->InitWindow(mWindow, r.X(), r.Y(), r.Width(),
+                                          r.Height(), aOpenWindowInfo, nullptr),
+                    NS_ERROR_FAILURE);
 
   // Attach a WebProgress listener.during initialization...
   mDocShell->AddProgressListener(this, nsIWebProgress::NOTIFY_STATE_NETWORK);
@@ -500,13 +501,6 @@ NS_IMETHODIMP AppWindow::RollupAllPopups() {
 // AppWindow::nsIBaseWindow
 //*****************************************************************************
 
-NS_IMETHODIMP AppWindow::InitWindow(nsIWidget* parentWidget, int32_t x,
-                                    int32_t y, int32_t cx, int32_t cy) {
-  // XXX First Check In
-  NS_ASSERTION(false, "Not Yet Implemented");
-  return NS_OK;
-}
-
 NS_IMETHODIMP AppWindow::Destroy() {
   nsCOMPtr<nsIAppWindow> kungFuDeathGrip(this);
 
@@ -716,15 +710,14 @@ nsresult AppWindow::MoveResize(const Maybe<DesktopPoint>& aPosition,
   }
 
   if (aPosition && aSize) {
-    mWindow->Resize(aPosition->x, aPosition->y, aSize->width, aSize->height,
-                    aRepaint);
+    mWindow->Resize(DesktopRect(*aPosition, *aSize), aRepaint);
     dirtyAttributes = {PersistentAttribute::Size,
                        PersistentAttribute::Position};
   } else if (aSize) {
-    mWindow->Resize(aSize->width, aSize->height, aRepaint);
+    mWindow->Resize(*aSize, aRepaint);
     dirtyAttributes = {PersistentAttribute::Size};
   } else if (aPosition) {
-    mWindow->Move(aPosition->x, aPosition->y);
+    mWindow->Move(*aPosition);
     dirtyAttributes = {PersistentAttribute::Position};
   }
 
@@ -752,8 +745,8 @@ nsresult AppWindow::MoveResize(const Maybe<DesktopPoint>& aPosition,
   return NS_OK;
 }
 
-NS_IMETHODIMP AppWindow::Center(nsIAppWindow* aRelative, bool aScreen,
-                                bool aAlert) {
+nsresult AppWindow::CenterImpl(nsIAppWindow* aRelative, bool aScreen,
+                               bool aAlert, bool aAllowCenteringForSizeChange) {
   DesktopIntRect rect;
   bool screenCoordinates = false, windowCoordinates = false;
   nsresult result;
@@ -821,16 +814,18 @@ NS_IMETHODIMP AppWindow::Center(nsIAppWindow* aRelative, bool aScreen,
   SetPositionDesktopPix(newPos.x, newPos.y);
 
   // If moving the window caused it to change size, re-do the centering.
-  if (GetSize() != ourDevSize) {
-    return Center(aRelative, aScreen, aAlert);
+  // Allow only one recursion here.
+  if (GetSize() != ourDevSize && aAllowCenteringForSizeChange) {
+    return CenterImpl(aRelative, aScreen, aAlert,
+                      /* aAllowCenteringForSizeChange */ false);
   }
   return NS_OK;
 }
 
-NS_IMETHODIMP AppWindow::Repaint(bool aForce) {
-  // XXX First Check In
-  NS_ASSERTION(false, "Not Yet Implemented");
-  return NS_OK;
+NS_IMETHODIMP AppWindow::Center(nsIAppWindow* aRelative, bool aScreen,
+                                bool aAlert) {
+  return CenterImpl(aRelative, aScreen, aAlert,
+                    /* aAllowCenteringForSizeChange */ true);
 }
 
 NS_IMETHODIMP AppWindow::GetParentWidget(nsIWidget** aParentWidget) {
@@ -1094,6 +1089,10 @@ void AppWindow::OnChromeLoaded() {
     mChromeLoaded = true;
     ApplyChromeFlags();
     SyncAttributesToWidget();
+    if (RefPtr ps = GetPresShell()) {
+      // Sync window properties now, before showing the window.
+      ps->SyncWindowPropertiesIfNeeded();
+    }
     if (mWindow) {
       SizeShell();
       if (mShowAfterLoad) {
@@ -1876,7 +1875,7 @@ nsresult AppWindow::MaybeSaveEarlyWindowPersistentValues(
 
   settings.verticalTabs = Preferences::GetBool("sidebar.verticalTabs", false);
 
-  Unused << PersistPreXULSkeletonUIValues(settings);
+  (void)PersistPreXULSkeletonUIValues(settings);
 #endif
 
   return NS_OK;
@@ -1954,7 +1953,7 @@ void AppWindow::MaybeSavePersistentPositionAndSize(
       sizeString.AppendInt(NSToIntRound(rect.X() / posScale.scale));
       aRootElement.SetAttr(nsGkAtoms::screenX, sizeString, IgnoreErrors());
       if (aShouldPersist) {
-        Unused << SetPersistentValue(nsGkAtoms::screenX, sizeString);
+        (void)SetPersistentValue(nsGkAtoms::screenX, sizeString);
       }
     }
     if (aPersistString.Find(u"screenY") >= 0) {
@@ -1962,7 +1961,7 @@ void AppWindow::MaybeSavePersistentPositionAndSize(
       sizeString.AppendInt(NSToIntRound(rect.Y() / posScale.scale));
       aRootElement.SetAttr(nsGkAtoms::screenY, sizeString, IgnoreErrors());
       if (aShouldPersist) {
-        Unused << SetPersistentValue(nsGkAtoms::screenY, sizeString);
+        (void)SetPersistentValue(nsGkAtoms::screenY, sizeString);
       }
     }
   }
@@ -1975,7 +1974,7 @@ void AppWindow::MaybeSavePersistentPositionAndSize(
       sizeString.AppendInt(NSToIntRound(innerRect.Width() / sizeScale.scale));
       aRootElement.SetAttr(nsGkAtoms::width, sizeString, IgnoreErrors());
       if (aShouldPersist) {
-        Unused << SetPersistentValue(nsGkAtoms::width, sizeString);
+        (void)SetPersistentValue(nsGkAtoms::width, sizeString);
       }
     }
     if (aPersistString.Find(u"height") >= 0) {
@@ -1983,12 +1982,12 @@ void AppWindow::MaybeSavePersistentPositionAndSize(
       sizeString.AppendInt(NSToIntRound(innerRect.Height() / sizeScale.scale));
       aRootElement.SetAttr(nsGkAtoms::height, sizeString, IgnoreErrors());
       if (aShouldPersist) {
-        Unused << SetPersistentValue(nsGkAtoms::height, sizeString);
+        (void)SetPersistentValue(nsGkAtoms::height, sizeString);
       }
     }
   }
 
-  Unused << MaybeSaveEarlyWindowPersistentValues(rect);
+  (void)MaybeSaveEarlyWindowPersistentValues(rect);
 }
 
 void AppWindow::MaybeSavePersistentMiscAttributes(
@@ -2010,7 +2009,7 @@ void AppWindow::MaybeSavePersistentMiscAttributes(
     }
     aRootElement.SetAttr(nsGkAtoms::sizemode, sizeString, IgnoreErrors());
     if (aShouldPersist && aPersistString.Find(u"sizemode") >= 0) {
-      Unused << SetPersistentValue(nsGkAtoms::sizemode, sizeString);
+      (void)SetPersistentValue(nsGkAtoms::sizemode, sizeString);
     }
   }
   aRootElement.SetAttribute(u"gtktiledwindow"_ns,
@@ -2901,7 +2900,7 @@ static bool sWaitingForHiddenWindowToLoadNativeMenus =
 #  endif
     ;
 
-MOZ_RUNINIT static nsTArray<LoadNativeMenusListener> sLoadNativeMenusListeners;
+constinit static nsTArray<LoadNativeMenusListener> sLoadNativeMenusListeners;
 
 static void BeginLoadNativeMenus(Document* aDoc, nsIWidget* aParentWindow);
 

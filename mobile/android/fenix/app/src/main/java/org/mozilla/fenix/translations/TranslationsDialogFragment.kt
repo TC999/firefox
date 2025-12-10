@@ -34,13 +34,12 @@ import mozilla.components.concept.engine.translate.TranslationError
 import mozilla.components.feature.downloads.FileSizeFormatter
 import mozilla.components.lib.state.ext.observeAsComposableState
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
-import org.mozilla.fenix.BrowserDirection
 import org.mozilla.fenix.GleanMetrics.Translations
-import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.ext.components
+import org.mozilla.fenix.ext.openToBrowser
 import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.ext.runIfFragmentIsAttached
 import org.mozilla.fenix.ext.settings
@@ -98,7 +97,7 @@ class TranslationsDialogFragment : BottomSheetDialogFragment() {
             }
         }
 
-    @Suppress("LongMethod")
+    @Suppress("LongMethod", "CognitiveComplexMethod")
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -144,9 +143,9 @@ class TranslationsDialogFragment : BottomSheetDialogFragment() {
                     SupportUtils.SumoTopic.TRANSLATIONS,
                 )
 
-                isTranslationInProgress = translationsDialogState?.isTranslationInProgress
+                isTranslationInProgress = translationsDialogState.isTranslationInProgress
 
-                if (translationsDialogState?.dismissDialogState is DismissDialogState.Dismiss) {
+                if (translationsDialogState.dismissDialogState is DismissDialogState.Dismiss) {
                     dismissDialog()
                 }
 
@@ -174,7 +173,7 @@ class TranslationsDialogFragment : BottomSheetDialogFragment() {
                                     }
                                 },
                             ) {
-                                translationsDialogState?.let {
+                                translationsDialogState.let {
                                     TranslationsDialogContent(
                                         learnMoreUrl = learnMoreUrl,
                                         showPageSettings = FxNimbus.features.translations.value().pageSettingsEnabled,
@@ -204,8 +203,8 @@ class TranslationsDialogFragment : BottomSheetDialogFragment() {
                                 TranslationsOptionsDialogContent(
                                     learnMoreUrl = learnMoreUrl,
                                     showGlobalSettings = FxNimbus.features.translations.value().globalSettingsEnabled,
-                                    isTranslated = translationsDialogState?.isTranslated == true,
-                                    initialFrom = translationsDialogState?.initialFrom,
+                                    isTranslated = translationsDialogState.isTranslated == true,
+                                    initialFrom = translationsDialogState.initialFrom,
                                     onBackClicked = { translationsVisibility = true },
                                     onTranslate = {
                                         translate(
@@ -222,7 +221,7 @@ class TranslationsDialogFragment : BottomSheetDialogFragment() {
                     }
 
                     if (showDownloadLanguageFileDialog) {
-                        translationsDialogState?.translationDownloadSize?.size?.let { fileSize ->
+                        translationsDialogState.translationDownloadSize?.size?.let { fileSize ->
                             DownloadLanguageFileDialog(
                                 fileSize = fileSize,
                                 fileSizeFormatter = requireComponents.core.fileSizeFormatter,
@@ -464,10 +463,10 @@ class TranslationsDialogFragment : BottomSheetDialogFragment() {
     }
 
     private fun openBrowserAndLoad(learnMoreUrl: String) {
-        (requireActivity() as HomeActivity).openToBrowserAndLoad(
+        findNavController().openToBrowser()
+        requireComponents.useCases.fenixBrowserUseCases.loadUrlOrSearch(
             searchTermOrURL = learnMoreUrl,
             newTab = true,
-            from = BrowserDirection.FromTranslationsDialogFragment,
         )
     }
 

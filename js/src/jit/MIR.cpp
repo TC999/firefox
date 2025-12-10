@@ -10,8 +10,8 @@
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/Maybe.h"
-#include "mozilla/ScopeExit.h"
 
+#include <algorithm>
 #include <array>
 #include <utility>
 
@@ -28,6 +28,7 @@
 #include "jit/RangeAnalysis.h"
 #include "jit/VMFunctions.h"
 #include "jit/WarpBuilderShared.h"
+#include "jit/WarpSnapshot.h"
 #include "js/Conversions.h"
 #include "js/experimental/JitInfo.h"  // JSJitInfo, JSTypedMethodJitInfo
 #include "js/ScalarType.h"            // js::Scalar::Type
@@ -559,6 +560,14 @@ const MDefinition* MDefinition::skipObjectGuards() const {
   while (true) {
     if (result->isGuardShape()) {
       result = result->toGuardShape()->object();
+      continue;
+    }
+    if (result->isGuardShapeList()) {
+      result = result->toGuardShapeList()->object();
+      continue;
+    }
+    if (result->isGuardMultipleShapes()) {
+      result = result->toGuardMultipleShapes()->object();
       continue;
     }
     if (result->isGuardNullProto()) {
@@ -4250,6 +4259,7 @@ static void AssertKnownClass(TempAllocator& alloc, MInstruction* ins,
 
 MDefinition* MBoxNonStrictThis::foldsTo(TempAllocator& alloc) {
   MDefinition* in = input();
+
   if (!in->isBox()) {
     return this;
   }
@@ -4257,6 +4267,10 @@ MDefinition* MBoxNonStrictThis::foldsTo(TempAllocator& alloc) {
   MDefinition* unboxed = in->toBox()->input();
   if (unboxed->type() == MIRType::Object) {
     return unboxed;
+  }
+
+  if (unboxed->typeIsOneOf({MIRType::Undefined, MIRType::Null})) {
+    return MConstant::NewObject(alloc, this->globalThis());
   }
 
   return this;
@@ -7163,24 +7177,51 @@ MDefinition* MGuardSpecificInt32::foldsTo(TempAllocator& alloc) {
   return this;
 }
 
-bool MCallBindVar::congruentTo(const MDefinition* ins) const {
-  if (!ins->isCallBindVar()) {
-    return false;
+MDefinition* MGuardShape::foldsTo(TempAllocator& alloc) {
+  if (object()->isGuardShape() &&
+      shape() == object()->toGuardShape()->shape() && dependency() &&
+      object()->dependency() == dependency()) {
+    return object();
   }
-  return congruentIfOperandsEqual(ins);
+  return this;
 }
 
 bool MGuardShape::congruentTo(const MDefinition* ins) const {
-  if (!ins->isGuardShape()) {
-    return false;
-  }
-  if (shape() != ins->toGuardShape()->shape()) {
-    return false;
-  }
-  return congruentIfOperandsEqual(ins);
+  return congruentIfOperandsEqual(ins) &&
+         shape() == ins->toGuardShape()->shape();
 }
 
 AliasSet MGuardShape::getAliasSet() const {
+  return AliasSet::Load(AliasSet::ObjectFields);
+}
+
+bool MGuardShapeList::congruentTo(const MDefinition* ins) const {
+  if (!congruentIfOperandsEqual(ins)) {
+    return false;
+  }
+
+  // Returns true iff all non-nullptr shapes in |a| are also in |b|.
+  auto hasAllShapes = [](const auto& a, const auto& b) {
+    for (Shape* shape : a) {
+      if (!shape) {
+        continue;
+      }
+      auto isSameShape = [shape](Shape* other) { return shape == other; };
+      if (!std::any_of(b.begin(), b.end(), isSameShape)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // Return true if all shapes in |shapesA| are also in |shapesB| and vice
+  // versa.
+  const auto& shapesA = this->shapeList()->shapes();
+  const auto& shapesB = ins->toGuardShapeList()->shapeList()->shapes();
+  return hasAllShapes(shapesA, shapesB) && hasAllShapes(shapesB, shapesA);
+}
+
+AliasSet MGuardShapeList::getAliasSet() const {
   return AliasSet::Load(AliasSet::ObjectFields);
 }
 
@@ -7487,6 +7528,10 @@ AliasSet MGuardNoDenseElements::getAliasSet() const {
 }
 
 AliasSet MIteratorHasIndices::getAliasSet() const {
+  return AliasSet::Load(AliasSet::ObjectFields);
+}
+
+AliasSet MIteratorsMatchAndHaveIndices::getAliasSet() const {
   return AliasSet::Load(AliasSet::ObjectFields);
 }
 
@@ -7805,6 +7850,16 @@ AliasSet MLoadSlotByIteratorIndex::getAliasSet() const {
 }
 
 AliasSet MStoreSlotByIteratorIndex::getAliasSet() const {
+  return AliasSet::Store(AliasSet::ObjectFields | AliasSet::FixedSlot |
+                         AliasSet::DynamicSlot | AliasSet::Element);
+}
+
+AliasSet MLoadSlotByIteratorIndexIndexed::getAliasSet() const {
+  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::FixedSlot |
+                        AliasSet::DynamicSlot | AliasSet::Element);
+}
+
+AliasSet MStoreSlotByIteratorIndexIndexed::getAliasSet() const {
   return AliasSet::Store(AliasSet::ObjectFields | AliasSet::FixedSlot |
                          AliasSet::DynamicSlot | AliasSet::Element);
 }

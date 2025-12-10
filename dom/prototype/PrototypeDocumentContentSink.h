@@ -8,7 +8,6 @@
 #define mozilla_dom_PrototypeDocumentContentSink_h__
 
 #include "js/experimental/JSStencil.h"
-#include "mozilla/Attributes.h"
 #include "mozilla/Logging.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/dom/FromParser.h"
@@ -18,7 +17,6 @@
 #include "nsCycleCollectionParticipant.h"
 #include "nsICSSLoaderObserver.h"
 #include "nsIContentSink.h"
-#include "nsIDTD.h"
 #include "nsIScriptContext.h"
 #include "nsIStreamLoader.h"
 #include "nsTArray.h"

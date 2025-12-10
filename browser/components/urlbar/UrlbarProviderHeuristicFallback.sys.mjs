@@ -22,6 +22,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/urlbar/UrlbarSearchUtils.sys.mjs",
   UrlbarTokenizer:
     "moz-src:///browser/components/urlbar/UrlbarTokenizer.sys.mjs",
+  UrlUtils: "resource://gre/modules/UrlUtils.sys.mjs",
 });
 
 /**
@@ -60,41 +61,42 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
   /**
    * Starts querying.
    *
-   * @param {object} queryContext The query context object
-   * @param {Function} addCallback Callback invoked by the provider to add a new
-   *        result.
-   * @returns {Promise} resolved when the query stops.
+   * @param {UrlbarQueryContext} queryContext
+   * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} addCallback
+   *   Callback invoked by the provider to add a new result.
    */
   async startQuery(queryContext, addCallback) {
     let instance = this.queryInstance;
 
-    let result = this._matchUnknownUrl(queryContext);
-    if (result) {
-      addCallback(this, result);
-      // Since we can't tell if this is a real URL and whether the user wants
-      // to visit or search for it, we provide an alternative searchengine
-      // match if the string looks like an alphanumeric origin or an e-mail.
-      let str = queryContext.searchString;
-      if (!URL.canParse(str)) {
-        if (
-          lazy.UrlbarPrefs.get("keyword.enabled") &&
-          (lazy.UrlbarTokenizer.looksLikeOrigin(str, {
-            noIp: true,
-            noPort: true,
-          }) ||
-            lazy.UrlbarTokenizer.REGEXP_COMMON_EMAIL.test(str))
-        ) {
-          let searchResult = await this._engineSearchResult({ queryContext });
-          if (instance != this.queryInstance) {
-            return;
+    if (queryContext.sapName != "searchbar") {
+      let result = this._matchUnknownUrl(queryContext);
+      if (result) {
+        addCallback(this, result);
+        // Since we can't tell if this is a real URL and whether the user wants
+        // to visit or search for it, we provide an alternative searchengine
+        // match if the string looks like an alphanumeric origin or an e-mail.
+        let str = queryContext.searchString;
+        if (!URL.canParse(str)) {
+          if (
+            lazy.UrlbarPrefs.get("keyword.enabled") &&
+            (lazy.UrlUtils.looksLikeOrigin(str, {
+              noIp: true,
+              noPort: true,
+            }) ||
+              lazy.UrlUtils.REGEXP_COMMON_EMAIL.test(str))
+          ) {
+            let searchResult = await this._engineSearchResult({ queryContext });
+            if (instance != this.queryInstance) {
+              return;
+            }
+            addCallback(this, searchResult);
           }
-          addCallback(this, searchResult);
         }
+        return;
       }
-      return;
     }
 
-    result = await this._searchModeKeywordResult(queryContext);
+    let result = await this._searchModeKeywordResult(queryContext);
     if (instance != this.queryInstance) {
       return;
     }
@@ -104,6 +106,7 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
     }
 
     if (
+      queryContext.sapName == "searchbar" ||
       lazy.UrlbarPrefs.get("keyword.enabled") ||
       queryContext.restrictSource == UrlbarUtils.RESULT_SOURCE.SEARCH ||
       queryContext.searchMode
@@ -230,7 +233,7 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
   }
 
   async _searchModeKeywordResult(queryContext) {
-    if (!queryContext.tokens.length) {
+    if (!queryContext.tokens.length || queryContext.sapName != "urlbar") {
       return null;
     }
 
@@ -261,7 +264,7 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
       queryContext.searchString,
       firstToken
     );
-    if (!lazy.UrlbarTokenizer.REGEXP_SPACES_START.test(query)) {
+    if (!lazy.UrlUtils.REGEXP_SPACES_START.test(query)) {
       return null;
     }
 

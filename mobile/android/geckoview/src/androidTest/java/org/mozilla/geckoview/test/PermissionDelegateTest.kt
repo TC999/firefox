@@ -48,9 +48,6 @@ class PermissionDelegateTest : BaseSessionTest() {
         get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     private fun hasPermission(permission: String): Boolean {
-        if (Build.VERSION.SDK_INT < 23) {
-            return true
-        }
         return PackageManager.PERMISSION_GRANTED ==
             InstrumentationRegistry.getInstrumentation().targetContext.checkSelfPermission(
                 permission,
@@ -1198,16 +1195,25 @@ class PermissionDelegateTest : BaseSessionTest() {
         val importedPerm = ContentPermission.fromJson(jsonPerm!!)
         assertThat("JSON import should not be null", importedPerm, notNullValue())
 
-        assertThat("URIs should match", importedPerm?.uri, equalTo(notificationPerm?.uri))
-        assertThat("Types should match", importedPerm?.permission, equalTo(notificationPerm?.permission))
-        assertThat("Values should match", importedPerm?.value, equalTo(notificationPerm?.value))
-        assertThat("Context IDs should match", importedPerm?.contextId, equalTo(notificationPerm?.contextId))
-        assertThat("Private mode should match", importedPerm?.privateMode, equalTo(notificationPerm?.privateMode))
+        assertThat("URIs should match", importedPerm?.uri, equalTo(notificationPerm.uri))
+        assertThat("Types should match", importedPerm?.permission, equalTo(notificationPerm.permission))
+        assertThat("Values should match", importedPerm?.value, equalTo(notificationPerm.value))
+        assertThat("Context IDs should match", importedPerm?.contextId, equalTo(notificationPerm.contextId))
+        assertThat("Private mode should match", importedPerm?.privateMode, equalTo(notificationPerm.privateMode))
     }
 
     @Test
     fun localDeviceAccessPermission() {
-        sessionRule.setPrefsUntilTestEnd(mapOf("network.lna.blocking" to true))
+        sessionRule.setPrefsUntilTestEnd(
+            mapOf(
+                "network.lna.blocking" to true,
+                "network.lna.enabled" to true,
+                "network.lna.block_trackers" to true,
+            ),
+        )
+
+        // enable LNA checks for local network to localhost checks
+        sessionRule.setPrefsUntilTestEnd(mapOf("network.lna.local-network-to-localhost.skip-checks" to false))
 
         mainSession.loadUri("https://example.com/")
         mainSession.waitForPageStop()
@@ -1248,7 +1254,13 @@ class PermissionDelegateTest : BaseSessionTest() {
 
     @Test
     fun localDeviceAccessPermissionNotFiredIfPrefIsFalse() {
-        sessionRule.setPrefsUntilTestEnd(mapOf("network.lna.blocking" to false))
+        sessionRule.setPrefsUntilTestEnd(
+            mapOf(
+                "network.lna.blocking" to false,
+                "network.lna.enabled" to false,
+                "network.lna.block_trackers" to false,
+            ),
+        )
 
         mainSession.loadUri("https://example.com/")
         mainSession.waitForPageStop()

@@ -770,6 +770,78 @@
                 }
             },
             /**
+             * `speculation <https://wicg.github.io/nav-speculation/prefetch.html>`_ module.
+             */
+            speculation: {
+                /**
+                 * `speculation.PrefetchStatusUpdated <https://wicg.github.io/nav-speculation/prefetch.html#speculation-prefetchstatusupdated-event>`_
+                 * event.
+                 */
+                prefetch_status_updated: {
+                    /**
+                     * @typedef {object} PrefetchStatusUpdated
+                     * `speculation.PrefetchStatusUpdatedParameters <https://wicg.github.io/nav-speculation/prefetch.html#cddl-type-speculationprefetchstatusupdatedparameters>`_
+                     * event.
+                     */
+
+                    /**
+                     * Subscribes to the event. Events will be emitted only if
+                     * there is a subscription for the event. This method does
+                     * not add actual listeners. To listen to the event, use the
+                     * `on` or `once` methods. The buffered events will be
+                     * emitted before the command promise is resolved.
+                     *
+                     * @param {object} [params] Parameters for the subscription.
+                     * @param {null|Array.<(Context)>} [params.contexts] The
+                     * optional contexts parameter specifies which browsing
+                     * contexts to subscribe to the event on. It should be
+                     * either an array of Context objects, or null. If null, the
+                     * event will be subscribed to globally. If omitted, the
+                     * event will be subscribed to on the current browsing
+                     * context.
+                     * @returns {Promise<(function(): Promise<void>)>} Callback
+                     * for unsubscribing from the created subscription.
+                     */
+                    subscribe: async function(params = {}) {
+                        assertBidiIsEnabled();
+                        return window.test_driver_internal.bidi.speculation
+                            .prefetch_status_updated.subscribe(params);
+                    },
+                    /**
+                     * Adds an event listener for the event.
+                     *
+                     * @param {function(PrefetchStatusUpdated): void} callback The
+                     * callback to be called when the event is emitted. The
+                     * callback is called with the event object as a parameter.
+                     * @returns {function(): void} A function that removes the
+                     * added event listener when called.
+                     */
+                    on: function(callback) {
+                        assertBidiIsEnabled();
+                        return window.test_driver_internal.bidi.speculation
+                            .prefetch_status_updated.on(callback);
+                    },
+                    /**
+                     * Adds an event listener for the event that is only called
+                     * once and removed afterward.
+                     *
+                     * @return {Promise<PrefetchStatusUpdated>} The promise which
+                     * is resolved with the event object when the event is emitted.
+                     */
+                    once: function() {
+                        assertBidiIsEnabled();
+                        return new Promise(resolve => {
+                            const remove_handler =
+                                window.test_driver_internal.bidi.speculation
+                                    .prefetch_status_updated.on(event => {
+                                    resolve(event);
+                                    remove_handler();
+                                });
+                        });
+                    }
+                }
+            },
+            /**
              * `emulation <https://www.w3.org/TR/webdriver-bidi/#module-emulation>`_ module.
              */
             emulation: {
@@ -973,9 +1045,12 @@
                  * @param {PermissionState} params.state - a `PermissionState
                  *                          <https://w3c.github.io/permissions/#dom-permissionstate>`_
                  *                          value.
-                 * @param {string} [params.origin] - an optional `origin` string to set the
+                 * @param {string} [params.origin] - an optional top-level `origin` string to set the
                  *                 permission for. If omitted, the permission is set for the
                  *                 current window's origin.
+                 * @param {string} [params.embeddedOrigin] - an optional embedded `origin` string to set the
+                 *                 permission for. If omitted, the top-level `origin` is used as the
+                 *                 embedded origin.
                  * @returns {Promise} fulfilled after the permission is set, or rejected if setting
                  *                    the permission fails.
                  */
@@ -2195,6 +2270,43 @@
          */
         set_global_privacy_control: function(newValue) {
             return window.test_driver_internal.set_global_privacy_control(newValue);
+        },
+
+        /**
+         * Installs a WebExtension.
+         *
+         * Matches the `Install WebExtension
+         * <https://github.com/w3c/webextensions/blob/main/specification/webdriver-classic.bs>`_
+         * WebDriver command.
+         *
+         * @param {Object} params - Parameters for loading the extension.
+         * @param {String} params.type - A type such as "path", "archivePath", or "base64".
+         *
+         * @param {String} params.path - The path to the extension's resources if type "path" or "archivePath" is specified.
+         *
+         * @param {String} params.value - The base64 encoded value of the extension's resources if type "base64" is specified.
+         *
+         * @returns {Promise} Returns the extension identifier as defined in the spec.
+         *                    Rejected if the extension fails to load.
+         */
+        install_web_extension: function(params) {
+            return window.test_driver_internal.install_web_extension(params);
+        },
+
+        /**
+         * Uninstalls a WebExtension.
+         *
+         * Matches the `Uninstall WebExtension
+         * <https://github.com/w3c/webextensions/blob/main/specification/webdriver-classic.bs>`_
+         * WebDriver command.
+         *
+         * @param {String} extension_id - The extension identifier.
+         *
+         * @returns {Promise} Fulfilled after the extension has been removed.
+         *                    Rejected in case the WebDriver command errors out.
+         */
+        uninstall_web_extension: function(extension_id) {
+            return window.test_driver_internal.uninstall_web_extension(extension_id);
         }
     };
 
@@ -2297,6 +2409,18 @@
                     throw new Error(
                         "bidi.permissions.set_permission() is not implemented by testdriver-vendor.js");
                 }
+            },
+            speculation: {
+                prefetch_status_updated: {
+                    async subscribe() {
+                        throw new Error(
+                            'bidi.speculation.prefetch_status_updated.subscribe is not implemented by testdriver-vendor.js');
+                    },
+                    on() {
+                        throw new Error(
+                            'bidi.speculation.prefetch_status_updated.on is not implemented by testdriver-vendor.js');
+                    }
+                },
             }
         },
 

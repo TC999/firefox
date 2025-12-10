@@ -405,7 +405,7 @@ newtab-wallpaper-abstract-purple-green = Күлгін және жасыл жар
 newtab-wallpaper-abstract-blue-purple-waves = Көк және күлгін толқынды пішіндер
 newtab-wallpaper-abstract-black-waves = Қара толқынды пішіндер
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Фотосуреттер
 newtab-wallpaper-beach-at-sunrise = Күн шыққанда жағажай
@@ -434,6 +434,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -657,10 +661,6 @@ newtab-widget-timer-mode-focus =
     .label = Фокустау
 newtab-widget-timer-mode-break =
     .label = Үзіліс
-newtab-widget-timer-play =
-    .title = Ойнату
-newtab-widget-timer-pause =
-    .title = Аялдату
 newtab-widget-timer-label-play =
     .label = Ойнату
 newtab-widget-timer-label-pause =
@@ -671,8 +671,6 @@ newtab-widget-timer-menu-notifications = Хабарламаларды сөнді
 newtab-widget-timer-menu-notifications-on = Хабарламаларды іске қосу
 newtab-widget-timer-menu-hide = Таймерді жасыру
 newtab-widget-timer-menu-learn-more = Көбірек білу
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Қосымша ақпарат алу үшін айналдырыңыз
 newtab-widget-message-title = Тізімдер мен кірістірілген таймер арқылы назарыңызды сақтаңыз
 newtab-promo-card-title = { -brand-product-name } қолдау
 newtab-promo-card-cta = Көбірек білу

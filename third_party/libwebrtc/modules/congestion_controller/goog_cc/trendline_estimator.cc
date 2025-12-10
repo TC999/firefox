@@ -10,9 +10,8 @@
 
 #include "modules/congestion_controller/goog_cc/trendline_estimator.h"
 
-#include <math.h>
-
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -116,8 +115,6 @@ constexpr int kMinNumDeltas = 60;
 constexpr int kDeltaCounterMax = 1000;
 
 }  // namespace
-
-constexpr char TrendlineEstimatorSettings::kKey[];
 
 TrendlineEstimatorSettings::TrendlineEstimatorSettings(
     const FieldTrialsView& key_value_config) {

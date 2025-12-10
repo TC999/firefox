@@ -335,6 +335,7 @@ var _fakeIdleService = {
 
 /**
  * Restores the idle service factory if needed and returns the service's handle.
+ *
  * @return A handle to the idle service.
  */
 function do_get_idle() {
@@ -626,7 +627,9 @@ function _execute_test() {
 
   let timer;
   if (
-    Services.profiler.IsActive() &&
+    // Services.profiler is missing on some tier3 platforms where
+    // MOZ_GECKO_PROFILER is not set.
+    Services.profiler?.IsActive() &&
     !Services.env.exists("MOZ_PROFILER_SHUTDOWN") &&
     Services.env.exists("MOZ_UPLOAD_DIR") &&
     Services.env.exists("MOZ_TEST_TIMEOUT_INTERVAL")
@@ -1427,6 +1430,31 @@ function do_get_profile(notifyProfileAfterChange = false) {
         "profile-after-change",
         "xpcshell-do-get-profile"
       );
+
+      // The "profile-after-change" dispatch above does not reach services that
+      // listen for the message via nsICategoryManager. These services register
+      // their observer via `components.conf`. The message for these services
+      // gets dispatched separately. So we have to do the same in testing.
+
+      // TODO: Bug 1995259: Not all tests / services expect this behavior yet,
+      // use an allow-list to determine which services to initialize on
+      // synthetic PAC.
+      let filterServices = new Set([
+        "@mozilla.org/profile-after-change-gate;1",
+      ]);
+
+      for (let entry of Services.catMan.enumerateCategory(
+        "profile-after-change"
+      )) {
+        if (!filterServices.has(entry.value)) {
+          continue;
+        }
+        try {
+          Cc[entry.value]
+            ?.getService(Ci.nsIObserver)
+            ?.observe(null, "profile-after-change", "");
+        } catch (e) {}
+      }
     }
   }
 
@@ -1588,6 +1616,7 @@ function do_send_remote_message(name, data) {
 
 /**
  * Schedules and awaits a precise GC, and forces CC, `maxCount` number of times.
+ *
  * @param maxCount
  *        How many times GC and CC should be scheduled.
  */

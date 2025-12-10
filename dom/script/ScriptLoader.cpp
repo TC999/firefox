@@ -23,7 +23,7 @@
 #include "js/Transcoding.h"  // JS::TranscodeRange, JS::TranscodeResult, JS::IsTranscodeFailureResult
 #include "js/Utility.h"
 #include "js/experimental/CompileScript.h"  // JS::FrontendContext, JS::NewFrontendContext, JS::DestroyFrontendContext, JS::SetNativeStackQuota, JS::ThreadStackQuotaForSize, JS::CompilationStorage, JS::CompileGlobalScriptToStencil, JS::CompileModuleScriptToStencil, JS::DecodeStencil, JS::PrepareForInstantiate
-#include "js/experimental/JSStencil.h"  // JS::Stencil, JS::InstantiationStorage, JS::StartCollectingDelazifications, JS::FinishCollectingDelazifications, JS::AbortCollectingDelazifications, JS::IsStencilCacheable
+#include "js/experimental/JSStencil.h"  // JS::Stencil, JS::InstantiationStorage, JS::StartCollectingDelazifications, JS::IsStencilCacheable
 #include "js/loader/LoadedScript.h"
 #include "js/loader/ModuleLoadRequest.h"
 #include "js/loader/ModuleLoaderBase.h"
@@ -115,7 +115,7 @@ LazyLogModule ScriptLoader::gScriptLoaderLog("ScriptLoader");
   MOZ_LOG_TEST(ScriptLoader::gScriptLoaderLog, mozilla::LogLevel::Debug)
 
 // Alternate Data MIME type used by the ScriptLoader to register that we want to
-// store bytecode without reading it.
+// store the disk cache without reading it.
 static constexpr auto kNullMimeType = "javascript/null"_ns;
 
 /////////////////////////////////////////////////////////////
@@ -175,7 +175,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(ScriptLoader)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(
       mNonAsyncExternalScriptInsertedRequests, mLoadingAsyncRequests,
       mLoadedAsyncRequests, mOffThreadCompilingRequests, mDeferRequests,
-      mXSLTRequests, mParserBlockingRequest, mCachingQueue, mPreloads,
+      mXSLTRequests, mParserBlockingRequest, mDiskCacheQueue, mPreloads,
       mPendingChildLoaders, mModuleLoader, mWebExtModuleLoaders,
       mShadowRealmModuleLoaders)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
@@ -184,7 +184,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(ScriptLoader)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(
       mNonAsyncExternalScriptInsertedRequests, mLoadingAsyncRequests,
       mLoadedAsyncRequests, mOffThreadCompilingRequests, mDeferRequests,
-      mXSLTRequests, mParserBlockingRequest, mCachingQueue, mPreloads,
+      mXSLTRequests, mParserBlockingRequest, mDiskCacheQueue, mPreloads,
       mPendingChildLoaders, mModuleLoader, mWebExtModuleLoaders,
       mShadowRealmModuleLoaders)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
@@ -205,7 +205,7 @@ ScriptLoader::ScriptLoader(Document* aDocument)
       mDeferCheckpointReached(false),
       mBlockingDOMContentLoaded(false),
       mLoadEventFired(false),
-      mGiveUpCaching(false),
+      mGiveUpDiskCaching(false),
       mContinueParsingDocumentAfterCurrentScript(false),
       mReporter(new ConsoleReportCollector()) {
   LOG(("ScriptLoader::ScriptLoader %p", this));
@@ -378,7 +378,7 @@ static void CollectScriptTelemetry(ScriptLoadRequest* aRequest) {
   } else {
     if (aRequest->IsTextSource()) {
       script_loading_source.EnumGet(ScriptLoadingSourceLabel::eSource).Add();
-    } else if (aRequest->IsBytecode()) {
+    } else if (aRequest->IsSerializedStencil()) {
       script_loading_source.EnumGet(ScriptLoadingSourceLabel::eAltdata).Add();
     }
   }
@@ -438,6 +438,7 @@ nsContentPolicyType ScriptLoadRequestToContentPolicyType(
           return nsIContentPolicy::TYPE_INTERNAL_JSON_PRELOAD;
         case JS::ModuleType::CSS:
           return nsIContentPolicy::TYPE_INTERNAL_STYLESHEET_PRELOAD;
+        case JS::ModuleType::Bytes:
         case JS::ModuleType::Unknown:
           MOZ_ASSERT_UNREACHABLE("Unknown module type");
       }
@@ -449,6 +450,7 @@ nsContentPolicyType ScriptLoadRequestToContentPolicyType(
   if (aRequest->IsModuleRequest()) {
     switch (aRequest->AsModuleRequest()->mModuleType) {
       case JS::ModuleType::Unknown:
+      case JS::ModuleType::Bytes:
         MOZ_CRASH("Unexpected module type");
       case JS::ModuleType::JavaScript:
         return nsIContentPolicy::TYPE_INTERNAL_MODULE;
@@ -463,21 +465,25 @@ nsContentPolicyType ScriptLoadRequestToContentPolicyType(
 }
 
 RequestMode ComputeRequestModeForContentPolicy(
-    const ScriptLoadRequest* aRequest) {
+    const ScriptLoadRequest* aRequest, ScriptFetchOptions* aFetchOptions) {
   auto corsMapping =
       aRequest->IsModuleRequest()
           ? nsContentSecurityManager::REQUIRE_CORS_CHECKS
           : nsContentSecurityManager::CORS_NONE_MAPS_TO_DISABLED_CORS_CHECKS;
   return nsContentSecurityManager::SecurityModeToRequestMode(
       nsContentSecurityManager::ComputeSecurityMode(
-          nsContentSecurityManager::ComputeSecurityFlags(aRequest->CORSMode(),
-                                                         corsMapping)));
+          nsContentSecurityManager::ComputeSecurityFlags(
+              aFetchOptions->mCORSMode, corsMapping)));
 }
 
 nsresult ScriptLoader::CheckContentPolicy(nsIScriptElement* aElement,
                                           const nsAString& aNonce,
-                                          ScriptLoadRequest* aRequest) {
+                                          ScriptLoadRequest* aRequest,
+                                          ScriptFetchOptions* aFetchOptions,
+                                          nsIURI* aURI) {
   MOZ_ASSERT(aRequest);
+  MOZ_ASSERT(aFetchOptions);
+  MOZ_ASSERT(aURI);
 
   nsContentPolicyType contentPolicyType =
       ScriptLoadRequestToContentPolicyType(aRequest);
@@ -495,7 +501,7 @@ nsresult ScriptLoader::CheckContentPolicy(nsIScriptElement* aElement,
                                            aElement->GetParserCreated() !=
                                                mozilla::dom::NOT_FROM_PARSER);
   Maybe<RequestMode> requestMode =
-      Some(ComputeRequestModeForContentPolicy(aRequest));
+      Some(ComputeRequestModeForContentPolicy(aRequest, aFetchOptions));
   secCheckLoadInfo->SetRequestMode(requestMode);
   // Use nonce of the current element, instead of the preload, because those
   // are allowed to differ.
@@ -504,9 +510,8 @@ nsresult ScriptLoader::CheckContentPolicy(nsIScriptElement* aElement,
       aRequest->mIntegrity.GetIntegrityString());
 
   int16_t shouldLoad = nsIContentPolicy::ACCEPT;
-  nsresult rv =
-      NS_CheckContentLoadPolicy(aRequest->mURI, secCheckLoadInfo, &shouldLoad,
-                                nsContentUtils::GetContentPolicy());
+  nsresult rv = NS_CheckContentLoadPolicy(aURI, secCheckLoadInfo, &shouldLoad,
+                                          nsContentUtils::GetContentPolicy());
   if (NS_FAILED(rv) || NS_CP_REJECTED(shouldLoad)) {
     if (NS_FAILED(rv) || shouldLoad != nsIContentPolicy::REJECT_TYPE) {
       return NS_ERROR_CONTENT_BLOCKED;
@@ -521,7 +526,7 @@ nsresult ScriptLoader::CheckContentPolicy(nsIScriptElement* aElement,
 bool ScriptLoader::IsAboutPageLoadingChromeURI(ScriptLoadRequest* aRequest,
                                                Document* aDocument) {
   // if the uri to be loaded is not of scheme chrome:, there is nothing to do.
-  if (!aRequest->mURI->SchemeIs("chrome")) {
+  if (!aRequest->URI()->SchemeIs("chrome")) {
     return false;
   }
 
@@ -588,14 +593,14 @@ void ScriptLoader::RunScriptWhenSafe(ScriptLoadRequest* aRequest) {
 }
 
 nsresult ScriptLoader::RestartLoad(ScriptLoadRequest* aRequest) {
-  aRequest->DropBytecode();
-  TRACE_FOR_TEST(aRequest, "scriptloader_fallback");
+  aRequest->DropSRIOrSRIAndSerializedStencil();
+  TRACE_FOR_TEST(aRequest, "load:fallback");
 
   // Notify preload restart so that we can register this preload request again.
   aRequest->GetScriptLoadContext()->NotifyRestart(mDocument);
 
   // Start a new channel from which we explicitly request to stream the source
-  // instead of the bytecode.
+  // instead of the serialized stencil.
   aRequest->mFetchSourceOnly = true;
   nsresult rv;
   if (aRequest->IsModuleRequest()) {
@@ -636,7 +641,7 @@ static nsSecurityFlags CORSModeToSecurityFlags(CORSMode aCORSMode) {
 nsresult ScriptLoader::StartClassicLoad(
     ScriptLoadRequest* aRequest,
     const Maybe<nsAutoString>& aCharsetForPreload) {
-  if (aRequest->IsStencil()) {
+  if (aRequest->IsCachedStencil()) {
     EmulateNetworkEvents(aRequest);
     return NS_OK;
   }
@@ -652,7 +657,7 @@ nsresult ScriptLoader::StartClassicLoad(
 
   if (LOG_ENABLED()) {
     nsAutoCString url;
-    aRequest->mURI->GetAsciiSpec(url);
+    aRequest->URI()->GetAsciiSpec(url);
     LOG(("ScriptLoadRequest (%p): Start Classic Load (url = %s)", aRequest,
          url.get()));
   }
@@ -706,7 +711,7 @@ static nsresult CreateChannelForScriptLoading(nsIChannel** aOutChannel,
     context = aDocument;
   }
 
-  return CreateChannelForScriptLoading(aOutChannel, aDocument, aRequest->mURI,
+  return CreateChannelForScriptLoading(aOutChannel, aDocument, aRequest->URI(),
                                        context, aRequest->TriggeringPrincipal(),
                                        aSecurityFlags, contentPolicyType);
 }
@@ -723,29 +728,30 @@ static void PrepareLoadInfoForScriptLoading(nsIChannel* aChannel,
 // static
 void ScriptLoader::PrepareCacheInfoChannel(nsIChannel* aChannel,
                                            ScriptLoadRequest* aRequest) {
-  // To avoid decoding issues, the build-id is part of the bytecode MIME type
+  // To avoid decoding issues, the build-id is part of the disk cache MIME type
   // constant.
-  aRequest->DropDiskCacheReference();
+  aRequest->getLoadedScript()->DropDiskCacheReference();
   nsCOMPtr<nsICacheInfoChannel> cic(do_QueryInterface(aChannel));
   if (cic && StaticPrefs::dom_script_loader_bytecode_cache_enabled()) {
     MOZ_ASSERT(!IsWebExtensionRequest(aRequest),
-               "Can not bytecode cache WebExt code");
+               "Web extension scripts are not compatible with the disk cache");
     if (!aRequest->mFetchSourceOnly) {
       // Inform the HTTP cache that we prefer to have information coming from
-      // the bytecode cache instead of the sources, if such entry is already
-      // registered.
-      LOG(("ScriptLoadRequest (%p): Maybe request bytecode", aRequest));
+      // the serialized stencil disk cache instead of the sources, if such entry
+      // is already registered.
+      LOG(("ScriptLoadRequest (%p): Maybe request the disk cache", aRequest));
       cic->PreferAlternativeDataType(
           ScriptLoader::BytecodeMimeTypeFor(aRequest), ""_ns,
           nsICacheInfoChannel::PreferredAlternativeDataDeliveryType::ASYNC);
     } else {
       // If we are explicitly loading from the sources, such as after a
-      // restarted request, we might still want to save the bytecode after.
+      // restarted request, we might still want to save to the disk cache after.
       //
       // The following tell the cache to look for an alternative data type which
-      // does not exist, such that we can later save the bytecode with a
-      // different alternative data type.
-      LOG(("ScriptLoadRequest (%p): Request saving bytecode later", aRequest));
+      // does not exist, such that we can later save the serialized Stencil
+      // with a different alternative data type.
+      LOG(("ScriptLoadRequest (%p): Request saving to the disk cache later",
+           aRequest));
       cic->PreferAlternativeDataType(
           kNullMimeType, ""_ns,
           nsICacheInfoChannel::PreferredAlternativeDataDeliveryType::ASYNC);
@@ -1000,7 +1006,7 @@ nsresult ScriptLoader::StartLoadInternal(
   NS_ENSURE_SUCCESS(rv, rv);
 
   mozilla::net::PredictorLearn(
-      aRequest->mURI, mDocument->GetDocumentURI(),
+      aRequest->URI(), mDocument->GetDocumentURI(),
       nsINetworkPredictor::LEARN_LOAD_SUBRESOURCE,
       mDocument->NodePrincipal()->OriginAttributesRef());
 
@@ -1010,7 +1016,7 @@ nsresult ScriptLoader::StartLoadInternal(
   NS_ENSURE_SUCCESS(rv, rv);
 
   auto key = PreloadHashKey::CreateAsScript(
-      aRequest->mURI, aRequest->CORSMode(), aRequest->mKind);
+      aRequest->URI(), aRequest->CORSMode(), aRequest->mKind);
   aRequest->GetScriptLoadContext()->NotifyOpen(
       key, channel, mDocument,
       aRequest->GetScriptLoadContext()->IsLinkPreloadScript(),
@@ -1033,7 +1039,7 @@ nsresult ScriptLoader::StartLoadInternal(
 bool ScriptLoader::PreloadURIComparator::Equals(const PreloadInfo& aPi,
                                                 nsIURI* const& aURI) const {
   bool same;
-  return NS_SUCCEEDED(aPi.mRequest->mURI->Equals(aURI, &same)) && same;
+  return NS_SUCCEEDED(aPi.mRequest->URI()->Equals(aURI, &same)) && same;
 }
 
 static bool CSPAllowsInlineScript(nsIScriptElement* aElement,
@@ -1139,73 +1145,106 @@ already_AddRefed<ScriptLoadRequest> ScriptLoader::CreateLoadRequest(
   MOZ_ASSERT(aKind == ScriptKind::eClassic || aKind == ScriptKind::eImportMap);
 
   RefPtr<ScriptLoadRequest> request =
-      new ScriptLoadRequest(aKind, aURI, aReferrerPolicy, fetchOptions,
-                            aIntegrity, referrer, context);
+      new ScriptLoadRequest(aKind, aIntegrity, referrer, context);
 
-  TryUseCache(request, aElement, aNonce, aRequestType);
+  TryUseCache(aReferrerPolicy, fetchOptions, aURI, request, aElement, aNonce,
+              aRequestType);
 
   return request.forget();
 }
 
-void ScriptLoader::TryUseCache(ScriptLoadRequest* aRequest,
+void ScriptLoader::TryUseCache(ReferrerPolicy aReferrerPolicy,
+                               ScriptFetchOptions* aFetchOptions, nsIURI* aURI,
+                               ScriptLoadRequest* aRequest,
                                nsIScriptElement* aElement,
                                const nsAString& aNonce,
                                ScriptLoadRequestType aRequestType) {
   if (aRequestType == ScriptLoadRequestType::Inline) {
-    aRequest->NoCacheEntryFound();
+    aRequest->NoCacheEntryFound(aReferrerPolicy, aFetchOptions, aURI);
+    LOG(
+        ("ScriptLoader (%p): Created LoadedScript (%p) for "
+         "ScriptLoadRequest(%p) %s.",
+         this, aRequest->getLoadedScript(), aRequest,
+         aRequest->URI()->GetSpecOrDefault().get()));
     return;
   }
 
   if (!mCache) {
-    aRequest->NoCacheEntryFound();
+    aRequest->NoCacheEntryFound(aReferrerPolicy, aFetchOptions, aURI);
+    LOG(
+        ("ScriptLoader (%p): Created LoadedScript (%p) for "
+         "ScriptLoadRequest(%p) %s.",
+         this, aRequest->getLoadedScript(), aRequest,
+         aRequest->URI()->GetSpecOrDefault().get()));
     return;
   }
 
-  ScriptHashKey key(this, aRequest);
+  // NOTE: Some ScriptLoadRequest fields aren't yet accessible until
+  //       either NoCacheEntryFound or CacheEntryFound is called,
+  //       which constructs LoadedScript.
+  //       aRequest->FetchOptions() and aRequest->URI() are backed by
+  //       LoadedScript, and we cannot use them here.
+  ScriptHashKey key(this, aRequest, aReferrerPolicy, aFetchOptions, aURI);
   auto cacheResult = mCache->Lookup(*this, key, /* aSyncLoad = */ true);
   if (cacheResult.mState != CachedSubResourceState::Complete) {
-    aRequest->NoCacheEntryFound();
+    aRequest->NoCacheEntryFound(aReferrerPolicy, aFetchOptions, aURI);
+    LOG(
+        ("ScriptLoader (%p): Created LoadedScript (%p) for "
+         "ScriptLoadRequest(%p) %s.",
+         this, aRequest->getLoadedScript(), aRequest,
+         aRequest->URI()->GetSpecOrDefault().get()));
+    return;
+  }
+
+  if (cacheResult.mCompleteValue->IsDirty()) {
+    // The cache entry needs revalidation.
+    // Fetch from necko and validate in ScriptLoader::OnStreamComplete.
+    TRACE_FOR_TEST(aRequest, "memorycache:dirty:hit");
+    aRequest->SetHasDirtyCache();
+    aRequest->NoCacheEntryFound(aReferrerPolicy, aFetchOptions, aURI);
+    LOG(
+        ("ScriptLoader (%p): Created LoadedScript (%p) for "
+         "ScriptLoadRequest(%p) because of dirty flag %s.",
+         this, aRequest->getLoadedScript(), aRequest,
+         aRequest->URI()->GetSpecOrDefault().get()));
     return;
   }
 
   if (aRequestType == ScriptLoadRequestType::External) {
     // NOTE: The preload case checks the same after the
     //       LookupPreloadRequest call.
-    if (NS_FAILED(CheckContentPolicy(aElement, aNonce, aRequest))) {
-      aRequest->NoCacheEntryFound();
+    if (NS_FAILED(CheckContentPolicy(aElement, aNonce, aRequest, aFetchOptions,
+                                     aURI))) {
+      aRequest->NoCacheEntryFound(aReferrerPolicy, aFetchOptions, aURI);
+      LOG(
+          ("ScriptLoader (%p): Created LoadedScript (%p) for "
+           "ScriptLoadRequest(%p) %s.",
+           this, aRequest->getLoadedScript(), aRequest,
+           aRequest->URI()->GetSpecOrDefault().get()));
       return;
     }
   }
 
   aRequest->mNetworkMetadata = cacheResult.mNetworkMetadata;
 
-  aRequest->CacheEntryFound(cacheResult.mCompleteValue);
-  LOG(("ScriptLoader (%p): Found in-memory cache for %s.", this,
-       aRequest->mURI->GetSpecOrDefault().get()));
+  MOZ_ASSERT(cacheResult.mCompleteValue->ReferrerPolicy() == aReferrerPolicy);
+  MOZ_ASSERT(aFetchOptions->IsCompatible(
+      cacheResult.mCompleteValue->GetFetchOptions()));
 
-  if (cacheResult.mCompleteValue->mFetchCount < UINT8_MAX) {
-    cacheResult.mCompleteValue->mFetchCount++;
-  }
+  aRequest->CacheEntryFound(cacheResult.mCompleteValue);
+  LOG(
+      ("ScriptLoader (%p): Found in-memory cache LoadedScript (%p) for "
+       "ScriptLoadRequest(%p) %s.",
+       this, aRequest->getLoadedScript(), aRequest,
+       aRequest->URI()->GetSpecOrDefault().get()));
+  TRACE_FOR_TEST(aRequest, "load:memorycache");
+
+  cacheResult.mCompleteValue->AddFetchCount();
   return;
 }
 
-void ScriptLoader::StoreCacheInfo(LoadedScript* aLoadedScript,
-                                  ScriptLoadRequest* aRequest) {
-  MOZ_ASSERT(aRequest->mCacheInfo);
-  MOZ_ASSERT(!aRequest->SRIAndBytecode().empty());
-  MOZ_ASSERT(aRequest->SRIAndBytecode().length() == aRequest->GetSRILength());
-  MOZ_ASSERT(!aLoadedScript->mCacheInfo);
-  MOZ_ASSERT(aLoadedScript->mSRI.empty());
-
-  if (!aLoadedScript->mSRI.appendAll(aRequest->SRIAndBytecode())) {
-    return;
-  }
-
-  aLoadedScript->mCacheInfo = aRequest->mCacheInfo;
-}
-
 void ScriptLoader::EmulateNetworkEvents(ScriptLoadRequest* aRequest) {
-  MOZ_ASSERT(aRequest->IsStencil());
+  MOZ_ASSERT(aRequest->IsCachedStencil());
   MOZ_ASSERT(aRequest->mNetworkMetadata);
 
   nsIScriptElement* element = aRequest->GetScriptLoadContext()->mScriptElement;
@@ -1218,14 +1257,14 @@ void ScriptLoader::EmulateNetworkEvents(ScriptLoadRequest* aRequest) {
   }
 
   NotifyObserversForCachedScript(
-      aRequest->mURI, context, aRequest->mFetchOptions->mTriggeringPrincipal,
-      CORSModeToSecurityFlags(aRequest->mFetchOptions->mCORSMode),
+      aRequest->URI(), context, aRequest->FetchOptions()->mTriggeringPrincipal,
+      CORSModeToSecurityFlags(aRequest->FetchOptions()->mCORSMode),
       nsIContentPolicy::TYPE_INTERNAL_SCRIPT, aRequest->mNetworkMetadata);
 
   {
     nsAutoCString name;
     nsString entryName;
-    aRequest->mURI->GetSpec(name);
+    aRequest->URI()->GetSpec(name);
     CopyUTF8toUTF16(name, entryName);
 
     auto now = TimeStamp::Now();
@@ -1338,7 +1377,9 @@ bool ScriptLoader::ProcessExternalScript(nsIScriptElement* aElement,
   RefPtr<ScriptLoadRequest> request =
       LookupPreloadRequest(aElement, aScriptKind, sriMetadata);
   if (request) {
-    if (NS_FAILED(CheckContentPolicy(aElement, nonce, request))) {
+    if (NS_FAILED(CheckContentPolicy(aElement, nonce, request,
+                                     request->FetchOptions(),
+                                     request->URI()))) {
       LOG(("ScriptLoader (%p): content policy check failed for preload", this));
 
       // Probably plans have changed; even though the preload was allowed seems
@@ -1430,7 +1471,7 @@ bool ScriptLoader::ProcessExternalScript(nsIScriptElement* aElement,
       return block;
     }
 
-    if (request->IsStencil()) {
+    if (request->IsCachedStencil()) {
       // https://html.spec.whatwg.org/#prepare-the-script-element
       //
       // Step 33. If el's type is "classic" and el has a src attribute, or el's
@@ -1631,7 +1672,7 @@ bool ScriptLoader::ProcessInlineScript(nsIScriptElement* aElement,
       aElement->GetScriptColumnNumber();
   request->mFetchSourceOnly = true;
   request->SetTextSource(request->mLoadContext.get());
-  TRACE_FOR_TEST_BOOL(request, "scriptloader_load_source");
+  TRACE_FOR_TEST(request, "load:source");
   CollectScriptTelemetry(request);
 
   // Only the 'async' attribute is heeded on an inline module script and
@@ -1644,7 +1685,7 @@ bool ScriptLoader::ProcessInlineScript(nsIScriptElement* aElement,
   LOG(("ScriptLoadRequest (%p): Created request for inline script",
        request.get()));
 
-  request->mBaseURL = mDocument->GetDocBaseURI();
+  request->SetBaseURL(mDocument->GetDocBaseURI());
 
   if (request->IsModuleRequest()) {
     // https://html.spec.whatwg.org/multipage/webappapis.html#fetch-an-inline-module-script-graph
@@ -1881,7 +1922,7 @@ nsresult ScriptLoader::CompileOffThreadOrProcessRequest(
   NS_ASSERTION(nsContentUtils::IsSafeToRunScript(),
                "Processing requests when running scripts is unsafe.");
 
-  if (!aRequest->IsStencil() &&
+  if (!aRequest->IsCachedStencil() &&
       !aRequest->GetScriptLoadContext()->mCompileOrDecodeTask &&
       !aRequest->GetScriptLoadContext()->CompileStarted()) {
     bool couldCompile = false;
@@ -1938,8 +1979,8 @@ class OffThreadCompilationCompleteTask : public Task {
       if (mRequest->IsTextSource()) {
         scriptSourceString = "ScriptCompileOffThread";
       } else {
-        MOZ_ASSERT(mRequest->IsBytecode());
-        scriptSourceString = "BytecodeDecodeOffThread";
+        MOZ_ASSERT(mRequest->IsSerializedStencil());
+        scriptSourceString = "DecodeStencilOffThread";
       }
 
       nsAutoCString profilerLabelString;
@@ -1981,7 +2022,7 @@ class OffThreadCompilationCompleteTask : public Task {
 //       Stencil API, and also the thread management on the consumer side
 //       (bug 1846160).
 static constexpr size_t OffThreadMinimumTextLength = 5 * 1000;
-static constexpr size_t OffThreadMinimumBytecodeLength = 5 * 1000;
+static constexpr size_t OffThreadMinimumSerializedStencilLength = 5 * 1000;
 
 nsresult ScriptLoader::AttemptOffThreadScriptCompile(
     ScriptLoadRequest* aRequest, bool* aCouldCompileOut) {
@@ -1994,6 +2035,11 @@ nsresult ScriptLoader::AttemptOffThreadScriptCompile(
 
   // Don't off-thread compile inline scripts.
   if (aRequest->GetScriptLoadContext()->mIsInline) {
+    return NS_OK;
+  }
+
+  if (aRequest->IsCachedStencil()) {
+    // This is a revived cache.
     return NS_OK;
   }
 
@@ -2031,15 +2077,15 @@ nsresult ScriptLoader::AttemptOffThreadScriptCompile(
   if (aRequest->IsTextSource()) {
     if (!StaticPrefs::javascript_options_parallel_parsing() ||
         aRequest->ScriptTextLength() < OffThreadMinimumTextLength) {
-      TRACE_FOR_TEST(aRequest, "scriptloader_main_thread_compile");
+      TRACE_FOR_TEST(aRequest, "compile:main thread");
       return NS_OK;
     }
   } else {
-    MOZ_ASSERT(aRequest->IsBytecode());
+    MOZ_ASSERT(aRequest->IsSerializedStencil());
 
-    JS::TranscodeRange bytecode = aRequest->Bytecode();
+    JS::TranscodeRange range = aRequest->SerializedStencil();
     if (!StaticPrefs::javascript_options_parallel_parsing() ||
-        bytecode.length() < OffThreadMinimumBytecodeLength) {
+        range.length() < OffThreadMinimumSerializedStencilLength) {
       return NS_OK;
     }
   }
@@ -2291,10 +2337,10 @@ class ScriptDecodeTask final : public CompileOrDecodeTask {
 nsresult ScriptLoader::CreateOffThreadTask(
     JSContext* aCx, ScriptLoadRequest* aRequest, JS::CompileOptions& aOptions,
     CompileOrDecodeTask** aCompileOrDecodeTask) {
-  if (aRequest->IsBytecode()) {
-    JS::TranscodeRange bytecode = aRequest->Bytecode();
+  if (aRequest->IsSerializedStencil()) {
+    JS::TranscodeRange range = aRequest->SerializedStencil();
     JS::DecodeOptions decodeOptions(aOptions);
-    RefPtr<ScriptDecodeTask> decodeTask = new ScriptDecodeTask(bytecode);
+    RefPtr<ScriptDecodeTask> decodeTask = new ScriptDecodeTask(range);
     nsresult rv = decodeTask->Init(decodeOptions);
     NS_ENSURE_SUCCESS(rv, rv);
     decodeTask.forget(aCompileOrDecodeTask);
@@ -2316,7 +2362,7 @@ nsresult ScriptLoader::CreateOffThreadTask(
     LOG(
         ("ScriptLoadRequest (%p): non-on-demand-only (omt) Parsing Enabled "
          "for url=%s mTotalFullParseSize=%u",
-         aRequest, aRequest->mURI->GetSpecOrDefault().get(),
+         aRequest, aRequest->URI()->GetSpecOrDefault().get(),
          mTotalFullParseSize));
   }
 
@@ -2332,17 +2378,17 @@ nsresult ScriptLoader::CreateOffThreadTask(
   if (StaticPrefs::dom_expose_test_interfaces()) {
     switch (aOptions.eagerDelazificationStrategy()) {
       case JS::DelazificationOption::OnDemandOnly:
-        TRACE_FOR_TEST(aRequest, "delazification_on_demand_only");
+        TRACE_FOR_TEST(aRequest, "delazification:OnDemandOnly");
         break;
       case JS::DelazificationOption::CheckConcurrentWithOnDemand:
       case JS::DelazificationOption::ConcurrentDepthFirst:
-        TRACE_FOR_TEST(aRequest, "delazification_concurrent_depth_first");
+        TRACE_FOR_TEST(aRequest, "delazification:ConcurrentDepthFirst");
         break;
       case JS::DelazificationOption::ConcurrentLargeFirst:
-        TRACE_FOR_TEST(aRequest, "delazification_concurrent_large_first");
+        TRACE_FOR_TEST(aRequest, "delazification:ConcurrentLargeFirst");
         break;
       case JS::DelazificationOption::ParseEverythingEagerly:
-        TRACE_FOR_TEST(aRequest, "delazification_parse_everything_eagerly");
+        TRACE_FOR_TEST(aRequest, "delazification:ParseEverythingEagerly");
         break;
     }
   }
@@ -2449,15 +2495,6 @@ nsresult ScriptLoader::ProcessRequest(ScriptLoadRequest* aRequest) {
     }
   }
 
-  nsCOMPtr<nsINode> scriptElem = do_QueryInterface(
-      aRequest->GetScriptLoadContext()->GetScriptElementForExecuteEvents());
-
-  nsCOMPtr<Document> doc;
-  if (!aRequest->GetScriptLoadContext()->mIsInline ||
-      aRequest->IsModuleRequest()) {
-    doc = scriptElem->OwnerDoc();
-  }
-
   nsCOMPtr<nsIScriptElement> oldParserInsertedScript;
   uint32_t parserCreated = aRequest->GetScriptLoadContext()->GetParserCreated();
   if (parserCreated) {
@@ -2471,48 +2508,12 @@ nsresult ScriptLoader::ProcessRequest(ScriptLoadRequest* aRequest) {
 
   FireScriptAvailable(NS_OK, aRequest);
 
-  // The window may have gone away by this point, in which case there's no point
-  // in trying to run the script.
-
   {
     // Try to perform a microtask checkpoint
     nsAutoMicroTask mt;
   }
 
-  nsPIDOMWindowInner* pwin = mDocument->GetInnerWindow();
-  bool runScript = !!pwin;
-  if (runScript) {
-    nsContentUtils::DispatchTrustedEvent(
-        scriptElem->OwnerDoc(), scriptElem, u"beforescriptexecute"_ns,
-        CanBubble::eYes, Cancelable::eYes, &runScript,
-        StaticPrefs::dom_events_script_execute_enabled()
-            ? SystemGroupOnly::eNo
-            : SystemGroupOnly::eYes);
-  }
-
-  // Inner window could have gone away after firing beforescriptexecute
-  pwin = mDocument->GetInnerWindow();
-  if (!pwin) {
-    runScript = false;
-  }
-
-  nsresult rv = NS_OK;
-  if (runScript) {
-    if (doc) {
-      doc->IncrementIgnoreDestructiveWritesCounter();
-    }
-    rv = EvaluateScriptElement(aRequest);
-    if (doc) {
-      doc->DecrementIgnoreDestructiveWritesCounter();
-    }
-
-    nsContentUtils::DispatchTrustedEvent(
-        scriptElem->OwnerDoc(), scriptElem, u"afterscriptexecute"_ns,
-        CanBubble::eYes, Cancelable::eNo, nullptr,
-        StaticPrefs::dom_events_script_execute_enabled()
-            ? SystemGroupOnly::eNo
-            : SystemGroupOnly::eYes);
-  }
+  nsresult rv = EvaluateScriptElement(aRequest);
 
   FireScriptEvaluated(rv, aRequest);
 
@@ -2531,14 +2532,15 @@ nsresult ScriptLoader::ProcessRequest(ScriptLoadRequest* aRequest) {
     aRequest->GetScriptLoadContext()->MaybeCancelOffThreadScript();
   }
 
-  // Free any source data, but keep the bytecode content as we might have to
-  // save it later.
-  aRequest->ClearScriptSource();
-  if (aRequest->IsBytecode()) {
-    // We received bytecode as input, thus we were decoding, and we will not be
-    // encoding the bytecode once more. We can safely clear the content of this
-    // buffer.
-    aRequest->DropBytecode();
+  if (aRequest->IsTextSource()) {
+    // Free text source, but keep the serialized Stencil as we might have to
+    // save it later.
+    aRequest->ClearScriptText();
+  } else if (aRequest->IsSerializedStencil()) {
+    // We received serialized Stencil as input, thus we were decoding, and we
+    // will not be encoding it once more. We can safely clear the content of
+    // this buffer.
+    aRequest->DropSRIOrSRIAndSerializedStencil();
   }
 
   return rv;
@@ -2551,7 +2553,7 @@ void ScriptLoader::FireScriptAvailable(nsresult aResult,
     obs->ScriptAvailable(
         aResult,
         aRequest->GetScriptLoadContext()->GetScriptElementForObserver(),
-        aRequest->GetScriptLoadContext()->mIsInline, aRequest->mURI,
+        aRequest->GetScriptLoadContext()->mIsInline, aRequest->URI(),
         aRequest->GetScriptLoadContext()->mLineNo);
   }
 
@@ -2560,7 +2562,7 @@ void ScriptLoader::FireScriptAvailable(nsresult aResult,
   RefPtr<nsIScriptElement> scriptElement =
       aRequest->GetScriptLoadContext()->GetScriptElementForObserver();
   scriptElement->ScriptAvailable(aResult, scriptElement, isInlineClassicScript,
-                                 aRequest->mURI,
+                                 aRequest->URI(),
                                  aRequest->GetScriptLoadContext()->mLineNo);
 }
 
@@ -2644,9 +2646,9 @@ static void ApplyEagerBaselineStrategy(JS::CompileOptions* aOptions) {
 nsresult ScriptLoader::FillCompileOptionsForRequest(
     JSContext* aCx, ScriptLoadRequest* aRequest, JS::CompileOptions* aOptions,
     JS::MutableHandle<JSScript*> aIntroductionScript) {
-  // It's very important to use aRequest->mURI, not the final URI of the channel
-  // aRequest ended up getting script data from, as the script filename.
-  nsresult rv = aRequest->mURI->GetSpec(aRequest->mURL);
+  // It's very important to use aRequest->URI(), not the final URI of the
+  // channel aRequest ended up getting script data from, as the script filename.
+  nsresult rv = aRequest->URI()->GetSpec(aRequest->mURL);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;
   }
@@ -2704,14 +2706,72 @@ nsresult ScriptLoader::FillCompileOptionsForRequest(
   return NS_OK;
 }
 
+/* static */
+ScriptLoader::DiskCacheStrategy ScriptLoader::GetDiskCacheStrategy() {
+  int32_t strategyPref =
+      StaticPrefs::dom_script_loader_bytecode_cache_strategy();
+  LOG(("Bytecode-cache: disk cache strategy = %d.", strategyPref));
+
+  DiskCacheStrategy strategy;
+  switch (strategyPref) {
+    case -2: {
+      strategy.mIsDisabled = true;
+      break;
+    }
+    case -1: {
+      // Eager mode, skip heuristics!
+      strategy.mHasSourceLengthMin = false;
+      strategy.mHasFetchCountMin = false;
+      break;
+    }
+    case 1: {
+      strategy.mHasSourceLengthMin = true;
+      strategy.mHasFetchCountMin = true;
+      strategy.mSourceLengthMin = 1024;
+      // fetchCountMin is optimized for speed in exchange for additional
+      // memory and cache use.
+      strategy.mFetchCountMin = 2;
+      break;
+    }
+    default:
+    case 0: {
+      strategy.mHasSourceLengthMin = true;
+      strategy.mHasFetchCountMin = true;
+      strategy.mSourceLengthMin = 1024;
+      // If we were to optimize only for speed, without considering the impact
+      // on memory, we should set this threshold to 2. (Bug 900784 comment 120)
+      strategy.mFetchCountMin = 4;
+      break;
+    }
+  }
+
+  return strategy;
+}
+
 void ScriptLoader::CalculateCacheFlag(ScriptLoadRequest* aRequest) {
   using mozilla::TimeDuration;
   using mozilla::TimeStamp;
 
-  if (aRequest->IsBytecode()) {
-    LOG(("ScriptLoadRequest (%p): Bytecode-cache: Skip all: IsBytecode",
+  if (aRequest->GetScriptLoadContext()->mIsInline) {
+    LOG(("ScriptLoadRequest (%p): Bytecode-cache: Skip all: Inline script",
          aRequest));
-    aRequest->MarkSkippedAllCaching();
+    aRequest->MarkNotCacheable();
+    MOZ_ASSERT(!aRequest->getLoadedScript()->HasDiskCacheReference());
+    // NOTE: An inline script tag can have an SRI, but we don't calculate it
+    //       for this case.
+    MOZ_ASSERT(aRequest->HasNoSRIOrSRIAndSerializedStencil());
+    return;
+  }
+
+  if (!aRequest->URI()->SchemeIs("http") &&
+      !aRequest->URI()->SchemeIs("https")) {
+    LOG(("ScriptLoadRequest (%p): Bytecode-cache: Skip all: Unsupported scheme",
+         aRequest));
+    // Internal resources can be exposed to the web content, but they don't
+    // have to be cached.
+    aRequest->MarkNotCacheable();
+    MOZ_ASSERT(!aRequest->getLoadedScript()->HasDiskCacheReference());
+    MOZ_ASSERT(aRequest->HasNoSRIOrSRIAndSerializedStencil());
     return;
   }
 
@@ -2719,7 +2779,20 @@ void ScriptLoader::CalculateCacheFlag(ScriptLoadRequest* aRequest) {
       aRequest->AsModuleRequest()->mModuleType != JS::ModuleType::JavaScript) {
     LOG(("ScriptLoadRequest (%p): Bytecode-cache: Skip all: JSON module",
          aRequest));
+    aRequest->MarkNotCacheable();
+    MOZ_ASSERT(!aRequest->getLoadedScript()->HasDiskCacheReference());
+    MOZ_ASSERT_IF(aRequest->IsTextSource(),
+                  aRequest->HasNoSRIOrSRIAndSerializedStencil());
+    return;
+  }
+
+  if (!aRequest->IsCachedStencil() && aRequest->ExpirationTime().IsExpired()) {
+    LOG(("ScriptLoadRequest (%p): Bytecode-cache: Skip all: Expired",
+         aRequest));
+    // NOTE: The expiration for in-memory-cached case should be handled by
+    //       SharedScriptCache.
     aRequest->MarkSkippedAllCaching();
+    aRequest->getLoadedScript()->DropDiskCacheReferenceAndSRI();
     return;
   }
 
@@ -2728,139 +2801,118 @@ void ScriptLoader::CalculateCacheFlag(ScriptLoadRequest* aRequest) {
          aRequest));
     aRequest->MarkPassedConditionForMemoryCache();
 
-    if (aRequest->IsModuleRequest() &&
-        aRequest->AsModuleRequest()->IsStaticImport()) {
-      MOZ_ASSERT(!aRequest->isInList());
-      mCacheableDependencyModules.AppendElement(aRequest);
-    }
-  } else {
-    aRequest->MarkSkippedMemoryCaching();
+    // Disk cache is handled by SharedScriptCache.
+    return;
   }
+
+  aRequest->MarkSkippedMemoryCaching();
 
   // The following conditions apply only to the disk cache.
 
+  if (aRequest->IsSerializedStencil()) {
+    LOG(
+        ("ScriptLoadRequest (%p): Bytecode-cache: Skip disk: "
+         "IsSerializedStencil",
+         aRequest));
+    aRequest->MarkSkippedDiskCaching();
+    MOZ_ASSERT(!aRequest->getLoadedScript()->HasDiskCacheReference());
+    return;
+  }
+
   // We need the nsICacheInfoChannel to exist to be able to open the alternate
   // data output stream.
-  if (aRequest->IsStencil()) {
-    // For in-memory cache, the pointer is cached in the LoadedScript,
-    // if the cache had never been saved.
-    if (!aRequest->getLoadedScript()->mCacheInfo) {
-      LOG(
-          ("ScriptLoadRequest (%p): Bytecode-cache: Skip disk: "
-           "!LoadedScript::mCacheInfo",
-           aRequest));
-      aRequest->MarkSkippedDiskCaching();
-      return;
-    }
-  } else {
-    // This pointer would only be non-null if the bytecode was
-    // activated at the time the channel got created in StartLoad.
-    if (!aRequest->HasDiskCacheReference()) {
-      LOG(
-          ("ScriptLoadRequest (%p): Bytecode-cache: Skip disk: "
-           "!HasDiskCacheReference",
-           aRequest));
-      aRequest->MarkSkippedDiskCaching();
-      return;
-    }
+  if (!aRequest->getLoadedScript()->HasDiskCacheReference()) {
+    LOG(
+        ("ScriptLoadRequest (%p): Bytecode-cache: Skip disk: "
+         "!LoadedScript::HasDiskCacheReference",
+         aRequest));
+    aRequest->MarkSkippedDiskCaching();
+    MOZ_ASSERT_IF(aRequest->IsTextSource(),
+                  aRequest->HasNoSRIOrSRIAndSerializedStencil());
+    return;
   }
 
-  // Look at the preference to know which strategy (parameters) should be used
-  // when the bytecode cache is enabled.
-  int32_t strategy = StaticPrefs::dom_script_loader_bytecode_cache_strategy();
+  auto strategy = GetDiskCacheStrategy();
 
-  // List of parameters used by the strategies.
-  bool hasSourceLengthMin = false;
-  bool hasFetchCountMin = false;
-  size_t sourceLengthMin = 100;
-  uint32_t fetchCountMin = 4;
+  if (strategy.mIsDisabled) {
+    // Reader mode, keep requesting alternate data but no longer save it.
+    LOG(
+        ("ScriptLoadRequest (%p): Bytecode-cache: Skip disk: Disabled by "
+         "pref.",
+         aRequest));
+    aRequest->MarkSkippedDiskCaching();
 
-  LOG(("ScriptLoadRequest (%p): Bytecode-cache: strategy = %d.", aRequest,
-       strategy));
-  switch (strategy) {
-    case -2: {
-      // Reader mode, keep requesting alternate data but no longer save it.
-      LOG(
-          ("ScriptLoadRequest (%p): Bytecode-cache: Skip disk: Disabled by "
-           "pref.",
-           aRequest));
-      aRequest->MarkSkippedDiskCaching();
-      return;
-    }
-    case -1: {
-      // Eager mode, skip heuristics!
-      hasSourceLengthMin = false;
-      hasFetchCountMin = false;
-      break;
-    }
-    case 1: {
-      hasSourceLengthMin = true;
-      hasFetchCountMin = true;
-      sourceLengthMin = 1024;
-      // fetchCountMin is optimized for speed in exchange for additional
-      // memory and cache use.
-      fetchCountMin = 2;
-      break;
-    }
-    default:
-    case 0: {
-      hasSourceLengthMin = true;
-      hasFetchCountMin = true;
-      sourceLengthMin = 1024;
-      // If we were to optimize only for speed, without considering the impact
-      // on memory, we should set this threshold to 2. (Bug 900784 comment 120)
-      fetchCountMin = 4;
-      break;
-    }
+    aRequest->getLoadedScript()->DropDiskCacheReferenceAndSRI();
+    return;
   }
 
-  // If the script is too small/large, do not attempt at creating a bytecode
+  // If the script is too small/large, do not attempt at creating a disk
   // cache for this script, as the overhead of parsing it might not be worth the
   // effort.
-  if (hasSourceLengthMin) {
+  if (strategy.mHasSourceLengthMin) {
     size_t sourceLength;
-    size_t minLength;
-    if (aRequest->IsStencil()) {
+    if (aRequest->IsCachedStencil()) {
       sourceLength = JS::GetScriptSourceLength(aRequest->GetStencil());
     } else {
       MOZ_ASSERT(aRequest->IsTextSource());
       sourceLength = aRequest->ReceivedScriptTextLength();
     }
-    minLength = sourceLengthMin;
-    if (sourceLength < minLength) {
+    if (sourceLength < strategy.mSourceLengthMin) {
       LOG(
           ("ScriptLoadRequest (%p): Bytecode-cache: Skip disk: Script is too "
            "small.",
            aRequest));
       aRequest->MarkSkippedDiskCaching();
+      aRequest->getLoadedScript()->DropDiskCacheReferenceAndSRI();
       return;
     }
   }
 
   // Check that we loaded the cache entry a few times before attempting any
-  // bytecode-cache optimization, such that we do not waste time on entry which
+  // disk cache optimization, such that we do not waste time on entry which
   // are going to be dropped soon.
-  if (hasFetchCountMin) {
+  if (strategy.mHasFetchCountMin) {
     uint32_t fetchCount = 0;
-    if (aRequest->IsStencil()) {
+    if (aRequest->IsCachedStencil()) {
       fetchCount = aRequest->mLoadedScript->mFetchCount;
     } else {
       if (NS_FAILED(
-              aRequest->mCacheInfo->GetCacheTokenFetchCount(&fetchCount))) {
+              aRequest->getLoadedScript()->mCacheInfo->GetCacheTokenFetchCount(
+                  &fetchCount))) {
         LOG(
             ("ScriptLoadRequest (%p): Bytecode-cache: Skip disk: Cannot get "
              "fetchCount.",
              aRequest));
         aRequest->MarkSkippedDiskCaching();
+        aRequest->getLoadedScript()->DropDiskCacheReferenceAndSRI();
         return;
+      }
+      if (fetchCount < UINT8_MAX) {
+        aRequest->mLoadedScript->mFetchCount = fetchCount;
+      } else {
+        aRequest->mLoadedScript->mFetchCount = UINT8_MAX;
       }
     }
     LOG(("ScriptLoadRequest (%p): Bytecode-cache: fetchCount = %d.", aRequest,
          fetchCount));
-    if (fetchCount < fetchCountMin) {
+    if (fetchCount < strategy.mFetchCountMin) {
       LOG(("ScriptLoadRequest (%p): Bytecode-cache: Skip disk: fetchCount",
            aRequest));
       aRequest->MarkSkippedDiskCaching();
+
+      if (!mCache) {
+        // If in-memory cache is not enabled, the disk cache reference
+        // and the SRI data is necessary only when the current request
+        // reaches the minimum fetch count.  And they can be discarded here
+        // if the fetch count is less than the minimum.
+        //
+        // If in-memory cache is enabled, the disk cache reference and the
+        // SRI data is cached with the LoadedScript, and the LoadedScript
+        // is reused by the subsequent requests, and the fetch count
+        // can reach the minimum later.  We need to keep the disk cache
+        // reference and the SRI data until then.
+        aRequest->getLoadedScript()->DropDiskCacheReferenceAndSRI();
+      }
       return;
     }
   }
@@ -2869,11 +2921,10 @@ void ScriptLoader::CalculateCacheFlag(ScriptLoadRequest* aRequest) {
        aRequest));
   aRequest->MarkPassedConditionForDiskCache();
 
-  if (!aRequest->PassedConditionForMemoryCache() &&
-      aRequest->IsModuleRequest() &&
+  if (aRequest->IsModuleRequest() &&
       aRequest->AsModuleRequest()->IsStaticImport()) {
     MOZ_ASSERT(!aRequest->isInList());
-    mCacheableDependencyModules.AppendElement(aRequest);
+    mDiskCacheableDependencyModules.AppendElement(aRequest);
   }
 }
 
@@ -2908,19 +2959,21 @@ static void ExecuteCompiledScript(JSContext* aCx, ClassicScript* aLoaderScript,
   }
 }
 
+// https://html.spec.whatwg.org/#execute-the-script-element
 nsresult ScriptLoader::EvaluateScriptElement(ScriptLoadRequest* aRequest) {
   MOZ_ASSERT(aRequest->IsFinished());
+  MOZ_ASSERT(mDocument);
 
-  // We need a document to evaluate scripts.
-  if (!mDocument) {
-    return NS_ERROR_FAILURE;
+  // The window may have gone away by this point, in which case there's no point
+  // in trying to run the script.
+  if (!mDocument->GetInnerWindow()) {
+    return NS_OK;
   }
 
+  // 2. If el's preparation-time document is not equal to document, then return.
   Document* ownerDoc =
       aRequest->GetScriptLoadContext()->GetScriptOwnerDocument();
   if (ownerDoc != mDocument) {
-    // https://html.spec.whatwg.org/#prepare-the-script-element step 16
-    // as of 2025-01-15
     return NS_ERROR_FAILURE;
   }
 
@@ -2948,13 +3001,22 @@ nsresult ScriptLoader::EvaluateScriptElement(ScriptLoadRequest* aRequest) {
     globalObject = scriptGlobal;
   }
 
-  // This mechanism is currently only used when the parser returns
-  // early due to this script loader having a current script. However,
-  // now that we have this, we could migrate continuing after a
-  // parser-blocking script to this same mechanism. Not doing it right
-  // away to reduce risk of introducing bugs.
-  auto maybeContinueParser = MakeScopeExit([&] {
+  // 5. If el's from an external file is true, or el's type is "module", then
+  // increment document's ignore-destructive-writes counter.
+  const bool ignoreDestructiveWrites =
+      !aRequest->GetScriptLoadContext()->mIsInline ||
+      aRequest->IsModuleRequest();
+  if (ignoreDestructiveWrites) {
+    ownerDoc->IncrementIgnoreDestructiveWritesCounter();
+  }
+
+  auto afterScript = MakeScopeExit([&] {
     if (mContinueParsingDocumentAfterCurrentScript) {
+      // This mechanism is currently only used when the parser returns
+      // early due to this script loader having a current script. However,
+      // now that we have this, we could migrate continuing after a
+      // parser-blocking script to this same mechanism. Not doing it right
+      // away to reduce risk of introducing bugs.
       mContinueParsingDocumentAfterCurrentScript = false;
       if (mDocument) {
         nsCOMPtr<nsIParser> parser = mDocument->CreatorParserOrNull();
@@ -2962,6 +3024,11 @@ nsresult ScriptLoader::EvaluateScriptElement(ScriptLoadRequest* aRequest) {
           parser->ContinueInterruptedParsingAsync();
         }
       }
+    }
+    // 7. Decrement the ignore-destructive-writes counter of document, if it was
+    // incremented in the earlier step.
+    if (ignoreDestructiveWrites) {
+      ownerDoc->DecrementIgnoreDestructiveWritesCounter();
     }
   });
 
@@ -2994,14 +3061,14 @@ nsresult ScriptLoader::EvaluateScriptElement(ScriptLoadRequest* aRequest) {
 
 // Decode a script contained in a buffer.
 static void Decode(JSContext* aCx, JS::CompileOptions& aCompileOptions,
-                   const JS::TranscodeRange& aBytecodeBuf,
+                   const JS::TranscodeRange& aRange,
                    RefPtr<JS::Stencil>& aStencil, ErrorResult& aRv) {
   JS::DecodeOptions decodeOptions(aCompileOptions);
   decodeOptions.borrowBuffer = true;
 
   MOZ_ASSERT(aCompileOptions.noScriptRval);
-  JS::TranscodeResult tr = JS::DecodeStencil(aCx, decodeOptions, aBytecodeBuf,
-                                             getter_AddRefs(aStencil));
+  JS::TranscodeResult tr =
+      JS::DecodeStencil(aCx, decodeOptions, aRange, getter_AddRefs(aStencil));
   // These errors are external parameters which should be handled before the
   // decoding phase, and which are the only reasons why you might want to
   // fallback on decoding failures.
@@ -3023,8 +3090,8 @@ static void InstantiateStencil(
     JS::Handle<JS::Value> aDebuggerPrivateValue,
     JS::Handle<JSScript*> aDebuggerIntroductionScript, ErrorResult& aRv,
     JS::InstantiationStorage* aStorage = nullptr,
-    CollectDelazifications aCollectDelazifications = CollectDelazifications::No,
-    IsAlreadyCollecting* aIsAlreadyCollecting = nullptr) {
+    CollectDelazifications aCollectDelazifications =
+        CollectDelazifications::No) {
   JS::InstantiateOptions instantiateOptions(aCompileOptions);
   JS::Rooted<JSScript*> script(
       aCx, JS::InstantiateGlobalStencil(aCx, instantiateOptions, aStencil,
@@ -3035,19 +3102,10 @@ static void InstantiateStencil(
   }
 
   if (aCollectDelazifications == CollectDelazifications::Yes) {
-    bool alreadyStarted;
-    if (!JS::StartCollectingDelazifications(aCx, script, aStencil,
-                                            alreadyStarted)) {
+    bool ignored;
+    if (!JS::StartCollectingDelazifications(aCx, script, aStencil, ignored)) {
       aRv.NoteJSContextException(aCx);
       return;
-    }
-    if (aIsAlreadyCollecting) {
-      *aIsAlreadyCollecting =
-          alreadyStarted ? IsAlreadyCollecting::Yes : IsAlreadyCollecting::No;
-    } else {
-      // The consumer can omit the aIsAlreadyCollecting parameter only when
-      // the stencil is exclusively owned.
-      MOZ_ASSERT(!alreadyStarted);
     }
   }
 
@@ -3065,7 +3123,6 @@ static void InstantiateStencil(
 void ScriptLoader::InstantiateClassicScriptFromMaybeEncodedSource(
     JSContext* aCx, JS::CompileOptions& aCompileOptions,
     ScriptLoadRequest* aRequest, JS::MutableHandle<JSScript*> aScript,
-    RefPtr<JS::Stencil>& aStencilOut,
     JS::Handle<JS::Value> aDebuggerPrivateValue,
     JS::Handle<JSScript*> aDebuggerIntroductionScript, ErrorResult& aRv) {
   nsAutoCString profilerLabelString;
@@ -3073,9 +3130,9 @@ void ScriptLoader::InstantiateClassicScriptFromMaybeEncodedSource(
 
   CalculateCacheFlag(aRequest);
 
-  if (aRequest->IsBytecode()) {
+  if (aRequest->IsSerializedStencil()) {
     if (aRequest->GetScriptLoadContext()->mCompileOrDecodeTask) {
-      LOG(("ScriptLoadRequest (%p): Decode Bytecode & instantiate and Execute",
+      LOG(("ScriptLoadRequest (%p): Decode & instantiate and Execute",
            aRequest));
       RefPtr<JS::Stencil> stencil;
       JS::InstantiationStorage storage;
@@ -3086,22 +3143,24 @@ void ScriptLoader::InstantiateClassicScriptFromMaybeEncodedSource(
         aRv.NoteJSContextException(aCx);
         return;
       }
-      aStencilOut = stencil.get();
+
+      aRequest->SetStencil(stencil);
 
       InstantiateStencil(aCx, aCompileOptions, stencil, aScript,
                          aDebuggerPrivateValue, aDebuggerIntroductionScript,
                          aRv, &storage);
     } else {
-      LOG(("ScriptLoadRequest (%p): Decode Bytecode and Execute", aRequest));
-      AUTO_PROFILER_MARKER_TEXT("BytecodeDecodeMainThread", JS,
+      LOG(("ScriptLoadRequest (%p): Decode and Execute", aRequest));
+      AUTO_PROFILER_MARKER_TEXT("DecodeStencilMainThread", JS,
                                 MarkerInnerWindowIdFromJSContext(aCx),
                                 profilerLabelString);
 
       RefPtr<JS::Stencil> stencil;
-      Decode(aCx, aCompileOptions, aRequest->Bytecode(), stencil, aRv);
-      aStencilOut = stencil.get();
+      Decode(aCx, aCompileOptions, aRequest->SerializedStencil(), stencil, aRv);
 
       if (stencil) {
+        aRequest->SetStencil(stencil);
+
         InstantiateStencil(aCx, aCompileOptions, stencil, aScript,
                            aDebuggerPrivateValue, aDebuggerIntroductionScript,
                            aRv);
@@ -3109,12 +3168,12 @@ void ScriptLoader::InstantiateClassicScriptFromMaybeEncodedSource(
     }
 
     // We do not expect to be saving anything when we already have some
-    // bytecode.
-    MOZ_ASSERT(!aRequest->HasDiskCacheReference());
+    // serialized Stencil.
+    MOZ_ASSERT(!aRequest->getLoadedScript()->HasDiskCacheReference());
     return;
   }
 
-  MOZ_ASSERT(aRequest->IsSource());
+  MOZ_ASSERT(aRequest->IsTextSource());
   CollectDelazifications collectDelazifications =
       aRequest->PassedConditionForEitherCache() ? CollectDelazifications::Yes
                                                 : CollectDelazifications::No;
@@ -3135,7 +3194,8 @@ void ScriptLoader::InstantiateClassicScriptFromMaybeEncodedSource(
       aRv.NoteJSContextException(aCx);
       return;
     }
-    aStencilOut = stencil.get();
+
+    aRequest->SetStencil(stencil);
 
     InstantiateStencil(aCx, aCompileOptions, stencil, aScript,
                        aDebuggerPrivateValue, aDebuggerIntroductionScript, aRv,
@@ -3163,9 +3223,10 @@ void ScriptLoader::InstantiateClassicScriptFromMaybeEncodedSource(
 
       MOZ_ASSERT(!maybeSource.empty());
       maybeSource.mapNonEmpty(compile);
-      aStencilOut = stencil.get();
 
       if (stencil) {
+        aRequest->SetStencil(stencil);
+
         InstantiateStencil(aCx, aCompileOptions, stencil, aScript,
                            aDebuggerPrivateValue, aDebuggerIntroductionScript,
                            erv, /* aStorage = */ nullptr,
@@ -3187,26 +3248,18 @@ void ScriptLoader::InstantiateClassicScriptFromCachedStencil(
 
   MOZ_ASSERT(aRequest->PassedConditionForMemoryCache());
 
-  IsAlreadyCollecting isAlreadyCollecting = IsAlreadyCollecting::No;
+  // For cached stencils, there can be already ongoing work for the in-memory
+  // cache and the disk cache.
+  //
+  // For collecting delazifications, it's detected by
+  // JS::StartCollectingDelazifications API and it's not a problem.
+  //
+  // For disk cache, ScriptLoader::UpdateDiskCache checks the
+  // HasDiskCacheReference condition, and that filters out any loaded scripts
+  // queued multiple times.
   InstantiateStencil(aCx, aCompileOptions, aStencil, aScript,
                      aDebuggerPrivateValue, aDebuggerIntroductionScript, aRv,
-                     /* aStorage = */ nullptr, CollectDelazifications::Yes,
-                     &isAlreadyCollecting);
-  if (isAlreadyCollecting == IsAlreadyCollecting::Yes) {
-    LOG(("ScriptLoadRequest (%p): Bytecode-cache: Skip: IsAlreadyCollecting",
-         aRequest));
-
-    // NOTE: non-top-level modules are added to mCacheableDependencyModules
-    //       at the same time as MarkPassedConditionForMemoryCache.
-    //       Undo it here.
-    if (aRequest->IsModuleRequest() &&
-        !aRequest->AsModuleRequest()->IsTopLevel()) {
-      MOZ_ASSERT(aRequest->isInList());
-      mCacheableDependencyModules.Remove(aRequest);
-    }
-
-    aRequest->MarkSkippedMemoryCaching();
-  }
+                     /* aStorage = */ nullptr, CollectDelazifications::Yes);
 }
 
 void ScriptLoader::InstantiateClassicScriptFromAny(
@@ -3214,7 +3267,7 @@ void ScriptLoader::InstantiateClassicScriptFromAny(
     ScriptLoadRequest* aRequest, JS::MutableHandle<JSScript*> aScript,
     JS::Handle<JS::Value> aDebuggerPrivateValue,
     JS::Handle<JSScript*> aDebuggerIntroductionScript, ErrorResult& aRv) {
-  if (aRequest->IsStencil()) {
+  if (aRequest->IsCachedStencil()) {
     RefPtr<JS::Stencil> stencil = aRequest->GetStencil();
     InstantiateClassicScriptFromCachedStencil(
         aCx, aCompileOptions, aRequest, stencil, aScript, aDebuggerPrivateValue,
@@ -3222,15 +3275,14 @@ void ScriptLoader::InstantiateClassicScriptFromAny(
     return;
   }
 
-  RefPtr<JS::Stencil> stencil;
   InstantiateClassicScriptFromMaybeEncodedSource(
-      aCx, aCompileOptions, aRequest, aScript, stencil, aDebuggerPrivateValue,
+      aCx, aCompileOptions, aRequest, aScript, aDebuggerPrivateValue,
       aDebuggerIntroductionScript, aRv);
   if (aRv.Failed()) {
     return;
   }
 
-  TryCacheRequest(aRequest, stencil);
+  TryCacheRequest(aRequest);
 }
 
 ScriptLoader::CacheBehavior ScriptLoader::GetCacheBehavior(
@@ -3239,17 +3291,7 @@ ScriptLoader::CacheBehavior ScriptLoader::GetCacheBehavior(
     return CacheBehavior::DoNothing;
   }
 
-  if (aRequest->GetScriptLoadContext()->mIsInline) {
-    return CacheBehavior::DoNothing;
-  }
-
-  if (!aRequest->mURI->SchemeIs("http") && !aRequest->mURI->SchemeIs("https")) {
-    // Internal resources can be exposed to the web content, but they don't
-    // have to be cached.
-    return CacheBehavior::DoNothing;
-  }
-
-  if (!aRequest->IsCacheable()) {
+  if (aRequest->ExpirationTime().IsExpired()) {
     return CacheBehavior::Evict;
   }
 
@@ -3266,7 +3308,7 @@ ScriptLoader::CacheBehavior ScriptLoader::GetCacheBehavior(
     return CacheBehavior::Insert;
   }
 
-  ScriptHashKey key(this, aRequest);
+  ScriptHashKey key(this, aRequest, aRequest->getLoadedScript());
   auto cacheResult = mCache->Lookup(*this, key,
                                     /* aSyncLoad = */ true);
   if (cacheResult.mState == CachedSubResourceState::Complete) {
@@ -3276,131 +3318,126 @@ ScriptLoader::CacheBehavior ScriptLoader::GetCacheBehavior(
   return CacheBehavior::Insert;
 }
 
-void ScriptLoader::TryCacheRequest(ScriptLoadRequest* aRequest,
-                                   RefPtr<JS::Stencil>& aStencil) {
+void ScriptLoader::TryCacheRequest(ScriptLoadRequest* aRequest) {
+  MOZ_ASSERT(aRequest->HasStencil());
+  MOZ_ASSERT(!aRequest->IsCachedStencil());
+
+  if (aRequest->IsMarkedNotCacheable()) {
+    aRequest->ClearStencil();
+    return;
+  }
+
   CacheBehavior cacheBehavior = GetCacheBehavior(aRequest);
 
   if (cacheBehavior == CacheBehavior::DoNothing) {
+    if (!aRequest->PassedConditionForEitherCache()) {
+      aRequest->ClearStencil();
+    }
     return;
   }
 
   MOZ_ASSERT(mCache);
-  MOZ_ASSERT(aStencil);
 
-  if (!JS::IsStencilCacheable(aStencil)) {
+  if (!JS::IsStencilCacheable(aRequest->GetStencil())) {
     // If the stencil is not compatible with the cache (e.g. contains asm.js),
     // this should also evict any the existing cache if any.
     cacheBehavior = CacheBehavior::Evict;
   }
 
-  aRequest->SetStencil(aStencil.forget());
-
+  LoadedScript* loadedScript = aRequest->getLoadedScript();
   if (cacheBehavior == CacheBehavior::Insert) {
-    auto loadData = MakeRefPtr<ScriptLoadData>(this, aRequest);
-    if (aRequest->HasDiskCacheReference()) {
-      StoreCacheInfo(aRequest->getLoadedScript(), aRequest);
+    auto loadData = MakeRefPtr<ScriptLoadData>(this, aRequest, loadedScript);
+    loadedScript->ConvertToCachedStencil();
+    if (loadedScript->mFetchCount == 0) {
+      loadedScript->mFetchCount = 1;
     }
     mCache->Insert(*loadData);
     LOG(("ScriptLoader (%p): Inserting in-memory cache for %s.", this,
-         aRequest->mURI->GetSpecOrDefault().get()));
+         aRequest->URI()->GetSpecOrDefault().get()));
+    TRACE_FOR_TEST(aRequest, "memorycache:saved");
   } else {
     MOZ_ASSERT(cacheBehavior == CacheBehavior::Evict);
-    ScriptHashKey key(this, aRequest);
+    ScriptHashKey key(this, aRequest, loadedScript);
     mCache->Evict(key);
     LOG(("ScriptLoader (%p): Evicting in-memory cache for %s.", this,
-         aRequest->mURI->GetSpecOrDefault().get()));
+         aRequest->URI()->GetSpecOrDefault().get()));
+
+    if (!aRequest->PassedConditionForEitherCache()) {
+      aRequest->ClearStencil();
+    }
+    TRACE_FOR_TEST(aRequest, "memorycache:evict");
   }
 }
 
 /* static */
-nsCString& ScriptLoader::BytecodeMimeTypeFor(ScriptLoadRequest* aRequest) {
+nsCString& ScriptLoader::BytecodeMimeTypeFor(
+    const ScriptLoadRequest* aRequest) {
   if (aRequest->IsModuleRequest()) {
     return nsContentUtils::JSModuleBytecodeMimeType();
   }
   return nsContentUtils::JSScriptBytecodeMimeType();
 }
 
-void ScriptLoader::MaybePrepareForCacheBeforeExecute(
-    ScriptLoadRequest* aRequest, JS::Handle<JSScript*> aScript) {
-  if (!aRequest->PassedConditionForEitherCache()) {
-    return;
+/* static */
+nsCString& ScriptLoader::BytecodeMimeTypeFor(
+    const JS::loader::LoadedScript* aLoadedScript) {
+  if (aLoadedScript->IsModuleScript()) {
+    return nsContentUtils::JSModuleBytecodeMimeType();
   }
-
-  aRequest->MarkScriptForCache(aScript);
+  return nsContentUtils::JSScriptBytecodeMimeType();
 }
 
-nsresult ScriptLoader::MaybePrepareForCacheAfterExecute(
+nsresult ScriptLoader::MaybePrepareForDiskCacheAfterExecute(
     ScriptLoadRequest* aRequest, nsresult aRv) {
-  if (aRequest->IsMarkedForEitherCache()) {
-    TRACE_FOR_TEST(aRequest, "scriptloader_encode");
-    // Bytecode-encoding branch is used for 2 purposes right now:
-    //   * If the request is stencil, reflect delazifications to cached stencil
-    //   * otherwise, encode the initial stencil and delazifications
-    //
-    // For latter case, check that the TranscodeBuffer which is going to
-    // receive the encoded bytecode only contains the SRI, and nothing more.
-    //
-    // NOTE: This assertion will fail once we start encoding more data after the
-    //       first encode.
-    MOZ_ASSERT_IF(
-        !aRequest->IsStencil(),
-        aRequest->GetSRILength() == aRequest->SRIAndBytecode().length());
-    RegisterForCache(aRequest);
+  if (mCache) {
+    // Disk cache is handled by SharedScriptCache.
+    return NS_OK;
+  }
+
+  if (!aRequest->PassedConditionForDiskCache() || !aRequest->HasStencil()) {
+    LOG(("ScriptLoadRequest (%p): Bytecode-cache: disabled (rv = %X)", aRequest,
+         unsigned(aRv)));
+    TRACE_FOR_TEST(aRequest, "diskcache:disabled");
+
+    // For in-memory cached requests, the disk cache references are necessary
+    // for later load.
+    if (aRequest->HasStencil()) {
+      MOZ_ASSERT_IF(!aRequest->PassedConditionForMemoryCache(),
+                    !aRequest->getLoadedScript()->HasDiskCacheReference());
+    } else {
+      // This hits compile error.
+      aRequest->getLoadedScript()->DropDiskCacheReferenceAndSRI();
+    }
 
     return aRv;
   }
 
-  LOG(("ScriptLoadRequest (%p): Bytecode-cache: disabled (rv = %X)", aRequest,
-       unsigned(aRv)));
-  TRACE_FOR_TEST_NONE(aRequest, "scriptloader_no_encode");
-  aRequest->DropDiskCacheReference();
+  TRACE_FOR_TEST(aRequest, "diskcache:register");
+  MOZ_ASSERT(aRequest->GetSRILength() == aRequest->SRI().length());
+  RegisterForDiskCache(aRequest);
 
   return aRv;
 }
 
-void ScriptLoader::MaybePrepareModuleForCacheBeforeExecute(
-    JSContext* aCx, ModuleLoadRequest* aRequest) {
-  if (aRequest->IsMarkedForEitherCache()) {
-    // This module is imported multiple times, and already marked.
-    return;
-  }
-
-  if (aRequest->PassedConditionForEitherCache()) {
-    aRequest->MarkModuleForCache();
-  }
-
-  for (auto* r = mCacheableDependencyModules.getFirst(); r; r = r->getNext()) {
-    auto* dep = r->AsModuleRequest();
-    MOZ_ASSERT(dep->PassedConditionForEitherCache());
-
-    if (dep->GetRootModule() != aRequest) {
-      continue;
-    }
-    MOZ_ASSERT(!dep->IsMarkedForEitherCache());
-
-    dep->MarkModuleForCache();
-  }
-}
-
-nsresult ScriptLoader::MaybePrepareModuleForCacheAfterExecute(
+nsresult ScriptLoader::MaybePrepareModuleForDiskCacheAfterExecute(
     ModuleLoadRequest* aRequest, nsresult aRv) {
-  MOZ_ASSERT(aRequest->IsTopLevel());
+  MOZ_ASSERT(aRequest->IsTopLevel() || aRequest->IsDynamicImport());
 
-  if (aRequest->isInList()) {
-    // Top-level modules are part of lists only while loading, or
-    // after queued for cache.
-    // NOTE: Non-top-level modules are part of mCacheableDependencyModules
-    //       after it's loaded.
-    //
-    // This filters out modules which is already queued for cache.
-    return aRv;
+  if (mCache) {
+    // Disk cache is handled by SharedScriptCache.
+    return NS_OK;
   }
 
-  aRv = MaybePrepareForCacheAfterExecute(aRequest, aRv);
+  // NOTE: If a module is passed to this multiple times, it can be
+  //       enqueued multiple times.
+  //       This is okay because ScriptLoader::UpdateDiskCache filters out
+  //       any script without the disk cache reference.
 
-  for (auto* r = mCacheableDependencyModules.getFirst(); r;) {
+  aRv = MaybePrepareForDiskCacheAfterExecute(aRequest, aRv);
+
+  for (auto* r = mDiskCacheableDependencyModules.getFirst(); r;) {
     auto* dep = r->AsModuleRequest();
-    MOZ_ASSERT(dep->PassedConditionForEitherCache());
+    MOZ_ASSERT(dep->PassedConditionForDiskCache());
 
     r = r->getNext();
 
@@ -3408,9 +3445,9 @@ nsresult ScriptLoader::MaybePrepareModuleForCacheAfterExecute(
       continue;
     }
 
-    mCacheableDependencyModules.Remove(dep);
+    mDiskCacheableDependencyModules.Remove(dep);
 
-    aRv = MaybePrepareForCacheAfterExecute(dep, aRv);
+    aRv = MaybePrepareForDiskCacheAfterExecute(dep, aRv);
   }
 
   return aRv;
@@ -3427,30 +3464,6 @@ nsresult ScriptLoader::EvaluateScript(nsIGlobalObject* aGlobalObject,
 
   // Create a ClassicScript object and associate it with the JSScript.
   MOZ_ASSERT(aRequest->mLoadedScript->IsClassicScript());
-  MOZ_ASSERT(aRequest->mLoadedScript->GetFetchOptions()->IsCompatible(
-      aRequest->mFetchOptions));
-
-#ifdef DEBUG
-  {
-    bool equals;
-    (void)aRequest->mLoadedScript->GetURI()->Equals(aRequest->mURI, &equals);
-    MOZ_ASSERT(equals);
-  }
-#endif
-
-  if (aRequest->IsStencil()) {
-#ifdef DEBUG
-    // A request with cache might not have mBaseURL.
-    if (aRequest->mBaseURL) {
-      bool equals;
-      (void)aRequest->mLoadedScript->BaseURL()->Equals(aRequest->mBaseURL,
-                                                       &equals);
-      MOZ_ASSERT(equals);
-    }
-#endif
-  } else {
-    aRequest->mLoadedScript->SetBaseURL(aRequest->mBaseURL);
-  }
 
   RefPtr<ClassicScript> classicScript =
       aRequest->mLoadedScript->AsClassicScript();
@@ -3478,11 +3491,10 @@ nsresult ScriptLoader::EvaluateScript(nsIGlobalObject* aGlobalObject,
     LOG(
         ("ScriptLoadRequest (%p): non-on-demand-only (non-omt) Parsing Enabled "
          "for url=%s mTotalFullParseSize=%u",
-         aRequest, aRequest->mURI->GetSpecOrDefault().get(),
+         aRequest, aRequest->URI()->GetSpecOrDefault().get(),
          mTotalFullParseSize));
   }
 
-  TRACE_FOR_TEST(aRequest, "scriptloader_execute");
   JS::Rooted<JSObject*> global(cx, aGlobalObject->GetGlobalJSObject());
   if (MOZ_UNLIKELY(!xpc::Scriptability::Get(global).Allowed())) {
     return NS_OK;
@@ -3497,17 +3509,14 @@ nsresult ScriptLoader::EvaluateScript(nsIGlobalObject* aGlobalObject,
                                   classicScriptValue, introductionScript, erv);
 
   if (!erv.Failed()) {
-    MaybePrepareForCacheBeforeExecute(aRequest, script);
+    LOG(("ScriptLoadRequest (%p): Evaluate Script", aRequest));
+    AUTO_PROFILER_MARKER_TEXT("ScriptExecution", JS,
+                              MarkerInnerWindowIdFromJSContext(cx),
+                              profilerLabelString);
 
-    {
-      LOG(("ScriptLoadRequest (%p): Evaluate Script", aRequest));
-      AUTO_PROFILER_MARKER_TEXT("ScriptExecution", JS,
-                                MarkerInnerWindowIdFromJSContext(cx),
-                                profilerLabelString);
-
-      MOZ_ASSERT(options.noScriptRval);
-      ExecuteCompiledScript(cx, classicScript, script, erv);
-    }
+    MOZ_ASSERT(options.noScriptRval);
+    TRACE_FOR_TEST(aRequest, "evaluate:classic");
+    ExecuteCompiledScript(cx, classicScript, script, erv);
   }
   rv = EvaluationExceptionToNSResult(erv);
 
@@ -3517,13 +3526,14 @@ nsresult ScriptLoader::EvaluateScript(nsIGlobalObject* aGlobalObject,
 
   // This must be called also for compilation failure case, in order to
   // dispatch test-only event.
-  rv = MaybePrepareForCacheAfterExecute(aRequest, rv);
+  rv = MaybePrepareForDiskCacheAfterExecute(aRequest, rv);
 
-  // Even if we are not saving the bytecode of the current script, we have
-  // to trigger the encoding of the bytecode, as the current script can
-  // call functions of a script for which we are recording the bytecode.
+  // Even if we are not saving the current script to the disk cache, we have
+  // to trigger the disk cache encoding, as the current script can be blocking
+  // the other encoding, or the current script can delazify more functions
+  // which we are recording the disk cache.
   LOG(("ScriptLoadRequest (%p): ScriptLoader = %p", aRequest, this));
-  MaybeUpdateCache();
+  MaybeUpdateDiskCache();
 
   return rv;
 }
@@ -3538,17 +3548,20 @@ LoadedScript* ScriptLoader::GetActiveScript(JSContext* aCx) {
   return static_cast<LoadedScript*>(value.toPrivate());
 }
 
-void ScriptLoader::RegisterForCache(ScriptLoadRequest* aRequest) {
-  MOZ_ASSERT(aRequest->IsMarkedForEitherCache());
-  MOZ_ASSERT_IF(aRequest->IsMarkedForDiskCache(),
-                aRequest->HasDiskCacheReference());
+void ScriptLoader::RegisterForDiskCache(ScriptLoadRequest* aRequest) {
+  MOZ_ASSERT(!mCache);
+  MOZ_ASSERT(aRequest->PassedConditionForDiskCache());
+  MOZ_ASSERT(aRequest->HasStencil());
+  MOZ_ASSERT(aRequest->getLoadedScript()->HasDiskCacheReference());
   MOZ_DIAGNOSTIC_ASSERT(!aRequest->isInList());
-  mCachingQueue.AppendElement(aRequest);
+  MOZ_ASSERT(!IsWebExtensionRequest(aRequest),
+             "Web extension scripts are not compatible with the disk cache");
+  mDiskCacheQueue.AppendElement(aRequest->getLoadedScript());
 }
 
 void ScriptLoader::LoadEventFired() {
   mLoadEventFired = true;
-  MaybeUpdateCache();
+  MaybeUpdateDiskCache();
 }
 
 void ScriptLoader::Destroy() {
@@ -3558,56 +3571,64 @@ void ScriptLoader::Destroy() {
   }
 
   CancelAndClearScriptLoadRequests();
-  GiveUpCaching();
+  GiveUpDiskCaching();
 }
 
-void ScriptLoader::MaybeUpdateCache() {
-  // If we already gave up, ensure that we are not going to enqueue any script,
-  // and that we finalize them properly.
-  if (mGiveUpCaching) {
-    LOG(("ScriptLoader (%p): Keep giving-up bytecode encoding.", this));
-    GiveUpCaching();
-    return;
-  }
-
-  // We wait for the load event to be fired before saving the bytecode of
-  // any script to the cache. It is quite common to have load event
-  // listeners trigger more JavaScript execution, that we want to save as
-  // part of this start-up bytecode cache.
+void ScriptLoader::MaybeUpdateDiskCache() {
+  // We wait for the load event to be fired before saving any script to the
+  // disk cache. It is quite common to have load event listeners trigger more
+  // JavaScript execution, that we want to save as part of disk cache, to
+  // improve the load time in subsequent loads.
   if (!mLoadEventFired) {
     LOG(("ScriptLoader (%p): Wait for the load-end event to fire.", this));
     return;
   }
 
-  // No need to fire any event if there is no bytecode to be saved.
-  if (mCachingQueue.isEmpty()) {
-    LOG(("ScriptLoader (%p): No script in queue to be encoded.", this));
-    return;
-  }
-
-  // Wait until all scripts are loaded before saving the bytecode, such that
-  // we capture most of the intialization of the page.
+  // Wait until all scripts are loaded before saving to the disk cache, such
+  // that we capture most of the intialization of the page.
   if (HasPendingRequests()) {
     LOG(("ScriptLoader (%p): Wait for other pending request to finish.", this));
     return;
   }
 
-  // Create a new runnable dedicated to encoding the content of the bytecode of
-  // all enqueued scripts when the document is idle. In case of failure, we
-  // give-up on encoding the bytecode.
-  nsCOMPtr<nsIRunnable> encoder = NewRunnableMethod(
-      "ScriptLoader::UpdateCache", this, &ScriptLoader::UpdateCache);
-  if (NS_FAILED(NS_DispatchToCurrentThreadQueue(encoder.forget(),
-                                                EventQueuePriority::Idle))) {
-    GiveUpCaching();
+  if (mCache) {
+    if (!mCache->MaybeScheduleUpdateDiskCache()) {
+      TRACE_FOR_TEST_0("diskcache:noschedule");
+    }
     return;
   }
 
-  LOG(("ScriptLoader (%p): Schedule bytecode encoding.", this));
+  // If we already gave up, ensure that we are not going to enqueue any script,
+  // and that we finalize them properly.
+  if (mGiveUpDiskCaching) {
+    LOG(("ScriptLoader (%p): Keep giving-up saving to the disk cache.", this));
+    GiveUpDiskCaching();
+    return;
+  }
+
+  // No need to fire any event if there is no script to be saved.
+  if (mDiskCacheQueue.IsEmpty()) {
+    LOG(("ScriptLoader (%p): No script in queue to be saved to the disk.",
+         this));
+    return;
+  }
+
+  // Create a new runnable dedicated to encoding all enqueued scripts when the
+  // document is idle. In case of failure, we give-up on saving the disk cache.
+  nsCOMPtr<nsIRunnable> encoder = NewRunnableMethod(
+      "ScriptLoader::UpdateCache", this, &ScriptLoader::UpdateDiskCache);
+  if (NS_FAILED(NS_DispatchToCurrentThreadQueue(encoder.forget(),
+                                                EventQueuePriority::Idle))) {
+    GiveUpDiskCaching();
+    return;
+  }
+
+  LOG(("ScriptLoader (%p): Schedule the disk cache encoding.", this));
 }
 
-void ScriptLoader::UpdateCache() {
-  LOG(("ScriptLoader (%p): Start bytecode encoding.", this));
+void ScriptLoader::UpdateDiskCache() {
+  MOZ_ASSERT(!mCache);
+  LOG(("ScriptLoader (%p): Start the disk cache encoding.", this));
 
   // If any script got added in the previous loop cycle, wait until all
   // remaining script executions are completed, such that we capture most of
@@ -3616,234 +3637,160 @@ void ScriptLoader::UpdateCache() {
     return;
   }
 
-  // Should not be encoding modules at all.
-  nsCOMPtr<nsIScriptGlobalObject> globalObject = GetScriptGlobalObject();
-  if (!globalObject) {
-    GiveUpCaching();
+  JS::FrontendContext* fc = JS::NewFrontendContext();
+  if (!fc) {
+    LOG(
+        ("ScriptLoader (%p): Cannot create FrontendContext for the disk cache "
+         "encoding.",
+         this));
     return;
   }
 
-  nsCOMPtr<nsIScriptContext> context = globalObject->GetScriptContext();
-  if (!context) {
-    GiveUpCaching();
-    return;
-  }
-
-  AutoEntryScript aes(globalObject, "encode bytecode", true);
-  RefPtr<ScriptLoadRequest> request;
-  while (!mCachingQueue.isEmpty()) {
-    request = mCachingQueue.StealFirst();
-    MOZ_ASSERT(!IsWebExtensionRequest(request),
-               "Bytecode for web extension content scrips is not cached");
-
-    RefPtr<JS::Stencil> stencil;
-    stencil = FinishCollectingDelazifications(aes.cx(), request);
-    if (mCache) {
-      if (stencil) {
-        MOZ_ASSERT_IF(request->IsStencil(), stencil == request->GetStencil());
-
-        // The bytecode encoding is performed only when there was no
-        // bytecode stored in the necko cache.
-        //
-        // TODO: Move this to SharedScriptCache.
-
-        if (request->IsMarkedForDiskCache()) {
-          if (request->HasDiskCacheReference()) {
-            // The nsICacheInfoChannel is stored when the this request
-            // receives a source text (See ScriptLoadHandler::OnStreamComplete),
-            // and also the SRI is calculated only in that case.
-            MOZ_ASSERT(request->SRIAndBytecode().length() ==
-                       request->GetSRILength());
-
-            EncodeBytecodeAndSave(aes.cx(), request, request->mCacheInfo,
-                                  BytecodeMimeTypeFor(request),
-                                  request->SRIAndBytecode(), stencil);
-
-            request->DropBytecode();
-          } else if (request->getLoadedScript()->mCacheInfo) {
-            // The nsICacheInfoChannel is stored when the cached request
-            // received a source text (See ScriptLoadHandler::OnStreamComplete),
-            // and also the SRI is calculated and stored into the cache only in
-            // that case.
-            EncodeBytecodeAndSave(aes.cx(), request,
-                                  request->getLoadedScript()->mCacheInfo,
-                                  BytecodeMimeTypeFor(request),
-                                  request->getLoadedScript()->mSRI, stencil);
-
-            // The cached nsICacheInfoChannel can be used only once.
-            // We don't overwrite the bytecode cache.
-            request->getLoadedScript()->mCacheInfo = nullptr;
-            request->getLoadedScript()->mSRI.clear();
-          }
-        }
-      }
-      request->DropDiskCacheReference();
-    } else {
-      if (stencil) {
-        MOZ_ASSERT(request->SRIAndBytecode().length() ==
-                   request->GetSRILength());
-
-        EncodeBytecodeAndSave(aes.cx(), request, request->mCacheInfo,
-                              BytecodeMimeTypeFor(request),
-                              request->SRIAndBytecode(), stencil);
-
-        request->DropBytecode();
-      }
-      request->DropDiskCacheReference();
+  for (auto& loadedScript : mDiskCacheQueue) {
+    // The encoding is performed only when there was no disk cache stored in
+    // the necko cache.
+    if (!loadedScript->HasDiskCacheReference()) {
+      continue;
     }
+
+    MOZ_ASSERT(loadedScript->HasStencil());
+
+    Vector<uint8_t> compressed;
+    if (!EncodeAndCompress(fc, loadedScript, loadedScript->GetStencil(),
+                           loadedScript->SRI(), compressed)) {
+      loadedScript->DropDiskCacheReference();
+      loadedScript->DropSRIOrSRIAndSerializedStencil();
+      TRACE_FOR_TEST(loadedScript, "diskcache:failed");
+      continue;
+    }
+
+    if (!SaveToDiskCache(loadedScript, compressed)) {
+      loadedScript->DropDiskCacheReference();
+      loadedScript->DropSRIOrSRIAndSerializedStencil();
+      TRACE_FOR_TEST(loadedScript, "diskcache:failed");
+      continue;
+    }
+
+    loadedScript->DropDiskCacheReference();
+    loadedScript->DropSRIOrSRIAndSerializedStencil();
+    TRACE_FOR_TEST(loadedScript, "diskcache:saved");
   }
+  mDiskCacheQueue.Clear();
+
+  JS::DestroyFrontendContext(fc);
 }
 
-already_AddRefed<JS::Stencil> ScriptLoader::FinishCollectingDelazifications(
-    JSContext* aCx, ScriptLoadRequest* aRequest) {
-  RefPtr<JS::Stencil> stencil;
-  bool result;
-  if (aRequest->IsModuleRequest()) {
-    aRequest->mScriptForCache = nullptr;
-    ModuleScript* moduleScript = aRequest->AsModuleRequest()->mModuleScript;
-    JS::Rooted<JSObject*> module(aCx, moduleScript->ModuleRecord());
-    result = JS::FinishCollectingDelazifications(aCx, module,
-                                                 getter_AddRefs(stencil));
-  } else {
-    JS::Rooted<JSScript*> script(aCx, aRequest->mScriptForCache);
-    aRequest->mScriptForCache = nullptr;
-    result = JS::FinishCollectingDelazifications(aCx, script,
-                                                 getter_AddRefs(stencil));
-  }
-  if (!result) {
-    JS_ClearPendingException(aCx);
-    return nullptr;
-  }
-  return stencil.forget();
-}
-
-void ScriptLoader::EncodeBytecodeAndSave(
-    JSContext* aCx, ScriptLoadRequest* aRequest,
-    nsCOMPtr<nsICacheInfoChannel>& aCacheInfo, nsCString& aMimeType,
-    const JS::TranscodeBuffer& aSRI, JS::Stencil* aStencil) {
-  MOZ_ASSERT(aCacheInfo);
-
-  using namespace mozilla::Telemetry;
-  nsresult rv = NS_OK;
-  auto bytecodeFailed = mozilla::MakeScopeExit(
-      [&]() { TRACE_FOR_TEST_NONE(aRequest, "scriptloader_bytecode_failed"); });
-
+/* static */
+bool ScriptLoader::EncodeAndCompress(
+    JS::FrontendContext* aFc, const JS::loader::LoadedScript* aLoadedScript,
+    JS::Stencil* aStencil, const JS::TranscodeBuffer& aSRI,
+    Vector<uint8_t>& aCompressed) {
   size_t SRILength = aSRI.length();
   MOZ_ASSERT(JS::IsTranscodingBytecodeOffsetAligned(SRILength));
 
-  JS::TranscodeBuffer SRIAndBytecode;
-  if (!SRIAndBytecode.appendAll(aSRI)) {
-    LOG(("ScriptLoadRequest (%p): Cannot allocate buffer", aRequest));
-    return;
+  JS::TranscodeBuffer SRIAndSerializedStencil;
+  if (!SRIAndSerializedStencil.appendAll(aSRI)) {
+    LOG(("LoadedScript (%p): Cannot allocate buffer", aLoadedScript));
+    return false;
   }
 
-  JS::TranscodeResult result = JS::EncodeStencil(aCx, aStencil, SRIAndBytecode);
+  JS::TranscodeResult result =
+      JS::EncodeStencil(aFc, aStencil, SRIAndSerializedStencil);
+
   if (result != JS::TranscodeResult::Ok) {
     // Encoding can be aborted for non-supported syntax (e.g. asm.js), or
     // any other internal error.
     // We don't care the error and just give up encoding.
-    JS_ClearPendingException(aCx);
+    JS::ClearFrontendErrors(aFc);
 
-    LOG(("ScriptLoadRequest (%p): Cannot serialize bytecode", aRequest));
-    return;
+    LOG(("LoadedScript (%p): Cannot encode stencil", aLoadedScript));
+    return false;
   }
 
-  Vector<uint8_t> compressedBytecode;
   // TODO probably need to move this to a helper thread
-  if (!ScriptBytecodeCompress(SRIAndBytecode, SRILength, compressedBytecode)) {
-    return;
+  if (!ScriptBytecodeCompress(SRIAndSerializedStencil, SRILength,
+                              aCompressed)) {
+    return false;
   }
 
-  if (compressedBytecode.length() >= UINT32_MAX) {
+  if (aCompressed.length() >= UINT32_MAX) {
     LOG(
-        ("ScriptLoadRequest (%p): Bytecode cache is too large to be decoded "
+        ("LoadedScript (%p): Serialized stencil is too large to be decoded "
          "correctly.",
-         aRequest));
-    return;
+         aLoadedScript));
+    return false;
   }
+
+  return true;
+}
+
+/* static */
+bool ScriptLoader::SaveToDiskCache(
+    const JS::loader::LoadedScript* aLoadedScript,
+    const Vector<uint8_t>& aCompressed) {
+  MOZ_ASSERT(NS_IsMainThread());
 
   // Open the output stream to the cache entry alternate data storage. This
   // might fail if the stream is already open by another request, in which
   // case, we just ignore the current one.
   nsCOMPtr<nsIAsyncOutputStream> output;
-  rv = aCacheInfo->OpenAlternativeOutputStream(
-      aMimeType, static_cast<int64_t>(compressedBytecode.length()),
-      getter_AddRefs(output));
+  nsresult rv = aLoadedScript->mCacheInfo->OpenAlternativeOutputStream(
+      BytecodeMimeTypeFor(aLoadedScript),
+      static_cast<int64_t>(aCompressed.length()), getter_AddRefs(output));
   if (NS_FAILED(rv)) {
     LOG(
-        ("ScriptLoadRequest (%p): Cannot open bytecode cache (rv = %X, output "
+        ("LoadedScript (%p): Cannot open the disk cache (rv = %X, output "
          "= %p)",
-         aRequest, unsigned(rv), output.get()));
-    return;
+         aLoadedScript, unsigned(rv), output.get()));
+    return false;
   }
   MOZ_ASSERT(output);
 
   auto closeOutStream = mozilla::MakeScopeExit([&]() {
     rv = output->CloseWithStatus(rv);
-    LOG(("ScriptLoadRequest (%p): Closing (rv = %X)", aRequest, unsigned(rv)));
+    LOG(("LoadedScript (%p): Closing (rv = %X)", aLoadedScript, unsigned(rv)));
   });
 
   uint32_t n;
-  rv = output->Write(reinterpret_cast<char*>(compressedBytecode.begin()),
-                     compressedBytecode.length(), &n);
+  rv = output->Write(reinterpret_cast<const char*>(aCompressed.begin()),
+                     aCompressed.length(), &n);
   LOG(
-      ("ScriptLoadRequest (%p): Write bytecode cache (rv = %X, length = %u, "
+      ("LoadedScript (%p): Write the disk cache (rv = %X, length = %u, "
        "written = %u)",
-       aRequest, unsigned(rv), unsigned(compressedBytecode.length()), n));
+       aLoadedScript, unsigned(rv), unsigned(aCompressed.length()), n));
   if (NS_FAILED(rv)) {
+    return false;
+  }
+
+  MOZ_RELEASE_ASSERT(aCompressed.length() == n);
+  return true;
+}
+
+void ScriptLoader::GiveUpDiskCaching() {
+  if (mCache) {
+    // Disk cache is handled by SharedScriptCache.
+    MOZ_ASSERT(mDiskCacheQueue.IsEmpty());
+    MOZ_ASSERT(mDiskCacheableDependencyModules.isEmpty());
     return;
   }
 
-  MOZ_RELEASE_ASSERT(compressedBytecode.length() == n);
-
-  bytecodeFailed.release();
-  TRACE_FOR_TEST_NONE(aRequest, "scriptloader_bytecode_saved");
-}
-
-void ScriptLoader::GiveUpCaching() {
   // If the document went away prematurely, we still want to set this, in order
   // to avoid queuing more scripts.
-  mGiveUpCaching = true;
+  mGiveUpDiskCaching = true;
 
-  // Ideally we prefer to properly end the incremental encoder, such that we
-  // would not keep a large buffer around.  If we cannot, we fallback on the
-  // removal of all request from the current list and these large buffers would
-  // be removed at the same time as the source object.
-  nsCOMPtr<nsIScriptGlobalObject> globalObject = GetScriptGlobalObject();
-  AutoAllowLegacyScriptExecution exemption;
-  Maybe<AutoEntryScript> aes;
+  for (auto& loadedScript : mDiskCacheQueue) {
+    LOG(("LoadedScript (%p): Giving up encoding the disk cache",
+         loadedScript.get()));
+    TRACE_FOR_TEST(loadedScript, "diskcache:giveup");
 
-  if (globalObject) {
-    nsCOMPtr<nsIScriptContext> context = globalObject->GetScriptContext();
-    if (context) {
-      aes.emplace(globalObject, "give-up bytecode encoding", true);
-    }
+    loadedScript->DropDiskCacheReference();
+    loadedScript->DropSRIOrSRIAndSerializedStencil();
   }
+  mDiskCacheQueue.Clear();
 
-  while (!mCachingQueue.isEmpty()) {
-    RefPtr<ScriptLoadRequest> request = mCachingQueue.StealFirst();
-    LOG(("ScriptLoadRequest (%p): Cannot serialize bytecode", request.get()));
-    TRACE_FOR_TEST_NONE(request, "scriptloader_bytecode_failed");
-    MOZ_ASSERT(!IsWebExtensionRequest(request));
-
-    if (aes.isSome()) {
-      if (request->IsModuleRequest()) {
-        ModuleScript* moduleScript = request->AsModuleRequest()->mModuleScript;
-        JS::Rooted<JSObject*> module(aes->cx(), moduleScript->ModuleRecord());
-        JS::AbortCollectingDelazifications(module);
-      } else {
-        JS::Rooted<JSScript*> script(aes->cx(), request->mScriptForCache);
-        request->mScriptForCache = nullptr;
-        JS::AbortCollectingDelazifications(script);
-      }
-    }
-
-    request->DropDiskCacheReference();
-  }
-
-  while (!mCacheableDependencyModules.isEmpty()) {
+  while (!mDiskCacheableDependencyModules.isEmpty()) {
     RefPtr<ScriptLoadRequest> request =
-        mCacheableDependencyModules.StealFirst();
+        mDiskCacheableDependencyModules.StealFirst();
   }
 }
 
@@ -4005,8 +3952,8 @@ bool ScriptLoader::ReadyToExecuteParserBlockingScripts() {
              mDocument->GetWindowContext()->GetParentWindowContext();
          wc; wc = wc->GetParentWindowContext()) {
       if (Document* doc = wc->GetDocument()) {
-        ScriptLoader* ancestor = doc->ScriptLoader();
-        if (!ancestor->SelfReadyToExecuteParserBlockingScripts() &&
+        ScriptLoader* ancestor = doc->GetScriptLoader();
+        if (ancestor && !ancestor->SelfReadyToExecuteParserBlockingScripts() &&
             ancestor->AddPendingChildLoader(this)) {
           AddParserBlockingScriptExecutionBlocker();
           return false;
@@ -4140,11 +4087,63 @@ nsresult ScriptLoader::OnStreamComplete(
   nsresult rv = VerifySRI(aRequest, aLoader, aSRIStatus, aSRIDataVerifier);
 
   if (NS_SUCCEEDED(rv)) {
-    // If we are loading from source, save the computed SRI hash or a dummy SRI
-    // hash in case we are going to save the bytecode of this script in the
-    // cache.
-    if (aRequest->IsSource()) {
-      rv = SaveSRIHash(aRequest, aSRIDataVerifier);
+    nsCOMPtr<nsIRequest> channelRequest;
+    aLoader->GetRequest(getter_AddRefs(channelRequest));
+
+    nsCOMPtr<nsICacheInfoChannel> cacheInfo = do_QueryInterface(channelRequest);
+
+    if (cacheInfo) {
+      uint64_t id;
+      nsresult rv = cacheInfo->GetCacheEntryId(&id);
+      if (NS_SUCCEEDED(rv)) {
+        LOG(("ScriptLoadRequest (%p): cacheEntryId = %zx", aRequest,
+             size_t(id)));
+
+        if (aRequest->HasDirtyCache()) {
+          // This request found a dirty cache.
+          // Validate the cache with the response's cache ID.
+          ScriptHashKey key(this, aRequest, aRequest->ReferrerPolicy(),
+                            aRequest->FetchOptions(), aRequest->URI());
+          auto cacheResult = mCache->Lookup(*this, key, /* aSyncLoad = */ true);
+          if (cacheResult.mState == CachedSubResourceState::Complete &&
+              cacheResult.mCompleteValue->CacheEntryId() == id) {
+            cacheResult.mCompleteValue->UnsetDirty();
+            // This keeps the request as "fetching" state.
+            // PrepareLoadedRequest below will set it to "ready" state.
+            //
+            // Off-thread compilation is skipped for the revived cache.
+            // See AttemptOffThreadScriptCompile.
+            //
+            // Main thread compilation is skipped in the same way as
+            // non-dirty cache.
+            aRequest->CacheEntryRevived(cacheResult.mCompleteValue);
+
+            cacheResult.mCompleteValue->AddFetchCount();
+
+            TRACE_FOR_TEST(aRequest, "memorycache:dirty:revived");
+          } else {
+            mCache->Evict(key);
+            TRACE_FOR_TEST(aRequest, "memorycache:dirty:evicted");
+          }
+        }
+
+        aRequest->getLoadedScript()->SetCacheEntryId(id);
+      }
+    }
+
+    // If we are loading from source, store the cache info channel and
+    // save the computed SRI hash or a dummy SRI hash in case we are going to
+    // save the this script in the disk cache.
+    if (aRequest->IsTextSource() &&
+        StaticPrefs::dom_script_loader_bytecode_cache_enabled()) {
+      aRequest->getLoadedScript()->mCacheInfo = cacheInfo;
+      LOG(("ScriptLoadRequest (%p): nsICacheInfoChannel = %p", aRequest,
+           aRequest->getLoadedScript()->mCacheInfo.get()));
+
+      // We need the SRI hash only when the channel has cache info.
+      if (aRequest->getLoadedScript()->mCacheInfo) {
+        rv = SaveSRIHash(aRequest, aSRIDataVerifier);
+      }
     }
 
     if (NS_SUCCEEDED(rv)) {
@@ -4152,15 +4151,16 @@ nsresult ScriptLoader::OnStreamComplete(
     }
 
     if (NS_FAILED(rv)) {
+      aRequest->getLoadedScript()->DropDiskCacheReference();
       ReportErrorToConsole(aRequest, rv);
     }
   }
 
   if (NS_FAILED(rv)) {
-    // When loading bytecode, we verify the SRI hash. If it does not match the
-    // one from the document we restart the load, forcing us to load the source
-    // instead. If this happens do not remove the current request from script
-    // loader's data structures or fire any events.
+    // When loading the disk cache, we verify the SRI hash. If it does not match
+    // the one from the document we restart the load, forcing us to load the
+    // source instead. If this happens do not remove the current request from
+    // script loader's data structures or fire any events.
     if (aChannelStatus != NS_BINDING_RETARGETED) {
       HandleLoadError(aRequest, rv);
     }
@@ -4194,6 +4194,7 @@ nsresult ScriptLoader::VerifySRI(ScriptLoadRequest* aRequest,
     }
     if (NS_FAILED(rv)) {
       rv = NS_ERROR_SRI_CORRUPT;
+      TRACE_FOR_TEST(aRequest, "sri:corrupt");
     }
   }
 
@@ -4202,55 +4203,55 @@ nsresult ScriptLoader::VerifySRI(ScriptLoadRequest* aRequest,
 
 nsresult ScriptLoader::SaveSRIHash(
     ScriptLoadRequest* aRequest, SRICheckDataVerifier* aSRIDataVerifier) const {
-  MOZ_ASSERT(aRequest->IsSource());
-  JS::TranscodeBuffer& bytecode = aRequest->SRIAndBytecode();
-  MOZ_ASSERT(bytecode.empty());
+  MOZ_ASSERT(aRequest->IsTextSource());
+  JS::TranscodeBuffer& sri = aRequest->SRI();
+  MOZ_ASSERT(sri.empty());
 
   uint32_t len = 0;
 
   // If the integrity metadata does not correspond to a valid hash function,
   // IsComplete would be false.
   if (!aRequest->mIntegrity.IsEmpty() && aSRIDataVerifier->IsComplete()) {
-    MOZ_ASSERT(bytecode.length() == 0);
+    MOZ_ASSERT(sri.length() == 0);
 
     // Encode the SRI computed hash.
     len = aSRIDataVerifier->DataSummaryLength();
 
-    if (!bytecode.resize(len)) {
+    if (!sri.resize(len)) {
       return NS_ERROR_OUT_OF_MEMORY;
     }
 
     DebugOnly<nsresult> res =
-        aSRIDataVerifier->ExportDataSummary(len, bytecode.begin());
+        aSRIDataVerifier->ExportDataSummary(len, sri.begin());
     MOZ_ASSERT(NS_SUCCEEDED(res));
   } else {
-    MOZ_ASSERT(bytecode.length() == 0);
+    MOZ_ASSERT(sri.length() == 0);
 
     // Encode a dummy SRI hash.
     len = SRICheckDataVerifier::EmptyDataSummaryLength();
 
-    if (!bytecode.resize(len)) {
+    if (!sri.resize(len)) {
       return NS_ERROR_OUT_OF_MEMORY;
     }
 
     DebugOnly<nsresult> res =
-        SRICheckDataVerifier::ExportEmptyDataSummary(len, bytecode.begin());
+        SRICheckDataVerifier::ExportEmptyDataSummary(len, sri.begin());
     MOZ_ASSERT(NS_SUCCEEDED(res));
   }
 
   // Verify that the exported and predicted length correspond.
   DebugOnly<uint32_t> srilen{};
   MOZ_ASSERT(NS_SUCCEEDED(
-      SRICheckDataVerifier::DataSummaryLength(len, bytecode.begin(), &srilen)));
+      SRICheckDataVerifier::DataSummaryLength(len, sri.begin(), &srilen)));
   MOZ_ASSERT(srilen == len);
 
-  MOZ_ASSERT(bytecode.length() == len);
+  MOZ_ASSERT(sri.length() == len);
   aRequest->SetSRILength(len);
 
   if (aRequest->GetSRILength() != len) {
-    // The bytecode is aligned in the bytecode buffer, and space might be
+    // The serialized stencil is aligned in the buffer, and space might be
     // reserved for padding after the SRI hash.
-    if (!bytecode.resize(aRequest->GetSRILength())) {
+    if (!sri.resize(aRequest->GetSRILength())) {
       return NS_ERROR_OUT_OF_MEMORY;
     }
   }
@@ -4266,6 +4267,10 @@ void ScriptLoader::ReportErrorToConsole(ScriptLoadRequest* aRequest,
     // Skip reporting errors in preload requests. If the request is actually
     // used then we will report the error in ReportPreloadErrorsToConsole below.
     aRequest->GetScriptLoadContext()->mUnreportedPreloadError = aResult;
+    return;
+  }
+
+  if (!mDocument) {
     return;
   }
 
@@ -4287,7 +4292,7 @@ void ScriptLoader::ReportErrorToConsole(ScriptLoadRequest* aRequest,
   }
 
   AutoTArray<nsString, 1> params;
-  CopyUTF8toUTF16(aRequest->mURI->GetSpecOrDefault(), *params.AppendElement());
+  CopyUTF8toUTF16(aRequest->URI()->GetSpecOrDefault(), *params.AppendElement());
 
   Maybe<SourceLocation> loc;
   if (!isScript && !aRequest->IsTopLevel()) {
@@ -4308,6 +4313,9 @@ void ScriptLoader::ReportErrorToConsole(ScriptLoadRequest* aRequest,
 void ScriptLoader::ReportWarningToConsole(
     ScriptLoadRequest* aRequest, const char* aMessageName,
     const nsTArray<nsString>& aParams) const {
+  if (!mDocument) {
+    return;
+  }
   uint32_t lineNo = aRequest->GetScriptLoadContext()->GetScriptLineNumber();
   JS::ColumnNumberOneOrigin columnNo =
       aRequest->GetScriptLoadContext()->GetScriptColumnNumber();
@@ -4482,7 +4490,7 @@ bool ScriptLoader::ShouldApplyDelazifyStrategy(ScriptLoadRequest* aRequest) {
   }
 
   if (LOG_ENABLED()) {
-    nsCString url = aRequest->mURI->GetSpecOrDefault();
+    nsCString url = aRequest->URI()->GetSpecOrDefault();
     LOG(
         ("ScriptLoadRequest (%p): non-on-demand-only Parsing Disabled for (%s) "
          "with size=%u because mTotalFullParseSize=%u would exceed max_size=%u",
@@ -4570,8 +4578,9 @@ static bool MimeTypeMatchesExpectedModuleType(
     case JS::ModuleType::JSON:
       return nsContentUtils::IsJsonMimeType(typeString);
     case JS::ModuleType::CSS:
-      return nsContentUtils::IsCssMimeType(typeString);
+      return nsContentUtils::HasCssMimeTypeEssence(typeString);
     case JS::ModuleType::Unknown:
+    case JS::ModuleType::Bytes:
       break;
   }
 
@@ -4898,8 +4907,8 @@ void ScriptLoader::BeginDeferringScripts() {
 }
 
 nsAutoScriptLoaderDisabler::nsAutoScriptLoaderDisabler(Document* aDoc) {
-  mLoader = aDoc->ScriptLoader();
-  mWasEnabled = mLoader->GetEnabled();
+  mLoader = aDoc->GetScriptLoader();
+  mWasEnabled = mLoader && mLoader->GetEnabled();
   if (mWasEnabled) {
     mLoader->SetEnabled(false);
   }
@@ -4907,13 +4916,10 @@ nsAutoScriptLoaderDisabler::nsAutoScriptLoaderDisabler(Document* aDoc) {
 
 nsAutoScriptLoaderDisabler::~nsAutoScriptLoaderDisabler() {
   if (mWasEnabled) {
+    MOZ_ASSERT(mLoader, "mWasEnabled can be true only if we have a loader");
     mLoader->SetEnabled(true);
   }
 }
-
-#undef TRACE_FOR_TEST
-#undef TRACE_FOR_TEST_BOOL
-#undef TRACE_FOR_TEST_NONE
 
 #undef LOG
 

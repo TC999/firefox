@@ -102,7 +102,7 @@ class WindowGlobalParent final : public WindowContext,
 
   // Get this actor's manager if it is not an in-process actor. Returns
   // |nullptr| if the actor has been torn down, or is in-process.
-  BrowserParent* GetBrowserParent();
+  BrowserParent* GetBrowserParent() const;
 
   ContentParent* GetContentParent();
 
@@ -157,6 +157,8 @@ class WindowGlobalParent final : public WindowContext,
     return mIsInitialDocument.isSome() && mIsInitialDocument.value();
   }
 
+  bool IsUncommittedInitialDocument() { return mIsUncommittedInitialDocument; }
+
   already_AddRefed<mozilla::dom::Promise> PermitUnload(
       PermitUnloadAction aAction, uint32_t aTimeout, mozilla::ErrorResult& aRv);
 
@@ -194,9 +196,7 @@ class WindowGlobalParent final : public WindowContext,
       const Maybe<
           ContentBlockingNotifier::StorageAccessPermissionGrantedReason>&
           aReason,
-      const Maybe<ContentBlockingNotifier::CanvasFingerprinter>&
-          aCanvasFingerprinter,
-      const Maybe<bool> aCanvasFingerprinterKnownText);
+      const Maybe<CanvasFingerprintingEvent>& aCanvasFingerprintingEvent);
 
   ContentBlockingLog* GetContentBlockingLog() { return &mContentBlockingLog; }
 
@@ -227,7 +227,7 @@ class WindowGlobalParent final : public WindowContext,
 
   nsITransportSecurityInfo* GetSecurityInfo() { return mSecurityInfo; }
 
-  const nsACString& GetRemoteType() override;
+  const nsACString& GetRemoteType() const override;
 
   void NotifySessionStoreUpdatesComplete(Element* aEmbedder);
 
@@ -275,6 +275,12 @@ class WindowGlobalParent final : public WindowContext,
     }
 
     mIsInitialDocument = Some(aIsInitialDocument);
+    mIsUncommittedInitialDocument = aIsInitialDocument;
+    return IPC_OK();
+  }
+  mozilla::ipc::IPCResult RecvCommitToInitialDocument() {
+    MOZ_ASSERT(mIsInitialDocument.isSome() && mIsInitialDocument.value());
+    mIsUncommittedInitialDocument = false;
     return IPC_OK();
   }
   mozilla::ipc::IPCResult RecvUpdateDocumentSecurityInfo(
@@ -283,8 +289,7 @@ class WindowGlobalParent final : public WindowContext,
       const IPCClientInfo& aIPCClientInfo);
   mozilla::ipc::IPCResult RecvDestroy();
   mozilla::ipc::IPCResult RecvRawMessage(
-      const JSActorMessageMeta& aMeta,
-      const UniquePtr<ClonedMessageData>& aData,
+      const JSActorMessageMeta& aMeta, JSIPCValue&& aData,
       const UniquePtr<ClonedMessageData>& aStack);
 
   mozilla::ipc::IPCResult RecvGetContentBlockingEvents(
@@ -381,6 +386,8 @@ class WindowGlobalParent final : public WindowContext,
   Maybe<nsString> mDocumentTitle;
 
   Maybe<bool> mIsInitialDocument;
+
+  bool mIsUncommittedInitialDocument;
 
   // True if this window has a "beforeunload" event listener.
   bool mHasBeforeUnload;

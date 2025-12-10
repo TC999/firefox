@@ -20,6 +20,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/strings/string_view.h"
 #include "api/adaptation/resource.h"
 #include "api/audio/audio_device.h"
@@ -46,7 +47,6 @@
 #include "api/stats/rtc_stats_collector_callback.h"
 #include "api/transport/bandwidth_estimation_settings.h"
 #include "api/transport/bitrate_settings.h"
-#include "api/transport/network_control.h"
 #include "call/call.h"
 #include "call/payload_type_picker.h"
 #include "p2p/base/port.h"
@@ -59,6 +59,7 @@
 #include "pc/session_description.h"
 #include "pc/transport_stats.h"
 #include "pc/usage_pattern.h"
+#include "rtc_base/checks.h"
 #include "rtc_base/ref_counted_object.h"
 #include "rtc_base/rtc_certificate.h"
 #include "rtc_base/ssl_certificate.h"
@@ -227,7 +228,7 @@ class FakePeerConnectionBase : public PeerConnectionInternal {
 
   bool AddIceCandidate(const IceCandidate* candidate) override { return false; }
 
-  bool RemoveIceCandidates(const std::vector<Candidate>& candidates) override {
+  bool RemoveIceCandidate(const IceCandidate* candidate) override {
     return false;
   }
 
@@ -361,7 +362,10 @@ class FakePeerConnectionBase : public PeerConnectionInternal {
   DataChannelController* data_channel_controller() override { return nullptr; }
   PortAllocator* port_allocator() override { return nullptr; }
   LegacyStatsCollector* legacy_stats() override { return nullptr; }
-  PeerConnectionObserver* Observer() const override { return nullptr; }
+  void RunWithObserver(
+      absl::AnyInvocable<void(webrtc::PeerConnectionObserver*) &&>) override {
+    RTC_DCHECK_NOTREACHED();
+  }
   std::optional<SSLRole> GetSctpSslRole_n() override { return std::nullopt; }
   PeerConnectionInterface::IceConnectionState ice_connection_state_internal()
       override {
@@ -400,10 +404,6 @@ class FakePeerConnectionBase : public PeerConnectionInternal {
   void DestroyDataChannelTransport(RTCError error) override {}
 
   const FieldTrialsView& trials() const override { return field_trials_; }
-
-  NetworkControllerInterface* GetNetworkController() override {
-    return nullptr;
-  }
 
   PayloadTypePicker& payload_type_picker() override {
     return payload_type_picker_;

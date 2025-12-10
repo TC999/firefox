@@ -53,6 +53,7 @@ include WindowGlobalTypes;
 include IPCBlob;
 include IPCStream;
 include IPCTransferable;
+include JSIPCValue;
 include PPrintingTypes;
 include PTabContext;
 include ProtocolTypes;
@@ -386,6 +387,7 @@ struct XPCOMInitData
     GfxVarUpdate[] gfxNonDefaultVarUpdates;
     ContentDeviceData contentDeviceData;
     GfxInfoFeatureStatus[] gfxFeatureStatus;
+    nsCString[] sysLocales;
     nsCString[] appLocales;
     nsCString[] requestedLocales;
     L10nFileSourceDescriptor[] l10nFileSources;
@@ -581,7 +583,7 @@ both:
     async PWebBrowserPersistDocument(nullable PBrowser aBrowser,
                                      MaybeDiscardedBrowsingContext aContext);
 
-    async RawMessage(JSActorMessageMeta aMetadata, UniquePtr<ClonedMessageData> aData,
+    async RawMessage(JSActorMessageMeta aMetadata, JSIPCValue aData,
                      UniquePtr<ClonedMessageData> aStack);
 
 child:
@@ -625,6 +627,8 @@ child:
                               bool minimizeMemoryUsage,
                               FileDescriptor? DMDFile)
         returns (uint32_t aGeneration);
+
+    async DecodeImage(nsIURI aURI, ImageIntSize aSize) returns (nsresult rv, IPCImage? image);
 
 #if defined(XP_WIN)
     /**
@@ -683,6 +687,8 @@ child:
                            nsCString? aSchemelessSite,
                            OriginAttributesPattern? aPattern,
                            nsCString? aURL);
+
+    async InvalidateScriptCache();
 
     async SetOffline(bool offline);
     async SetConnectivity(bool connectivity);
@@ -1056,6 +1062,10 @@ child:
     async DispatchBeforeUnloadToSubtree(MaybeDiscardedBrowsingContext aStartingAt, SessionHistoryInfo? info)
         returns (PermitUnloadResult result);
 
+    // Only dispatches "navigate" to the traversable. Used in case we don't want to dispatch beforeunload.
+    async DispatchNavigateToTraversable(MaybeDiscardedBrowsingContext aTraversable, SessionHistoryInfo? info)
+        returns (PermitUnloadResult result);
+
     // Update the cached list of codec supported in the given process.
     async UpdateMediaCodecsSupported(RemoteMediaIn aLocation, MediaCodecsSupported aSupported);
 
@@ -1098,6 +1108,9 @@ parent:
 
     async GetLoadingSessionHistoryInfoFromParent(MaybeDiscardedBrowsingContext aContext)
         returns (LoadingSessionHistoryInfo? aLoadingInfo);
+
+    async SynchronizeNavigationAPIState(MaybeDiscardedBrowsingContext aContext,
+        ClonedMessageData aState);
 
     async RemoveFromBFCache(MaybeDiscardedBrowsingContext aContext);
 
@@ -1785,7 +1798,7 @@ parent:
       returns(int32_t? requestedIndex);
 
     async NavigationTraverse(MaybeDiscardedBrowsingContext aContext, nsID aKey,
-                             uint64_t aHistoryEpoch, bool aUserActivation, 
+                             uint64_t aHistoryEpoch, bool aUserActivation,
                              bool aCheckForCancelation)
       returns(nsresult result);
 
@@ -1976,6 +1989,11 @@ parent:
     // This can in particular be used to wait for a particular event in a
     // test document before taking the snapshot and starting e.g. IPC fuzzing.
     async SignalFuzzingReady();
+#endif
+
+#ifdef FUZZING
+    // Used by the child process to signal restarting the GPU process.
+    async KillGPUProcess();
 #endif
 
   async AttributionEvent(nsCString aSourceHost,

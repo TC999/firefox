@@ -23,11 +23,7 @@
 #include "gfxGradientCache.h"
 #include "gfxUtils.h"
 #include "imgIContainer.h"
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/ComputedStyle.h"
-#include "mozilla/DebugOnly.h"
-#include "mozilla/HashFunctions.h"
-#include "mozilla/MathAlgorithms.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/ProfilerLabels.h"
 #include "mozilla/SVGImageContext.h"
@@ -966,7 +962,7 @@ nsCSSRendering::CreateBorderRendererForNonThemedOutline(
     return Nothing();
   }
 
-  const nscoord width = ourOutline->GetOutlineWidth();
+  const nscoord width = ourOutline->mOutlineWidth;
 
   StyleBorderStyle outlineStyle;
   // Themed outlines are handled by our callers, if supported.
@@ -1944,7 +1940,7 @@ ImgDrawResult nsCSSRendering::BuildWebRenderDisplayItemsForStyleImageLayer(
 }
 
 static bool IsOpaqueBorderEdge(const nsStyleBorder& aBorder,
-                               mozilla::Side aSide) {
+                               mozilla::Side aSide, const nsIFrame* aForFrame) {
   if (aBorder.GetComputedBorder().Side(aSide) == 0) {
     return true;
   }
@@ -1966,19 +1962,16 @@ static bool IsOpaqueBorderEdge(const nsStyleBorder& aBorder,
   if (!aBorder.mBorderImageSource.IsNone()) {
     return false;
   }
-
-  StyleColor color = aBorder.BorderColorFor(aSide);
-  // We don't know the foreground color here, so if it's being used
-  // we must assume it might be transparent.
-  return !color.MaybeTransparent();
+  return NS_GET_A(aBorder.BorderColorFor(aSide).CalcColor(aForFrame)) == 255;
 }
 
 /**
  * Returns true if all border edges are either missing or opaque.
  */
-static bool IsOpaqueBorder(const nsStyleBorder& aBorder) {
+static bool IsOpaqueBorder(const nsStyleBorder& aBorder,
+                           const nsIFrame* aForFrame) {
   for (const auto i : mozilla::AllPhysicalSides()) {
-    if (!IsOpaqueBorderEdge(aBorder, i)) {
+    if (!IsOpaqueBorderEdge(aBorder, i, aForFrame)) {
       return false;
     }
   }
@@ -2148,7 +2141,8 @@ void nsCSSRendering::GetImageLayerClip(
     haveRoundedCorners = GetRadii(aForFrame, aBorder, aBorderArea,
                                   clipBorderArea, aClipState->mRadii);
   }
-  bool isSolidBorder = aWillPaintBorder && IsOpaqueBorder(aBorder);
+  const bool isSolidBorder =
+      aWillPaintBorder && IsOpaqueBorder(aBorder, aForFrame);
   if (isSolidBorder && layerClip == StyleGeometryBox::BorderBox) {
     // If we have rounded corners, we need to inflate the background
     // drawing area a bit to avoid seams between the border and
@@ -3992,25 +3986,35 @@ static void SkipInk(nsIFrame* aFrame, DrawTarget& aDrawTarget,
   nsCSSRendering::PaintDecorationLineParams clipParams = aParams;
   const unsigned length = aIntercepts.Length();
 
-  Float lineStart = aParams.vertical ? aParams.pt.y : aParams.pt.x;
-  Float lineEnd = lineStart + aParams.lineSize.width;
+  // For selections, this points to the selection start, which may not be at the
+  // line start.
+  const Float relativeTextStart =
+      aParams.vertical ? aParams.pt.y : aParams.pt.x;
+  const Float relativeTextEnd = relativeTextStart + aParams.lineSize.width;
+  // The actual line start position needs to be adjusted by the offset of the
+  // start position in the frame, because the intercept positions are based off
+  // the whole text run.
+  const Float absoluteLineStart = relativeTextStart - aParams.icoordInFrame;
 
-  // Compute the min/max positions based on trim.
-  const Float trimLineStart = lineStart + (aParams.trimLeft - aPadding);
-  const Float trimLineEnd = lineEnd - (aParams.trimRight - aPadding);
+  // Compute the min/max positions based on inset.
+  const Float insetLineDrawAreaStart =
+      relativeTextStart + (aParams.insetLeft - aPadding);
+  const Float insetLineDrawAreaEnd =
+      relativeTextEnd - (aParams.insetRight - aPadding);
 
   for (unsigned i = 0; i <= length; i += 2) {
     // Handle start/end edge cases and set up general case.
-    // While we use the trim start/end values, it is possible the trim cuts
+    // While we use the inset start/end values, it is possible the inset cuts
     // of the first intercept and into the next, so we will need to clamp
     // the dimensions in the other case too.
-    SkScalar startIntercept = trimLineStart;
+    SkScalar startIntercept = insetLineDrawAreaStart;
     if (i > 0) {
-      startIntercept = std::max(aIntercepts[i - 1] + lineStart, startIntercept);
+      startIntercept =
+          std::max(aIntercepts[i - 1] + absoluteLineStart, startIntercept);
     }
-    SkScalar endIntercept = trimLineEnd;
+    SkScalar endIntercept = insetLineDrawAreaEnd;
     if (i < length) {
-      endIntercept = std::min(aIntercepts[i] + lineStart, endIntercept);
+      endIntercept = std::min(aIntercepts[i] + absoluteLineStart, endIntercept);
     }
 
     // remove padding at both ends for width
@@ -4022,7 +4026,7 @@ static void SkipInk(nsIFrame* aFrame, DrawTarget& aDrawTarget,
     // Don't draw decoration lines that have a smaller width than 1, or half
     // the line-end padding dimension.
     // This will catch the case of an intercept being fully removed by the
-    // trim values, in which case the width will be negative.
+    // inset values, in which case the width will be negative.
     if (clipParams.lineSize.width < std::max(aPadding * 0.5, 1.0)) {
       continue;
     }
@@ -4031,9 +4035,10 @@ static void SkipInk(nsIFrame* aFrame, DrawTarget& aDrawTarget,
     // padding; snap the rect edges to device pixels for consistent rendering
     // of dots across separate fragments of a dotted line.
     if (aParams.vertical) {
-      clipParams.pt.y = aParams.sidewaysLeft
-                            ? lineEnd - (endIntercept - lineStart) + aPadding
-                            : startIntercept + aPadding;
+      clipParams.pt.y =
+          aParams.sidewaysLeft
+              ? relativeTextEnd - (endIntercept - relativeTextStart) + aPadding
+              : startIntercept + aPadding;
       aRect.y = std::floor(clipParams.pt.y + 0.5);
       aRect.SetBottomEdge(
           std::floor(clipParams.pt.y + clipParams.lineSize.width + 0.5));
@@ -4069,10 +4074,8 @@ void nsCSSRendering::PaintDecorationLine(
 
   // Check if decoration line will skip past ascenders/descenders
   // text-decoration-skip-ink only applies to overlines/underlines
-  mozilla::StyleTextDecorationSkipInk skipInk =
-      aFrame->StyleText()->mTextDecorationSkipInk;
   bool skipInkEnabled =
-      skipInk != mozilla::StyleTextDecorationSkipInk::None &&
+      aParams.skipInk != mozilla::StyleTextDecorationSkipInk::None &&
       aParams.decoration != StyleTextDecorationLine::LINE_THROUGH &&
       aParams.allowInkSkipping && aFrame->IsTextFrame();
 
@@ -4132,7 +4135,7 @@ void nsCSSRendering::PaintDecorationLine(
     if (iter.GlyphRun()->mOrientation ==
             mozilla::gfx::ShapedTextFlags::TEXT_ORIENT_VERTICAL_UPRIGHT ||
         (iter.GlyphRun()->mIsCJK &&
-         skipInk == mozilla::StyleTextDecorationSkipInk::Auto)) {
+         aParams.skipInk == mozilla::StyleTextDecorationSkipInk::Auto)) {
       // We don't support upright text in vertical modes currently
       // (see https://bugzilla.mozilla.org/show_bug.cgi?id=1572294),
       // but we do need to update textPos so that following runs will be
@@ -4659,9 +4662,9 @@ gfxRect nsCSSRendering::GetTextDecorationRectInternal(
     MOZ_ASSERT_UNREACHABLE("Invalid text decoration value");
   }
 
-  // Take text decoration trim into account.
-  r.x += aParams.sidewaysLeft ? aParams.trimRight : aParams.trimLeft;
-  r.width -= aParams.trimLeft + aParams.trimRight;
+  // Take text decoration inset into account.
+  r.x += aParams.insetLeft;
+  r.width -= aParams.insetLeft + aParams.insetRight;
   r.width = std::max(r.width, 0.0);
 
   // Convert line-relative coordinate system (x = line-right, y = line-up)

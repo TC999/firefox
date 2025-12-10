@@ -406,7 +406,7 @@ newtab-wallpaper-abstract-purple-green = Gradiente de luz violeta y verde
 newtab-wallpaper-abstract-blue-purple-waves = Formas onduladas azules y violetas
 newtab-wallpaper-abstract-black-waves = Formas onduladas negras
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Fotografías
 newtab-wallpaper-beach-at-sunrise = Playa al amanecer
@@ -435,6 +435,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -663,6 +667,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Nueva lista
+newtab-widget-section-title = Widgets
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Ocultar widgets
+    .aria-label = Ocultar todos los widgets
+newtab-widget-section-maximize =
+    .title = Expandir widgets
+    .aria-label = Expandir todos los widgets al tamaño completo
+newtab-widget-section-minimize =
+    .title = Minimizar widgets
+    .aria-label = Colapsar todos los widget al tamaño compacto
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -675,10 +690,6 @@ newtab-widget-timer-mode-focus =
     .label = A enfocarse
 newtab-widget-timer-mode-break =
     .label = Descanso
-newtab-widget-timer-play =
-    .title = A jugar
-newtab-widget-timer-pause =
-    .title = Pausa
 newtab-widget-timer-label-play =
     .label = A jugar
 newtab-widget-timer-label-pause =
@@ -689,8 +700,6 @@ newtab-widget-timer-menu-notifications = Desactivar notificaciones
 newtab-widget-timer-menu-notifications-on = Activar notificaciones
 newtab-widget-timer-menu-hide = Ocultar temporizador
 newtab-widget-timer-menu-learn-more = Conocer más
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Deslizar para ver más
 newtab-widget-message-title = Manténgase enfocado con listas y un temporizador incorporado
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Desde recordatorios rápidos hasta tareas diarias, sesiones de enfoque y descansos prolongados: manténgase concentrado en la tarea y a tiempo.

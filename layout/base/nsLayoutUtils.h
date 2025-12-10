@@ -13,7 +13,6 @@
 #include "LayoutConstants.h"
 #include "Units.h"
 #include "gfxPoint.h"
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/LayoutStructs.h"
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/Maybe.h"
@@ -250,6 +249,12 @@ class nsLayoutUtils {
   static void NotifyPaintSkipTransaction(ViewID aScrollId);
 
   /**
+   * Similar to above NotifyPaintSkipTransaction, but scroll offset is being
+   * sent to APZ in a full transaction.
+   */
+  static void NotifyApzTransaction(ViewID aScrollId);
+
+  /**
    * Use heuristics to figure out the child list that
    * aChildFrame is currently in.
    */
@@ -467,6 +472,17 @@ class nsLayoutUtils {
   static bool IsProperAncestorFrame(const nsIFrame* aAncestorFrame,
                                     const nsIFrame* aFrame,
                                     const nsIFrame* aCommonAncestor = nullptr);
+
+  /**
+   * IsProperAncestorFrameConsideringContinuations checks whether aAncestorFrame
+   * or a continuation of it is an ancestor of aFrame and not equal to aFrame.
+   * @param aCommonAncestor nullptr, or a common ancestor of aFrame and
+   * aAncestorFrame. If non-null, this can bound the search and speed up
+   * the function
+   */
+  static bool IsProperAncestorFrameConsideringContinuations(
+      const nsIFrame* aAncestorFrame, const nsIFrame* aFrame,
+      const nsIFrame* aCommonAncestor = nullptr);
 
   /**
    * Like IsProperAncestorFrame, but looks across document boundaries.
@@ -740,34 +756,11 @@ class nsLayoutUtils {
                                            nsIContent** aContainer,
                                            int32_t* aOffset);
 
-  /**
-   * Translate from widget coordinates to the view's coordinates
-   * @param aPresContext the PresContext for the view
-   * @param aWidget the widget
-   * @param aPt the point relative to the widget
-   * @param aView  view to which returned coordinates are relative
-   * @return the point in the view's coordinates
-   */
-  static nsPoint TranslateWidgetToView(nsPresContext* aPresContext,
-                                       nsIWidget* aWidget,
-                                       const mozilla::LayoutDeviceIntPoint& aPt,
-                                       nsView* aView);
-
-  /**
-   * Translate from view coordinates to the widget's coordinates.
-   * @param aPresContext the PresContext for the view
-   * @param aView the view
-   * @param aPt the point relative to the view
-   * @param aViewportType whether the point is in visual or layout coordinates
-   * @param aWidget the widget to which returned coordinates are relative
-   * @return the point in the view's coordinates
-   */
-  static mozilla::LayoutDeviceIntPoint TranslateViewToWidget(
-      nsPresContext* aPresContext, nsView* aView, nsPoint aPt,
-      ViewportType aViewportType, nsIWidget* aWidget);
-
   static mozilla::LayoutDeviceIntPoint WidgetToWidgetOffset(
       nsIWidget* aFromWidget, nsIWidget* aToWidget);
+
+  static mozilla::Maybe<nsPoint> FrameToWidgetOffset(const nsIFrame* aFrame,
+                                                     nsIWidget* aWidget);
 
   enum class FrameForPointOption {
     /**
@@ -1101,6 +1094,19 @@ class nsLayoutUtils {
    */
   template <typename T>
   static nsRect RoundGfxRectToAppRect(const T& aRect, const float aFactor);
+
+  /**
+   * Like the above but slightly different scale and round behaviour. First
+   * scales, then constrains to nscoord, then rounds each component (x, y,
+   * width, height) individually.
+   *
+   * @param aRect The graphics rect to round outward.
+   * @param aFactor The number of app units per graphics unit.
+   * @return The rounaded rectangle in app space.
+   */
+  template <typename T>
+  static nsRect ScaleThenRoundGfxRectToAppRect(const T& aRect,
+                                               const float aFactor);
 
   /**
    * Returns a subrectangle of aContainedRect that is entirely inside the
@@ -2494,7 +2500,7 @@ class nsLayoutUtils {
    * not overridden by !important rules.
    */
   static bool HasEffectiveAnimation(const nsIFrame* aFrame,
-                                    nsCSSPropertyID aProperty);
+                                    NonCustomCSSPropertyId aProperty);
 
   /**
    * Returns true if |aFrame| has an animation where at least one of the
@@ -2884,6 +2890,11 @@ class nsLayoutUtils {
   static FrameMetrics CalculateBasicFrameMetrics(
       mozilla::ScrollContainerFrame* aScrollContainerFrame);
 
+  /**
+   * Follows the async scrollable ancestor chain of scroll frames to find
+   * scroll frames that WantAsyncScroll(). This is used when activating scroll
+   * frames and finding APZCs.
+   */
   static mozilla::ScrollContainerFrame* GetAsyncScrollableAncestorFrame(
       nsIFrame* aTarget);
 
@@ -3193,8 +3204,9 @@ class nsLayoutUtils {
 
   static bool IsAPZTestLoggingEnabled();
 
-  static void ConstrainToCoordValues(gfxFloat& aStart, gfxFloat& aSize);
-  static void ConstrainToCoordValues(float& aStart, float& aSize);
+  // doubles only because nscoord_max and nscoord_min cannot be represented
+  // exactly by floats.
+  static void ConstrainToCoordValues(double& aStart, double& aSize);
 };
 
 MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(nsLayoutUtils::PaintFrameFlags)
@@ -3247,21 +3259,66 @@ nsRect nsLayoutUtils::RoundGfxRectToAppRect(const T& aRect,
   T scaledRect = aRect;
   scaledRect.ScaleRoundOut(aFactor);
 
+  nsRect retval;
+
+  double start = double(scaledRect.x);
+  double size = double(scaledRect.width);
   // We now need to constrain our results to the max and min values for coords.
-  ConstrainToCoordValues(scaledRect.x, scaledRect.width);
-  ConstrainToCoordValues(scaledRect.y, scaledRect.height);
+  ConstrainToCoordValues(start, size);
+  // ConstrainToCoordValues ensures casting to nscoord is safe.
+  retval.x = nscoord(start);
+  retval.width = nscoord(size);
+
+  start = double(scaledRect.y);
+  size = double(scaledRect.height);
+  ConstrainToCoordValues(start, size);
+  retval.y = nscoord(start);
+  retval.height = nscoord(size);
 
   if (!aRect.Width()) {
-    scaledRect.SetWidth(0);
+    retval.SetWidth(0);
   }
 
   if (!aRect.Height()) {
-    scaledRect.SetHeight(0);
+    retval.SetHeight(0);
   }
 
-  // Now typecast everything back.  This is guaranteed to be safe.
-  return nsRect(nscoord(scaledRect.X()), nscoord(scaledRect.Y()),
-                nscoord(scaledRect.Width()), nscoord(scaledRect.Height()));
+  return retval;
+}
+
+template <typename T>
+nsRect nsLayoutUtils::ScaleThenRoundGfxRectToAppRect(const T& aRect,
+                                                     const float aFactor) {
+  // Get a new Rect whose units are app units by scaling by the specified
+  // factor.
+  T scaledRect = aRect;
+  scaledRect.Scale(aFactor);
+
+  nsRect retval;
+
+  double start = double(scaledRect.x);
+  double size = double(scaledRect.width);
+  // We now need to constrain our results to the max and min values for coords.
+  ConstrainToCoordValues(start, size);
+  // ConstrainToCoordValues ensures converting to nscoord is safe.
+  retval.x = NSToCoordRoundWithClamp(start);
+  retval.width = NSToCoordRoundWithClamp(size);
+
+  start = double(scaledRect.y);
+  size = double(scaledRect.height);
+  ConstrainToCoordValues(start, size);
+  retval.y = NSToCoordRoundWithClamp(start);
+  retval.height = NSToCoordRoundWithClamp(size);
+
+  if (!aRect.Width()) {
+    retval.SetWidth(0);
+  }
+
+  if (!aRect.Height()) {
+    retval.SetHeight(0);
+  }
+
+  return retval;
 }
 
 namespace mozilla {

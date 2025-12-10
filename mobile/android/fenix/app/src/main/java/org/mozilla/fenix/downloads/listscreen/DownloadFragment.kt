@@ -10,13 +10,13 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.fragment.compose.content
+import androidx.lifecycle.viewModelScope
 import androidx.navigation.fragment.findNavController
 import mozilla.components.feature.downloads.AbstractFetchDownloadService
-import org.mozilla.fenix.HomeActivity
-import org.mozilla.fenix.browser.browsingmode.BrowsingMode
+import mozilla.components.lib.state.helpers.StoreProvider.Companion.fragmentStore
+import mozilla.components.lib.state.helpers.StoreProvider.Companion.storeProvider
 import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.components.appstate.SupportedMenuNotifications
-import org.mozilla.fenix.components.lazyStore
 import org.mozilla.fenix.compose.snackbar.Snackbar
 import org.mozilla.fenix.compose.snackbar.SnackbarState
 import org.mozilla.fenix.downloads.getCannotOpenFileErrorMessage
@@ -42,11 +42,11 @@ class DownloadFragment : Fragment() {
         )
     }
 
-    private val downloadStore by lazyStore { viewModelScope ->
+    private val downloadStore by fragmentStore(DownloadUIState.INITIAL) {
         DownloadUIStore(
-            initialState = DownloadUIState.INITIAL,
+            initialState = it,
             middleware = DownloadUIMiddlewareProvider.provideMiddleware(
-                coroutineScope = viewModelScope,
+                coroutineScope = storeProvider.viewModelScope,
                 applicationContext = requireContext().applicationContext,
             ),
         )
@@ -72,8 +72,7 @@ class DownloadFragment : Fragment() {
         }
     }
 
-    private fun openItem(item: FileItem, mode: BrowsingMode? = null) {
-        mode?.let { (activity as HomeActivity).browsingModeManager.mode = it }
+    private fun openItem(item: FileItem) {
         context?.let {
             val canOpenFile = AbstractFetchDownloadService.openFile(
                 applicationContext = it.applicationContext,

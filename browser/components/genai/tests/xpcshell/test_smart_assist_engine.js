@@ -83,6 +83,7 @@ add_task(async function test_fetchWithHistory_streams_and_forwards_args() {
     };
 
     sb.stub(SmartAssistEngine, "_createEngine").resolves(fakeEngine);
+    sb.stub(SmartAssistEngine, "_getFxAccountToken").resolves("mock_token");
 
     const messages = [
       { role: "system", content: "You are helpful" },
@@ -121,6 +122,7 @@ add_task(
     try {
       const err = new Error("creation failed (generic)");
       const stub = sb.stub(SmartAssistEngine, "_createEngine").rejects(err);
+      sb.stub(SmartAssistEngine, "_getFxAccountToken").resolves("mock_token");
       const messages = [{ role: "user", content: "Hi" }];
 
       // Must CONSUME the async generator to trigger the rejection
@@ -157,6 +159,7 @@ add_task(async function test_fetchWithHistory_propagates_stream_error() {
       },
     };
     sb.stub(SmartAssistEngine, "_createEngine").resolves(fakeEngine);
+    sb.stub(SmartAssistEngine, "_getFxAccountToken").resolves("mock_token");
 
     const consume = async () => {
       let acc = "";
@@ -179,6 +182,7 @@ add_task(async function test_fetchWithHistory_propagates_stream_error() {
 });
 
 add_task(async function test_getPromptIntent_basic() {
+  const sb = sinon.createSandbox();
   const cases = [
     { prompt: "please search for news on firefox", expected: "search" },
     { prompt: "Can you FIND me the docs for PageAssist?", expected: "search" }, // case-insensitive
@@ -186,6 +190,37 @@ add_task(async function test_getPromptIntent_basic() {
     { prompt: "hello there, how are you?", expected: "chat" },
     { prompt: "tell me a joke", expected: "chat" },
   ];
+
+  const fakeEngine = {
+    run({ args: [[query]] }) {
+      const searchKeywords = [
+        "search",
+        "find",
+        "look",
+        "query",
+        "locate",
+        "explore",
+      ];
+      const formattedPrompt = query.toLowerCase();
+      const isSearch = searchKeywords.some(keyword =>
+        formattedPrompt.includes(keyword)
+      );
+
+      // Simulate model confidence scores
+      if (isSearch) {
+        return [
+          { label: "search", score: 0.95 },
+          { label: "chat", score: 0.05 },
+        ];
+      }
+      return [
+        { label: "chat", score: 0.95 },
+        { label: "search", score: 0.05 },
+      ];
+    },
+  };
+
+  sb.stub(SmartAssistEngine, "_createEngine").resolves(fakeEngine);
 
   for (const { prompt, expected } of cases) {
     const intent = await SmartAssistEngine.getPromptIntent(prompt);
@@ -195,4 +230,35 @@ add_task(async function test_getPromptIntent_basic() {
       `getPromptIntent("${prompt}") should return "${expected}"`
     );
   }
+
+  sb.restore();
+});
+
+add_task(async function test_preprocessQuery_removes_question_marks() {
+  const sb = sinon.createSandbox();
+
+  // Use a minimal fake SmartAssistEngine to test only preprocessing
+  const engine = Object.create(SmartAssistEngine);
+
+  const cases = [
+    { input: "hello?", expected: "hello" },
+    { input: "?prompt", expected: "prompt" },
+    { input: "multiple???", expected: "multiple" },
+    { input: "mid?dle", expected: "middle" },
+    { input: "question? ", expected: "question" },
+    { input: " no?  spaces? ", expected: "no  spaces" },
+    { input: "???", expected: "" },
+    { input: "clean input", expected: "clean input" },
+  ];
+
+  for (const { input, expected } of cases) {
+    const result = engine._preprocessQuery(input);
+    Assert.equal(
+      result,
+      expected,
+      `Expected "${input}" to preprocess to "${expected}", got "${result}"`
+    );
+  }
+
+  sb.restore();
 });

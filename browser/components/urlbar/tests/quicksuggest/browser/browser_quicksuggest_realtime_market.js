@@ -98,7 +98,7 @@ add_setup(async function () {
       ["market.featureGate", true],
       ["suggest.market", true],
       ["suggest.quickactions", false],
-      ["suggest.quicksuggest.nonsponsored", true],
+      ["suggest.quicksuggest.all", true],
     ],
   });
 });
@@ -120,6 +120,15 @@ add_task(async function ui_single() {
   Assert.ok(
     element.row.querySelector(".urlbarView-button-result-menu"),
     "The row should have a result menu button"
+  );
+
+  Assert.deepEqual(
+    document.l10n.getAttributes(element.row._content),
+    {
+      id: null,
+      args: null,
+    },
+    "ARIA group label should not be set on the row inner"
   );
 
   let items = element.row.querySelectorAll(".urlbarView-realtime-item");
@@ -186,6 +195,15 @@ add_task(async function ui_multi() {
     value: "only match the Merino suggestion",
   });
   let { element } = await UrlbarTestUtils.getDetailsOfResultAt(window, 1);
+
+  Assert.deepEqual(
+    document.l10n.getAttributes(element.row._content),
+    {
+      id: "urlbar-result-aria-group-market",
+      args: null,
+    },
+    "ARIA group label should be set on the row inner"
+  );
 
   let items = element.row.querySelectorAll(".urlbarView-realtime-item");
   Assert.equal(items.length, 3);

@@ -13,6 +13,8 @@
 #include "mozilla/glean/NetwerkMetrics.h"
 
 #include "mozilla/dom/WindowGlobalParent.h"
+#include "nsIIOService.h"
+#include "nsIOService.h"
 
 namespace mozilla::net {
 
@@ -107,6 +109,18 @@ nsresult LNAPermissionRequest::RequestPermission() {
     return Cancel();
   }
 
+  // Check if the domain should skip LNA checks
+  if (mPrincipal && gIOService) {
+    nsAutoCString origin;
+    nsresult rv = mPrincipal->GetAsciiHost(origin);
+    if (NS_SUCCEEDED(rv) && !origin.IsEmpty()) {
+      if (gIOService->ShouldSkipDomainForLNA(origin)) {
+        // Domain is in the skip list, grant permission automatically
+        return Allow(JS::UndefinedHandleValue);
+      }
+    }
+  }
+
   PromptResult pr = CheckPromptPrefs();
   if (pr == PromptResult::Granted) {
     return Allow(JS::UndefinedHandleValue);
@@ -118,13 +132,25 @@ nsresult LNAPermissionRequest::RequestPermission() {
 
   // Record telemetry for permission prompts shown to users
   if (mType.Equals(LOCAL_HOST_PERMISSION_KEY)) {
-    mozilla::glean::networking::local_network_access_prompts_shown
-        .Get("localhost"_ns)
-        .Add(1);
+    if (mIsRequestDelegatedToUnsafeThirdParty) {
+      mozilla::glean::networking::local_network_access_prompts_shown
+          .Get("localhost_cross_site"_ns)
+          .Add(1);
+    } else {
+      mozilla::glean::networking::local_network_access_prompts_shown
+          .Get("localhost"_ns)
+          .Add(1);
+    }
   } else if (mType.Equals(LOCAL_NETWORK_PERMISSION_KEY)) {
-    mozilla::glean::networking::local_network_access_prompts_shown
-        .Get("local_network"_ns)
-        .Add(1);
+    if (mIsRequestDelegatedToUnsafeThirdParty) {
+      mozilla::glean::networking::local_network_access_prompts_shown
+          .Get("local_network_cross_site"_ns)
+          .Add(1);
+    } else {
+      mozilla::glean::networking::local_network_access_prompts_shown
+          .Get("local_network"_ns)
+          .Add(1);
+    }
   }
 
   if (NS_SUCCEEDED(

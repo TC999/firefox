@@ -501,7 +501,7 @@ bool CookieParser::GetExpiry(CookieStruct& aCookieData,
                              const nsACString& aDateHeader, bool aFromHttp) {
   int64_t maxageCap = StaticPrefs::network_cookie_maxageCap();
   int64_t creationTimeInMSec =
-      aCookieData.creationTime() / int64_t(PR_USEC_PER_MSEC);
+      aCookieData.creationTimeInUSec() / int64_t(PR_USEC_PER_MSEC);
 
   /* Determine when the cookie should expire. This is done by taking the
    * difference between the server time and the time the server wants the cookie
@@ -515,12 +515,12 @@ bool CookieParser::GetExpiry(CookieStruct& aCookieData,
   int64_t maxage = 0;
   if (ParseMaxAgeAttribute(aMaxage, &maxage)) {
     if (maxage == INT64_MIN) {
-      aCookieData.expiry() = maxage;
+      aCookieData.expiryInMSec() = maxage;
     } else {
       CheckedInt<int64_t> value(creationTimeInMSec);
       value += (maxageCap ? std::min(maxage, maxageCap) : maxage) * 1000;
 
-      aCookieData.expiry() = value.isValid() ? value.value() : INT64_MAX;
+      aCookieData.expiryInMSec() = value.isValid() ? value.value() : INT64_MAX;
     }
 
     return false;
@@ -561,7 +561,7 @@ bool CookieParser::GetExpiry(CookieStruct& aCookieData,
     // time be set less than current time and more than server time.
     // The cookie item have to be used to the expired cookie.
 
-    aCookieData.expiry() =
+    aCookieData.expiryInMSec() =
         CookieCommons::MaybeCapExpiry(creationTimeInMSec, expiresInMSec);
     return false;
   }
@@ -634,21 +634,6 @@ void CookieParser::FixDomain(CookieStruct& aCookieData, nsIURI* aHostURI,
    */
 }
 
-static void RecordPartitionedTelemetry(const CookieStruct& aCookieData,
-                                       bool aIsForeign) {
-  mozilla::glean::networking::set_cookie.Add(1);
-  if (aCookieData.isPartitioned()) {
-    mozilla::glean::networking::set_cookie_partitioned.AddToNumerator(1);
-  }
-  if (aIsForeign) {
-    mozilla::glean::networking::set_cookie_foreign.AddToNumerator(1);
-  }
-  if (aIsForeign && aCookieData.isPartitioned()) {
-    mozilla::glean::networking::set_cookie_foreign_partitioned.AddToNumerator(
-        1);
-  }
-}
-
 // Main entry point for cookie parsing. Parses a single cookie string
 // (from either document.cookie or a Set-Cookie header) and populates
 // the internal CookieStruct data.
@@ -661,9 +646,10 @@ void CookieParser::Parse(const nsACString& aBaseDomain, bool aRequireHostMatch,
   MOZ_ASSERT(!mValidation);
 
   // init expiryTime such that session cookies won't prematurely expire
-  mCookieData.expiry() = INT64_MAX;
-  mCookieData.creationTime() =
-      Cookie::GenerateUniqueCreationTime(aCurrentTimeInUSec);
+  mCookieData.expiryInMSec() = INT64_MAX;
+  mCookieData.creationTimeInUSec() =
+      Cookie::GenerateUniqueCreationTimeInUSec(aCurrentTimeInUSec);
+  mCookieData.updateTimeInUSec() = mCookieData.creationTimeInUSec();
 
   mCookieData.schemeMap() = CookieCommons::URIToSchemeType(mHostURI);
 
@@ -730,12 +716,6 @@ void CookieParser::Parse(const nsACString& aBaseDomain, bool aRequireHostMatch,
 
   if (mValidation->Result() != nsICookieValidation::eOK) {
     return;
-  }
-
-  // We count SetCookie operations in the parent process only for HTTP set
-  // cookies to prevent double counting.
-  if (XRE_IsParentProcess() || !aFromHttp) {
-    RecordPartitionedTelemetry(mCookieData, aIsForeignAndNotAddon);
   }
 }
 

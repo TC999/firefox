@@ -15,7 +15,6 @@
 #include "nsPrintfCString.h"
 #include "mozilla/GRefPtr.h"
 #include "mozilla/GUniquePtr.h"
-#include "mozilla/UniquePtrExtensions.h"
 #include "mozilla/WidgetUtilsGtk.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_widget.h"
@@ -31,6 +30,7 @@
 #  include <dlfcn.h>
 #  include "mozilla/widget/AsyncDBus.h"
 #  include "mozilla/WidgetUtilsGtk.h"
+#  include "nsAppShell.h"
 #endif
 
 using namespace mozilla;
@@ -715,6 +715,8 @@ nsGIOService::GetAppForURIScheme(const nsACString& aURIScheme,
                                  nsIHandlerApp** aApp) {
   *aApp = nullptr;
 
+  // Portals works with DBus only.
+#ifdef MOZ_ENABLE_DBUS
   // Application in flatpak sandbox does not have access to the list
   // of installed applications on the system. We use SchemeSupported
   // method to check if the URI scheme is supported and then use
@@ -730,6 +732,7 @@ nsGIOService::GetAppForURIScheme(const nsACString& aURIScheme,
     }
     GUniquePtr<GError> error;
 
+    nsAppShell::DBusConnectionCheck();
     RefPtr<GDBusProxy> proxy = dont_AddRef(g_dbus_proxy_new_for_bus_sync(
         G_BUS_TYPE_SESSION, G_DBUS_PROXY_FLAGS_NONE, nullptr, OPENURI_BUS_NAME,
         OPENURI_OBJECT_PATH, OPENURI_INTERFACE_NAME,
@@ -776,6 +779,7 @@ nsGIOService::GetAppForURIScheme(const nsACString& aURIScheme,
     mozApp.forget(aApp);
     return NS_OK;
   }
+#endif
 
   RefPtr<GAppInfo> app_info = dont_AddRef(g_app_info_get_default_for_uri_scheme(
       PromiseFlatCString(aURIScheme).get()));
@@ -1007,11 +1011,24 @@ static nsresult RevealFileViaDBusWithProxy(GDBusProxy* aProxy, nsIFile* aFile,
   MOZ_TRY(aFile->GetNativePath(path));
 
   RefPtr<mozilla::widget::DBusCallPromise> dbusPromise;
-  const char* startupId = "";
+
+  char* activationToken = nullptr;
+  auto releaseActivationToken = MakeScopeExit([&] { g_free(activationToken); });
+
+  // Try to get activation token from GdkDisplay
+  if (GdkDisplay* display = gdk_display_get_default()) {
+    if (GdkAppLaunchContext* context =
+            gdk_display_get_app_launch_context(display)) {
+      activationToken = g_app_launch_context_get_startup_notify_id(
+          G_APP_LAUNCH_CONTEXT(context), nullptr, nullptr);
+      g_object_unref(context);
+    }
+  }
 
   const int32_t timeout =
       StaticPrefs::widget_gtk_file_manager_show_items_timeout_ms();
 
+  nsAppShell::DBusConnectionCheck();
   if (!(strcmp(aMethod, kMethodOpenDirectory) == 0)) {
     GUniquePtr<gchar> uri(g_filename_to_uri(path.get(), nullptr, nullptr));
     if (!uri) {
@@ -1023,8 +1040,8 @@ static nsresult RevealFileViaDBusWithProxy(GDBusProxy* aProxy, nsIFile* aFile,
     g_variant_builder_init(&builder, G_VARIANT_TYPE_STRING_ARRAY);
     g_variant_builder_add(&builder, "s", uri.get());
 
-    RefPtr<GVariant> variant = dont_AddRef(
-        g_variant_ref_sink(g_variant_new("(ass)", &builder, startupId)));
+    RefPtr<GVariant> variant = dont_AddRef(g_variant_ref_sink(g_variant_new(
+        "(ass)", &builder, activationToken ? activationToken : "")));
     g_variant_builder_clear(&builder);
 
     dbusPromise = widget::DBusProxyCall(aProxy, aMethod, variant,
@@ -1048,8 +1065,8 @@ static nsresult RevealFileViaDBusWithProxy(GDBusProxy* aProxy, nsIFile* aFile,
     RefPtr<GUnixFDList> fd_list =
         dont_AddRef(g_unix_fd_list_new_from_array(&fd, 1));
 
-    RefPtr<GVariant> variant = dont_AddRef(
-        g_variant_ref_sink(g_variant_new("(sha{sv})", startupId, 0, &options)));
+    RefPtr<GVariant> variant = dont_AddRef(g_variant_ref_sink(g_variant_new(
+        "(sha{sv})", activationToken ? activationToken : "", 0, &options)));
     g_variant_builder_clear(&options);
 
     dbusPromise = widget::DBusProxyCallWithUnixFDList(

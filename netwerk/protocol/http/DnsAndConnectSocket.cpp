@@ -24,6 +24,7 @@
 #include "nsHttpHandler.h"
 #include "ConnectionEntry.h"
 #include "HttpConnectionUDP.h"
+#include "NullHttpTransaction.h"
 #include "nsServiceManagerUtils.h"
 #include "mozilla/net/NeckoChannelParams.h"  // For HttpActivityArgs.
 
@@ -486,7 +487,7 @@ DnsAndConnectSocket::OnOutputStreamReady(nsIAsyncOutputStream* out) {
   RefPtr<ConnectionEntry> ent =
       gHttpHandler->ConnMgr()->FindConnectionEntry(mConnInfo);
   MOZ_DIAGNOSTIC_ASSERT(ent);
-  Unused << ent;
+  (void)ent;
 
   RefPtr<DnsAndConnectSocket> deleteProtector(this);
 
@@ -622,6 +623,35 @@ nsresult DnsAndConnectSocket::SetupConn(bool isPrimary, nsresult status) {
 
     ent->InsertIntoActiveConns(conn);
     if (mIsHttp3) {
+      // For WebSocket through HTTP/3 proxy, queue the transaction to be
+      // dispatched when the H3 session is connected, and use a NullTransaction
+      // to drive the H3 connection establishment.
+      // We do NOT create a ConnectionHandle for the WebSocket transaction here
+      // because it will get a tunnel connection later, and setting a
+      // ConnectionHandle now would cause it to be reclaimed when cleared.
+      nsHttpTransaction* trans = pendingTransInfo->Transaction();
+      if (trans->IsWebsocketUpgrade()) {
+        LOG(
+            ("DnsAndConnectSocket::SetupConn WebSocket through HTTP/3 proxy, "
+             "queueing for tunnel creation after H3 connected"));
+        // Put the transaction back in the pending queue so it can be
+        // dispatched through TryDispatchTransaction when the H3 session
+        // reports it's connected
+        RefPtr<PendingTransactionInfo> newPendingInfo =
+            new PendingTransactionInfo(trans);
+        ent->InsertTransaction(newPendingInfo);
+
+        // Dispatch a NullHttpTransaction to drive the H3 proxy connection
+        // establishment
+        nsCOMPtr<nsIInterfaceRequestor> nullCallbacks;
+        trans->GetSecurityCallbacks(getter_AddRefs(nullCallbacks));
+        RefPtr<nsAHttpTransaction> nullTrans =
+            new NullHttpTransaction(mConnInfo, nullCallbacks, mCaps);
+        rv = gHttpHandler->ConnMgr()->DispatchAbstractTransaction(
+            ent, nullTrans, mCaps, conn, 0);
+        return rv;
+      }
+
       // Each connection must have a ConnectionHandle wrapper.
       // In case of Http < 2 the a ConnectionHandle is created for each
       // transaction in DispatchAbstractTransaction.
@@ -861,7 +891,7 @@ bool DnsAndConnectSocket::Claim() {
       if (NS_SUCCEEDED(mPrimaryTransport.mSocketTransport->GetTlsSocketControl(
               getter_AddRefs(tlsSocketControl))) &&
           tlsSocketControl) {
-        Unused << tlsSocketControl->Claim();
+        (void)tlsSocketControl->Claim();
       }
     }
 
@@ -1212,7 +1242,7 @@ nsresult DnsAndConnectSocket::TransportSetup::SetupStreams(
     tmpFlags |= nsISocketTransport::NO_PERMANENT_STORAGE;
   }
 
-  Unused << socketTransport->SetIsPrivate(ci->GetPrivate());
+  (void)socketTransport->SetIsPrivate(ci->GetPrivate());
 
   if (dnsAndSock->mCaps & NS_HTTP_DISALLOW_ECH) {
     tmpFlags |= nsISocketTransport::DONT_TRY_ECH;

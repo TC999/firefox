@@ -52,22 +52,6 @@ $glyph-forward: url('chrome://browser/skin/forward.svg');
 
   }
 
-  .search-inner-wrapper:has(.trending-searches-pill-wrapper) {
-    display: flex;
-    flex-direction: column;
-
-    .search-handoff-button {
-      height: 52px;
-    }
-
-    &.no-handoff {
-      #newtab-search-text,
-      .search-button {
-        height: 52px;
-      }
-    }
-  }
-
   .search-handoff-button,
   input {
     background: var(--newtab-background-color-secondary) var(--newtab-search-icon) $search-icon-padding center no-repeat;
@@ -371,7 +355,7 @@ $glyph-forward: url('chrome://browser/skin/forward.svg');
 }
 
 @media (height > 700px) {
-  .fixed-search {
+  .activity-stream .fixed-search {
     .search-wrapper {
       $search-height: $search-height-new;
       $search-icon-size: 24px;
@@ -387,6 +371,8 @@ $glyph-forward: url('chrome://browser/skin/forward.svg');
       inset-block-start: 0;
       width: 100%;
       z-index: 3;
+      display: flex;
+      align-items: center;
 
       .search-inner-wrapper {
         min-height: $search-height;

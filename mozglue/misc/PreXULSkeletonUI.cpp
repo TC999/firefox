@@ -24,7 +24,6 @@
 #include "mozilla/FStream.h"
 #include "mozilla/GetKnownFolderPath.h"
 #include "mozilla/HashFunctions.h"
-#include "mozilla/HelperMacros.h"
 #include "mozilla/glue/Debug.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/mscom/ProcessRuntime.h"
@@ -33,7 +32,6 @@
 #include "mozilla/Try.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/UniquePtrExtensions.h"
-#include "mozilla/Unused.h"
 #include "mozilla/WindowsDpiAwareness.h"
 #include "mozilla/WindowsProcessMitigations.h"
 
@@ -522,7 +520,7 @@ void RasterizeColorRect(const ColorRect& colorRect) {
   // have a border, we draw a stroke-only rect first, and then draw the smaller
   // inner rect on top of it.
   Vector<DrawRect, 2> drawRects;
-  Unused << drawRects.reserve(2);
+  (void)drawRects.reserve(2);
   if (colorRect.borderWidth == 0) {
     DrawRect rect = {};
     rect.color = colorRect.color;
@@ -1009,7 +1007,7 @@ Result<Ok, PreXULSkeletonUIError> DrawSkeletonUI(
   }
 
   Vector<DevPixelSpan, 2> spansToAdd;
-  Unused << spansToAdd.reserve(2);
+  (void)spansToAdd.reserve(2);
   spansToAdd.infallibleAppend(urlbarSpan);
   if (hasSearchbar) {
     spansToAdd.infallibleAppend(searchbarSpan);
@@ -1424,10 +1422,11 @@ Result<Ok, PreXULSkeletonUIError> LoadGdi32AndUser32Procedures() {
                                    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE)) {
     // EnableNonClientDpiScaling is first available in Win10 Build 1607, but
     // it's optional - we can handle not having it.
-    Unused << [&]() -> Result<Ok, PreXULSkeletonUIError> {
+    (void)[&]()->Result<Ok, PreXULSkeletonUIError> {
       MOZ_LOAD_OR_FAIL(user32Dll, EnableNonClientDpiScaling);
       return Ok{};
-    }();
+    }
+    ();
   }
 
   MOZ_LOAD_OR_FAIL(user32Dll, GetSystemMetricsForDpi);
@@ -1816,7 +1815,7 @@ static Result<Ok, PreXULSkeletonUIError> CreateAndStorePreXULSkeletonUIImpl(
       WriteRegUint(regKey, regProgressName,
                    static_cast<uint32_t>(PreXULSkeletonUIProgress::Started)));
   auto writeCompletion = MakeScopeExit([&] {
-    Unused << WriteRegUint(
+    (void)WriteRegUint(
         regKey, regProgressName,
         static_cast<uint32_t>(PreXULSkeletonUIProgress::Completed));
   });
@@ -2165,7 +2164,7 @@ MFBT_API Result<Ok, PreXULSkeletonUIError> SetPreXULSkeletonUIEnabledIfAllowed(
     // do our best effort to lock it so that future instances don't create
     // skeleton UIs while we're still running, since they will immediately exit
     // and tell us to open a new window.
-    Unused << GetSkeletonUILock();
+    (void)GetSkeletonUILock();
   }
 
   sPreXULSkeletonUIEnabled = value;

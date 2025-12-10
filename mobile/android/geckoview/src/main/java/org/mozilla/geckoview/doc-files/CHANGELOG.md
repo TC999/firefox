@@ -13,6 +13,45 @@ exclude: true
 
 ⚠️  breaking change and deprecation notices
 
+## v148
+- Introduce the harmful-addon URL-Classifier feature
+        - [`HARMFULADDON`][148.1]
+- ⚠️ Remove deprecated `GeckoRuntimeSettings.Builder.setLnaBlockingEnabled`, `GeckoRuntimeSettings.setLnaBlockingEnabled` and `GeckoRuntimeSettings.getLnaBlockingEnabled` APIs. Alternatives were introduced in v147.
+
+[148.1]: {{javadoc_uri}}/ContentBlocking.SafeBrowsing.html#HARMFULADDON
+
+## v147
+- Changed Local Network / Device Access APIs in `GeckoRuntimeSettings` & `GeckoRuntimeSettings.Builder` for more granularity
+    - Added new APIs in `GeckoRuntimeSettings`
+        - [`setLnaEnabled`][147.1] & [`getLnaEnabled`][147.2]
+        - [`setLnaBlockTrackers`][147.3] & [`getLnaBlockTrackers`][147.4]
+        - [`setLnaBlocking`][147.5] & [`getLnaBlocking`][147.6]
+    - Added corresponding APIs in `GeckoRuntimeSettings.Builder`
+        - [`setLnaEnabled`][147.7]
+        - [`setLnaBlockTrackers`][147.8]
+        - [`setLnaBlocking`][147.9]
+    - ⚠️ Deprecated `GeckoRuntimeSettings.Builder.setLnaBlockingEnabled`, `GeckoRuntimeSettings.setLnaBlockingEnabled` and `GeckoRuntimeSettings.getLnaBlockingEnabled` APIs.
+
+[147.1]: {{javadoc_uri}}/GeckoRuntimeSettings.html#setLnaEnabled(boolean)
+[147.2]: {{javadoc_uri}}/GeckoRuntimeSettings.html#getLnaEnabled
+[147.3]: {{javadoc_uri}}/GeckoRuntimeSettings.html#setLnaBlockTrackers(boolean)
+[147.4]: {{javadoc_uri}}/GeckoRuntimeSettings.html#getLnaBlockTrackers
+[147.5]: {{javadoc_uri}}/GeckoRuntimeSettings.html#setLnaBlocking(boolean)
+[147.6]: {{javadoc_uri}}/GeckoRuntimeSettings.html#getLnaBlocking
+[147.7]: {{javadoc_uri}}/GeckoRuntimeSettings.Builder.html#setLnaEnabled(boolean)
+[147.8]: {{javadoc_uri}}/GeckoRuntimeSettings.Builder.html#setLnaBlockTrackers(boolean)
+[147.9]: {{javadoc_uri}}/GeckoRuntimeSettings.Builder.html#setLnaBlocking(boolean)
+
+## v146
+- Added `getSafeBrowsingV5Enabled` and `setSafeBrowsingV5Enabled` to [`ContentBlocking.Settings`][146.1] to control whether to use the SafeBrowsing V5 protocol to access the Google SafeBrowsing service.
+- Added [`Autocomplete.AddressStructure`][146.2] API used to retrieve the structure of an address for a given country.
+- Added [`GeckoRuntimeSettings.getAppZygoteProcessEnabled`][146.3] and [`GeckoRuntimeSettings.Builder.appZygoteProcessEnabled`][146.4] to control whether content service runs using App Zygote preloading or not.
+
+[146.1]: {{javadoc_uri}}/ContentBlocking.html
+[146.2]: {{javadoc_uri}}/Autocomplete.AddressStructure.html
+[146.3]: {{javadoc_uri}}/GeckoRuntimeSettings.html#getAppZygoteProcessEnabled
+[146.4]: {{javadoc_uri}}/GeckoRuntimeSettings.Builder.html#appZygoteProcessEnabled(boolean)
+
 ## v145
 - Added [`WebNotification.show`][145.1]. Implementations of `WebNotificationDelegate.onShowNotification` should now call either `show` when the notification is successfully opened, or `dismiss` if it failed.
 - Added [`WebExtension.InvalidMetaDataException`][145.2]. ([bug 1981496]({{bugzilla}}1981496))
@@ -27,7 +66,6 @@ exclude: true
 [145.5]: {{javadoc_uri}}/GeckoRuntimeSettings.html#setCertificateTransparencyMode
 
 ## v144
-- Added [`GeckoSession.flushSessionState()`][144.1] to immediately notify the registered [`GeckoSession.ProgressDelegate`][144.2] and [`GeckoSession.HistoryDelegate`][144.3] of the current session state.
 - Added [`GeckoRuntimeSettings.getIsolatedProcessEnabled`][144.4] and [`GeckoRuntimeSettings.Builder.isolatedProcessEnabled`][144.5] to control whether content service runs on isolated process or not.
 - Added [`ContentBlocking.GOOGLE_SAFE_BROWSING_V5_PROVIDER`][144.6] for the configuration of the SafeBrowsing V5 provider
 - ⚠️ Removed deprecated `onOptionalPrompt` function signature. ([bug 1972510]({{bugzilla}}1972510))
@@ -1846,4 +1884,4 @@ to allow adding gecko profiler markers.
 [65.24]: {{javadoc_uri}}/CrashReporter.html#sendCrashReport(android.content.Context,android.os.Bundle,java.lang.String)
 [65.25]: {{javadoc_uri}}/GeckoResult.html
 
-[api-version]: a15af3b5439f5bed524e92e4c59c52d139d435a8
+[api-version]: d32e6e204686a16db974861a7ce2ed06bc8147fc

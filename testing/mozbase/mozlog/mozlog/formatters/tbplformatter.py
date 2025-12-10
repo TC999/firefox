@@ -29,7 +29,7 @@ class TbplFormatter(BaseFormatter):
     """
 
     def __init__(self, compact=False, summary_on_shutdown=False, **kwargs):
-        super(TbplFormatter, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.suite_start_time = None
         self.test_start_times = {}
         self.buffer = None
@@ -42,7 +42,7 @@ class TbplFormatter(BaseFormatter):
     def __call__(self, data):
         if self.summary_on_shutdown:
             self.summary(data)
-        return super(TbplFormatter, self).__call__(data)
+        return super().__call__(data)
 
     @property
     def compact(self):
@@ -107,6 +107,13 @@ class TbplFormatter(BaseFormatter):
         id = data["test"] if "test" in data else "pid: %s" % data["process"]
         quiet = data.get("quiet", False)
         crash_prefix = "INFO crashed process" if quiet else "PROCESS-CRASH"
+
+        # Add minidump name to crash prefix for treeherder linking
+        if data.get("minidump_path"):
+            import os
+
+            minidump_name = os.path.splitext(os.path.basename(data["minidump_path"]))[0]
+            crash_prefix = crash_prefix + " | " + minidump_name
 
         if data.get("java_stack"):
             # use "<exception> at <top frame>" as a crash signature for java exception

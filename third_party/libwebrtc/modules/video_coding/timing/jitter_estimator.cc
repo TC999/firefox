@@ -10,10 +10,9 @@
 
 #include "modules/video_coding/timing/jitter_estimator.h"
 
-#include <math.h>
-#include <string.h>
-
 #include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <optional>
 
 #include "absl/strings/string_view.h"
@@ -83,8 +82,6 @@ constexpr int kNackLimit = 3;
 constexpr Frequency kMaxFramerateEstimate = Frequency::Hertz(200);
 
 }  // namespace
-
-constexpr char JitterEstimator::Config::kFieldTrialsKey[];
 
 JitterEstimator::Config JitterEstimator::Config::ParseAndValidate(
     absl::string_view field_trial) {

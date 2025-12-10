@@ -62,7 +62,7 @@ XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "gFormFillService",
   "@mozilla.org/satchel/form-fill-controller;1",
-  "nsIFormFillController"
+  Ci.nsIFormFillController
 );
 
 ChromeUtils.defineLazyGetter(lazy, "log", () => {
@@ -150,7 +150,7 @@ const observer = {
         this.handleKeydown(aEvent, field, loginManagerChild, ownerDocument);
         break;
 
-      case "focus":
+      case "focusin":
         this.handleFocus(field, docState, aEvent.target);
         break;
 
@@ -541,7 +541,7 @@ export class LoginFormState {
    *
    * @param {HTMLInputElement} aUsernameField element contained in a LoginForm
    *                                          cached in LoginFormFactory.
-   * @returns {Boolean} whether the username and password fields still have the
+   * @returns {boolean} whether the username and password fields still have the
    *                    last-filled values, if previously filled.
    */
   #isLoginAlreadyFilled(aUsernameField) {
@@ -616,7 +616,7 @@ export class LoginFormState {
     this.generatedPasswordFields.add(passwordField);
 
     // blur/focus: listen for focus changes to we can mask/unmask generated passwords
-    for (let eventType of ["blur", "focus"]) {
+    for (let eventType of ["blur", "focusin"]) {
       passwordField.addEventListener(eventType, observer, {
         capture: true,
         mozSystemGroup: true,
@@ -668,7 +668,7 @@ export class LoginFormState {
     this.generatedPasswordFields.delete(passwordField);
 
     // Remove all the event listeners added in _passwordEditedOrGenerated
-    for (let eventType of ["blur", "focus"]) {
+    for (let eventType of ["blur", "focusin"]) {
       passwordField.removeEventListener(eventType, observer, {
         capture: true,
         mozSystemGroup: true,
@@ -692,6 +692,7 @@ export class LoginFormState {
 
   /**
    * Focus event handler for username fields to decide whether to show autocomplete.
+   *
    * @param {HTMLInputElement} focusedField
    */
   #onUsernameFocus(focusedField) {
@@ -738,7 +739,8 @@ export class LoginFormState {
     lazy.gFormFillService.showPopup();
   }
 
-  /** Remove login field highlight when its value is cleared or overwritten.
+  /**
+   * Remove login field highlight when its value is cleared or overwritten.
    */
   static #removeFillFieldHighlight(event) {
     event.target.autofillState = "";
@@ -746,6 +748,7 @@ export class LoginFormState {
 
   /**
    * Highlight login fields on autocomplete or autofill on page load.
+   *
    * @param {Node} element that needs highlighting.
    */
   static _highlightFilledField(element) {
@@ -777,7 +780,7 @@ export class LoginFormState {
    *
    * @param {FormLike} form
    *                  the form to check.
-   * @param {Object}  recipe=null
+   * @param {object}  recipe=null
    *                  A relevant field override recipe to use.
    * @returns {Element} The username field or null (if the form is not a
    *                    username-only form).
@@ -822,11 +825,11 @@ export class LoginFormState {
 
   /**
    * @param {LoginForm} form - the LoginForm to look for password fields in.
-   * @param {Object} options
+   * @param {object} options
    * @param {bool} [options.skipEmptyFields=false] - Whether to ignore password fields with no value.
    *                                                 Used at capture time since saving empty values isn't
    *                                                 useful.
-   * @param {Object} [options.fieldOverrideRecipe=null] - A relevant field override recipe to use.
+   * @param {object} [options.fieldOverrideRecipe=null] - A relevant field override recipe to use.
    * @return {Array|null} Array of password field elements for the specified form.
    *                      If no pw fields are found, or if more than 5 are found, then null
    *                      is returned.
@@ -981,10 +984,10 @@ export class LoginFormState {
    * @param {LoginForm} form
    * @param {bool} isSubmission
    * @param {Set} recipes
-   * @param {Object} options
+   * @param {object} options
    * @param {bool} [options.ignoreConnect] - Whether to ignore checking isConnected
    *                                         of the element.
-   * @return {Object} {usernameField, newPasswordField, oldPasswordField, confirmPasswordField}
+   * @return {object} {usernameField, newPasswordField, oldPasswordField, confirmPasswordField}
    *
    * usernameField may be null.
    * newPasswordField may be null. If null, this is a username-only form.
@@ -1269,7 +1272,7 @@ export class LoginFormState {
    * @param {Element} aField
    *                  A form field we want to verify.
    *
-   * @returns {Object} an object with information about the
+   * @returns {object} an object with information about the
    *                   LoginForm username and password field
    *                   or null if the passed field is invalid.
    */
@@ -1400,19 +1403,19 @@ export class LoginManagerChild extends JSWindowActorChild {
         break;
       }
       case "PasswordManager:OnFieldAutoComplete": {
-        const { focusedElement } = lazy.gFormFillService;
+        const { controlledElement } = lazy.gFormFillService;
         const login = lazy.LoginHelper.vanillaObjectToLogin(msg.data);
-        this.onFieldAutoComplete(focusedElement, login);
+        this.onFieldAutoComplete(controlledElement, login);
         break;
       }
       case "PasswordManager:FillGeneratedPassword": {
-        const { focusedElement } = lazy.gFormFillService;
-        this.filledWithGeneratedPassword(focusedElement);
+        const { controlledElement } = lazy.gFormFillService;
+        this.filledWithGeneratedPassword(controlledElement);
         break;
       }
       case "PasswordManager:FillRelayUsername": {
-        const { focusedElement } = lazy.gFormFillService;
-        this.fillRelayUsername(focusedElement, msg.data);
+        const { controlledElement } = lazy.gFormFillService;
+        this.fillRelayUsername(controlledElement, msg.data);
         break;
       }
     }
@@ -1427,7 +1430,7 @@ export class LoginManagerChild extends JSWindowActorChild {
       return;
     }
 
-    if (inputElement != lazy.gFormFillService.focusedElement) {
+    if (inputElement != lazy.gFormFillService.controlledElement) {
       lazy.log("Could not open popup on input that's no longer focused.");
       return;
     }
@@ -1509,7 +1512,7 @@ export class LoginManagerChild extends JSWindowActorChild {
    * Get relevant logins and recipes from the parent
    *
    * @param {HTMLFormElement} form - form to get login data for
-   * @param {Object} options
+   * @param {object} options
    * @param {boolean} options.guid - guid of a login to retrieve
    * @param {boolean} options.showPrimaryPassword - whether to show a primary password prompt
    */
@@ -2308,7 +2311,7 @@ export class LoginManagerChild extends JSWindowActorChild {
    *        generated password being filled into a form-like element.
    * @param {boolean?} options.ignoreConnect Whether to ignore isConnected attribute of a element.
    *
-   * @returns {Boolean} whether the message is sent to the parent process.
+   * @returns {boolean} whether the message is sent to the parent process.
    */
   _maybeSendFormInteractionMessage(
     form,
@@ -2579,6 +2582,7 @@ export class LoginManagerChild extends JSWindowActorChild {
   /**
    * The password field has been filled with a generated password, ensure the
    * field is handled accordingly.
+   *
    * @param {HTMLInputElement} passwordField
    */
   filledWithGeneratedPassword(passwordField) {
@@ -2610,6 +2614,7 @@ export class LoginManagerChild extends JSWindowActorChild {
   /**
    * Notify the parent that a generated password was filled into a field or
    * edited so that it can potentially be saved.
+   *
    * @param {HTMLInputElement} passwordField
    */
   _passwordEditedOrGenerated(
@@ -2652,6 +2657,7 @@ export class LoginManagerChild extends JSWindowActorChild {
 
   /**
    * Filter logins for exact origin/formActionOrigin and dedupe on usernamematche
+   *
    * @param {nsILoginInfo[]} logins an array of nsILoginInfo that could be
    *        used for the form, including ones with a different form action origin
    *        which are only used when the fill is userTriggered
@@ -2706,7 +2712,7 @@ export class LoginManagerChild extends JSWindowActorChild {
    *        which are only used when the fill is userTriggered
    * @param {Set} recipes a set of recipes that could be used to affect how the
    *        form is filled
-   * @param {Object} [options = {}] a list of options for this method
+   * @param {object} [options = {}] a list of options for this method
    * @param {HTMLInputElement} [options.inputElement = null] an optional target
    *        input element we want to fill
    * @param {bool} [options.autofillForm = false] denotes if we should fill the
@@ -3089,9 +3095,9 @@ export class LoginManagerChild extends JSWindowActorChild {
         Glean.pwmgr.formAutofillResult[autofillResult].add(1);
 
         if (usernameField) {
-          let focusedElement = lazy.gFormFillService.focusedElement;
+          let controlledElement = lazy.gFormFillService.controlledElement;
           if (
-            usernameField == focusedElement &&
+            usernameField == controlledElement &&
             ![
               AUTOFILL_RESULT.FILLED,
               AUTOFILL_RESULT.FILLED_USERNAME_ONLY_FORM,
@@ -3107,7 +3113,7 @@ export class LoginManagerChild extends JSWindowActorChild {
 
       if (usernameField) {
         lazy.log("Attaching event listeners to usernameField.");
-        usernameField.addEventListener("focus", observer);
+        usernameField.addEventListener("focusin", observer);
         usernameField.addEventListener("mousedown", observer);
       }
 

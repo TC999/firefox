@@ -341,7 +341,7 @@ void WebRenderLayerManager::EndTransactionWithoutLayer(
     nsDisplayList* aDisplayList, nsDisplayListBuilder* aDisplayListBuilder,
     WrFiltersHolder&& aFilters, WebRenderBackgroundData* aBackground,
     const double aGeckoDLBuildTime, bool aRenderOffscreen) {
-  AUTO_PROFILER_TRACING_MARKER("Paint", "WrDisplayList", GRAPHICS);
+  AUTO_PROFILER_MARKER("WrDisplayList", GRAPHICS);
 
   auto clearTarget = MakeScopeExit([&] { mTarget = nullptr; });
 
@@ -420,10 +420,7 @@ void WebRenderLayerManager::EndTransactionWithoutLayer(
   // Since we're sending a full mScrollData that will include the new scroll
   // offsets, and we can throw away the pending scroll updates we had kept for
   // an empty transaction.
-  auto scrollIdsUpdated = ClearPendingScrollInfoUpdate();
-  for (ScrollableLayerGuid::ViewID update : scrollIdsUpdated) {
-    nsLayoutUtils::NotifyPaintSkipTransaction(update);
-  }
+  ClearAndNotifyOfFullTransactionPendingScrollInfoUpdate();
 
   // Don't block on hidden windows on Linux as it may block all rendering.
   const bool throttle = mWidget->IsMapped() && !aRenderOffscreen;
@@ -473,7 +470,7 @@ void WebRenderLayerManager::EndTransactionWithoutLayer(
   GetCompositorBridgeChild()->EndCanvasTransaction();
 
   {
-    AUTO_PROFILER_TRACING_MARKER("Paint", "ForwardDPTransaction", GRAPHICS);
+    AUTO_PROFILER_MARKER("ForwardDPTransaction", GRAPHICS);
     DisplayListData dlData;
     diplayListBuilder->End(dlData);
     resourceUpdates.Flush(dlData.mResourceUpdates, dlData.mSmallShmems,
@@ -823,13 +820,12 @@ UniquePtr<LayerUserData> WebRenderLayerManager::RemoveUserData(void* aKey) {
   return d;
 }
 
-std::unordered_set<ScrollableLayerGuid::ViewID>
-WebRenderLayerManager::ClearPendingScrollInfoUpdate() {
-  std::unordered_set<ScrollableLayerGuid::ViewID> scrollIds(
-      mPendingScrollUpdates.Keys().cbegin(),
-      mPendingScrollUpdates.Keys().cend());
+void WebRenderLayerManager::
+    ClearAndNotifyOfFullTransactionPendingScrollInfoUpdate() {
+  for (ScrollableLayerGuid::ViewID update : mPendingScrollUpdates.Keys()) {
+    nsLayoutUtils::NotifyApzTransaction(update);
+  }
   mPendingScrollUpdates.Clear();
-  return scrollIds;
 }
 
 bool WebRenderLayerManager::AddPendingScrollUpdateForNextTransaction(

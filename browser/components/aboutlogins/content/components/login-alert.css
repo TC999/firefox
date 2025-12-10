@@ -11,7 +11,7 @@
   color: var(--text-color);
   background-color: var(--background-color-box);
   border-radius: var(--border-radius-small);
-  border: 1px solid var(--in-content-border-color);
+  border: 1px solid var(--border-color);
   box-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.1);
   font-size: 0.9em;
 }
@@ -59,7 +59,7 @@
 }
 
 :host(login-vulnerable-password-alert) a {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 :host(login-vulnerable-password-alert) div[slot="content"] > a {
@@ -76,6 +76,6 @@
 }
 
 :host(login-breach-alert) a {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   color: inherit;
 }

@@ -59,7 +59,6 @@
 #include "mozIDOMWindow.h"
 #include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/ArrayIterator.h"
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/AtomArray.h"
 #include "mozilla/Atomics.h"
@@ -131,8 +130,6 @@
 #include "mozilla/TextEvents.h"
 #include "mozilla/Tokenizer.h"
 #include "mozilla/UniquePtr.h"
-#include "mozilla/Unused.h"
-#include "mozilla/Variant.h"
 #include "mozilla/ViewportUtils.h"
 #include "mozilla/dom/AncestorIterator.h"
 #include "mozilla/dom/AutoEntryScript.h"
@@ -227,6 +224,11 @@
 #include "mozilla/gfx/Rect.h"
 #include "mozilla/gfx/Types.h"
 #include "mozilla/glean/GleanPings.h"
+#include "mozilla/htmlaccel/htmlaccelEnabled.h"
+#ifdef MOZ_MAY_HAVE_HTMLACCEL
+#  include "mozilla/htmlaccel/htmlaccelNotInline.h"
+#endif
+#include "mozilla/intl/LocaleService.h"
 #include "mozilla/ipc/ProtocolUtils.h"
 #include "mozilla/net/UrlClassifierCommon.h"
 #include "mozilla/widget/IMEData.h"
@@ -399,8 +401,6 @@
 #include "nsURLHelper.h"
 #include "nsUnicodeProperties.h"
 #include "nsVariant.h"
-#include "nsView.h"
-#include "nsViewManager.h"
 #include "nsWidgetsCID.h"
 #include "nsXPCOM.h"
 #include "nsXPCOMCID.h"
@@ -486,6 +486,9 @@ bool nsContentUtils::sMayHaveFormRadioStateChangeListeners = false;
 mozilla::LazyLogModule nsContentUtils::gResistFingerprintingLog(
     "nsResistFingerprinting");
 mozilla::LazyLogModule nsContentUtils::sDOMDumpLog("Dump");
+// Log when "input" and "beforeinput" events are dispatched or enqueued with
+// InputEvent:3,sync.
+mozilla::LazyLogModule gInputEventLog("InputEvent");
 
 int32_t nsContentUtils::sInnerOrOuterWindowCount = 0;
 uint32_t nsContentUtils::sInnerOrOuterWindowSerialCounter = 0;
@@ -793,10 +796,8 @@ static auto* GetFlattenedTreeParent(const nsIContent* aContent) {
   return aContent->GetFlattenedTreeParent();
 }
 
-static nsIContent* GetFlattenedTreeParentNodeForSelection(
-    const nsIContent* aNode) {
-  nsINode* parent = aNode->GetFlattenedTreeParentNodeForSelection();
-  return parent && parent->IsContent() ? parent->AsContent() : nullptr;
+static nsINode* GetFlattenedTreeParentNodeForSelection(const nsINode* aNode) {
+  return aNode->GetFlattenedTreeParentNodeForSelection();
 }
 
 static auto* GetFlattenedTreeParentElementForStyle(const Element* aElement) {
@@ -1128,7 +1129,7 @@ nsresult nsContentUtils::Init() {
             []() { glean_pings::UseCounters.Submit("idle_startup"_ns); }),
         EventQueuePriority::Idle);
     // This is mostly best-effort, so if it goes awry, just log.
-    Unused << NS_WARN_IF(NS_FAILED(rv));
+    (void)NS_WARN_IF(NS_FAILED(rv));
 #endif  // defined(MOZ_WIDGET_ANDROID)
 
     RunOnShutdown(
@@ -2625,8 +2626,7 @@ inline bool SchemeSaysShouldNotResistFingerprinting(nsIPrincipal* aPrincipal) {
   }
 
   bool isContentAccessibleAboutURI;
-  Unused << aPrincipal->IsContentAccessibleAboutURI(
-      &isContentAccessibleAboutURI);
+  (void)aPrincipal->IsContentAccessibleAboutURI(&isContentAccessibleAboutURI);
   return !isContentAccessibleAboutURI;
 }
 
@@ -2737,7 +2737,7 @@ bool nsContentUtils::ShouldResistFingerprinting(nsIChannel* aChannel,
   if (MOZ_LOG_TEST(nsContentUtils::ResistFingerprintingLog(),
                    mozilla::LogLevel::Debug)) {
     nsCOMPtr<nsIURI> channelURI;
-    Unused << NS_GetFinalChannelURI(aChannel, getter_AddRefs(channelURI));
+    (void)NS_GetFinalChannelURI(aChannel, getter_AddRefs(channelURI));
     nsAutoCString channelSpec;
     channelURI->GetSpec(channelSpec);
     MOZ_LOG(nsContentUtils::ResistFingerprintingLog(), LogLevel::Debug,
@@ -3320,14 +3320,14 @@ nsIContent* nsContentUtils::GetCommonFlattenedTreeAncestorHelper(
 }
 
 /* static */
-nsIContent* nsContentUtils::GetCommonFlattenedTreeAncestorForSelection(
-    nsIContent* aContent1, nsIContent* aContent2) {
-  if (aContent1 == aContent2) {
-    return aContent1;
+nsINode* nsContentUtils::GetCommonFlattenedTreeAncestorForSelection(
+    nsINode* aNode1, nsINode* aNode2) {
+  if (aNode1 == aNode2) {
+    return aNode1;
   }
-  MOZ_ASSERT(aContent1);
-  MOZ_ASSERT(aContent2);
-  return CommonAncestors(*aContent1, *aContent2,
+  MOZ_ASSERT(aNode1);
+  MOZ_ASSERT(aNode2);
+  return CommonAncestors(*aNode1, *aNode2,
                          GetFlattenedTreeParentNodeForSelection)
       .GetClosestCommonAncestor();
 }
@@ -4977,7 +4977,7 @@ void nsContentUtils::AsyncPrecreateStringBundles() {
                                  bundle->AsyncPreload();
                                }),
         EventQueuePriority::Idle);
-    Unused << NS_WARN_IF(NS_FAILED(rv));
+    (void)NS_WARN_IF(NS_FAILED(rv));
   }
 }
 
@@ -5048,7 +5048,7 @@ class FormatLocalizedStringRunnable final : public WorkerMainThreadRunnable {
 
     mResult = nsContentUtils::FormatLocalizedString(mFile, mKey, mParams,
                                                     mLocalizedString);
-    Unused << NS_WARN_IF(NS_FAILED(mResult));
+    (void)NS_WARN_IF(NS_FAILED(mResult));
     return true;
   }
 
@@ -5535,6 +5535,11 @@ nsresult nsContentUtils::DispatchInputEvent(
     widgetEvent.mSpecifiedEventType = nsGkAtoms::oninput;
     widgetEvent.mFlags.mCancelable = false;
     widgetEvent.mFlags.mComposed = true;
+    MOZ_LOG(gInputEventLog, LogLevel::Info,
+            ("Dispatching %s, safe?=%s, aEditorBase=%p, aEventTargetElement=%s",
+             ToChar(widgetEvent.mMessage),
+             YesOrNo(nsContentUtils::IsSafeToRunScript()), aEditorBase,
+             ToString(RefPtr{aEventTargetElement}).c_str()));
     return AsyncEventDispatcher::RunDOMEventWhenSafe(*aEventTargetElement,
                                                      widgetEvent, aEventStatus);
   }
@@ -5644,6 +5649,13 @@ nsresult nsContentUtils::DispatchInputEvent(
         "Cancelable beforeinput event dispatcher should run when it's safe");
     inputEvent.mFlags.mCancelable = false;
   }
+  MOZ_LOG(gInputEventLog, LogLevel::Info,
+          ("Dispatching %s, safe?=%s, inputType=%s, aEditorBase=%p, "
+           "aEventTargetElement=%s",
+           ToChar(inputEvent.mMessage),
+           YesOrNo(nsContentUtils::IsSafeToRunScript()),
+           ToString(inputEvent.mInputType).c_str(), aEditorBase,
+           ToString(RefPtr{aEventTargetElement}).c_str()));
   return AsyncEventDispatcher::RunDOMEventWhenSafe(*aEventTargetElement,
                                                    inputEvent, aEventStatus);
 }
@@ -6460,7 +6472,7 @@ static already_AddRefed<Document> CreateInertDocument(const Document* aTemplate,
     nsresult rv = NS_NewDOMDocument(
         getter_AddRefs(doc), u""_ns, u""_ns, nullptr,
         aTemplate->GetDocumentURI(), aTemplate->GetDocBaseURI(),
-        aTemplate->NodePrincipal(), true, sgo, aFlavor);
+        aTemplate->NodePrincipal(), LoadedAsData::AsData, sgo, aFlavor);
     if (NS_FAILED(rv)) {
       return nullptr;
     }
@@ -6481,7 +6493,7 @@ static already_AddRefed<Document> CreateInertDocument(const Document* aTemplate,
   nsCOMPtr<Document> doc;
   nsresult rv =
       NS_NewDOMDocument(getter_AddRefs(doc), u""_ns, u""_ns, nullptr, uri, uri,
-                        nullPrincipal, true, nullptr, aFlavor);
+                        nullPrincipal, LoadedAsData::AsData, nullptr, aFlavor);
   if (NS_FAILED(rv)) {
     return nullptr;
   }
@@ -6826,7 +6838,7 @@ const nsDependentString nsContentUtils::GetLocalizedEllipsis() {
     if (!nsContentUtils::ShouldResistFingerprinting("No context",
                                                     RFPTarget::JSLocale)) {
       nsAutoString tmp;
-      Preferences::GetLocalizedString("intl.ellipsis", tmp);
+      intl::LocaleService::GetInstance()->GetEllipsis(tmp);
       uint32_t len =
           std::min(uint32_t(tmp.Length()), uint32_t(std::size(sBuf) - 1));
       CopyUnicodeTo(tmp, 0, sBuf, len);
@@ -7796,22 +7808,7 @@ nsPresContext* nsContentUtils::FindPresContextForDocument(
 
 nsIWidget* nsContentUtils::WidgetForDocument(const Document* aDocument) {
   PresShell* presShell = FindPresShellForDocument(aDocument);
-  if (!presShell) {
-    return nullptr;
-  }
-  nsViewManager* vm = presShell->GetViewManager();
-  if (!vm) {
-    return nullptr;
-  }
-  nsView* rootView = vm->GetRootView();
-  if (!rootView) {
-    return nullptr;
-  }
-  nsView* displayRoot = nsViewManager::GetDisplayRootFor(rootView);
-  if (!displayRoot) {
-    return nullptr;
-  }
-  return displayRoot->GetNearestWidget(nullptr);
+  return presShell ? presShell->GetNearestWidget() : nullptr;
 }
 
 nsIWidget* nsContentUtils::WidgetForContent(const nsIContent* aContent) {
@@ -8677,9 +8674,13 @@ bool nsContentUtils::IsJsonMimeType(const nsAString& aMimeType) {
   return StringEndsWith(subtype, u"+json"_ns);
 }
 
-// https://html.spec.whatwg.org/#fetch-a-single-module-script, 7.3
-bool nsContentUtils::IsCssMimeType(const nsAString& aMimeType) {
-  return aMimeType.LowerCaseEqualsLiteral("text/css");
+// https://html.spec.whatwg.org/#fetch-a-single-module-script, 13.7.3
+bool nsContentUtils::HasCssMimeTypeEssence(const nsAString& aMimeType) {
+  nsString contentType, contentCharset;
+  if (MimeType::Parse(aMimeType, contentType, contentCharset)) {
+    return contentType.LowerCaseEqualsLiteral("text/css");
+  }
+  return false;
 }
 
 bool nsContentUtils::PrefetchPreloadEnabled(nsIDocShell* aDocShell) {
@@ -8936,10 +8937,10 @@ nsresult nsContentUtils::IPCTransferableDataToTransferable(
       }
       case IPCTransferableDataType::TIPCTransferableDataImageContainer: {
         const auto& data = item.data().get_IPCTransferableDataImageContainer();
-        nsCOMPtr<imgIContainer> container;
-        rv = DeserializeTransferableDataImageContainer(
-            data, getter_AddRefs(container));
-        NS_ENSURE_SUCCESS(rv, rv);
+        nsCOMPtr<imgIContainer> container = IPCImageToImage(data.image());
+        if (!container) {
+          return NS_ERROR_FAILURE;
+        }
         transferData = container;
         break;
       }
@@ -9013,10 +9014,10 @@ nsresult nsContentUtils::IPCTransferableDataItemToVariant(
     }
     case IPCTransferableDataType::TIPCTransferableDataImageContainer: {
       const auto& data = aItem.data().get_IPCTransferableDataImageContainer();
-      nsCOMPtr<imgIContainer> container;
-      nsresult rv = DeserializeTransferableDataImageContainer(
-          data, getter_AddRefs(container));
-      NS_ENSURE_SUCCESS(rv, rv);
+      nsCOMPtr<imgIContainer> container = IPCImageToImage(data.image());
+      if (!container) {
+        return NS_ERROR_FAILURE;
+      }
       return aVariant->SetAsISupports(container);
     }
     case IPCTransferableDataType::TIPCTransferableDataBlob: {
@@ -9088,23 +9089,6 @@ static already_AddRefed<DataSourceSurface> BigBufferToDataSurface(
   }
   return CreateDataSourceSurfaceFromData(aImageSize, aFormat, aData.Data(),
                                          aStride);
-}
-
-nsresult nsContentUtils::DeserializeTransferableDataImageContainer(
-    const IPCTransferableDataImageContainer& aData,
-    imgIContainer** aContainer) {
-  RefPtr<DataSourceSurface> surface = IPCImageToSurface(aData.image());
-  if (!surface) {
-    return NS_ERROR_FAILURE;
-  }
-
-  RefPtr<gfxDrawable> drawable =
-      new gfxSurfaceDrawable(surface, surface->GetSize());
-  nsCOMPtr<imgIContainer> imageContainer =
-      image::ImageOps::CreateFromDrawable(drawable);
-  imageContainer.forget(aContainer);
-
-  return NS_OK;
 }
 
 bool nsContentUtils::IsFlavorImage(const nsACString& aFlavor) {
@@ -9373,6 +9357,20 @@ already_AddRefed<DataSourceSurface> nsContentUtils::IPCImageToSurface(
                                 aImage.size().ToUnknownSize(), aImage.format());
 }
 
+already_AddRefed<imgIContainer> nsContentUtils::IPCImageToImage(
+    const IPCImage& aImage) {
+  RefPtr<DataSourceSurface> surface = IPCImageToSurface(aImage);
+  if (!surface) {
+    return nullptr;
+  }
+
+  RefPtr<gfxDrawable> drawable =
+      new gfxSurfaceDrawable(surface, surface->GetSize());
+  nsCOMPtr<imgIContainer> imageContainer =
+      image::ImageOps::CreateFromDrawable(drawable);
+  return imageContainer.forget();
+}
+
 Modifiers nsContentUtils::GetWidgetModifiers(int32_t aModifiers) {
   Modifiers result = 0;
   if (aModifiers & nsIDOMWindowUtils::MODIFIER_SHIFT) {
@@ -9456,25 +9454,6 @@ LayoutDeviceIntPoint nsContentUtils::ToWidgetPoint(
       ViewportUtils::LayoutToVisual(layoutRelative, aPresContext->PresShell());
   return LayoutDeviceIntPoint::FromAppUnitsRounded(
       visualRelative, aPresContext->AppUnitsPerDevPixel());
-}
-
-nsView* nsContentUtils::GetViewToDispatchEvent(nsPresContext* aPresContext,
-                                               PresShell** aPresShell) {
-  if (!aPresContext || !aPresShell) {
-    return nullptr;
-  }
-  RefPtr<PresShell> presShell = aPresContext->PresShell();
-  if (NS_WARN_IF(!presShell)) {
-    *aPresShell = nullptr;
-    return nullptr;
-  }
-  nsViewManager* viewManager = presShell->GetViewManager();
-  if (!viewManager) {
-    presShell.forget(aPresShell);  // XXX Is this intentional?
-    return nullptr;
-  }
-  presShell.forget(aPresShell);
-  return viewManager->GetRootView();
 }
 
 namespace {
@@ -9637,14 +9616,8 @@ Result<bool, nsresult> nsContentUtils::SynthesizeMouseEvent(
 
   nsEventStatus status = nsEventStatus_eIgnore;
   if (aOptions.mToWindow) {
-    RefPtr<PresShell> presShell;
-    nsView* view =
-        GetViewToDispatchEvent(presContext, getter_AddRefs(presShell));
-    if (!presShell || !view) {
-      return Err(NS_ERROR_FAILURE);
-    }
-    nsresult rv = presShell->HandleEvent(view->GetFrame(), &mouseOrPointerEvent,
-                                         false, &status);
+    nsresult rv = aPresShell->HandleEvent(aPresShell->GetRootFrame(),
+                                          &mouseOrPointerEvent, false, &status);
     if (NS_FAILED(rv)) {
       return Err(rv);
     }
@@ -9652,10 +9625,7 @@ Result<bool, nsresult> nsContentUtils::SynthesizeMouseEvent(
              StaticPrefs::test_events_async_enabled()) {
     status = aWidget->DispatchInputEvent(&mouseOrPointerEvent).mContentStatus;
   } else {
-    nsresult rv = aWidget->DispatchEvent(&mouseOrPointerEvent, status);
-    if (NS_FAILED(rv)) {
-      return Err(rv);
-    }
+    status = aWidget->DispatchEvent(&mouseOrPointerEvent);
   }
 
   // The callback ID may be cleared when the event also needs to be dispatched
@@ -9914,6 +9884,16 @@ class BulkAppender {
   size_type mPosition;
 };
 
+class StringBuilderSIMD {
+ public:
+  static const bool SIMD = true;
+};
+
+class StringBuilderALU {
+ public:
+  static const bool SIMD = false;
+};
+
 class StringBuilder {
  private:
   class Unit {
@@ -10034,6 +10014,12 @@ class StringBuilder {
 
     BulkAppender appender{appenderOrErr.unwrap()};
 
+    // Experiment with moving this higher up the call stack
+    // after we have experience from
+    // https://bugzilla.mozilla.org/show_bug.cgi?id=1997255
+    // on the parser side.
+    bool simd = mozilla::htmlaccel::htmlaccelEnabled();
+
     for (StringBuilder* current = this; current;
          current = current->mNext.get()) {
       uint32_t len = current->mUnits.Length();
@@ -10047,7 +10033,11 @@ class StringBuilder {
             appender.Append(u.mString);
             break;
           case Unit::Type::StringWithEncode:
-            EncodeAttrString(u.mString, appender);
+            if (simd) {
+              EncodeAttrString<StringBuilderSIMD>(u.mString, appender);
+            } else {
+              EncodeAttrString<StringBuilderALU>(u.mString, appender);
+            }
             break;
           case Unit::Type::Literal:
             appender.Append(u.mLiteral.AsSpan());
@@ -10063,13 +10053,31 @@ class StringBuilder {
             break;
           case Unit::Type::TextFragmentWithEncode:
             if (u.mCharacterDataBuffer->Is2b()) {
-              EncodeTextFragment(Span(u.mCharacterDataBuffer->Get2b(),
-                                      u.mCharacterDataBuffer->GetLength()),
-                                 appender);
+              if (simd) {
+                EncodeTextFragment<StringBuilderSIMD>(
+                    Span(u.mCharacterDataBuffer->Get2b(),
+                         u.mCharacterDataBuffer->GetLength()),
+                    appender);
+
+              } else {
+                EncodeTextFragment<StringBuilderALU>(
+                    Span(u.mCharacterDataBuffer->Get2b(),
+                         u.mCharacterDataBuffer->GetLength()),
+                    appender);
+              }
             } else {
-              EncodeTextFragment(Span(u.mCharacterDataBuffer->Get1b(),
-                                      u.mCharacterDataBuffer->GetLength()),
-                                 appender);
+              if (simd) {
+                EncodeTextFragment<StringBuilderSIMD>(
+                    Span(u.mCharacterDataBuffer->Get1b(),
+                         u.mCharacterDataBuffer->GetLength()),
+                    appender);
+
+              } else {
+                EncodeTextFragment<StringBuilderALU>(
+                    Span(u.mCharacterDataBuffer->Get1b(),
+                         u.mCharacterDataBuffer->GetLength()),
+                    appender);
+              }
             }
             break;
           default:
@@ -10095,81 +10103,152 @@ class StringBuilder {
     aFirst->mLast = this;
   }
 
+  template <class S>
   void EncodeAttrString(Span<const char16_t> aStr, BulkAppender& aAppender) {
     size_t flushedUntil = 0;
     size_t currentPosition = 0;
-    for (char16_t c : aStr) {
+    const char16_t* ptr = aStr.Elements();
+    const char16_t* end = ptr + aStr.Length();
+
+  // continue by label (committee proposal P3568) isn't in C++, yet, so
+  // goto is used for what's logically continuing an outer loop.
+  //
+  // The purpose of two loop levels is to efficiently stay in the inner
+  // loop when there isn't a full SIMD stride left.
+  //
+  // Strange indent thanks to clang-format.
+  outer:
+    // Check for having at least a SIMD stride of data to avoid useless
+    // non-inline function calls when there isn't a full stride left.
+    // This should become unnecessary if it turns out to be feasible
+    // to inline the call without triggering
+    // https://github.com/llvm/llvm-project/issues/160886 .
+    if (S::SIMD && (end - ptr >= 16)) {
+      // Need to check ifdef inside here in order to make even non-opt
+      // build consider `S::SIMD` used.
+#ifdef MOZ_MAY_HAVE_HTMLACCEL
+      size_t skipped =
+          mozilla::htmlaccel::SkipNonEscapedInAttributeValue(ptr, end);
+      ptr += skipped;
+      currentPosition += skipped;
+#endif
+    }
+    while (ptr != end) {
+      char16_t c = *ptr;
+      ptr++;
       switch (c) {
         case '"':
           aAppender.Append(aStr.FromTo(flushedUntil, currentPosition));
           aAppender.AppendLiteral(u"&quot;");
-          flushedUntil = currentPosition + 1;
-          break;
+          currentPosition++;
+          flushedUntil = currentPosition;
+          goto outer;
         case '&':
           aAppender.Append(aStr.FromTo(flushedUntil, currentPosition));
           aAppender.AppendLiteral(u"&amp;");
-          flushedUntil = currentPosition + 1;
-          break;
+          currentPosition++;
+          flushedUntil = currentPosition;
+          goto outer;
         case 0x00A0:
           aAppender.Append(aStr.FromTo(flushedUntil, currentPosition));
           aAppender.AppendLiteral(u"&nbsp;");
-          flushedUntil = currentPosition + 1;
-          break;
+          currentPosition++;
+          flushedUntil = currentPosition;
+          goto outer;
         case '<':
           if (StaticPrefs::dom_security_html_serialization_escape_lt_gt()) {
             aAppender.Append(aStr.FromTo(flushedUntil, currentPosition));
             aAppender.AppendLiteral(u"&lt;");
-            flushedUntil = currentPosition + 1;
+            currentPosition++;
+            flushedUntil = currentPosition;
+          } else {
+            currentPosition++;
           }
-          break;
+          goto outer;
         case '>':
           if (StaticPrefs::dom_security_html_serialization_escape_lt_gt()) {
             aAppender.Append(aStr.FromTo(flushedUntil, currentPosition));
             aAppender.AppendLiteral(u"&gt;");
-            flushedUntil = currentPosition + 1;
+            currentPosition++;
+            flushedUntil = currentPosition;
+          } else {
+            currentPosition++;
           }
-          break;
+          goto outer;
         default:
-          break;
+          currentPosition++;
+          continue;
       }
-      currentPosition++;
     }
+    // Logically the outer loop ends here.
     if (currentPosition > flushedUntil) {
       aAppender.Append(aStr.FromTo(flushedUntil, currentPosition));
     }
   }
 
-  template <class T>
+  template <class S, class T>
   void EncodeTextFragment(Span<const T> aStr, BulkAppender& aAppender) {
     size_t flushedUntil = 0;
     size_t currentPosition = 0;
-    for (T c : aStr) {
+    const T* ptr = aStr.Elements();
+    const T* end = ptr + aStr.Length();
+
+  // continue by label (committee proposal P3568) isn't in C++, yet, so
+  // goto is used for what's logically continuing an outer loop.
+  //
+  // The purpose of two loop levels is to efficiently stay in the inner
+  // loop when there isn't a full SIMD stride left.
+  //
+  // Strange indent thanks to clang-format.
+  outer:
+    // Check for having at least a SIMD stride of data to avoid useless
+    // non-inline function calls when there isn't a full stride left.
+    // This should become unnecessary if it turns out to be feasible
+    // to inline the call without triggering
+    // https://github.com/llvm/llvm-project/issues/160886 .
+    if (S::SIMD && (end - ptr >= 16)) {
+      // Need to check ifdef inside here in order to make even non-opt
+      // build consider `S::SIMD` used.
+#ifdef MOZ_MAY_HAVE_HTMLACCEL
+      size_t skipped = mozilla::htmlaccel::SkipNonEscapedInTextNode(ptr, end);
+      ptr += skipped;
+      currentPosition += skipped;
+#endif
+    }
+    while (ptr != end) {
+      T c = *ptr;
+      ++ptr;
       switch (c) {
         case '<':
           aAppender.Append(aStr.FromTo(flushedUntil, currentPosition));
           aAppender.AppendLiteral(u"&lt;");
-          flushedUntil = currentPosition + 1;
-          break;
+          currentPosition++;
+          flushedUntil = currentPosition;
+          goto outer;
         case '>':
           aAppender.Append(aStr.FromTo(flushedUntil, currentPosition));
           aAppender.AppendLiteral(u"&gt;");
-          flushedUntil = currentPosition + 1;
-          break;
+          currentPosition++;
+          flushedUntil = currentPosition;
+          goto outer;
         case '&':
           aAppender.Append(aStr.FromTo(flushedUntil, currentPosition));
           aAppender.AppendLiteral(u"&amp;");
-          flushedUntil = currentPosition + 1;
-          break;
+          currentPosition++;
+          flushedUntil = currentPosition;
+          goto outer;
         case T(0xA0):
           aAppender.Append(aStr.FromTo(flushedUntil, currentPosition));
           aAppender.AppendLiteral(u"&nbsp;");
-          flushedUntil = currentPosition + 1;
-          break;
+          currentPosition++;
+          flushedUntil = currentPosition;
+          goto outer;
         default:
-          break;
+          currentPosition++;
+          continue;
       }
-      currentPosition++;
     }
+    // Logically the outer loop ends here.
     if (currentPosition > flushedUntil) {
       aAppender.Append(aStr.FromTo(flushedUntil, currentPosition));
     }
@@ -10194,32 +10273,48 @@ static void AppendEncodedCharacters(const CharacterDataBuffer* aText,
   uint32_t len = aText->GetLength();
   if (aText->Is2b()) {
     const char16_t* data = aText->Get2b();
-    for (uint32_t i = 0; i < len; ++i) {
-      const char16_t c = data[i];
-      switch (c) {
-        case '<':
-        case '>':
-        case '&':
-        case 0x00A0:
-          ++numEncodedChars;
-          break;
-        default:
-          break;
+#ifdef MOZ_MAY_HAVE_HTMLACCEL
+    if (mozilla::htmlaccel::htmlaccelEnabled()) {
+      numEncodedChars =
+          mozilla::htmlaccel::CountEscapedInTextNode(data, data + len);
+    } else
+#endif
+    {
+      for (uint32_t i = 0; i < len; ++i) {
+        const char16_t c = data[i];
+        switch (c) {
+          case '<':
+          case '>':
+          case '&':
+          case 0x00A0:
+            ++numEncodedChars;
+            break;
+          default:
+            break;
+        }
       }
     }
   } else {
     const char* data = aText->Get1b();
-    for (uint32_t i = 0; i < len; ++i) {
-      const unsigned char c = data[i];
-      switch (c) {
-        case '<':
-        case '>':
-        case '&':
-        case 0x00A0:
-          ++numEncodedChars;
-          break;
-        default:
-          break;
+#ifdef MOZ_MAY_HAVE_HTMLACCEL
+    if (mozilla::htmlaccel::htmlaccelEnabled()) {
+      numEncodedChars =
+          mozilla::htmlaccel::CountEscapedInTextNode(data, data + len);
+    } else
+#endif
+    {
+      for (uint32_t i = 0; i < len; ++i) {
+        const unsigned char c = data[i];
+        switch (c) {
+          case '<':
+          case '>':
+          case '&':
+          case 0x00A0:
+            ++numEncodedChars;
+            break;
+          default:
+            break;
+        }
       }
     }
   }
@@ -10249,19 +10344,26 @@ static CheckedInt<uint32_t> ExtraSpaceNeededForAttrEncoding(
   const char16_t* end = aValue.EndReading();
 
   uint32_t numEncodedChars = 0;
-  while (c < end) {
-    switch (*c) {
-      case '"':
-      case '&':
-      case 0x00A0:  // NO-BREAK SPACE
-      case '<':
-      case '>':
-        ++numEncodedChars;
-        break;
-      default:
-        break;
+#ifdef MOZ_MAY_HAVE_HTMLACCEL
+  if (mozilla::htmlaccel::htmlaccelEnabled()) {
+    numEncodedChars = mozilla::htmlaccel::CountEscapedInAttributeValue(c, end);
+  } else
+#endif
+  {
+    while (c < end) {
+      switch (*c) {
+        case '"':
+        case '&':
+        case 0x00A0:  // NO-BREAK SPACE
+        case '<':
+        case '>':
+          ++numEncodedChars;
+          break;
+        default:
+          break;
+      }
+      ++c;
     }
-    ++c;
   }
 
   if (!numEncodedChars) {
@@ -11473,7 +11575,7 @@ void nsContentUtils::StructuredClone(JSContext* aCx, nsIGlobalObject* aGlobal,
   }
 
   nsTArray<RefPtr<MessagePort>> ports = holder.TakeTransferredPorts();
-  Unused << ports;
+  (void)ports;
 }
 
 /* static */
@@ -12188,10 +12290,10 @@ nsContentUtils::GetSubresourceCacheValidationInfo(nsIRequest* aRequest,
   // Determine whether the cache entry must be revalidated when we try to use
   // it. Currently, only HTTP specifies this information...
   if (nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(aRequest)) {
-    Unused << httpChannel->IsNoStoreResponse(&info.mMustRevalidate);
+    (void)httpChannel->IsNoStoreResponse(&info.mMustRevalidate);
 
     if (!info.mMustRevalidate) {
-      Unused << httpChannel->IsNoCacheResponse(&info.mMustRevalidate);
+      (void)httpChannel->IsNoCacheResponse(&info.mMustRevalidate);
     }
   }
 

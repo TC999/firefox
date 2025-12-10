@@ -68,7 +68,7 @@ const REACT_ESM_MODULES = new Set([
 const browserBasedDirsRegExp =
   /^resource\:\/\/devtools\/client\/\S*\/components\//;
 
-/*
+/**
  * Create a loader to be used in a browser environment. This evaluates
  * modules in their own environment, but sets window (the normal
  * global object) as the sandbox prototype, so when a variable is not
@@ -241,15 +241,15 @@ BrowserLoaderBuilder.prototype = {
    * Several getters can be defined at once by providing an array of
    * properties and enabling destructuring.
    *
-   * @param { Object } obj
+   * @param {object} obj
    *    The object to define the property on.
-   * @param { String | Array<String> } properties
+   * @param {string | Array<string>} properties
    *    String: Name of the property for the getter.
    *    Array<String>: When destructure is true, properties can be an array of
    *    strings to create several getters at once.
-   * @param { String } module
+   * @param {string} module
    *    The module path.
-   * @param { Boolean } destructure
+   * @param {boolean} destructure
    *    Pass true if the property name is a member of the module's exports.
    */
   lazyRequireGetter(obj, properties, module, destructure) {

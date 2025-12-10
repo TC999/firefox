@@ -13,7 +13,6 @@
 #include "SVGGeometryProperty.h"
 #include "SVGLengthSMILType.h"
 #include "mozAutoDocUpdate.h"
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/GeckoBindings.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/PresShell.h"
@@ -65,8 +64,7 @@ class MOZ_RAII AutoChangeLengthNotifier {
   bool mDoSetAttr;
 };
 
-MOZ_CONSTINIT static SVGAttrTearoffTable<SVGAnimatedLength,
-                                         DOMSVGAnimatedLength>
+constinit static SVGAttrTearoffTable<SVGAnimatedLength, DOMSVGAnimatedLength>
     sSVGAnimatedLengthTearoffTable;
 
 /* Helper functions */
@@ -506,6 +504,9 @@ nsresult SVGAnimatedLength::SetBaseValueString(const nsAString& aValueAsString,
   uint16_t unitType;
 
   if (!GetValueFromString(aValueAsString, value, &unitType)) {
+    return NS_ERROR_DOM_SYNTAX_ERR;
+  }
+  if (aSVGElement->LengthAttrIsNonNegative(mAttrEnum) && value < 0.0f) {
     return NS_ERROR_DOM_SYNTAX_ERR;
   }
 

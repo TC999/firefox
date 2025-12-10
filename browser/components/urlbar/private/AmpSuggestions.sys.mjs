@@ -30,7 +30,12 @@ const TIMESTAMP_REGEXP = /^\d{10}$/;
  */
 export class AmpSuggestions extends SuggestProvider {
   get enablingPreferences() {
-    return ["ampFeatureGate", "suggest.amp", "suggest.quicksuggest.sponsored"];
+    return [
+      "ampFeatureGate",
+      "suggest.amp",
+      "suggest.quicksuggest.all",
+      "suggest.quicksuggest.sponsored",
+    ];
   }
 
   get primaryUserControlledPreferences() {
@@ -87,42 +92,35 @@ export class AmpSuggestions extends SuggestProvider {
   }
 
   makeResult(queryContext, suggestion) {
-    let originalUrl;
-    if (suggestion.source == "rust") {
-      // The Rust backend replaces URL timestamp templates for us, and it
-      // includes the original URL as `rawUrl`.
-      originalUrl = suggestion.rawUrl;
-    } else {
-      // Replace URL timestamp templates, but first save the original URL.
-      originalUrl = suggestion.url;
-      this.#replaceSuggestionTemplates(suggestion);
+    let normalized = Object.assign({}, suggestion);
+    if (suggestion.source == "merino") {
+      // Normalize the Merino suggestion so it has the same properties as Rust
+      // AMP suggestions: camelCased properties plus a `rawUrl` property whose
+      // value is `url` without replacing the timestamp template.
+      normalized.rawUrl = suggestion.url;
+      normalized.fullKeyword = suggestion.full_keyword;
+      normalized.impressionUrl = suggestion.impression_url;
+      normalized.clickUrl = suggestion.click_url;
+      normalized.blockId = suggestion.block_id;
+      normalized.iabCategory = suggestion.iab_category;
+      normalized.requestId = suggestion.request_id;
 
-      // Normalize the Merino suggestion so it has camelCased properties like
-      // Rust suggestions.
-      suggestion = {
-        title: suggestion.title,
-        url: suggestion.url,
-        fullKeyword: suggestion.full_keyword,
-        impressionUrl: suggestion.impression_url,
-        clickUrl: suggestion.click_url,
-        blockId: suggestion.block_id,
-        advertiser: suggestion.advertiser,
-        iabCategory: suggestion.iab_category,
-        requestId: suggestion.request_id,
-      };
+      // Replace URL timestamp templates inline. This isn't necessary for Rust
+      // AMP suggestions because the Rust component handles it.
+      this.#replaceSuggestionTemplates(normalized);
     }
 
     let payload = {
-      originalUrl,
-      url: suggestion.url,
-      title: suggestion.title,
-      requestId: suggestion.requestId,
-      urlTimestampIndex: suggestion.urlTimestampIndex,
-      sponsoredImpressionUrl: suggestion.impressionUrl,
-      sponsoredClickUrl: suggestion.clickUrl,
-      sponsoredBlockId: suggestion.blockId,
-      sponsoredAdvertiser: suggestion.advertiser,
-      sponsoredIabCategory: suggestion.iabCategory,
+      url: normalized.url,
+      originalUrl: normalized.rawUrl,
+      title: normalized.title,
+      requestId: normalized.requestId,
+      urlTimestampIndex: normalized.urlTimestampIndex,
+      sponsoredImpressionUrl: normalized.impressionUrl,
+      sponsoredClickUrl: normalized.clickUrl,
+      sponsoredBlockId: normalized.blockId,
+      sponsoredAdvertiser: normalized.advertiser,
+      sponsoredIabCategory: normalized.iabCategory,
       isBlockable: true,
       isManageable: true,
     };
@@ -133,7 +131,7 @@ export class AmpSuggestions extends SuggestProvider {
         queryContext.trimmedLowerCaseSearchString.length;
 
     payload.qsSuggestion = [
-      suggestion.fullKeyword,
+      normalized.fullKeyword,
       isTopPick
         ? lazy.UrlbarUtils.HIGHLIGHT.TYPED
         : lazy.UrlbarUtils.HIGHLIGHT.SUGGESTED,
@@ -284,9 +282,9 @@ export class AmpSuggestions extends SuggestProvider {
       // Always use lowercase to make the reporting consistent.
       advertiser: result.payload.sponsoredAdvertiser.toLocaleLowerCase(),
       blockId: result.payload.sponsoredBlockId,
-      improveSuggestExperience: lazy.UrlbarPrefs.get(
-        "quicksuggest.dataCollection.enabled"
-      ),
+      improveSuggestExperience:
+        lazy.UrlbarPrefs.get("quickSuggestOnlineAvailable") &&
+        lazy.UrlbarPrefs.get("quicksuggest.online.enabled"),
       // `position` is 1-based, unlike `rowIndex`, which is zero-based.
       position: result.rowIndex + 1,
       suggestedIndex: result.suggestedIndex.toString(),
@@ -355,7 +353,7 @@ export class AmpSuggestions extends SuggestProvider {
     let timestamp = timestampParts
       .map(n => n.toString().padStart(2, "0"))
       .join("");
-    for (let key of ["url", "click_url"]) {
+    for (let key of ["url", "clickUrl"]) {
       let value = suggestion[key];
       if (!value) {
         continue;

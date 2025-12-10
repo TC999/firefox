@@ -41,7 +41,6 @@
 #include "mozilla/FocusModel.h"
 #include "mozilla/GlobalKeyListener.h"
 #include "mozilla/HoldDropJSObjects.h"
-#include "mozilla/MacroForEach.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MouseEvents.h"
 #include "mozilla/OwningNonNull.h"
@@ -1047,11 +1046,9 @@ nsresult nsXULElement::MakeHeavyweight(nsXULPrototypeElement* aPrototype) {
     bool oldValueSet;
     // XXX we might wanna have a SetAndTakeAttr that takes an nsAttrName
     if (protoattr->mName.IsAtom()) {
-      rv = mAttrs.SetAndSwapAttr(protoattr->mName.Atom(), attrValue,
-                                 &oldValueSet);
+      rv = SetAndSwapAttr(protoattr->mName.Atom(), attrValue, &oldValueSet);
     } else {
-      rv = mAttrs.SetAndSwapAttr(protoattr->mName.NodeInfo(), attrValue,
-                                 &oldValueSet);
+      rv = SetAndSwapAttr(protoattr->mName.NodeInfo(), attrValue, &oldValueSet);
     }
     NS_ENSURE_SUCCESS(rv, rv);
   }
@@ -1456,15 +1453,21 @@ nsXULPrototypeScript::nsXULPrototypeScript(uint32_t aLineNo)
       mSrcLoadWaiters(nullptr),
       mStencil(nullptr) {}
 
-static nsresult WriteStencil(nsIObjectOutputStream* aStream, JSContext* aCx,
+static nsresult WriteStencil(nsIObjectOutputStream* aStream,
                              JS::Stencil* aStencil) {
+  JS::FrontendContext* fc = JS::NewFrontendContext();
+  if (!fc) {
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+
   JS::TranscodeBuffer buffer;
   JS::TranscodeResult code;
-  code = JS::EncodeStencil(aCx, aStencil, buffer);
+  code = JS::EncodeStencil(fc, aStencil, buffer);
+
+  JS::DestroyFrontendContext(fc);
 
   if (code != JS::TranscodeResult::Ok) {
     if (code == JS::TranscodeResult::Throw) {
-      JS_ClearPendingException(aCx);
       return NS_ERROR_OUT_OF_MEMORY;
     }
 
@@ -1557,11 +1560,6 @@ nsresult nsXULPrototypeScript::Serialize(
     const nsTArray<RefPtr<mozilla::dom::NodeInfo>>* aNodeInfos) {
   NS_ENSURE_TRUE(aProtoDoc, NS_ERROR_UNEXPECTED);
 
-  AutoJSAPI jsapi;
-  if (!jsapi.Init(xpc::CompilationScope())) {
-    return NS_ERROR_UNEXPECTED;
-  }
-
   NS_ASSERTION(!mSrcLoading || mSrcLoadWaiters != nullptr || !mStencil,
                "script source still loading when serializing?!");
   if (!mStencil) return NS_ERROR_FAILURE;
@@ -1571,10 +1569,7 @@ nsresult nsXULPrototypeScript::Serialize(
   rv = aStream->Write32(mLineNo);
   if (NS_FAILED(rv)) return rv;
 
-  JSContext* cx = jsapi.cx();
-  MOZ_ASSERT(xpc::CompilationScope() == JS::CurrentGlobalOrNull(cx));
-
-  return WriteStencil(aStream, cx, mStencil);
+  return WriteStencil(aStream, mStencil);
 }
 
 nsresult nsXULPrototypeScript::SerializeOutOfLine(
@@ -2013,6 +2008,18 @@ nsresult nsXULPrototypeScript::InstantiateScript(
 }
 
 void nsXULPrototypeScript::Set(JS::Stencil* aStencil) { mStencil = aStencil; }
+
+void nsXULPrototypeScript::AddSizeOfExcludingThis(nsWindowSizes& aSizes,
+                                                  size_t* aNodeSize) const {
+  // It is okay to include the size of mSrcURI here even though it might have
+  // strong references from elsewhere because the URI was created for this
+  // object, in XULContentSinkImpl::OpenScript() or
+  // nsXULPrototypeElement::Deserialize(). Only objects that created their own
+  // URI will call nsIURI::SizeOfIncludingThis().
+  if (mSrcURI) {
+    *aNodeSize += mSrcURI->SizeOfIncludingThis(aSizes.mState.mMallocSizeOf);
+  }
+}
 
 //----------------------------------------------------------------------
 //

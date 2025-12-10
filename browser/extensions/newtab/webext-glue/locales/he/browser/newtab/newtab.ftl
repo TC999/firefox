@@ -164,7 +164,7 @@ newtab-menu-bookmark = הוספת סימנייה
 
 newtab-menu-copy-download-link = העתקת קישור ההורדה
 newtab-menu-go-to-download-page = מעבר לעמוד ההורדה
-newtab-menu-remove-download = הסרה מההיסטורייה
+newtab-menu-remove-download = הסרה מההיסטוריה
 
 ## Context Menu - Download Menu: These are platform specific strings found in the context menu of an item that has
 ## been downloaded. The intention behind "this action" is that it will show where the downloaded file exists on the file
@@ -401,7 +401,7 @@ newtab-wallpaper-abstract-purple-green = מעברי צבע סגול וירוק
 newtab-wallpaper-abstract-blue-purple-waves = צורות גליות בצבע כחול וסגול
 newtab-wallpaper-abstract-black-waves = צורות גליות בצבע שחור
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = תצלומים
 newtab-wallpaper-beach-at-sunrise = זריחה בחוף הים
@@ -430,6 +430,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -658,6 +662,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = רשימה חדשה
+newtab-widget-section-title = ווידג’טים
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = הסתרת ווידג׳טים
+    .aria-label = הסתרת כל הווידג׳טים
+newtab-widget-section-maximize =
+    .title = הרחבת ווידג׳טים
+    .aria-label = הרחבת כל הווידג׳טים לגודל מלא
+newtab-widget-section-minimize =
+    .title = מזעור ווידג׳טים
+    .aria-label = צמצום כל הווידג׳טים לגודל קומפקטי
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -670,10 +685,6 @@ newtab-widget-timer-mode-focus =
     .label = ריכוז
 newtab-widget-timer-mode-break =
     .label = הפסקה
-newtab-widget-timer-play =
-    .title = הפעלה
-newtab-widget-timer-pause =
-    .title = השהייה
 newtab-widget-timer-label-play =
     .label = הפעלה
 newtab-widget-timer-label-pause =
@@ -684,8 +695,6 @@ newtab-widget-timer-menu-notifications = כיבוי התרעות
 newtab-widget-timer-menu-notifications-on = הפעלת התרעות
 newtab-widget-timer-menu-hide = הסתרת שעון עצר
 newtab-widget-timer-menu-learn-more = מידע נוסף
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = יש לגלול כדי לראות עוד
 newtab-widget-message-title = להישאר מרוכז בעזרת רשימות ושעון עצר מובנה
 # to-dos stands for "things to do".
 newtab-widget-message-copy = מתזכורות מהירות ועד למשימות יומיות, מזמני התמקדות ועד להפסקות להתמתחות - כך ניתן להספיק את המשימות בזמן.

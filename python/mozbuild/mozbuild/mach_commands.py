@@ -426,6 +426,7 @@ def cargo_vet(command_context, arguments, stdout=None, env=os.environ):
     try:
         res = subprocess.run(
             [cargo, "vet"] + arguments,
+            check=False,
             cwd=cargo_vet_dir,
             stdout=stdout,
             env=env,
@@ -572,7 +573,9 @@ def clobber(command_context, what, full=False):
             ret = subprocess.call(cmd, cwd=topsrcdir)
         elif conditions.is_git(command_context) or conditions.is_jj(command_context):
             cmd = ["git", "clean", "-d", "-f", "-x", "*.py[cdo]", "*/__pycache__/*"]
-            result = subprocess.run(cmd, cwd=topsrcdir, stderr=subprocess.DEVNULL)
+            result = subprocess.run(
+                cmd, check=False, cwd=topsrcdir, stderr=subprocess.DEVNULL
+            )
             # We assume the `jj` repo is a colocated `git` repo, if not, fall back to a pure python approach
             if conditions.is_jj(command_context) and result.returncode != 0:
                 _pure_python_clean(topsrcdir)
@@ -682,7 +685,7 @@ def show_log(command_context, log_file=None):
         except OSError as os_error:
             # (POSIX)   errno.EPIPE: BrokenPipeError: [Errno 32] Broken pipe
             # (Windows) errno.EINVAL: OSError:        [Errno 22] Invalid argument
-            if os_error.errno == errno.EPIPE or os_error.errno == errno.EINVAL:
+            if os_error.errno in {errno.EPIPE, errno.EINVAL}:
                 # If the user manually terminates 'less' before the entire log file
                 # is piped (without scrolling close enough to the bottom) we will get
                 # one of these errors (depends on the OS) because the logger will still
@@ -1089,7 +1092,9 @@ def gtest(
     if list_tests:
         args.append("--gtest_list_tests")
 
-    if debug or debugger or debugger_args:
+    is_debugging = debug or debugger or debugger_args
+
+    if is_debugging:
         args = _prepend_debugger_args(args, debugger, debugger_args)
         if not args:
             return 1
@@ -1097,7 +1102,8 @@ def gtest(
     # Use GTest environment variable to control test execution
     # For details see:
     # https://google.github.io/googletest/advanced.html#running-test-programs-advanced-options
-    gtest_env = {"GTEST_FILTER": gtest_filter}
+    gtest_env = dict(os.environ)
+    gtest_env["GTEST_FILTER"] = gtest_filter
 
     # Note: we must normalize the path here so that gtest on Windows sees
     # a MOZ_GMP_PATH which has only Windows dir seperators, because
@@ -1151,7 +1157,7 @@ def gtest(
     # - listing tests
     # - running the debugger
     # - combining suites with one job
-    if list_tests or debug or (combine_suites and jobs == 1):
+    if list_tests or is_debugging or (combine_suites and jobs == 1):
         return command_context.run_process(
             args=args,
             append_env=gtest_env,
@@ -1167,7 +1173,7 @@ def gtest(
 
         processes = []
 
-        def add_process(job_id, env, **kwargs):
+        def add_process(job_id, append_env, **kwargs):
             def log_line(line):
                 # Prepend the job identifier to output
                 command_context.log(
@@ -1176,6 +1182,10 @@ def gtest(
                     {"job_id": job_id, "line": line.strip()},
                     "[{job_id}] {line}",
                 )
+
+            env = os.environ.copy()
+            # Allow the new environment to overwrite system environment variables.
+            env.update(append_env)
 
             report.set_output_in_env(env, job_id)
 
@@ -1249,7 +1259,7 @@ def gtest(
             for filt in suite_filters(suites):
                 proc = add_process(
                     filt.suite,
-                    filt(gtest_env),
+                    filt(gtest_env.copy()),
                     onFinish=functools.partial(run_next, filt.suite),
                 )
                 processes_to_run.append((filt.suite, proc))
@@ -1271,8 +1281,7 @@ def gtest(
 
         # Clamp error code to 255 to prevent overflowing multiple of
         # 256 into 0
-        if exit_code > 255:
-            exit_code = 255
+        exit_code = min(exit_code, 255)
 
     # Show aggregated report information and any test errors.
     command_context.log(
@@ -1685,6 +1694,15 @@ def _get_desktop_run_parser():
         "-n",
         action="store_true",
         help="Do not pass the --profile argument by default.",
+    )
+    group.add_argument(
+        "--appdata",
+        "-a",
+        nargs="?",
+        const=True,
+        default=False,
+        help="Overrides the application data storage area defaulting to a "
+        "temporary location in the object directory. Implies --noprofile.",
     )
     group.add_argument(
         "--disable-e10s",
@@ -2215,6 +2233,7 @@ def _run_desktop(
     app,
     background,
     noprofile,
+    appdata,
     disable_e10s,
     enable_crash_reporter,
     disable_fission,
@@ -2306,6 +2325,10 @@ def _run_desktop(
     ):
         args.append("-wait-for-browser")
 
+    tmpdir = os.path.join(command_context.topobjdir, "tmp")
+    if not os.path.exists(tmpdir):
+        os.makedirs(tmpdir)
+
     no_profile_option_given = all(
         p not in params for p in ["-profile", "--profile", "-P"]
     )
@@ -2316,6 +2339,7 @@ def _run_desktop(
         no_profile_option_given
         and no_backgroundtask_mode_option_given
         and not noprofile
+        and not appdata
     ):
         prefs = {
             "browser.aboutConfig.showWarning": False,
@@ -2325,10 +2349,6 @@ def _run_desktop(
         prefs.update([p.split("=", 1) for p in setpref])
         for pref in prefs:
             prefs[pref] = Preferences.cast(prefs[pref])
-
-        tmpdir = os.path.join(command_context.topobjdir, "tmp")
-        if not os.path.exists(tmpdir):
-            os.makedirs(tmpdir)
 
         if temp_profile:
             path = tempfile.mkdtemp(dir=tmpdir, prefix="profile-")
@@ -2370,6 +2390,29 @@ def _run_desktop(
         "MOZ_DEVELOPER_OBJ_DIR": command_context.topobjdir,
         "RUST_BACKTRACE": "full",
     }
+
+    if appdata:
+        if appdata is True:
+            appdata = tmpdir
+
+        extra_env["MOZ_APP_DATA"] = os.path.normpath(
+            os.path.join(appdata, "AppData", "Roaming")
+        )
+        command_context.log(
+            logging.INFO,
+            "run",
+            {"app_data": extra_env["MOZ_APP_DATA"]},
+            "Overriding application data directory to {app_data}",
+        )
+        extra_env["MOZ_LOCAL_APP_DATA"] = os.path.normpath(
+            os.path.join(appdata, "Local")
+        )
+        command_context.log(
+            logging.INFO,
+            "run",
+            {"local_app_data": extra_env["MOZ_LOCAL_APP_DATA"]},
+            "Overriding local application data directory to {local_app_data}",
+        )
 
     if not enable_crash_reporter:
         extra_env["MOZ_CRASHREPORTER_DISABLE"] = "1"
@@ -2983,7 +3026,7 @@ def repackage_msi(
 @CommandArgument(
     "--channel",
     type=str,
-    choices=["official", "beta", "aurora", "nightly", "unofficial"],
+    choices=["official", "beta", "esr", "aurora", "nightly", "unofficial"],
     help="Release channel.",
 )
 @CommandArgument(

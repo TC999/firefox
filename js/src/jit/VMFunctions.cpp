@@ -507,6 +507,25 @@ bool InvokeFunction(JSContext* cx, HandleObject obj, bool constructing,
 
     RootedValue newTarget(cx, argvWithoutThis[argc]);
 
+    // The JIT ABI expects at least callee->nargs() arguments, with undefined
+    // values passed for missing formal arguments. These undefined values are
+    // passed before newTarget. We don't normally insert undefined values when
+    // calling native functions like this one, but by detecting and supporting
+    // that case here, it is easier for jit code to fall back to InvokeFunction
+    // as a slow path.
+    if (newTarget.isUndefined()) {
+      MOZ_RELEASE_ASSERT(obj->is<JSFunction>());
+      JSFunction* callee = &obj->as<JSFunction>();
+#ifdef DEBUG
+      MOZ_ASSERT(callee->nargs() > argc);
+      for (uint32_t i = argc; i < callee->nargs(); i++) {
+        MOZ_ASSERT(argvWithoutThis[i].isUndefined());
+      }
+#endif
+      newTarget = argvWithoutThis[callee->nargs()];
+      MOZ_ASSERT(newTarget.isObject());
+    }
+
     // See CreateThisFromIon for why this can be NullValue.
     if (thisv.isNull()) {
       thisv.setMagic(JS_IS_CONSTRUCTING);
@@ -1471,6 +1490,27 @@ JSObject* ObjectKeys(JSContext* cx, HandleObject obj) {
     return nullptr;
   }
   return argv[0].toObjectOrNull();
+}
+
+JSObject* ObjectKeysFromIterator(JSContext* cx, HandleObject iterObj) {
+  MOZ_RELEASE_ASSERT(iterObj->is<PropertyIteratorObject>());
+  NativeIterator* iter =
+      iterObj->as<PropertyIteratorObject>().getNativeIterator();
+
+  size_t length = iter->ownPropertyCount();
+  Rooted<ArrayObject*> array(cx, NewDenseFullyAllocatedArray(cx, length));
+  if (!array) {
+    return nullptr;
+  }
+
+  array->ensureDenseInitializedLength(0, length);
+
+  for (size_t i = 0; i < length; ++i) {
+    array->initDenseElement(
+        i, StringValue((iter->propertiesBegin() + i)->asString()));
+  }
+
+  return array;
 }
 
 bool ObjectKeysLength(JSContext* cx, HandleObject obj, int32_t* length) {
@@ -3277,6 +3317,27 @@ void AssertPropertyLookup(NativeObject* obj, PropertyKey id, uint32_t slot) {
 #else
   MOZ_CRASH("This should only be called in debug builds.");
 #endif
+}
+
+// This is a specialized version of ExposeJSThingToActiveJS
+void ReadBarrier(gc::Cell* cell) {
+  AutoUnsafeCallWithABI unsafe;
+
+  MOZ_ASSERT(!JS::RuntimeHeapIsCollecting());
+  MOZ_ASSERT(!gc::IsInsideNursery(cell));
+
+  gc::TenuredCell* tenured = &cell->asTenured();
+  MOZ_ASSERT(!gc::detail::TenuredCellIsMarkedBlack(tenured));
+
+  Zone* zone = tenured->zone();
+  if (zone->needsIncrementalBarrier()) {
+    gc::PerformIncrementalReadBarrier(tenured);
+  } else if (!zone->isGCPreparing() &&
+             gc::detail::NonBlackCellIsMarkedGray(tenured)) {
+    gc::UnmarkGrayGCThingRecursively(tenured);
+  }
+  MOZ_ASSERT_IF(!zone->isGCPreparing(),
+                !gc::detail::TenuredCellIsMarkedGray(tenured));
 }
 
 void AssumeUnreachable(const char* output) {

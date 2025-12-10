@@ -10,9 +10,7 @@
 #include "GMPContentChild.h"
 #include "GMPPlatform.h"
 #include "GMPVideoEncodedFrameImpl.h"
-#include "GMPVideoi420FrameImpl.h"
 #include "mozilla/StaticPrefs_media.h"
-#include "mozilla/Unused.h"
 #include "runnable_utils.h"
 
 namespace mozilla::gmp {
@@ -51,7 +49,7 @@ void GMPVideoEncoderChild::Encoded(GMPVideoEncodedFrame* aEncodedFrame,
   if (GMPSharedMemManager* memMgr = mVideoHost.SharedMemMgr()) {
     ipc::Shmem inputShmem;
     if (memMgr->MgrTakeShmem(GMPSharedMemClass::Decoded, &inputShmem)) {
-      Unused << SendReturnShmem(std::move(inputShmem));
+      (void)SendReturnShmem(std::move(inputShmem));
     }
   }
 
@@ -62,14 +60,31 @@ void GMPVideoEncoderChild::Encoded(GMPVideoEncodedFrame* aEncodedFrame,
   ipc::Shmem frameShmem;
   nsTArray<uint8_t> frameArray;
   if (ef->RelinquishFrameData(frameData, frameShmem)) {
-    Unused << SendEncodedShmem(frameData, std::move(frameShmem), codecSpecific);
+    (void)SendEncodedShmem(frameData, std::move(frameShmem), codecSpecific);
   } else if (ef->RelinquishFrameData(frameData, frameArray)) {
-    Unused << SendEncodedData(frameData, std::move(frameArray), codecSpecific);
+    (void)SendEncodedData(frameData, std::move(frameArray), codecSpecific);
   } else {
     MOZ_CRASH("Encoded without any frame data!");
   }
 
+  mLatestEncodedTimestamp = frameData.mTimestamp();
+
   aEncodedFrame->Destroy();
+}
+
+void GMPVideoEncoderChild::MgrDecodedFrameDestroyed(
+    GMPVideoi420FrameImpl* aFrame) {
+  if (NS_WARN_IF(!mPlugin)) {
+    return;
+  }
+
+  // The OpenH264 encoder destroys the input frame if it has skipped encoding
+  // it. When it has encoded it, it calls the Encoded() callback before
+  // destroying the frame.
+  MOZ_ASSERT(mPlugin->GMPMessageLoop() == MessageLoop::current());
+  if (aFrame->Timestamp() > mLatestEncodedTimestamp) {
+    (void)SendDroppedFrame(aFrame->Timestamp());
+  }
 }
 
 void GMPVideoEncoderChild::Error(GMPErr aError) {
@@ -118,8 +133,10 @@ mozilla::ipc::IPCResult GMPVideoEncoderChild::RecvEncode(
     return IPC_FAIL(this, "!mVideoDecoder");
   }
 
+  // The `this` destroyed callback outlives the frame, because `mVideoEncoder`
+  // is responsible for destroying the frame, and we outlive `mVideoEncoder`.
   auto* f = new GMPVideoi420FrameImpl(aInputFrame, std::move(aInputShmem),
-                                      &mVideoHost);
+                                      &mVideoHost, HostReportPolicy::Destroyed);
 
   // Ignore any return code. It is OK for this to fail without killing the
   // process.

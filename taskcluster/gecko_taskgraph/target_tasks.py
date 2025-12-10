@@ -9,8 +9,8 @@ import os
 import re
 from datetime import datetime, timedelta
 
-import requests
 from redo import retry
+from taskcluster.exceptions import TaskclusterRestFailure
 from taskgraph import create
 from taskgraph.target_tasks import filter_for_git_branch, register_target_task
 from taskgraph.util.attributes import attrmatch
@@ -77,7 +77,9 @@ def index_exists(index_path, reason=""):
         task_id = find_task_id(index_path)
         print(f"Index {index_path} exists: taskId {task_id}")
         return True
-    except KeyError:
+    except (KeyError, TaskclusterRestFailure) as e:
+        if isinstance(e, TaskclusterRestFailure) and e.status_code != 404:
+            raise
         print(f"Index {index_path} doesn't exist.")
         return False
 
@@ -106,7 +108,7 @@ def filter_for_repo_type(task, parameters):
 
     This filter is temporarily in-place to facilitate the hg.mozilla.org ->
     Github migration."""
-    run_on_repo_types = set(task.attributes.get("run_on_repo_type", ["hg"]))
+    run_on_repo_types = set(task.attributes.get("run_on_repo_type", ["git", "hg"]))
     return match_run_on_repo_type(parameters["repository_type"], run_on_repo_types)
 
 
@@ -766,6 +768,9 @@ def target_tasks_general_perf_testing(full_task_graph, parameters, graph_config)
                 # Disabled chrome responsiveness tests temporarily in bug 1898351
                 # due to frequent failures
                 return False
+            # Bug 1961141 - Disable unity webgl for chrome windows
+            if "chrome-unity-webgl" in try_name and "windows11" in platform:
+                return False
             # Bug 1961145 - Disable bing-search for test-windows11-64-24h2-shippable
             if "windows11" in platform and "bing-search" in try_name:
                 return False
@@ -786,6 +791,13 @@ def target_tasks_general_perf_testing(full_task_graph, parameters, graph_config)
                         return True
                 if "safari" and "benchmark" in try_name:
                     if "jetstream2" in try_name and "safari" in try_name:
+                        return False
+                    # JetStream 3 fails with Safari 18.3 but not Safari-TP.
+                    # See bug 1996277.
+                    if (
+                        "safari-jetstream3" in try_name
+                        and "macosx1500-aarch64" in platform
+                    ):
                         return False
                     return True
         # Android selection
@@ -1068,8 +1080,8 @@ def target_tasks_searchfox(full_task_graph, parameters, graph_config):
         try:
             task = find_task(index_path)
             print(f"Index {index_path} exists: taskId {task['taskId']}")
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code != 404:
+        except TaskclusterRestFailure as e:
+            if e.status_code != 404:
                 raise
             print(f"Index {index_path} doesn't exist.")
         else:
@@ -1077,8 +1089,8 @@ def target_tasks_searchfox(full_task_graph, parameters, graph_config):
             taskdef = get_task_definition(task["taskId"])
             try:
                 task_graph = get_artifact(task["taskId"], "public/task-graph.json")
-            except requests.exceptions.HTTPError as e:
-                if e.response.status_code != 404:
+            except TaskclusterRestFailure as e:
+                if e.status_code != 404:
                     raise
                 task_graph = None
             if task_graph:
@@ -1092,12 +1104,15 @@ def target_tasks_searchfox(full_task_graph, parameters, graph_config):
                     print("Skipping index tasks")
                     return []
         if not create.testing:
-            insert_index(index_path, os.environ["TASK_ID"], use_proxy=True)
+            insert_index(index_path, os.environ["TASK_ID"])
 
     return [
+        "searchfox-linux64-searchfox/opt",
         "searchfox-linux64-searchfox/debug",
         "searchfox-macosx64-searchfox/debug",
+        "searchfox-macosx64-aarch64-searchfox/opt",
         "searchfox-macosx64-aarch64-searchfox/debug",
+        "searchfox-win64-searchfox/opt",
         "searchfox-win64-searchfox/debug",
         "searchfox-android-aarch64-searchfox/debug",
         "searchfox-ios-searchfox/debug",
@@ -1641,10 +1656,6 @@ def target_tasks_snap_upstream_tasks(full_task_graph, parameters, graph_config):
 @register_target_task("nightly-android")
 def target_tasks_nightly_android(full_task_graph, parameters, graph_config):
     def filter(task, parameters):
-        # bug 1899553: don't automatically schedule uploads to google play
-        if task.kind == "push-bundle":
-            return False
-
         # geckoview
         if task.attributes.get("shipping_product") == "fennec" and task.kind in (
             "beetmover-geckoview",
@@ -1729,3 +1740,10 @@ def target_tasks_os_integration(full_task_graph, parameters, graph_config):
 @register_target_task("weekly-test-info")
 def target_tasks_weekly_test_info(full_task_graph, parameters, graph_config):
     return ["source-test-file-metadata-test-info-all"]
+
+
+@register_target_task("test-info-xpcshell-timings-daily")
+def target_tasks_test_info_xpcshell_timings_daily(
+    full_task_graph, parameters, graph_config
+):
+    return ["source-test-file-metadata-test-info-xpcshell-timings-daily"]

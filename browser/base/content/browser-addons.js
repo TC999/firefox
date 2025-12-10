@@ -97,7 +97,7 @@ const ERROR_L10N_IDS = new Map([
   ],
   [
     -14,
-    ["addon-install-error-soft-blocked", "addon-install-error-soft-blocked"],
+    ["addon-install-error-soft-blocked2", "addon-install-error-soft-blocked2"],
   ],
 ]);
 
@@ -715,7 +715,7 @@ customElements.define(
       const { messagebar } = this;
       if (this.isSoftBlocked) {
         const SOFTBLOCK_FLUENTID =
-          "unified-extensions-item-messagebar-softblocked";
+          "unified-extensions-item-messagebar-softblocked2";
         if (
           messagebar.messageL10nId === SOFTBLOCK_FLUENTID &&
           messagebar.messageL10nArgs?.extensionName === this.extensionName
@@ -1910,10 +1910,11 @@ var BrowserAddonUI = {
 
   /**
    * Open about:addons page by given view id.
-   * @param {String} aView
+   *
+   * @param {string} aView
    *                 View id of page that will open.
    *                 e.g. "addons://discover/"
-   * @param {Object} options
+   * @param {object} options
    *        {
    *          selectTabByViewId: If true, if there is the tab opening page having
    *                             same view id, select the tab. Else if the current
@@ -2427,7 +2428,7 @@ var gUnifiedExtensions = {
       );
       document.l10n.setAttributes(
         emptyStateBox.querySelector("description"),
-        "unified-extensions-empty-content-explain-enable"
+        "unified-extensions-empty-content-explain-enable2"
       );
       emptyStateBox.hidden = false;
       this.isAtLeastOneExtensionWithPBMOptIn().then(result => {
@@ -2436,7 +2437,7 @@ var gUnifiedExtensions = {
         if (!result) {
           document.l10n.setAttributes(
             emptyStateBox.querySelector("description"),
-            "unified-extensions-empty-content-explain-manage"
+            "unified-extensions-empty-content-explain-manage2"
           );
         }
       });
@@ -2451,8 +2452,8 @@ var gUnifiedExtensions = {
           document.l10n.setAttributes(
             emptyStateBox.querySelector("description"),
             disabledExtensionsInfo.isAnyEnableable
-              ? "unified-extensions-empty-content-explain-enable"
-              : "unified-extensions-empty-content-explain-manage"
+              ? "unified-extensions-empty-content-explain-enable2"
+              : "unified-extensions-empty-content-explain-manage2"
           );
           emptyStateBox.hidden = false;
         } else if (!policies.length) {
@@ -2485,6 +2486,15 @@ var gUnifiedExtensions = {
       "#unified-extensions-messages-container"
     );
 
+    if (Services.appinfo.inSafeMode) {
+      this._messageBarSafemode ??= this._makeMessageBar({
+        messageBarFluentId: "unified-extensions-notice-safe-mode",
+        supportPage: "diagnose-firefox-issues-using-troubleshoot-mode",
+        type: "info",
+      });
+      container.prepend(this._messageBarSafemode);
+    } // No "else" case; inSafeMode flag is fixed at browser startup.
+
     if (this.blocklistAttentionInfo?.shouldShow) {
       this._messageBarBlocklist = this._createBlocklistMessageBar(container);
     } else {
@@ -2500,6 +2510,8 @@ var gUnifiedExtensions = {
           messageBarFluentId:
             "unified-extensions-mb-quarantined-domain-message-3",
           supportPage: "quarantined-domains",
+          supportPageFluentId:
+            "unified-extensions-mb-quarantined-domain-learn-more",
           dismissible: false,
         });
         this._messageBarQuarantinedDomain
@@ -3081,11 +3093,11 @@ var gUnifiedExtensions = {
       extensionName = addons[0].name;
       messageBarFluentId = hasHardBlocked
         ? "unified-extensions-mb-blocklist-error-single"
-        : "unified-extensions-mb-blocklist-warning-single";
+        : "unified-extensions-mb-blocklist-warning-single2";
     } else {
       messageBarFluentId = hasHardBlocked
         ? "unified-extensions-mb-blocklist-error-multiple"
-        : "unified-extensions-mb-blocklist-warning-multiple";
+        : "unified-extensions-mb-blocklist-warning-multiple2";
     }
 
     const messageBarBlocklist = this._makeMessageBar({
@@ -3132,6 +3144,7 @@ var gUnifiedExtensions = {
     messageBarFluentId,
     messageBarFluentArgs,
     supportPage = null,
+    supportPageFluentId,
     linkToAboutAddons = false,
     type = "warning",
   }) {
@@ -3173,11 +3186,9 @@ var gUnifiedExtensions = {
         is: "moz-support-link",
       });
       supportUrl.setAttribute("support-page", supportPage);
-      document.l10n.setAttributes(
-        supportUrl,
-        "unified-extensions-mb-quarantined-domain-learn-more"
-      );
-      supportUrl.setAttribute("data-l10n-attrs", "aria-label");
+      if (supportPageFluentId) {
+        document.l10n.setAttributes(supportUrl, supportPageFluentId);
+      }
       supportUrl.setAttribute("slot", "support-link");
 
       messageBar.append(supportUrl);

@@ -17,7 +17,6 @@
 #include "mozilla/AppShutdown.h"
 #include "mozilla/ArenaAllocatorExtensions.h"
 #include "mozilla/ArenaAllocator.h"
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/Components.h"
 #include "mozilla/dom/PContent.h"
@@ -27,6 +26,7 @@
 #include "mozilla/glean/LibprefMetrics.h"
 #include "mozilla/HashFunctions.h"
 #include "mozilla/HashTable.h"
+#include "mozilla/HelperMacros.h"
 #include "mozilla/Logging.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryReporting.h"
@@ -44,7 +44,6 @@
 #include "mozilla/StaticPtr.h"
 #include "mozilla/SyncRunnable.h"
 #include "mozilla/Try.h"
-#include "mozilla/UniquePtrExtensions.h"
 #include "mozilla/URLPreloader.h"
 #include "mozilla/Variant.h"
 #include "mozilla/Vector.h"
@@ -2115,7 +2114,7 @@ static void TestParseErrorHandlePref(const char* aPrefName, PrefType aType,
                                      PrefValueKind aKind, PrefValue aValue,
                                      bool aIsSticky, bool aIsLocked) {}
 
-MOZ_CONSTINIT static nsCString gTestParseErrorMsgs;
+constinit static nsCString gTestParseErrorMsgs;
 
 static void TestParseErrorHandleError(const char* aMsg) {
   gTestParseErrorMsgs.Append(aMsg);
@@ -2634,8 +2633,8 @@ nsPrefBranch::GetComplexValue(const char* aPrefName, const nsIID& aType,
         fromFile, Substring(++keyEnd, strEnd), getter_AddRefs(theFile)));
 
     nsCOMPtr<nsIRelativeFilePref> relativePref = new nsRelativeFilePref();
-    Unused << relativePref->SetFile(theFile);
-    Unused << relativePref->SetRelativeToKey(key);
+    (void)relativePref->SetFile(theFile);
+    (void)relativePref->SetRelativeToKey(key);
 
     relativePref.forget(reinterpret_cast<nsIRelativeFilePref**>(aRetVal));
     return NS_OK;
@@ -2861,10 +2860,10 @@ nsPrefBranch::DeleteBranch(const char* aStartingAt) {
   // Collect the list of prefs to remove
   AutoTArray<const char*, 32> prefNames;
   for (auto& pref : PrefsIter(HashTable(), gSharedMap)) {
-    // The first disjunct matches branches: e.g. a branch name "foo.bar."
-    // matches a name "foo.bar.baz" (but it won't match "foo.barrel.baz").
-    // The second disjunct matches leaf nodes: e.g. a branch name "foo.bar."
-    // matches a name "foo.bar" (by ignoring the trailing '.').
+    // Match preferences that start with branchName or equal branchNameNoDot.
+    // For inputs ending with "..", this matches the node without the trailing
+    // dot and all children with the double dot prefix.
+    // For other inputs, this matches both the node itself and all children.
     if (StringBeginsWith(pref->NameString(), branchName) ||
         pref->NameString() == branchNameNoDot) {
       prefNames.AppendElement(pref->Name());
@@ -3724,8 +3723,8 @@ static Maybe<bool> TelemetryPrefValue() {
   return Some(true);
 #  else
   nsAutoCString channelPrefValue;
-  Unused << Preferences::GetCString(kChannelPref, channelPrefValue,
-                                    PrefValueKind::Default);
+  (void)Preferences::GetCString(kChannelPref, channelPrefValue,
+                                PrefValueKind::Default);
   return Some(channelPrefValue.EqualsLiteral("beta"));
 #  endif
 }
@@ -3767,8 +3766,8 @@ static bool TelemetryPrefValue() {
   // are shipped to beta users.
   if (channel.EqualsLiteral("release")) {
     nsAutoCString channelPrefValue;
-    Unused << Preferences::GetCString(kChannelPref, channelPrefValue,
-                                      PrefValueKind::Default);
+    (void)Preferences::GetCString(kChannelPref, channelPrefValue,
+                                  PrefValueKind::Default);
     if (channelPrefValue.EqualsLiteral("beta")) {
       return true;
     }
@@ -4017,7 +4016,7 @@ mozilla::ipc::ReadOnlySharedMemoryHandle Preferences::EnsureSnapshot() {
     // changed preferences, rather than the expected total number of
     // preferences.
     HashTable()->clearAndCompact();
-    Unused << HashTable()->reserve(kHashTableInitialLengthContent);
+    (void)HashTable()->reserve(kHashTableInitialLengthContent);
 
     delete sPrefNameArena;
     sPrefNameArena = newPrefNameArena;
@@ -4027,7 +4026,7 @@ mozilla::ipc::ReadOnlySharedMemoryHandle Preferences::EnsureSnapshot() {
       auto pref = toRepopulate[i];
       auto p = HashTable()->lookupForAdd(pref->Name());
       MOZ_ASSERT(!p.found());
-      Unused << HashTable()->add(p, pref);
+      (void)HashTable()->add(p, pref);
     }
   }
 
@@ -4137,7 +4136,7 @@ Preferences::ResetPrefs() {
   }
 
   HashTable()->clearAndCompact();
-  Unused << HashTable()->reserve(kHashTableInitialLengthParent);
+  (void)HashTable()->reserve(kHashTableInitialLengthParent);
 
   PrefNameArena().Clear();
 
@@ -4526,7 +4525,7 @@ already_AddRefed<nsIFile> Preferences::ReadSavedPrefs() {
   } else {
     // Store the last modified time of the file while we've got it.
     // We don't really care if this fails.
-    Unused << file->GetLastModifiedTime(&mUserPrefsFileLastModifiedAtStartup);
+    (void)file->GetLastModifiedTime(&mUserPrefsFileLastModifiedAtStartup);
 
     if (NS_FAILED(rv)) {
       // Save a backup copy of the current (invalid) prefs file, since all prefs

@@ -54,7 +54,9 @@
     'tlsprfalg.c',
     'secmpi.c',
     'verified/Hacl_Hash_SHA3.c',
+    'verified/libcrux_sha3_portable.c',
     'verified/libcrux_mlkem768_portable.c',
+    'verified/libcrux_mlkem1024_portable.c',
     'verified/libcrux_mlkem_portable.c',
     'verified/libcrux_core.c',
     'verified/Hacl_P256.c',
@@ -80,19 +82,6 @@
             'mpi/mpi_amd64.c',
             'mpi/mpi_amd64_common.S',
             'mpi/mp_comba.c',
-          ],
-          'conditions': [
-            [ 'cc_is_clang==1 and fuzz!=1 and coverage!=1 and force_integrated_as!=1', {
-              'cflags': [
-                '-no-integrated-as',
-              ],
-              'cflags_mozilla': [
-                '-no-integrated-as',
-              ],
-              'asflags_mozilla': [
-                '-no-integrated-as',
-              ],
-            }],
           ],
         }],
         [ 'target_arch=="ia32"', {
@@ -230,7 +219,6 @@
             'mpi/mp_comba.c',
           ],
           'defines': [
-            'MP_IS_LITTLE_ENDIAN',
             'MPI_AMD64',
             'MP_ASSEMBLY_MULTIPLY',
             'NSS_USE_COMBA',

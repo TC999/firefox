@@ -13,7 +13,6 @@
 
 #include "LayoutConstants.h"
 #include "ReflowOutput.h"
-#include "mozilla/Assertions.h"
 #include "mozilla/EnumSet.h"
 #include "mozilla/LayoutStructs.h"
 #include "mozilla/Maybe.h"
@@ -69,8 +68,8 @@ struct SizeComputationInput {
   // Rendering context to use for measurement.
   gfxContext* mRenderingContext;
 
-  // Cache of referenced anchors for this computation.
-  AnchorPosReferenceData* mAnchorPosReferenceData = nullptr;
+  // Cache for anchor resolution in this computation.
+  AnchorPosResolutionCache* mAnchorPosResolutionCache = nullptr;
 
   nsMargin ComputedPhysicalMargin() const {
     return mComputedMargin.GetPhysicalMargin(mWritingMode);
@@ -133,7 +132,7 @@ struct SizeComputationInput {
   // Callers using this constructor must call InitOffsets on their own.
   SizeComputationInput(
       nsIFrame* aFrame, gfxContext* aRenderingContext,
-      AnchorPosReferenceData* aAnchorPosReferenceData = nullptr);
+      AnchorPosResolutionCache* aAnchorPosResolutionCache = nullptr);
 
   SizeComputationInput(nsIFrame* aFrame, gfxContext* aRenderingContext,
                        WritingMode aContainingBlockWritingMode,
@@ -507,6 +506,11 @@ struct ReflowInput : public SizeComputationInput {
     bool mIOffsetsNeedCSSAlign : 1;
     bool mBOffsetsNeedCSSAlign : 1;
 
+    // True when anchor-center is being used with a valid anchor and at least
+    // one inset is auto on this axis. Used to zero out margins.
+    bool mIAnchorCenter : 1;
+    bool mBAnchorCenter : 1;
+
     // Is this frame or one of its ancestors being reflowed in a different
     // continuation than the one in which it was previously reflowed?  In
     // other words, has it moved to a different column or page than it was in
@@ -528,14 +532,6 @@ struct ReflowInput : public SizeComputationInput {
     // If true, then children of this frame can generate class A breakpoints
     // for paginated reflow.
     bool mCanHaveClassABreakpoints : 1;
-
-    // If set:
-    // (1) This frame is absolutely-positioned,
-    // (2) Inset in that axis are non-auto, and
-    // (3) Size in that axis is `auto` & resolved as fit-content size.
-    // Automatic margin computation in this case requires waiting until
-    // the frame reflows to compute the fit-content size.
-    bool mDeferAutoMarginComputation : 1;
   };
   Flags mFlags;
 
@@ -627,9 +623,9 @@ struct ReflowInput : public SizeComputationInput {
    *        call nsIFrame::ComputeSize() internally.
    * @param aComputeSizeFlags A set of flags used when we call
    *        nsIFrame::ComputeSize() internally.
-   * @param aAnchorPosReferenceData A cache of referenced anchors to be
-   * populated (If specified) for this reflowed frame. Should live for the
-   * lifetime of this ReflowInput.
+   * @param aAnchorResolutionCache A cache of referenced anchors to be populated
+   *        (If specified) for this reflowed frame. Should live for the lifetime
+   *        of this ReflowInput.
    */
   ReflowInput(nsPresContext* aPresContext,
               const ReflowInput& aParentReflowInput, nsIFrame* aFrame,
@@ -638,7 +634,7 @@ struct ReflowInput : public SizeComputationInput {
               InitFlags aFlags = {},
               const StyleSizeOverrides& aSizeOverrides = {},
               ComputeSizeFlags aComputeSizeFlags = {},
-              AnchorPosReferenceData* aAnchorPosReferenceData = nullptr);
+              AnchorPosResolutionCache* aAnchorPosResolutionCache = nullptr);
 
   /**
    * This method initializes various data members. It is automatically called by
@@ -828,8 +824,7 @@ struct ReflowInput : public SizeComputationInput {
                                            WritingMode aContainingBlockWM,
                                            bool aIsMarginBStartAuto,
                                            bool aIsMarginBEndAuto,
-                                           LogicalMargin& aMargin,
-                                           LogicalMargin& aOffsets);
+                                           LogicalMargin& aMargin);
 
   // Resolve any inline-axis 'auto' margins (if any) for an absolutely
   // positioned frame. aMargin and aOffsets are both outparams (though we only
@@ -838,8 +833,7 @@ struct ReflowInput : public SizeComputationInput {
                                             WritingMode aContainingBlockWM,
                                             bool aIsMarginIStartAuto,
                                             bool aIsMarginIEndAuto,
-                                            LogicalMargin& aMargin,
-                                            LogicalMargin& aOffsets);
+                                            LogicalMargin& aMargin);
 
  protected:
   void InitCBReflowInput();
@@ -980,10 +974,28 @@ struct ReflowInput : public SizeComputationInput {
 
 }  // namespace mozilla
 
+void ComputeAnchorCenterUsage(
+    const nsIFrame* aFrame,
+    mozilla::AnchorPosResolutionCache* aAnchorPosResolutionCache,
+    bool& aInlineUsesAnchorCenter, bool& aBlockUsesAnchorCenter);
+
 inline AnchorPosResolutionParams AnchorPosResolutionParams::From(
-    const mozilla::ReflowInput* aRI) {
-  return {aRI->mFrame, aRI->mStyleDisplay->mPosition,
-          aRI->mStylePosition->mPositionArea, aRI->mAnchorPosReferenceData};
+    const mozilla::ReflowInput* aRI, bool aIgnorePositionArea) {
+  const mozilla::StylePositionArea posArea =
+      aIgnorePositionArea ? mozilla::StylePositionArea{}
+                          : aRI->mStylePosition->mPositionArea;
+  bool inlineUsesAnchorCenter = false;
+  bool blockUsesAnchorCenter = false;
+
+  ComputeAnchorCenterUsage(aRI->mFrame, aRI->mAnchorPosResolutionCache,
+                           inlineUsesAnchorCenter, blockUsesAnchorCenter);
+
+  return {aRI->mFrame,
+          aRI->mStyleDisplay->mPosition,
+          posArea,
+          aRI->mAnchorPosResolutionCache,
+          inlineUsesAnchorCenter,
+          blockUsesAnchorCenter};
 }
 
 #endif  // mozilla_ReflowInput_h

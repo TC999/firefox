@@ -10,19 +10,19 @@ import mozilla.components.compose.browser.toolbar.store.BrowserDisplayToolbarAct
 import mozilla.components.compose.browser.toolbar.store.BrowserDisplayToolbarAction.PageActionsEndUpdated
 import mozilla.components.compose.browser.toolbar.store.BrowserDisplayToolbarAction.PageActionsStartUpdated
 import mozilla.components.compose.browser.toolbar.store.BrowserDisplayToolbarAction.PageOriginUpdated
-import mozilla.components.compose.browser.toolbar.store.BrowserEditToolbarAction.SearchAborted
-import mozilla.components.compose.browser.toolbar.store.BrowserEditToolbarAction.UrlSuggestionAutocompleted
+import mozilla.components.compose.browser.toolbar.store.BrowserEditToolbarAction.AutocompleteSuggestionUpdated
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarInteraction.BrowserToolbarEvent
+import mozilla.components.compose.browser.toolbar.ui.BrowserToolbarQuery
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.UiStore
+import mozilla.components.lib.state.Store
 
 /**
- * [UiStore] for maintaining the state of the browser toolbar.
+ * [Store] for maintaining the state of the browser toolbar.
  */
-open class BrowserToolbarStore(
+class BrowserToolbarStore(
     initialState: BrowserToolbarState = BrowserToolbarState(),
     middleware: List<Middleware<BrowserToolbarState, BrowserToolbarAction>> = emptyList(),
-) : UiStore<BrowserToolbarState, BrowserToolbarAction>(
+) : Store<BrowserToolbarState, BrowserToolbarAction>(
     initialState = initialState,
     reducer = ::reduce,
     middleware = middleware,
@@ -52,12 +52,15 @@ private fun reduce(state: BrowserToolbarState, action: BrowserToolbarAction): Br
 
         is BrowserToolbarAction.EnterEditMode -> state.copy(
             mode = Mode.EDIT,
+            editState = state.editState.copy(
+                isQueryPrivate = action.isPrivate,
+            ),
         )
 
         is BrowserToolbarAction.ExitEditMode -> state.copy(
             mode = Mode.DISPLAY,
             editState = state.editState.copy(
-                query = "",
+                query = BrowserToolbarQuery(""),
             ),
         )
 
@@ -110,15 +113,9 @@ private fun reduce(state: BrowserToolbarState, action: BrowserToolbarAction): Br
             ),
         )
 
-        is BrowserEditToolbarAction.PrivateModeUpdated -> state.copy(
+        is AutocompleteSuggestionUpdated -> state.copy(
             editState = state.editState.copy(
-                isQueryPrivate = action.inPrivateMode,
-            ),
-        )
-
-        is BrowserEditToolbarAction.AutocompleteProvidersUpdated -> state.copy(
-            editState = state.editState.copy(
-                autocompleteProviders = action.autocompleteProviders,
+                suggestion = action.autocompletedSuggestion,
             ),
         )
 
@@ -140,10 +137,6 @@ private fun reduce(state: BrowserToolbarState, action: BrowserToolbarAction): Br
             ),
         )
 
-        is EnvironmentRehydrated,
-        is EnvironmentCleared,
-        is SearchAborted,
-        is UrlSuggestionAutocompleted,
         is BrowserToolbarEvent,
             -> {
             // no-op

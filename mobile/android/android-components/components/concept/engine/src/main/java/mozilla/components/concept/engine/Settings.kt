@@ -364,14 +364,30 @@ abstract class Settings {
     open var bannedPorts: String by UnsupportedSetting()
 
     /**
-     * Setting to control blocking of local network & local device (localhost) access
+     * Setting to control the request blocking feature of Local Network / Device Access blocking
      */
     open var lnaBlockingEnabled: Boolean by UnsupportedSetting()
+
+    /**
+     * Setting to control the tracker blocking feature of Local Network / Device Access blocking
+     */
+    open var lnaTrackerBlockingEnabled: Boolean by UnsupportedSetting()
+
+    /**
+     * Setting to control the overall Local Network / Device Access blocking feature. This is a
+     * superset of [lnaBlockingEnabled] & [lnaTrackerBlockingEnabled]
+     */
+    open var lnaFeatureEnabled: Boolean by UnsupportedSetting()
 
     /**
      * Setting to control the CRLite certificate blocklist channel
      */
     open var crliteChannel: String? by UnsupportedSetting()
+
+    /**
+     * Setting to control whether Safe Browsing V5 is enabled.
+     */
+    open var safeBrowsingV5Enabled: Boolean? by UnsupportedSetting()
 }
 
 /**
@@ -445,7 +461,10 @@ data class DefaultSettings(
     override var dohAutoselectEnabled: Boolean = false,
     override var bannedPorts: String = "",
     override var lnaBlockingEnabled: Boolean = false,
+    override var lnaTrackerBlockingEnabled: Boolean = false,
+    override var lnaFeatureEnabled: Boolean = false,
     override var crliteChannel: String? = null,
+    override var safeBrowsingV5Enabled: Boolean? = null,
 ) : Settings() {
     override val desktopModeEnabled: Boolean
         get() = getDesktopMode()

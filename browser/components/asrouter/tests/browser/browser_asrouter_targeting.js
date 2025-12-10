@@ -24,6 +24,8 @@ ChromeUtils.defineESModuleGetters(this, {
   ProfileAge: "resource://gre/modules/ProfileAge.sys.mjs",
   QueryCache: "resource:///modules/asrouter/ASRouterTargeting.sys.mjs",
   Region: "resource://gre/modules/Region.sys.mjs",
+  SelectableProfileService:
+    "resource:///modules/profiles/SelectableProfileService.sys.mjs",
   ShellService: "moz-src:///browser/components/shell/ShellService.sys.mjs",
   sinon: "resource://testing-common/Sinon.sys.mjs",
   Spotlight: "resource:///modules/asrouter/Spotlight.sys.mjs",
@@ -321,6 +323,8 @@ add_task(async function check_canCreateSelectableProfiles() {
   );
 
   await ProfilesDatastoreService.resetProfileService(null);
+  await SpecialPowers.popPrefEnv();
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function check_hasSelectableProfiles() {
@@ -343,6 +347,7 @@ add_task(async function check_hasSelectableProfiles() {
     message,
     "should select correct item by hasSelectableProfiles"
   );
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function check_usesFirefoxSync() {
@@ -359,6 +364,7 @@ add_task(async function check_usesFirefoxSync() {
     message,
     "should select correct item by usesFirefoxSync"
   );
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function check_isFxAEnabled() {
@@ -374,6 +380,7 @@ add_task(async function check_isFxAEnabled() {
     !(await ASRouterTargeting.findMatchingMessage({ messages: [message] })),
     "should not select a message if fxa is disabled"
   );
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function check_isFxAEnabled() {
@@ -390,6 +397,7 @@ add_task(async function check_isFxAEnabled() {
     message,
     "should select the correct message"
   );
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function check_isFxASignedIn_false() {
@@ -414,6 +422,7 @@ add_task(async function check_isFxASignedIn_false() {
   );
 
   sandbox.restore();
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function check_isFxASignedIn_true() {
@@ -438,6 +447,7 @@ add_task(async function check_isFxASignedIn_true() {
   );
 
   sandbox.restore();
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function check_totalBookmarksCount() {
@@ -574,6 +584,7 @@ add_task(async function checkdevToolsOpenedCount() {
     message,
     "should select correct item by devToolsOpenedCount"
   );
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function check_platformName() {
@@ -956,6 +967,8 @@ add_task(async function check_provider_cohorts() {
     "bar",
     "should have cohort bar for cfr"
   );
+  await SpecialPowers.popPrefEnv();
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function check_xpinstall_enabled() {
@@ -967,6 +980,8 @@ add_task(async function check_xpinstall_enabled() {
   // flip to true, check targeting reflects that
   await pushPrefs(["xpinstall.enabled", true]);
   is(await ASRouterTargeting.Environment.xpinstallEnabled, true);
+  await SpecialPowers.popPrefEnv();
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function check_current_tab_installed_as_web_app() {
@@ -1052,6 +1067,7 @@ add_task(async function check_hasAccessedFxAPanel() {
     true,
     "Should detect panel access"
   );
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function checkCFRFeaturesUserPref() {
@@ -1070,6 +1086,7 @@ add_task(async function checkCFRFeaturesUserPref() {
     message,
     "should select correct item by cfrFeature"
   );
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function checkCFRAddonsUserPref() {
@@ -1088,6 +1105,7 @@ add_task(async function checkCFRAddonsUserPref() {
     message,
     "should select correct item by cfrAddons"
   );
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function check_blockedCountByType() {
@@ -1642,6 +1660,8 @@ add_task(async function test_migrationInteractions() {
     ok(!(await ASRouterTargeting.Environment[getterName]));
     await pushPrefs([pref, true]);
     ok(await ASRouterTargeting.Environment[getterName]);
+    await SpecialPowers.popPrefEnv();
+    await SpecialPowers.popPrefEnv();
   }
 });
 
@@ -1673,6 +1693,10 @@ add_task(async function check_useEmbeddedMigrationWizard() {
   ]);
 
   ok(!(await ASRouterTargeting.Environment.useEmbeddedMigrationWizard));
+  await SpecialPowers.popPrefEnv();
+  await SpecialPowers.popPrefEnv();
+  await SpecialPowers.popPrefEnv();
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function check_isMSIX() {
@@ -2013,6 +2037,7 @@ add_task(async function check_totalSearches() {
     20,
     "should return a value of 20"
   );
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function checkisDefaultBrowserUncached() {
@@ -2077,6 +2102,7 @@ add_task(
       false,
       "activeNotifications should be false if the topic selection modal on newtab was last shown more than a minute ago"
     );
+    await SpecialPowers.popPrefEnv();
   }
 );
 
@@ -2119,6 +2145,7 @@ add_task(
       true,
       "activeNotifications should be true if the topic selection modal on newtab was last shown less than a minute ago"
     );
+    await SpecialPowers.popPrefEnv();
   }
 );
 
@@ -2150,7 +2177,12 @@ add_task(async function check_activeNotifications_newtabMessages() {
 
 add_task(async function activeNotifications_default_prompt_shown() {
   let sb = sinon.createSandbox();
+
   const win = await BrowserTestUtils.openNewBrowserWindow();
+
+  let visibilityChange = new Promise(res =>
+    win.document.addEventListener("visibilitychange", res, { once: true })
+  );
 
   sb.stub(DefaultBrowserCheck, "willCheckDefaultBrowser").returns(true);
   const promptSpy = sb.spy(DefaultBrowserCheck, "prompt");
@@ -2158,6 +2190,10 @@ add_task(async function activeNotifications_default_prompt_shown() {
   await BROWSER_GLUE._maybeShowDefaultBrowserPrompt();
 
   Assert.equal(promptSpy.callCount, 1, "default prompt should be called");
+
+  // activeNotifications are updated by visibilitychanges, so make sure we get
+  // one before testing it.
+  await visibilityChange;
 
   is(
     await ASRouterTargeting.Environment.activeNotifications,
@@ -2285,8 +2321,8 @@ add_task(async function check_unhandledCampaignAction() {
       before: async () => {
         await pushPrefs([DID_HANDLE_CAMAPAIGN_ACTION_PREF, true]);
       },
-      after: () => {
-        Services.prefs.clearUserPref(DID_HANDLE_CAMAPAIGN_ACTION_PREF);
+      after: async () => {
+        await SpecialPowers.popPrefEnv();
         QueryCache.queries.UnhandledCampaignAction.expire();
       },
     },
@@ -2338,6 +2374,63 @@ add_task(async function check_profileGroupIdTargeting() {
     message,
     "should select correct item by profile group id"
   );
+});
+
+add_task(async function check_currentProfileIdTargeting() {
+  is(
+    typeof ASRouterTargeting.Environment.currentProfileId,
+    "string",
+    "Should return a string"
+  );
+
+  const message = {
+    id: "foo",
+    targeting: `currentProfileId == "test-profile-id"`,
+  };
+
+  const result = await ASRouterTargeting.findMatchingMessage({
+    messages: [message],
+    context: { currentProfileId: "test-profile-id" },
+  });
+
+  is(result, message, "should select correct item by profile id");
+});
+
+add_task(async function check_profileGroupProfileCountTargeting() {
+  await pushPrefs(
+    ["browser.profiles.enabled", false],
+    ["browser.profiles.created", false]
+  );
+  const resultFalse =
+    await ASRouterTargeting.Environment.profileGroupProfileCount;
+
+  is(typeof resultFalse, "number", "Should return a number");
+
+  is(resultFalse, 0, "should be zero because profiles are disabled");
+
+  await pushPrefs(
+    ["browser.profiles.enabled", true],
+    ["browser.profiles.created", true]
+  );
+
+  const expected = await SelectableProfileService.getProfileCount();
+  const resultTrue =
+    await ASRouterTargeting.Environment.profileGroupProfileCount;
+
+  is(resultTrue, expected, "it should be equal to the profile group count");
+
+  const message = {
+    id: "foo",
+    targeting: `profileGroupProfileCount == "${expected}"`,
+  };
+  is(
+    await ASRouterTargeting.findMatchingMessage({ messages: [message] }),
+    message,
+    "should select correct item by number of profiles in the group"
+  );
+
+  //Clean up the prefs
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function test_buildId() {
@@ -2437,4 +2530,77 @@ add_task(async function check_isEncryptedBackup() {
     true,
     "should return true if the pref value is full"
   );
+  await SpecialPowers.popPrefEnv();
+  await SpecialPowers.popPrefEnv();
+});
+
+add_task(async function check_backupArchiveEnabled() {
+  const sandbox = sinon.createSandbox();
+  registerCleanupFunction(() => sandbox.restore());
+
+  await pushPrefs(
+    ["browser.backup.archive.enabled", true],
+    ["browser.backup.archive.overridePlatformCheck", true]
+  );
+
+  is(
+    await ASRouterTargeting.Environment.backupArchiveEnabled,
+    true,
+    "should return true if the killswitch is not on"
+  );
+  await SpecialPowers.popPrefEnv();
+  const archiveExperiment = await NimbusTestUtils.enrollWithFeatureConfig({
+    featureId: "backupService",
+    value: { archiveKillswitch: true },
+  });
+  await pushPrefs(
+    ["browser.backup.archive.enabled", true],
+    ["browser.backup.archive.overridePlatformCheck", false]
+  );
+
+  is(
+    await ASRouterTargeting.Environment.backupArchiveEnabled,
+    false,
+    "should return false if the killswitch is on"
+  );
+
+  // End the experiment.
+  await archiveExperiment();
+  await SpecialPowers.popPrefEnv();
+});
+
+add_task(async function check_backupRestoreEnabled() {
+  const sandbox = sinon.createSandbox();
+  registerCleanupFunction(() => sandbox.restore());
+
+  await pushPrefs(
+    ["browser.backup.restore.enabled", true],
+    ["browser.backup.restore.overridePlatformCheck", true]
+  );
+
+  is(
+    await ASRouterTargeting.Environment.backupRestoreEnabled,
+    true,
+    "should return true if the killswitch is not on"
+  );
+  await SpecialPowers.popPrefEnv();
+  await pushPrefs(
+    ["browser.backup.restore.enabled", true],
+    ["browser.backup.restore.overridePlatformCheck", false]
+  );
+
+  const restoreExperiment = await NimbusTestUtils.enrollWithFeatureConfig({
+    featureId: "backupService",
+    value: { restoreKillswitch: true },
+  });
+
+  is(
+    await ASRouterTargeting.Environment.backupRestoreEnabled,
+    false,
+    "should return false if the killswitch is on"
+  );
+
+  // End the experiment.
+  await restoreExperiment();
+  await SpecialPowers.popPrefEnv();
 });

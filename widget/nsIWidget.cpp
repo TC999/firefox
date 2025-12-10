@@ -16,7 +16,6 @@
 #include "TouchEvents.h"
 #include "X11UndefineNone.h"
 #include "base/thread.h"
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/GlobalKeyListener.h"
 #include "mozilla/IMEStateManager.h"
@@ -35,7 +34,6 @@
 #include "mozilla/TextEventDispatcher.h"
 #include "mozilla/TextEventDispatcherListener.h"
 #include "mozilla/UniquePtr.h"
-#include "mozilla/Unused.h"
 #include "mozilla/VsyncDispatcher.h"
 #include "mozilla/dom/BrowserParent.h"
 #include "mozilla/dom/ContentChild.h"
@@ -89,8 +87,6 @@
 #include "mozilla/layers/CompositorSession.h"
 #include "VRManagerChild.h"
 #include "gfxConfig.h"
-#include "nsView.h"
-#include "nsViewManager.h"
 
 static mozilla::LazyLogModule sBaseWidgetLog("BaseWidget");
 
@@ -307,13 +303,11 @@ nsIWidget::nsIWidget(BorderStyle aBorderStyle)
       mPreviouslyAttachedWidgetListener(nullptr),
       mCompositorVsyncDispatcher(nullptr),
       mBorderStyle(aBorderStyle),
-      mBounds(0, 0, 0, 0),
       mIsTiled(false),
       mPopupLevel(PopupLevel::Top),
       mPopupType(PopupType::Any),
       mHasRemoteContent(false),
       mUpdateCursor(true),
-      mUseAttachedEvents(false),
       mIMEHasFocus(false),
       mIMEHasQuit(false),
       mIsFullyOccluded(false),
@@ -457,15 +451,14 @@ nsIWidget::~nsIWidget() {
 // Basic create.
 //
 //-------------------------------------------------------------------------
-void nsIWidget::BaseCreate(nsIWidget* aParent, widget::InitData* aInitData) {
-  if (aInitData) {
-    mWindowType = aInitData->mWindowType;
-    mBorderStyle = aInitData->mBorderStyle;
-    mPopupLevel = aInitData->mPopupLevel;
-    mPopupType = aInitData->mPopupHint;
-    mHasRemoteContent = aInitData->mHasRemoteContent;
-    mIsPIPWindow = aInitData->mPIPWindow;
-  }
+void nsIWidget::BaseCreate(nsIWidget* aParent,
+                           const widget::InitData& aInitData) {
+  mWindowType = aInitData.mWindowType;
+  mBorderStyle = aInitData.mBorderStyle;
+  mPopupLevel = aInitData.mPopupLevel;
+  mPopupType = aInitData.mPopupHint;
+  mHasRemoteContent = aInitData.mHasRemoteContent;
+  mIsPIPWindow = aInitData.mPIPWindow;
 
   mParent = aParent;
   if (mParent) {
@@ -495,8 +488,8 @@ nsIFrame* nsIWidget::GetFrame() const {
   if (auto* popup = GetPopupFrame()) {
     return popup;
   }
-  if (nsView* view = nsView::GetViewFor(this)) {
-    return view->GetFrame();
+  if (auto* ps = GetPresShell()) {
+    return ps->GetRootFrame();
   }
   return nullptr;
 }
@@ -528,8 +521,8 @@ LayoutDeviceIntRect nsIWidget::MaybeRoundToDisplayPixels(
   auto size = aTransparency == TransparencyMode::Opaque
                   ? aRect.Size().TruncatedToMultiple(aRound)
                   : aRect.Size().CeiledToMultiple(aRound);
-  Unused << NS_WARN_IF(aTransparency == TransparencyMode::Opaque &&
-                       size != aRect.Size());
+  (void)NS_WARN_IF(aTransparency == TransparencyMode::Opaque &&
+                   size != aRect.Size());
   return {aRect.TopLeft().RoundedToMultiple(aRound), size};
 }
 
@@ -539,24 +532,14 @@ LayoutDeviceIntRect nsIWidget::MaybeRoundToDisplayPixels(
 //
 //-------------------------------------------------------------------------
 
-nsIWidgetListener* nsIWidget::GetWidgetListener() const {
-  return mWidgetListener;
-}
-
-void nsIWidget::SetWidgetListener(nsIWidgetListener* aWidgetListener) {
-  mWidgetListener = aWidgetListener;
-}
-
 already_AddRefed<nsIWidget> nsIWidget::CreateChild(
-    const LayoutDeviceIntRect& aRect, widget::InitData& aInitData) {
+    const LayoutDeviceIntRect& aRect, const widget::InitData& aInitData) {
+  MOZ_ASSERT(aInitData.mWindowType == WindowType::Popup,
+             "Creating non-popup puppet widget?");
   nsCOMPtr<nsIWidget> widget;
   switch (mWidgetType) {
     case WidgetType::Native: {
-      if (aInitData.mWindowType == WindowType::Popup) {
-        widget = AllocateChildPopupWidget();
-      } else {
-        widget = nsIWidget::CreateChildWindow();
-      }
+      widget = nsIWidget::CreateChildWindow();
       break;
     }
     case WidgetType::Headless:
@@ -564,8 +547,6 @@ already_AddRefed<nsIWidget> nsIWidget::CreateChild(
       break;
     case WidgetType::Puppet: {
       // This really only should happen in crashtests that have menupopups.
-      MOZ_ASSERT(aInitData.mWindowType == WindowType::Popup,
-                 "Creating non-popup puppet widget?");
       widget = nsIWidget::CreatePuppetWidget(nullptr);
       break;
     }
@@ -579,38 +560,11 @@ already_AddRefed<nsIWidget> nsIWidget::CreateChild(
     widget->SetNeedFastSnaphot();
   }
 
-  if (NS_FAILED(widget->Create(this, aRect, &aInitData))) {
+  if (NS_FAILED(widget->Create(this, aRect, aInitData))) {
     return nullptr;
   }
 
   return widget.forget();
-}
-
-// Attach a view to our widget which we'll send events to.
-void nsIWidget::AttachViewToTopLevel(bool aUseAttachedEvents) {
-  NS_ASSERTION(mWindowType == WindowType::TopLevel ||
-                   mWindowType == WindowType::Dialog ||
-                   mWindowType == WindowType::Invisible,
-               "Can't attach to window of that type");
-
-  mUseAttachedEvents = aUseAttachedEvents;
-}
-
-nsIWidgetListener* nsIWidget::GetAttachedWidgetListener() const {
-  return mAttachedWidgetListener;
-}
-
-nsIWidgetListener* nsIWidget::GetPreviouslyAttachedWidgetListener() {
-  return mPreviouslyAttachedWidgetListener;
-}
-
-void nsIWidget::SetPreviouslyAttachedWidgetListener(
-    nsIWidgetListener* aListener) {
-  mPreviouslyAttachedWidgetListener = aListener;
-}
-
-void nsIWidget::SetAttachedWidgetListener(nsIWidgetListener* aListener) {
-  mAttachedWidgetListener = aListener;
 }
 
 //-------------------------------------------------------------------------
@@ -682,6 +636,16 @@ LayoutDeviceIntSize nsIWidget::NormalSizeModeClientToWindowSizeDifference() {
   MOZ_ASSERT(margin.right >= 0, "Window should be bigger than client area");
   MOZ_ASSERT(margin.bottom >= 0, "Window should be bigger than client area");
   return {margin.LeftRight(), margin.TopBottom()};
+}
+
+nsEventStatus nsIWidget::DispatchEvent(WidgetGUIEvent* aEvent) {
+  if (mAttachedWidgetListener) {
+    return mAttachedWidgetListener->HandleEvent(aEvent);
+  }
+  if (mWidgetListener) {
+    return mWidgetListener->HandleEvent(aEvent);
+  }
+  return nsEventStatus_eIgnore;
 }
 
 RefPtr<mozilla::VsyncDispatcher> nsIWidget::GetVsyncDispatcher() {
@@ -786,11 +750,6 @@ void nsIWidget::InfallibleMakeFullScreen(bool aFullScreen) {
 #define MOZ_SPLAT_RECT(rect) \
   (rect).X(), (rect).Y(), (rect).Width(), (rect).Height()
 
-  // Windows which can be made fullscreen are exactly those which are located on
-  // the desktop, rather than being a child of some other window.
-  MOZ_DIAGNOSTIC_ASSERT(BoundsUseDesktopPixels(),
-                        "non-desktop windows cannot be made fullscreen");
-
   // Ensure that the OS chrome is hidden/shown before we resize and/or exit the
   // function.
   //
@@ -831,20 +790,16 @@ void nsIWidget::InfallibleMakeFullScreen(bool aFullScreen) {
             ("window was not resized within InfallibleMakeFullScreen()"));
 
     // Hide chrome and "resize" the window to its current size.
-    auto rect = GetBounds();
+    auto rect = GetBounds() / GetDesktopToDeviceScale();
     adjustOSChrome();
-    Resize(rect.X(), rect.Y(), rect.Width(), rect.Height(), true);
+    Resize(rect, true);
   });
 
   // Attempt to resize to `rect`.
   //
   // Returns the actual rectangle resized to. (This may differ from `rect`, if
   // the OS is unhappy with it. See bug 1786226.)
-  const auto doReposition = [&](auto rect) -> void {
-    static_assert(std::is_base_of_v<DesktopPixel,
-                                    std::remove_reference_t<decltype(rect)>>,
-                  "doReposition requires a rectangle using desktop pixels");
-
+  const auto doReposition = [&](const DesktopRect& rect) -> void {
     if (MOZ_LOG_TEST(sBaseWidgetLog, LogLevel::Debug)) {
       const DesktopRect previousSize =
           GetScreenBounds() / GetDesktopToDeviceScale();
@@ -854,7 +809,7 @@ void nsIWidget::InfallibleMakeFullScreen(bool aFullScreen) {
     }
 
     adjustOSChrome();
-    Resize(rect.X(), rect.Y(), rect.Width(), rect.Height(), true);
+    Resize(rect, true);
 
     if (MOZ_LOG_TEST(sBaseWidgetLog, LogLevel::Warning)) {
       // `rect` may have any underlying data type; coerce to float to
@@ -908,7 +863,7 @@ void nsIWidget::InfallibleMakeFullScreen(bool aFullScreen) {
     }
 
     // Move to fill the screen.
-    doReposition(screen->GetRectDisplayPix());
+    doReposition(DesktopRect(screen->GetRectDisplayPix()));
     // Save off the new position. (This may differ from GetRectDisplayPix(), if
     // the OS was unhappy with it. See bug 1786226.)
     mSavedBounds->screenRect = GetScreenBounds() / GetDesktopToDeviceScale();
@@ -1159,9 +1114,8 @@ nsEventStatus nsIWidget::ProcessUntransformedAPZEvent(
   // Make a copy of the original event for the APZCCallbackHelper helpers that
   // we call later, because the event passed to DispatchEvent can get mutated in
   // ways that we don't want (i.e. touch points can get stripped out).
-  nsEventStatus status;
   UniquePtr<WidgetEvent> original(aEvent->Duplicate());
-  DispatchEvent(aEvent, status);
+  nsEventStatus status = DispatchEvent(aEvent);
 
   if (mAPZC && !InputAPZContext::WasRoutedToChildProcess() &&
       !InputAPZContext::WasDropped() && inputBlockId) {
@@ -1312,9 +1266,7 @@ void nsIWidget::DispatchTouchInput(MultiTouchInput& aInput) {
     ProcessUntransformedAPZEvent(&event, result);
   } else {
     WidgetTouchEvent event = aInput.ToWidgetEvent(this);
-
-    nsEventStatus status;
-    DispatchEvent(&event, status);
+    DispatchEvent(&event);
   }
 }
 
@@ -1332,8 +1284,7 @@ void nsIWidget::DispatchPanGestureInput(PanGestureInput& aInput) {
     ProcessUntransformedAPZEvent(&event, result);
   } else {
     WidgetWheelEvent event = aInput.ToWidgetEvent(this);
-    nsEventStatus status;
-    DispatchEvent(&event, status);
+    DispatchEvent(&event);
   }
 }
 
@@ -1350,8 +1301,7 @@ void nsIWidget::DispatchPinchGestureInput(PinchGestureInput& aInput) {
     ProcessUntransformedAPZEvent(&event, result);
   } else {
     WidgetWheelEvent event = aInput.ToWidgetEvent(this);
-    nsEventStatus status;
-    DispatchEvent(&event, status);
+    DispatchEvent(&event);
   }
 }
 
@@ -1420,7 +1370,7 @@ nsIWidget::ContentAndAPZEventStatus nsIWidget::DispatchInputEvent(
     }
   }
 
-  DispatchEvent(aEvent, status.mContentStatus);
+  status.mContentStatus = DispatchEvent(aEvent);
   return status;
 }
 
@@ -1447,9 +1397,7 @@ void nsIWidget::DispatchEventToAPZOnly(mozilla::WidgetInputEvent* aEvent) {
 }
 
 bool nsIWidget::DispatchWindowEvent(WidgetGUIEvent& event) {
-  nsEventStatus status;
-  DispatchEvent(&event, status);
-  return ConvertStatus(status);
+  return ConvertStatus(DispatchEvent(&event));
 }
 
 Document* nsIWidget::GetDocument() const {
@@ -1500,7 +1448,7 @@ already_AddRefed<WebRenderLayerManager> nsIWidget::CreateCompositorSession(
     // If it failed to connect to GPU process, GPU process usage is disabled in
     // EnsureGPUReady(). It could update gfxVars and gfxConfigs.
     gfx::GPUProcessManager* gpm = gfx::GPUProcessManager::Get();
-    if (NS_WARN_IF(!gpm || NS_FAILED(gpm->EnsureGPUReady()))) {
+    if (NS_WARN_IF(!gpm) || NS_WARN_IF(NS_FAILED(gpm->EnsureGPUReady()))) {
       return nullptr;
     }
 
@@ -1567,8 +1515,7 @@ already_AddRefed<WebRenderLayerManager> nsIWidget::CreateCompositorSession(
         retry = true;
         DestroyCompositor();
         // gfxVars::UseDoubleBufferingWithCompositor() is also disabled.
-        gfx::GPUProcessManager::Get()->DisableWebRender(
-            wr::WebRenderError::INITIALIZE, error);
+        gpm->DisableWebRender(wr::WebRenderError::INITIALIZE, error);
       }
     }
 
@@ -1689,7 +1636,15 @@ WindowRenderer* nsIWidget::GetWindowRenderer() {
 }
 
 WindowRenderer* nsIWidget::CreateFallbackRenderer() {
-  return new FallbackRenderer;
+  // We don't provide a reference to ourself because we want to stay with the
+  // fallback renderer regardless of changes in compositing.
+  return new DefaultFallbackRenderer();
+}
+
+WindowRenderer* nsIWidget::CreateBackgroundedFallbackRenderer() {
+  // Provide a reference back to ourself so that when the GPU process and
+  // hardware compositing is once again available, we can return to it.
+  return new BackgroundedFallbackRenderer(this);
 }
 
 CompositorBridgeChild* nsIWidget::GetRemoteRenderer() {
@@ -1774,18 +1729,10 @@ DesktopIntPoint nsIWidget::ConstrainPositionToBounds(
 }
 
 void nsIWidget::MoveClient(const DesktopPoint& aOffset) {
-  LayoutDeviceIntPoint clientOffset(GetClientOffset());
-
   // GetClientOffset returns device pixels; scale back to desktop pixels
   // if that's what this widget uses for the Move/Resize APIs
-  if (BoundsUseDesktopPixels()) {
-    DesktopPoint desktopOffset = clientOffset / GetDesktopToDeviceScale();
-    Move(aOffset.x - desktopOffset.x, aOffset.y - desktopOffset.y);
-  } else {
-    LayoutDevicePoint layoutOffset = aOffset * GetDesktopToDeviceScale();
-    Move(layoutOffset.x - LayoutDeviceCoord(clientOffset.x),
-         layoutOffset.y - LayoutDeviceCoord(clientOffset.y));
-  }
+  DesktopPoint desktopOffset = GetClientOffset() / GetDesktopToDeviceScale();
+  Move(aOffset - desktopOffset);
 }
 
 void nsIWidget::ResizeClient(const DesktopSize& aSize, bool aRepaint) {
@@ -1796,19 +1743,9 @@ void nsIWidget::ResizeClient(const DesktopSize& aSize, bool aRepaint) {
 
   // GetClientBounds and mBounds are device pixels; scale back to desktop pixels
   // if that's what this widget uses for the Move/Resize APIs
-  if (BoundsUseDesktopPixels()) {
-    DesktopSize desktopDelta =
-        (LayoutDeviceIntSize(mBounds.Width(), mBounds.Height()) -
-         clientBounds.Size()) /
-        GetDesktopToDeviceScale();
-    Resize(aSize.width + desktopDelta.width, aSize.height + desktopDelta.height,
-           aRepaint);
-  } else {
-    LayoutDeviceSize layoutSize = aSize * GetDesktopToDeviceScale();
-    Resize(mBounds.Width() + (layoutSize.width - clientBounds.Width()),
-           mBounds.Height() + (layoutSize.height - clientBounds.Height()),
-           aRepaint);
-  }
+  DesktopSize desktopDelta =
+      (GetBounds().Size() - clientBounds.Size()) / GetDesktopToDeviceScale();
+  Resize(aSize + desktopDelta, aRepaint);
 }
 
 void nsIWidget::ResizeClient(const DesktopRect& aRect, bool aRepaint) {
@@ -1819,22 +1756,12 @@ void nsIWidget::ResizeClient(const DesktopRect& aRect, bool aRepaint) {
   LayoutDeviceIntPoint clientOffset = GetClientOffset();
   DesktopToLayoutDeviceScale scale = GetDesktopToDeviceScale();
 
-  if (BoundsUseDesktopPixels()) {
-    DesktopPoint desktopOffset = clientOffset / scale;
-    DesktopSize desktopDelta =
-        (LayoutDeviceIntSize(mBounds.Width(), mBounds.Height()) -
-         clientBounds.Size()) /
-        scale;
-    Resize(aRect.X() - desktopOffset.x, aRect.Y() - desktopOffset.y,
-           aRect.Width() + desktopDelta.width,
-           aRect.Height() + desktopDelta.height, aRepaint);
-  } else {
-    LayoutDeviceRect layoutRect = aRect * scale;
-    Resize(layoutRect.X() - clientOffset.x, layoutRect.Y() - clientOffset.y,
-           layoutRect.Width() + mBounds.Width() - clientBounds.Width(),
-           layoutRect.Height() + mBounds.Height() - clientBounds.Height(),
-           aRepaint);
-  }
+  DesktopPoint desktopOffset = clientOffset / scale;
+  DesktopSize desktopDelta = (GetBounds().Size() - clientBounds.Size()) / scale;
+  Resize(DesktopRect(aRect.X() - desktopOffset.x, aRect.Y() - desktopOffset.y,
+                     aRect.Width() + desktopDelta.width,
+                     aRect.Height() + desktopDelta.height),
+         aRepaint);
 }
 
 //-------------------------------------------------------------------------
@@ -1842,27 +1769,6 @@ void nsIWidget::ResizeClient(const DesktopRect& aRect, bool aRepaint) {
 // Bounds
 //
 //-------------------------------------------------------------------------
-
-/**
- * If the implementation of nsWindow supports borders this method MUST be
- * overridden
- *
- **/
-LayoutDeviceIntRect nsIWidget::GetClientBounds() { return GetBounds(); }
-
-/**
- * If the implementation of nsWindow supports borders this method MUST be
- * overridden
- *
- **/
-LayoutDeviceIntRect nsIWidget::GetBounds() { return mBounds; }
-
-/**
- * If the implementation of nsWindow uses a local coordinate system within the
- *window, this method must be overridden
- *
- **/
-LayoutDeviceIntRect nsIWidget::GetScreenBounds() { return GetBounds(); }
 
 nsresult nsIWidget::GetRestoredBounds(LayoutDeviceIntRect& aRect) {
   if (SizeMode() != nsSizeMode_Normal) {
@@ -1961,18 +1867,12 @@ void nsIWidget::SetSizeConstraints(const SizeConstraints& aConstraints) {
   // the new constraints don't affect the current size, because Resize
   // implementation on some platforms may touch other geometry even if
   // the size don't need to change.
-  LayoutDeviceIntSize curSize = mBounds.Size();
+  LayoutDeviceIntSize curSize = GetBounds().Size();
   LayoutDeviceIntSize clampedSize =
       Max(aConstraints.mMinSize, Min(aConstraints.mMaxSize, curSize));
   if (clampedSize != curSize) {
-    gfx::Size size;
-    if (BoundsUseDesktopPixels()) {
-      DesktopSize desktopSize = clampedSize / GetDesktopToDeviceScale();
-      size = desktopSize.ToUnknownSize();
-    } else {
-      size = gfx::Size(clampedSize.ToUnknownSize());
-    }
-    Resize(size.width, size.height, true);
+    DesktopSize desktopSize = clampedSize / GetDesktopToDeviceScale();
+    Resize(desktopSize, true);
   }
 }
 
@@ -2080,6 +1980,28 @@ nsIWidget::NativeIMEContext nsIWidget::GetNativeIMEContext() {
 nsIWidget::TextEventDispatcher* nsIWidget::GetTextEventDispatcher() {
   EnsureTextEventDispatcher();
   return mTextEventDispatcher;
+}
+
+PresShell* nsIWidget::GetPresShell() const {
+  if (mWidgetListener) {
+    if (auto* ps = mWidgetListener->GetPresShell()) {
+      return ps;
+    }
+  }
+  if (mAttachedWidgetListener) {
+    if (auto* ps = mAttachedWidgetListener->GetPresShell()) {
+      return ps;
+    }
+  }
+  return nullptr;
+}
+
+nsIWidgetListener* nsIWidget::GetPaintListener() const {
+  if (mPreviouslyAttachedWidgetListener && mAttachedWidgetListener &&
+      mAttachedWidgetListener->IsPaintSuppressed()) {
+    return mPreviouslyAttachedWidgetListener;
+  }
+  return mAttachedWidgetListener ? mAttachedWidgetListener : mWidgetListener;
 }
 
 void* nsIWidget::GetPseudoIMEContext() {
@@ -2297,12 +2219,10 @@ void nsIWidget::NotifyLiveResizeStopped() {
   }
 }
 
-nsresult nsIWidget::AsyncEnableDragDrop(bool aEnable) {
-  RefPtr<nsIWidget> kungFuDeathGrip = this;
-  return NS_DispatchToCurrentThreadQueue(
-      NS_NewRunnableFunction(
-          "AsyncEnableDragDropFn",
-          [this, aEnable, kungFuDeathGrip]() { EnableDragDrop(aEnable); }),
+void nsIWidget::AsyncEnableDragDrop(bool aEnable) {
+  NS_DispatchToCurrentThreadQueue(
+      NewRunnableMethod<bool>("AsyncEnableDragDrop", this,
+                              &nsIWidget::EnableDragDrop, aEnable),
       kAsyncDragDropTimeout, EventQueuePriority::Idle);
 }
 
@@ -2471,8 +2391,7 @@ bool nsIWidget::MayStartSwipeForNonAPZ(const PanGestureInput& aPanInput) {
 
   WidgetWheelEvent event = aPanInput.ToWidgetEvent(this);
   event.mCanTriggerSwipe = swipeInfo.wantsSwipe;
-  nsEventStatus status;
-  DispatchEvent(&event, status);
+  DispatchEvent(&event);
   if (swipeInfo.wantsSwipe) {
     if (context.WasRoutedToChildProcess()) {
       // We don't know whether this event can start a swipe, so we need

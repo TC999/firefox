@@ -315,8 +315,8 @@ class alignas(TypicalCacheLineSize) ChunkMarkBitmap
 
   MOZ_ALWAYS_INLINE void getMarkWordAndMask(const void* cell, ColorBit colorBit,
                                             Word** wordp, uintptr_t* maskp) {
-    // Note: the JIT pre-barrier trampolines inline this code. Update
-    // MacroAssembler::emitPreBarrierFastPath code too when making changes here!
+    // Note: the JIT inlines this code. Update MacroAssembler::loadMarkBits and
+    // its callers when making changes here!
 
     MOZ_ASSERT(size_t(colorBit) < MarkBitsPerCell);
 
@@ -806,6 +806,8 @@ static MOZ_ALWAYS_INLINE Zone* GetStringZone(JSString* str) {
 
 extern JS_PUBLIC_API Zone* GetObjectZone(JSObject* obj);
 
+// Check whether a GC thing is gray. If the gray marking state is unknown
+// (e.g. due to OOM during gray unmarking) this returns false.
 static MOZ_ALWAYS_INLINE bool GCThingIsMarkedGray(GCCellPtr thing) {
   js::gc::Cell* cell = thing.asCell();
   if (IsInsideNursery(cell)) {
@@ -825,13 +827,8 @@ static MOZ_ALWAYS_INLINE bool GCThingIsMarkedGrayInCC(GCCellPtr thing) {
   }
 
   auto* tenuredCell = reinterpret_cast<js::gc::TenuredCell*>(cell);
-  if (!js::gc::detail::TenuredCellIsMarkedGray(tenuredCell)) {
-    return false;
-  }
-
   MOZ_ASSERT(js::gc::detail::CanCheckGrayBits(tenuredCell));
-
-  return true;
+  return js::gc::detail::TenuredCellIsMarkedGray(tenuredCell);
 }
 
 extern JS_PUBLIC_API JS::TraceKind GCThingTraceKind(void* thing);
@@ -871,6 +868,9 @@ namespace gc {
 extern JS_PUBLIC_API void PerformIncrementalReadBarrier(JS::GCCellPtr thing);
 
 static MOZ_ALWAYS_INLINE void ExposeGCThingToActiveJS(JS::GCCellPtr thing) {
+  // js::jit::ReadBarrier is a specialized version of this function designed to
+  // be called from jitcode. If this code is changed, it should be kept in sync.
+
   // TODO: I'd like to assert !RuntimeHeapIsBusy() here but this gets
   // called while we are tracing the heap, e.g. during memory reporting
   // (see bug 1313318).

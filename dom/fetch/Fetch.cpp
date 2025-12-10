@@ -642,7 +642,7 @@ already_AddRefed<Promise> FetchRequest(nsIGlobalObject* aGlobal,
 
     auto* backgroundChild =
         mozilla::ipc::BackgroundChild::GetOrCreateForCurrentThread();
-    Unused << NS_WARN_IF(!backgroundChild->SendPFetchConstructor(actor));
+    (void)NS_WARN_IF(!backgroundChild->SendPFetchConstructor(actor));
 
     FetchOpArgs ipcArgs;
 
@@ -674,8 +674,8 @@ already_AddRefed<Promise> FetchRequest(nsIGlobalObject* aGlobal,
       }
       if (thirdPartyUtil) {
         bool thirdParty = false;
-        Unused << thirdPartyUtil->IsThirdPartyWindow(window->GetOuterWindow(),
-                                                     nullptr, &thirdParty);
+        (void)thirdPartyUtil->IsThirdPartyWindow(window->GetOuterWindow(),
+                                                 nullptr, &thirdParty);
         ipcArgs.isThirdPartyContext() = thirdParty;
       }
     } else {
@@ -698,6 +698,16 @@ already_AddRefed<Promise> FetchRequest(nsIGlobalObject* aGlobal,
 
     ipcArgs.hasCSPEventListener() = false;
     ipcArgs.isWorkerRequest() = false;
+
+    if (window && window->GetBrowsingContext()) {
+      ipcArgs.associatedBrowsingContextID() =
+          window->GetBrowsingContext()->Id();
+    }
+
+    UniquePtr<SerializedStackHolder> stack = GetCurrentStackForNetMonitor(cx);
+    if (stack) {
+      actor->SetOriginStack(std::move(stack));
+    }
 
     actor->DoFetchOp(ipcArgs);
 
@@ -746,7 +756,7 @@ already_AddRefed<Promise> FetchRequest(nsIGlobalObject* aGlobal,
 
       auto* backgroundChild =
           mozilla::ipc::BackgroundChild::GetOrCreateForCurrentThread();
-      Unused << NS_WARN_IF(!backgroundChild->SendPFetchConstructor(actor));
+      (void)NS_WARN_IF(!backgroundChild->SendPFetchConstructor(actor));
 
       FetchOpArgs ipcArgs;
       ipcArgs.request() = IPCInternalRequest();
@@ -1089,7 +1099,7 @@ void WorkerFetchResolver::OnDataAvailable() {
 
   RefPtr<WorkerDataAvailableRunnable> r =
       new WorkerDataAvailableRunnable(mPromiseProxy->GetWorkerPrivate(), this);
-  Unused << r->Dispatch(mPromiseProxy->GetWorkerPrivate());
+  (void)r->Dispatch(mPromiseProxy->GetWorkerPrivate());
 }
 
 void WorkerFetchResolver::OnResponseEnd(FetchDriverObserver::EndReason aReason,
@@ -1102,7 +1112,7 @@ void WorkerFetchResolver::OnResponseEnd(FetchDriverObserver::EndReason aReason,
 
   FlushConsoleReport();
 
-  Unused << aReasonDetails;
+  (void)aReasonDetails;
 
   RefPtr<WorkerFetchResponseEndRunnable> r = new WorkerFetchResponseEndRunnable(
       mPromiseProxy->GetWorkerPrivate(), this, aReason);

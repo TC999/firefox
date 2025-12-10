@@ -7,7 +7,7 @@ worker implementation they operate on, and take the same three parameters, for
 consistency.
 """
 
-from typing import Any, Dict, List, Union
+from typing import Any, Union
 
 from taskgraph.transforms.base import TransformConfig
 from taskgraph.util import json, path
@@ -82,7 +82,7 @@ def generic_worker_add_artifacts(config, task, taskdesc):
     add_artifacts(config, task, taskdesc, path=get_artifact_prefix(taskdesc))
 
 
-def support_vcs_checkout(config, task, taskdesc, repo_configs, sparse=False):
+def support_vcs_checkout(config, task, taskdesc, repo_configs):
     """Update a task with parameters to enable a VCS checkout.
 
     This can only be used with ``run-task`` tasks, as the cache name is
@@ -139,7 +139,7 @@ def support_vcs_checkout(config, task, taskdesc, repo_configs, sparse=False):
 
 def should_use_cache(
     name: str,
-    use_caches: Union[bool, List[str]],
+    use_caches: Union[bool, list[str]],
     has_checkout: bool,
 ) -> bool:
     # Never enable the checkout cache if there's no clone. This allows
@@ -155,7 +155,7 @@ def should_use_cache(
 
 
 def support_caches(
-    config: TransformConfig, task: Dict[str, Any], taskdesc: Dict[str, Any]
+    config: TransformConfig, task: dict[str, Any], taskdesc: dict[str, Any]
 ):
     """Add caches for common tools."""
     run = task["run"]

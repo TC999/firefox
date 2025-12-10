@@ -35,12 +35,12 @@ import mozilla.components.concept.storage.BookmarkNodeType
 import mozilla.components.concept.storage.BookmarksStorage
 import mozilla.components.feature.accounts.push.CloseTabsUseCases
 import mozilla.components.feature.tabs.TabsUseCases
-import mozilla.components.support.test.ext.joinBlocking
-import mozilla.components.support.test.libstate.ext.waitUntilIdle
+import mozilla.components.service.fxa.manager.FxaAccountManager
 import mozilla.components.support.test.middleware.CaptureActionsMiddleware
 import mozilla.components.support.test.robolectric.testContext
 import mozilla.components.support.test.rule.MainCoroutineRule
 import mozilla.components.support.test.rule.runTestOnMain
+import mozilla.telemetry.glean.private.NoExtras
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -96,9 +96,6 @@ class DefaultTabManagerControllerTest {
     private lateinit var profiler: Profiler
 
     @MockK(relaxed = true)
-    private lateinit var navigationInteractor: NavigationInteractor
-
-    @MockK(relaxed = true)
     private lateinit var tabsUseCases: TabsUseCases
 
     @MockK(relaxed = true)
@@ -106,6 +103,9 @@ class DefaultTabManagerControllerTest {
 
     @MockK(relaxed = true)
     private lateinit var activity: HomeActivity
+
+    @MockK(relaxed = true)
+    private lateinit var accountManager: FxaAccountManager
 
     private val appStore: AppStore = mockk(relaxed = true)
     private val settings: Settings = mockk(relaxed = true)
@@ -143,7 +143,8 @@ class DefaultTabManagerControllerTest {
 
         assertNull(TabsTray.newPrivateTabTapped.testGetValue())
 
-        createController().handlePrivateTabsFabClick()
+        val target = createController()
+        target.handlePrivateTabsFabClick()
 
         assertNotNull(TabsTray.newPrivateTabTapped.testGetValue())
 
@@ -153,7 +154,7 @@ class DefaultTabManagerControllerTest {
             navController.navigate(
                 TabManagementFragmentDirections.actionGlobalHome(focusOnAddressBar = true),
             )
-            navigationInteractor.onTabManagerDismissed()
+            TabsTray.closed.record(NoExtras())
             profiler.addMarker(
                 "DefaultTabManagerController.onNewTabTapped",
                 Double.MAX_VALUE,
@@ -171,7 +172,8 @@ class DefaultTabManagerControllerTest {
 
         assertNull(TabsTray.newPrivateTabTapped.testGetValue())
 
-        createController().handlePrivateTabsFabClick()
+        val target = createController()
+        target.handlePrivateTabsFabClick()
 
         assertNotNull(TabsTray.newPrivateTabTapped.testGetValue())
 
@@ -180,7 +182,7 @@ class DefaultTabManagerControllerTest {
             fenixBrowserUseCases.addNewHomepageTab(
                 private = true,
             )
-            navigationInteractor.onTabManagerDismissed()
+            TabsTray.closed.record(NoExtras())
             profiler.addMarker(
                 "DefaultTabManagerController.onNewTabTapped",
                 Double.MAX_VALUE,
@@ -194,7 +196,8 @@ class DefaultTabManagerControllerTest {
             every { getProfilerTime() } returns Double.MAX_VALUE
         }
 
-        createController().handleNormalTabsFabClick()
+        val target = createController()
+        target.handleNormalTabsFabClick()
 
         verifyOrder {
             profiler.getProfilerTime()
@@ -202,7 +205,7 @@ class DefaultTabManagerControllerTest {
             navController.navigate(
                 TabManagementFragmentDirections.actionGlobalHome(focusOnAddressBar = true),
             )
-            navigationInteractor.onTabManagerDismissed()
+            TabsTray.closed.record(NoExtras())
             profiler.addMarker(
                 "DefaultTabManagerController.onNewTabTapped",
                 Double.MAX_VALUE,
@@ -218,14 +221,15 @@ class DefaultTabManagerControllerTest {
             every { getProfilerTime() } returns Double.MAX_VALUE
         }
 
-        createController().handleNormalTabsFabClick()
+        val target = createController()
+        target.handleNormalTabsFabClick()
 
         verifyOrder {
             profiler.getProfilerTime()
             fenixBrowserUseCases.addNewHomepageTab(
                 private = false,
             )
-            navigationInteractor.onTabManagerDismissed()
+            TabsTray.closed.record(NoExtras())
             profiler.addMarker(
                 "DefaultTabManagerController.onNewTabTapped",
                 Double.MAX_VALUE,
@@ -668,7 +672,6 @@ class DefaultTabManagerControllerTest {
             ),
         )
         trayStore.dispatch(TabsTrayAction.ExitSelectMode)
-        trayStore.waitUntilIdle()
 
         controller.handleTabSelected(tab1, "Tab Manager")
         verify(exactly = 1) { controller.handleTabSelected(tab1, "Tab Manager") }
@@ -697,7 +700,6 @@ class DefaultTabManagerControllerTest {
         trayStore.dispatch(TabsTrayAction.EnterSelectMode)
         trayStore.dispatch(TabsTrayAction.AddSelectTab(tab1))
         trayStore.dispatch(TabsTrayAction.AddSelectTab(tab2))
-        trayStore.waitUntilIdle()
 
         controller.handleTabSelected(tab1, "Tab Manager")
         middleware.assertLastAction(TabsTrayAction.RemoveSelectTab::class) {
@@ -715,7 +717,6 @@ class DefaultTabManagerControllerTest {
         val middleware = CaptureActionsMiddleware<TabsTrayState, TabsTrayAction>()
         trayStore = TabsTrayStore(middlewares = listOf(middleware))
         trayStore.dispatch(TabsTrayAction.EnterSelectMode)
-        trayStore.waitUntilIdle()
         val controller = createController()
         val tab1 = TabSessionState(
             id = "1",
@@ -732,7 +733,6 @@ class DefaultTabManagerControllerTest {
 
         trayStore.dispatch(TabsTrayAction.EnterSelectMode)
         trayStore.dispatch(TabsTrayAction.AddSelectTab(tab1))
-        trayStore.waitUntilIdle()
 
         controller.handleTabSelected(tab2, "Tab Manager")
 
@@ -746,7 +746,6 @@ class DefaultTabManagerControllerTest {
         val middleware = CaptureActionsMiddleware<TabsTrayState, TabsTrayAction>()
         trayStore = TabsTrayStore(middlewares = listOf(middleware))
         trayStore.dispatch(TabsTrayAction.EnterSelectMode)
-        trayStore.waitUntilIdle()
         val controller = spyk(createController())
         val normalTab = TabSessionState(
             id = "1",
@@ -763,7 +762,6 @@ class DefaultTabManagerControllerTest {
 
         trayStore.dispatch(TabsTrayAction.EnterSelectMode)
         trayStore.dispatch(TabsTrayAction.AddSelectTab(normalTab))
-        trayStore.waitUntilIdle()
 
         controller.handleTabSelected(inactiveTab, INACTIVE_TABS_FEATURE_NAME)
 
@@ -787,8 +785,6 @@ class DefaultTabManagerControllerTest {
 
         createController().handleForceSelectedTabsAsInactiveClicked(numDays = 5)
 
-        browserStore.waitUntilIdle()
-
         val updatedCurrentTab = browserStore.state.tabs.first { it.id == currentTab.id }
         assertEquals(updatedCurrentTab, currentTab)
         val updatedSecondTab = browserStore.state.tabs.first { it.id == secondTab.id }
@@ -809,8 +805,6 @@ class DefaultTabManagerControllerTest {
         every { trayStore.state.mode.selectedTabs } returns setOf(currentTab, secondTab)
 
         createController().handleForceSelectedTabsAsInactiveClicked(numDays = 5)
-
-        browserStore.waitUntilIdle()
 
         val updatedCurrentTab = browserStore.state.tabs.first { it.id == currentTab.id }
         assertEquals(updatedCurrentTab, currentTab)
@@ -1073,7 +1067,7 @@ class DefaultTabManagerControllerTest {
 
         val controller = createController()
 
-        browserStore.dispatch(TabListAction.SelectTabAction(privateTab.id)).joinBlocking()
+        browserStore.dispatch(TabListAction.SelectTabAction(privateTab.id))
         controller.handleTabSelected(privateTab, null)
 
         assertEquals(privateTab.id, browserStore.state.selectedTabId)
@@ -1081,7 +1075,7 @@ class DefaultTabManagerControllerTest {
         assertEquals(BrowsingMode.Private, appStateModeUpdate)
 
         controller.handleTabDeletion("privateTab")
-        browserStore.dispatch(TabListAction.SelectTabAction(normalTab.id)).joinBlocking()
+        browserStore.dispatch(TabListAction.SelectTabAction(normalTab.id))
         controller.handleTabSelected(normalTab, null)
 
         assertEquals(normalTab.id, browserStore.state.selectedTabId)
@@ -1354,6 +1348,158 @@ class DefaultTabManagerControllerTest {
         }
     }
 
+    @Test
+    fun `GIVEN logged in state WHEN account settings is clicked THEN navigate to account settings`() {
+        every { accountManager.authenticatedAccount() }.answers { mockk(relaxed = true) }
+
+        createController().onAccountSettingsClicked()
+
+        verify(exactly = 1) { navController.navigate(TabManagementFragmentDirections.actionGlobalAccountSettingsFragment()) }
+    }
+
+    @Test
+    fun `GIVEN logged out state WHEN account settings is clicked THEN navigate to turn on sync`() {
+        every { accountManager.authenticatedAccount() }.answers { null }
+
+        createController().onAccountSettingsClicked()
+
+        verify(exactly = 1) {
+            navController.navigate(
+                TabManagementFragmentDirections.actionGlobalTurnOnSync(
+                    entrypoint = FenixFxAEntryPoint.NavigationInteraction,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `WHEN tab settings is clicked THEN navigate to global tab settings`() {
+        createController().onTabSettingsClicked()
+        verify(exactly = 1) { navController.navigate(TabManagementFragmentDirections.actionGlobalTabSettingsFragment()) }
+    }
+
+    @Test
+    fun `GIVEN no open recently closed tabs WHEN open recently closed tabs clicked THEN navigate to recently closed tabs`() {
+        assertNull(Events.recentlyClosedTabsOpened.testGetValue())
+
+        createController().onOpenRecentlyClosedClicked()
+
+        verify(exactly = 1) { navController.navigate(TabManagementFragmentDirections.actionGlobalRecentlyClosed()) }
+        assertNotNull(Events.recentlyClosedTabsOpened.testGetValue())
+    }
+
+    @Test
+    fun `GIVEN public tabs and one download in progress WHEN close all tabs clicked THEN dismiss tab manager and navigate to home`() {
+        val tab: TabSessionState = mockk { every { content.private } returns false }
+        every { browserStore.state } returns mockk {
+            every { tabs } returns listOf(tab)
+        }
+        every { browserStore.state.downloads } returns mapOf(
+            "1" to DownloadState(
+                "https://mozilla.org/download",
+                private = false,
+                destinationDirectory = "Download",
+                status = DownloadState.Status.DOWNLOADING,
+            ),
+        )
+
+        val controller = spyk(createController())
+        controller.onCloseAllTabsClicked(private = false)
+
+        verify { controller.dismissTabManagerAndNavigateHome(any()) }
+    }
+
+    @Test
+    fun `GIVEN private tabs and 1 download in progress WHEN close all tabs clicked THEN dismiss tab manager and navigate to home`() {
+        val tab: TabSessionState = mockk { every { content.private } returns true }
+        every { browserStore.state } returns mockk {
+            every { tabs } returns listOf(tab)
+        }
+        every { browserStore.state.downloads } returns mapOf(
+            "1" to DownloadState(
+                "https://mozilla.org/download",
+                private = true,
+                destinationDirectory = "Download",
+                status = DownloadState.Status.DOWNLOADING,
+            ),
+        )
+
+        val controller = spyk(createController())
+        controller.onCloseAllTabsClicked(private = false)
+
+        verify { controller.dismissTabManagerAndNavigateHome(any()) }
+    }
+
+    @Test
+    fun `GIVEN active private download WHEN onCloseAllTabsClicked is called for private tabs THEN showCancelledDownloadWarning is called`() {
+        var showCancelledDownloadWarningInvoked = false
+        val tab: TabSessionState = mockk { every { content.private } returns true }
+        every { browserStore.state } returns mockk {
+            every { tabs } returns listOf(tab)
+        }
+        every { browserStore.state.downloads } returns mapOf(
+            "1" to DownloadState(
+                "https://mozilla.org/download",
+                private = true,
+                destinationDirectory = "Download",
+                status = DownloadState.Status.DOWNLOADING,
+            ),
+        )
+
+        createController(showCancelledDownloadWarning = { _, _, _ -> showCancelledDownloadWarningInvoked = true }).onCloseAllTabsClicked(true)
+
+        assertTrue(showCancelledDownloadWarningInvoked)
+    }
+
+    @Test
+    fun `GIVEN no active private download WHEN onCloseAllTabsClicked is called for private tabs THEN showCancelledDownloadWarning is not called`() {
+        var showCancelledDownloadWarningInvoked = false
+        val tab: TabSessionState = mockk { every { content.private } returns true }
+        every { browserStore.state } returns mockk {
+            every { tabs } returns listOf(tab)
+        }
+        every { browserStore.state.downloads } returns emptyMap()
+
+        createController(showCancelledDownloadWarning = { _, _, _ -> showCancelledDownloadWarningInvoked = true }).onCloseAllTabsClicked(true)
+
+        assertFalse(showCancelledDownloadWarningInvoked)
+    }
+
+    @Test
+    fun `GIVEN no active download WHEN onCloseAllTabsClicked is called for public tabs THEN showCancelledDownloadWarning is not called`() {
+        var showCancelledDownloadWarningInvoked = false
+        val tab: TabSessionState = mockk { every { content.private } returns false }
+        every { browserStore.state } returns mockk {
+            every { tabs } returns listOf(tab)
+        }
+        every { browserStore.state.downloads } returns mapOf(
+            "1" to DownloadState(
+                "https://mozilla.org/download",
+                private = false,
+                destinationDirectory = "Download",
+                status = DownloadState.Status.DOWNLOADING,
+            ),
+        )
+
+        createController(showCancelledDownloadWarning = { _, _, _ -> showCancelledDownloadWarningInvoked = true }).onCloseAllTabsClicked(true)
+
+        assertFalse(showCancelledDownloadWarningInvoked)
+    }
+
+    @Test
+    fun `GIVEN active download WHEN onCloseAllTabsClicked is called for public tabs THEN showCancelledDownloadWarning is not called`() {
+        var showCancelledDownloadWarningInvoked = false
+        val tab: TabSessionState = mockk { every { content.private } returns false }
+        every { browserStore.state } returns mockk {
+            every { tabs } returns listOf(tab)
+        }
+        every { browserStore.state.downloads } returns emptyMap()
+
+        createController(showCancelledDownloadWarning = { _, _, _ -> showCancelledDownloadWarningInvoked = true }).onCloseAllTabsClicked(true)
+
+        assertFalse(showCancelledDownloadWarningInvoked)
+    }
+
     private fun makeBookmarkFolder(guid: String) = BookmarkNode(
         type = BookmarkNodeType.FOLDER,
         parentGuid = BookmarkRoot.Mobile.id,
@@ -1376,6 +1522,7 @@ class DefaultTabManagerControllerTest {
         showBookmarkSnackbar: (Int, String?) -> Unit = { _, _ -> },
     ): DefaultTabManagerController {
         return DefaultTabManagerController(
+            accountManager = accountManager,
             activity = activity,
             appStore = appStore,
             tabsTrayStore = trayStore,
@@ -1385,7 +1532,6 @@ class DefaultTabManagerControllerTest {
             navController = navController,
             navigateToHomeAndDeleteSession = navigateToHomeAndDeleteSession,
             profiler = profiler,
-            navigationInteractor = navigationInteractor,
             tabsUseCases = tabsUseCases,
             fenixBrowserUseCases = fenixBrowserUseCases,
             bookmarksStorage = bookmarksStorage,

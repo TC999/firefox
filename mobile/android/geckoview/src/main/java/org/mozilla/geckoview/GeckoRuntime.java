@@ -18,7 +18,6 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.content.res.Configuration;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -218,7 +217,6 @@ public final class GeckoRuntime implements Parcelable {
       // Stop monitoring network status while inactive.
       GeckoNetworkManager.getInstance().stop();
       GeckoThread.onPause();
-      Clipboard.onPause();
     }
   }
 
@@ -358,20 +356,10 @@ public final class GeckoRuntime implements Parcelable {
                           return null;
                         });
           } else if ("GeckoView:ChildCrashReport".equals(event) && crashHandler != null) {
-            final Context context = GeckoAppShell.getApplicationContext();
-            final Intent i = new Intent(ACTION_CRASHED, null, context, crashHandler);
-            i.putExtra(EXTRA_MINIDUMP_PATH, message.getString(EXTRA_MINIDUMP_PATH));
-            i.putExtra(EXTRA_EXTRAS_PATH, message.getString(EXTRA_EXTRAS_PATH));
-            i.putExtra(
-                EXTRA_CRASH_PROCESS_VISIBILITY, message.getString(EXTRA_CRASH_PROCESS_VISIBILITY));
-            i.putExtra(EXTRA_CRASH_PROCESS_TYPE, message.getString(EXTRA_CRASH_PROCESS_TYPE));
-            i.putExtra(EXTRA_CRASH_REMOTE_TYPE, message.getString(EXTRA_CRASH_REMOTE_TYPE));
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-              context.startForegroundService(i);
-            } else {
-              context.startService(i);
-            }
+            CrashHandler.launchCrashReporter(
+                crashHandler, GeckoAppShell.getApplicationContext(), message);
+            // TODO(m_kato):
+            // If returning false, we cannot send crash data, should we re-try it later?
           } else if ("GeckoView:ServiceWorkerOpenWindow".equals(event)) {
             final String url = message.getString("url", "about:blank");
             serviceWorkerOpenWindow(url)
@@ -469,6 +457,10 @@ public final class GeckoRuntime implements Parcelable {
 
     if (settings.getIsolatedProcessEnabled()) {
       flags |= GeckoThread.FLAG_CONTENT_ISOLATED;
+    }
+
+    if (settings.getAppZygoteProcessEnabled()) {
+      flags |= GeckoThread.FLAG_CONTENT_ISOLATED_HAS_ZYGOTE;
     }
 
     final Class<?> crashHandler = settings.getCrashHandler();

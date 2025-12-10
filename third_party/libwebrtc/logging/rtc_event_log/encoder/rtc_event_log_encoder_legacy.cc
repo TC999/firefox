@@ -10,9 +10,8 @@
 
 #include "logging/rtc_event_log/encoder/rtc_event_log_encoder_legacy.h"
 
-#include <string.h>
-
 #include <cstdint>
+#include <cstring>
 #include <deque>
 #include <memory>
 #include <optional>
@@ -379,7 +378,6 @@ std::string RtcEventLogEncoderLegacy::Encode(const RtcEvent& event) {
     case RtcEvent::Type::RouteChangeEvent:
     case RtcEvent::Type::GenericPacketReceived:
     case RtcEvent::Type::GenericPacketSent:
-    case RtcEvent::Type::GenericAckReceived:
     case RtcEvent::Type::FrameDecoded:
     case RtcEvent::Type::NetEqSetMinimumDelay:
       // These are unsupported in the old format, but shouldn't crash.

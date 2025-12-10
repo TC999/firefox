@@ -191,13 +191,6 @@ class RTC_EXPORT Candidate {
   const std::string& tcptype() const { return tcptype_; }
   void set_tcptype(absl::string_view tcptype) { Assign(tcptype_, tcptype); }
 
-  // The name of the transport channel of this candidate.
-  // TODO(phoglund): remove.
-  const std::string& transport_name() const { return transport_name_; }
-  void set_transport_name(absl::string_view transport_name) {
-    Assign(transport_name_, transport_name);
-  }
-
   // The URL of the ICE server which this candidate is gathered from.
   const std::string& url() const { return url_; }
   void set_url(absl::string_view url) { Assign(url_, url); }
@@ -232,9 +225,7 @@ class RTC_EXPORT Candidate {
   // any remote ice parameters have been set.
   [[deprecated("Use variant with filter_ufrag")]] Candidate ToSanitizedCopy(
       bool use_hostname_address,
-      bool filter_related_address) const {
-    return ToSanitizedCopy(use_hostname_address, filter_related_address, false);
-  }
+      bool filter_related_address) const;
   Candidate ToSanitizedCopy(bool use_hostname_address,
                             bool filter_related_address,
                             bool filter_ufrag) const;
@@ -281,7 +272,6 @@ class RTC_EXPORT Candidate {
   std::string foundation_;
   SocketAddress related_address_;
   std::string tcptype_;
-  std::string transport_name_;
   uint16_t network_id_;
   uint16_t network_cost_;
   std::string url_;
@@ -289,17 +279,5 @@ class RTC_EXPORT Candidate {
 
 }  //  namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace cricket {
-using ::webrtc::Candidate;
-using ::webrtc::kMaxTurnServers;
-using ::webrtc::LOCAL_PORT_TYPE;
-using ::webrtc::PRFLX_PORT_TYPE;
-using ::webrtc::RELAY_PORT_TYPE;
-using ::webrtc::STUN_PORT_TYPE;
-}  // namespace cricket
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // API_CANDIDATE_H_

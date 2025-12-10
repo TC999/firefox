@@ -18,7 +18,6 @@
 #include "mozilla/StackWalk_windows.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/UniquePtr.h"
-#include "mozilla/Vector.h"
 #include "mozilla/WindowsProcessMitigations.h"
 #include "mozilla/WindowsVersion.h"
 #include "mozilla/WinHeaderOnlyUtils.h"
@@ -329,6 +328,11 @@ static bool ShouldBlockBasedOnBlockInfo(const DllBlockInfo& info,
 
   if ((info.mFlags & DllBlockInfoFlags::GMPLUGIN_PROCESSES_ONLY) &&
       !(sInitFlags & eDllBlocklistInitFlagIsGMPluginProcess)) {
+    return false;
+  }
+
+  if ((info.mFlags & DllBlockInfoFlags::RDD_PROCESSES_ONLY) &&
+      !(sInitFlags & eDllBlocklistInitFlagIsRDDProcess)) {
     return false;
   }
 

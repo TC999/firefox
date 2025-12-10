@@ -915,10 +915,12 @@ bitflags_array! {
         ///
         /// This is a native only feature.
         const CLEAR_TEXTURE = 1 << 23;
-        /// Enables multiview render passes and `builtin(view_index)` in vertex shaders.
+        /// Enables multiview render passes and `builtin(view_index)` in vertex/mesh shaders.
         ///
         /// Supported platforms:
         /// - Vulkan
+        /// - Metal
+        /// - DX12
         /// - OpenGL (web only)
         ///
         /// This is a native only feature.
@@ -1166,12 +1168,11 @@ bitflags_array! {
         /// This is a native only feature.
         const UNIFORM_BUFFER_BINDING_ARRAYS = 1 << 47;
 
-        /// Enables mesh shaders and task shaders in mesh shader pipelines.
+        /// Enables mesh shaders and task shaders in mesh shader pipelines. This extension does NOT imply support for
+        /// compiling mesh shaders at runtime. Rather, the user must use custom passthrough shaders.
         ///
         /// Supported platforms:
         /// - Vulkan (with [VK_EXT_mesh_shader](https://registry.khronos.org/vulkan/specs/latest/man/html/VK_EXT_mesh_shader.html))
-        ///
-        /// Potential Platforms:
         /// - DX12
         /// - Metal
         ///
@@ -1231,6 +1232,37 @@ bitflags_array! {
         ///
         /// [`Device::create_shader_module_passthrough`]: https://docs.rs/wgpu/latest/wgpu/struct.Device.html#method.create_shader_module_passthrough
         const EXPERIMENTAL_PASSTHROUGH_SHADERS = 1 << 52;
+
+        /// Enables shader barycentric coordinates.
+        ///
+        /// Supported platforms:
+        /// - Vulkan (with VK_KHR_fragment_shader_barycentric)
+        /// - DX12 (with SM 6.1+)
+        /// - Metal (with MSL 2.2+)
+        ///
+        /// This is a native only feature.
+        const SHADER_BARYCENTRICS = 1 << 53;
+
+        /// Enables using multiview where not all texture array layers are rendered to in a single render pass/render pipeline. Making
+        /// use of this feature also requires enabling `Features::MULTIVIEW`.
+        ///
+        /// Supported platforms
+        /// - Vulkan
+        /// - DX12
+        ///
+        ///
+        /// While metal supports this in theory, the behavior of `view_index` differs from vulkan and dx12 so the feature isn't exposed.
+        const SELECTIVE_MULTIVIEW = 1 << 54;
+
+        /// Enables the use of point-primitive outputs from mesh shaders. Making use of this feature also requires enabling
+        /// `Features::EXPERIMENTAL_MESH_SHADER`.
+        ///
+        /// Supported platforms
+        /// - Vulkan
+        /// - Metal
+        ///
+        /// This is a native only feature.
+        const EXPERIMENTAL_MESH_SHADER_POINTS = 1 << 55;
     }
 
     /// Features that are not guaranteed to be supported.
@@ -1508,6 +1540,7 @@ impl Features {
         Self::from_bits_truncate(FeatureBits([
             FeaturesWGPU::EXPERIMENTAL_MESH_SHADER.bits()
                 | FeaturesWGPU::EXPERIMENTAL_MESH_SHADER_MULTIVIEW.bits()
+                | FeaturesWGPU::EXPERIMENTAL_MESH_SHADER_POINTS.bits()
                 | FeaturesWGPU::EXPERIMENTAL_RAY_QUERY.bits()
                 | FeaturesWGPU::EXPERIMENTAL_RAY_HIT_VERTEX_RETURN.bits()
                 | FeaturesWGPU::EXPERIMENTAL_PASSTHROUGH_SHADERS.bits(),

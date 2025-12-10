@@ -50,12 +50,6 @@ class GeckoInstance:
         "browser.http.blank_page_with_error_response.enabled": True,
         # Disable CFR features for automated tests.
         "browser.newtabpage.activity-stream.asrouter.userprefs.cfr.features": False,
-        # Don't pull weather data from the network
-        "browser.newtabpage.activity-stream.discoverystream.region-weather-config": "",
-        # Don't pull wallpaper content from the network
-        "browser.newtabpage.activity-stream.newtabWallpapers.enabled": False,
-        # Remove once Firefox 140 is no longer supported (see bug 1902921)
-        "browser.newtabpage.activity-stream.newtabWallpapers.v2.enabled": False,
         # Don't pull sponsored Top Sites content from the network
         "browser.newtabpage.activity-stream.showSponsoredTopSites": False,
         # Disable geolocation ping (#1)
@@ -203,6 +197,7 @@ class GeckoInstance:
         profile=None,
         addons=None,
         app_args=None,
+        debugger_info=None,
         symbols_path=None,
         gecko_log=None,
         prefs=None,
@@ -212,6 +207,7 @@ class GeckoInstance:
     ):
         self.runner_class = Runner
         self.app_args = app_args or []
+        self.debugger_info = debugger_info
         self.runner = None
         self.symbols_path = symbols_path
         self.binary = bin
@@ -380,7 +376,16 @@ class GeckoInstance:
     def start(self):
         self._update_profile(self.profile)
         self.runner = self.runner_class(**self._get_runner_args())
-        self.runner.start()
+
+        # debugger information
+        debug_args = None
+        interactive = False
+
+        if self.debugger_info:
+            debug_args = [self.debugger_info.path] + self.debugger_info.args
+            interactive = self.debugger_info.interactive
+
+        self.runner.start(debug_args, interactive)
 
     def _get_runner_args(self):
         process_args = {
@@ -515,7 +520,7 @@ class FennecInstance(GeckoInstance):
         required_prefs = deepcopy(FennecInstance.fennec_prefs)
         required_prefs.update(kwargs.get("prefs", {}))
 
-        super(FennecInstance, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.required_prefs.update(required_prefs)
 
         self.runner_class = FennecEmulatorRunner
@@ -597,7 +602,7 @@ class FennecInstance(GeckoInstance):
 
         :param clean: If True, also perform runner cleanup.
         """
-        super(FennecInstance, self).close(clean)
+        super().close(clean)
         if clean and self.runner and self.runner.device.connected:
             try:
                 self.runner.device.device.remove_forwards(f"tcp:{self.marionette_port}")
@@ -633,10 +638,10 @@ class DesktopInstance(GeckoInstance):
         "browser.download.panel.shown": True,
         # Do not show the EULA notification which can interfer with tests
         "browser.EULA.override": True,
-        # Disable Activity Stream telemetry pings
-        "browser.newtabpage.activity-stream.telemetry": False,
-        # Always display a blank page
-        "browser.newtabpage.enabled": False,
+        # Disable all machine learning features by default
+        "browser.ml.enable": False,
+        # Do not initialize any activitystream features
+        "browser.newtabpage.activity-stream.testing.shouldInitializeFeeds": False,
         # Background thumbnails in particular cause grief, and disabling thumbnails
         # in general can"t hurt - we re-enable them when tests need them
         "browser.pagethumbnails.capturing_disabled": True,
@@ -696,13 +701,13 @@ class DesktopInstance(GeckoInstance):
         required_prefs = deepcopy(DesktopInstance.desktop_prefs)
         required_prefs.update(kwargs.get("prefs", {}))
 
-        super(DesktopInstance, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.required_prefs.update(required_prefs)
 
 
 class ThunderbirdInstance(GeckoInstance):
     def __init__(self, *args, **kwargs):
-        super(ThunderbirdInstance, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         try:
             # Copied alongside in the test archive
             from .thunderbirdinstance import thunderbird_prefs

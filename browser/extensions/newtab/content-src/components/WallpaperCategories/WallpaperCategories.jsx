@@ -267,6 +267,11 @@ export class _WallpaperCategories extends React.PureComponent {
 
     this.handleUserEvent(at.WALLPAPER_CATEGORY_CLICK, event.target.id);
 
+    // Notify parent menu when subpanel opens
+    if (this.props.onSubpanelToggle) {
+      this.props.onSubpanelToggle(true);
+    }
+
     let fluent_id;
     switch (event.target.id) {
       case "abstracts":
@@ -280,6 +285,10 @@ export class _WallpaperCategories extends React.PureComponent {
         break;
       case "solid-colors":
         fluent_id = "newtab-wallpaper-category-title-colors";
+        break;
+      case "firefox":
+        fluent_id = "newtab-wallpaper-category-title-firefox";
+        break;
     }
 
     this.setState({ activeCategoryFluentID: fluent_id });
@@ -359,6 +368,11 @@ export class _WallpaperCategories extends React.PureComponent {
 
   handleBack() {
     this.setState({ activeCategory: null }, () => {
+      // Notify parent menu when subpanel closes
+      if (this.props.onSubpanelToggle) {
+        this.props.onSubpanelToggle(false);
+      }
+
       // Wait for the category grid to be back in the DOM
       requestAnimationFrame(() => {
         this.focusCategory(this.state.focusedCategoryIndex);
@@ -389,6 +403,23 @@ export class _WallpaperCategories extends React.PureComponent {
 
   isWallpaperColorDark([r, g, b]) {
     return 0.2125 * r + 0.7154 * g + 0.0721 * b <= 110;
+  }
+
+  sortWallpapersByOrder(wallpapers) {
+    return wallpapers.sort((a, b) => {
+      const aOrder = a.order || 0;
+      const bOrder = b.order || 0;
+      if (aOrder === 0 && bOrder === 0) {
+        return 0;
+      }
+      if (aOrder === 0) {
+        return 1;
+      }
+      if (bOrder === 0) {
+        return -1;
+      }
+      return aOrder - bOrder;
+    });
   }
 
   render() {
@@ -505,14 +536,15 @@ export class _WallpaperCategories extends React.PureComponent {
               const filteredList = wallpaperList.filter(
                 wallpaper => wallpaper.category === category
               );
+              const sortedList = this.sortWallpapersByOrder(filteredList);
               const activeWallpaperObj =
                 activeWallpaper &&
-                filteredList.find(wp => wp.title === activeWallpaper);
+                sortedList.find(wp => wp.title === activeWallpaper);
               // Detect custom solid color
               const isCustomSolidColor =
                 category === "solid-colors" &&
                 activeWallpaper.startsWith("solid-color-picker");
-              const thumbnail = activeWallpaperObj || filteredList[0];
+              const thumbnail = activeWallpaperObj || sortedList[0];
               let fluent_id;
               switch (category) {
                 case "abstracts":
@@ -529,10 +561,16 @@ export class _WallpaperCategories extends React.PureComponent {
                   break;
                 case "solid-colors":
                   fluent_id = "newtab-wallpaper-category-title-colors";
+                  break;
+                case "firefox":
+                  fluent_id = "newtab-wallpaper-category-title-firefox";
+                  break;
               }
               let style = {};
               if (thumbnail?.wallpaperUrl) {
                 style.backgroundImage = `url(${thumbnail.wallpaperUrl})`;
+                style.backgroundPosition =
+                  thumbnail.background_position || "center";
               } else {
                 style.backgroundColor = thumbnail?.solid_color || "";
               }
@@ -625,14 +663,23 @@ export class _WallpaperCategories extends React.PureComponent {
               aria-label="Wallpaper selection. Use arrow keys to navigate."
             >
               <fieldset>
-                {filteredWallpapers.map(
+                {this.sortWallpapersByOrder(filteredWallpapers).map(
                   (
-                    { title, theme, fluent_id, solid_color, wallpaperUrl },
+                    {
+                      background_position,
+                      fluent_id,
+                      solid_color,
+                      theme,
+                      title,
+                      wallpaperUrl,
+                    },
                     index
                   ) => {
                     let style = {};
                     if (wallpaperUrl) {
                       style.backgroundImage = `url(${wallpaperUrl})`;
+                      style.backgroundPosition =
+                        background_position || "center";
                     } else {
                       style.backgroundColor = solid_color || "";
                     }

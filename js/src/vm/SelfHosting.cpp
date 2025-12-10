@@ -11,7 +11,6 @@
 #  include "builtin/DisposableStackObject.h"
 #endif
 #include "mozilla/BinarySearch.h"
-#include "mozilla/Casting.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/ScopeExit.h"  // mozilla::MakeScopeExit
 #include "mozilla/Utf8.h"       // mozilla::Utf8Unit
@@ -98,6 +97,7 @@
 #include "vm/ToSource.h"  // js::ValueToSource
 #include "vm/TypedArrayObject.h"
 #include "vm/Uint8Clamped.h"
+#include "vm/Warnings.h"
 #include "vm/WrapperObject.h"
 
 #include "gc/WeakMap-inl.h"
@@ -311,15 +311,35 @@ static bool intrinsic_SubstringKernel(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 
-static bool intrinsic_CanOptimizeStringProtoSymbolLookup(JSContext* cx,
-                                                         unsigned argc,
-                                                         Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-  MOZ_ASSERT(args.length() == 0);
+static bool PrepareErrorArguments(JSContext* cx, JSExnType type,
+                                  const CallArgs& args,
+                                  UniqueChars (&errorArgs)[3]) {
+#ifdef DEBUG
+  MOZ_ASSERT(args[0].isInt32());
+  uint32_t errorNumber = args[0].toInt32();
 
-  bool optimizable =
-      cx->realm()->realmFuses.optimizeStringPrototypeSymbolsFuse.intact();
-  args.rval().setBoolean(optimizable);
+  const JSErrorFormatString* efs = GetErrorMessage(nullptr, errorNumber);
+  MOZ_ASSERT(efs->argCount == args.length() - 1);
+  MOZ_ASSERT(efs->exnType == type,
+             "error-throwing intrinsic and error number are inconsistent");
+#endif
+
+  for (unsigned i = 1; i < 4 && i < args.length(); i++) {
+    HandleValue val = args[i];
+    if (val.isInt32() || val.isString()) {
+      JSString* str = ToString<CanGC>(cx, val);
+      if (!str) {
+        return false;
+      }
+      errorArgs[i - 1] = QuoteString(cx, str);
+    } else {
+      errorArgs[i - 1] =
+          DecompileValueGenerator(cx, JSDVG_SEARCH_STACK, val, nullptr);
+    }
+    if (!errorArgs[i - 1]) {
+      return false;
+    }
+  }
   return true;
 }
 
@@ -328,29 +348,9 @@ static void ThrowErrorWithType(JSContext* cx, JSExnType type,
   MOZ_RELEASE_ASSERT(args[0].isInt32());
   uint32_t errorNumber = args[0].toInt32();
 
-#ifdef DEBUG
-  const JSErrorFormatString* efs = GetErrorMessage(nullptr, errorNumber);
-  MOZ_ASSERT(efs->argCount == args.length() - 1);
-  MOZ_ASSERT(efs->exnType == type,
-             "error-throwing intrinsic and error number are inconsistent");
-#endif
-
   UniqueChars errorArgs[3];
-  for (unsigned i = 1; i < 4 && i < args.length(); i++) {
-    HandleValue val = args[i];
-    if (val.isInt32() || val.isString()) {
-      JSString* str = ToString<CanGC>(cx, val);
-      if (!str) {
-        return;
-      }
-      errorArgs[i - 1] = QuoteString(cx, str);
-    } else {
-      errorArgs[i - 1] =
-          DecompileValueGenerator(cx, JSDVG_SEARCH_STACK, val, nullptr);
-    }
-    if (!errorArgs[i - 1]) {
-      return;
-    }
+  if (!PrepareErrorArguments(cx, type, args, errorArgs)) {
+    return;
   }
 
   JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr, errorNumber,
@@ -409,6 +409,27 @@ static bool intrinsic_CreateSuppressedError(JSContext* cx, unsigned argc,
   return true;
 }
 #endif
+
+static bool intrinsic_ReportWarning(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  MOZ_ASSERT(args.length() >= 1);
+
+  MOZ_RELEASE_ASSERT(args[0].isInt32());
+  uint32_t errorNumber = args[0].toInt32();
+
+  UniqueChars errorArgs[3];
+  if (!PrepareErrorArguments(cx, JSEXN_WARN, args, errorArgs)) {
+    return false;
+  }
+
+  if (!WarnNumberUTF8(cx, errorNumber, errorArgs[0].get(), errorArgs[1].get(),
+                      errorArgs[2].get())) {
+    return false;
+  }
+
+  args.rval().setUndefined();
+  return true;
+}
 
 /**
  * Handles an assertion failure in self-hosted code just like an assertion
@@ -1097,16 +1118,6 @@ static bool intrinsic_StringReplaceString(JSContext* cx, unsigned argc,
   return true;
 }
 
-static bool intrinsic_RegExpSymbolProtocolOnPrimitiveCounter(JSContext* cx,
-                                                             unsigned argc,
-                                                             Value* vp) {
-  // This telemetry is to assess compatibility for tc39/ecma262#3009 and
-  // can later be removed (Bug 1953619).
-  cx->runtime()->setUseCounter(
-      cx->global(), JSUseCounter::REGEXP_SYMBOL_PROTOCOL_ON_PRIMITIVE);
-  return true;
-}
-
 static bool intrinsic_StringReplaceAllString(JSContext* cx, unsigned argc,
                                              Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
@@ -1228,8 +1239,9 @@ bool js::IsCallSelfHostedNonGenericMethod(NativeImpl impl) {
   return impl == CallSelfHostedNonGenericMethod;
 }
 
-bool js::ReportIncompatibleSelfHostedMethod(JSContext* cx,
-                                            Handle<Value> thisValue) {
+bool js::ReportIncompatibleSelfHostedMethod(
+    JSContext* cx, Handle<Value> thisValue,
+    IncompatibleContext incompatibleContext) {
   // The contract for this function is the same as
   // CallSelfHostedNonGenericMethod. The normal ReportIncompatible function
   // doesn't work for selfhosted functions, because they always call the
@@ -1264,9 +1276,15 @@ bool js::ReportIncompatibleSelfHostedMethod(JSContext* cx,
     if (std::all_of(
             std::begin(internalNames), std::end(internalNames),
             [funName](auto* name) { return strcmp(funName, name) != 0; })) {
-      JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr,
-                               JSMSG_INCOMPATIBLE_METHOD, funName, "method",
-                               InformalValueTypeName(thisValue));
+      if (incompatibleContext == IncompatibleContext::RegExpExec) {
+        JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr,
+                                 JSMSG_INCOMPATIBLE_REGEXP_METHOD, funName,
+                                 InformalValueTypeName(thisValue));
+      } else {
+        JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr,
+                                 JSMSG_INCOMPATIBLE_METHOD, funName, "method",
+                                 InformalValueTypeName(thisValue));
+      }
       return false;
     }
     ++iter;
@@ -1632,9 +1650,6 @@ static const JSFunctionSpec intrinsic_functions[] = {
     JS_INLINABLE_FN("CanOptimizeArraySpecies",
                     intrinsic_CanOptimizeArraySpecies, 1, 0,
                     IntrinsicCanOptimizeArraySpecies),
-    JS_INLINABLE_FN("CanOptimizeStringProtoSymbolLookup",
-                    intrinsic_CanOptimizeStringProtoSymbolLookup, 0, 0,
-                    IntrinsicCanOptimizeStringProtoSymbolLookup),
     JS_FN("ConstructFunction", intrinsic_ConstructFunction, 2, 0),
     JS_FN("ConstructorForTypedArray", intrinsic_ConstructorForTypedArray, 1, 0),
     JS_FN("CopyDataPropertiesOrGetOwnKeys",
@@ -1804,8 +1819,7 @@ static const JSFunctionSpec intrinsic_functions[] = {
     JS_INLINABLE_FN("RegExpSearcher", RegExpSearcher, 3, 0, RegExpSearcher),
     JS_INLINABLE_FN("RegExpSearcherLastLimit", RegExpSearcherLastLimit, 0, 0,
                     RegExpSearcherLastLimit),
-    JS_FN("RegExpSymbolProtocolOnPrimitiveCounter",
-          intrinsic_RegExpSymbolProtocolOnPrimitiveCounter, 0, 0),
+    JS_FN("ReportWarning", intrinsic_ReportWarning, 4, 0),
     JS_INLINABLE_FN("SameValue", js::obj_is, 2, 0, ObjectIs),
     JS_FN("SetCopy", SetObject::copy, 1, 0),
     JS_FN("StringReplaceAllString", intrinsic_StringReplaceAllString, 3, 0),

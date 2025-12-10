@@ -186,8 +186,7 @@ class FakePortAllocatorSession : public PortAllocatorSession {
   void AddPort(Port* port) {
     port->set_component(component());
     port->set_generation(generation());
-    port->SignalPortComplete.connect(this,
-                                     &FakePortAllocatorSession::OnPortComplete);
+    port->SubscribePortComplete([this](Port* port) { OnPortComplete(port); });
     port->PrepareAddress();
     ready_ports_.push_back(port);
     SignalPortReady(this, port);
@@ -267,14 +266,5 @@ class FakePortAllocator : public PortAllocator {
 
 }  //  namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace cricket {
-using ::webrtc::FakePortAllocator;
-using ::webrtc::FakePortAllocatorSession;
-using ::webrtc::TestUDPPort;
-}  // namespace cricket
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // P2P_TEST_FAKE_PORT_ALLOCATOR_H_

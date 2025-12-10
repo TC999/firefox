@@ -408,7 +408,7 @@ newtab-wallpaper-abstract-purple-green = Градыент фіялетавага
 newtab-wallpaper-abstract-blue-purple-waves = Сінія і фіялетавыя хвалістыя формы
 newtab-wallpaper-abstract-black-waves = Чорныя хвалістыя формы
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Фатаграфіі
 newtab-wallpaper-beach-at-sunrise = Пляж на ўсходзе сонца
@@ -437,6 +437,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -665,6 +669,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Новы спіс
+newtab-widget-section-title = Віджэты
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Схаваць віджэты
+    .aria-label = Схаваць усе віджэты
+newtab-widget-section-maximize =
+    .title = Разгарнуць віджэты
+    .aria-label = Разгарнуць усе віджэты ў поўны памер
+newtab-widget-section-minimize =
+    .title = Згарнуць віджэты
+    .aria-label = Згарнуць усе віджэты ў кампактны памер
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -677,10 +692,6 @@ newtab-widget-timer-mode-focus =
     .label = Фокус
 newtab-widget-timer-mode-break =
     .label = Перапынак
-newtab-widget-timer-play =
-    .title = Прайграць
-newtab-widget-timer-pause =
-    .title = Прыпыніць
 newtab-widget-timer-label-play =
     .label = Прайграць
 newtab-widget-timer-label-pause =
@@ -691,8 +702,6 @@ newtab-widget-timer-menu-notifications = Выключыць апавяшчэнн
 newtab-widget-timer-menu-notifications-on = Уключыць апавяшчэнні
 newtab-widget-timer-menu-hide = Схаваць таймер
 newtab-widget-timer-menu-learn-more = Падрабязней
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Прагартайце, каб даведацца больш
 newtab-widget-message-title = Заставайцеся сканцэнтраванымі з дапамогай спісаў і ўбудаванага таймера
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Паспявайце ўсё з дапамогай хуткіх напамінаў, спісаў задач, заняткаў па канцэнтрацыі ўвагі ды перапынкаў на размінку.

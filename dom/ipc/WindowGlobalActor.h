@@ -11,6 +11,8 @@
 #include "mozilla/dom/JSActor.h"
 #include "mozilla/dom/JSActorManager.h"
 #include "mozilla/dom/WindowGlobalTypes.h"
+#include "nsILoadInfo.h"
+#include "nsIOpenWindowInfo.h"
 #include "nsISupports.h"
 #include "nsIURI.h"
 #include "nsString.h"
@@ -41,7 +43,6 @@ class WindowGlobalActor : public JSActorManager {
       ErrorResult& aRv) final;
 
   virtual nsIURI* GetDocumentURI() = 0;
-  virtual const nsACString& GetRemoteType() = 0;
   virtual dom::BrowsingContext* BrowsingContext() = 0;
 
   static WindowGlobalInit BaseInitializer(

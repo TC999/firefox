@@ -412,7 +412,7 @@ newtab-wallpaper-abstract-purple-green = Graddiant golau porffor a gwyrdd
 newtab-wallpaper-abstract-blue-purple-waves = Siapiau tonnog glas a phorffor
 newtab-wallpaper-abstract-black-waves = Siapiau tonnog du
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Ffotograffau
 newtab-wallpaper-beach-at-sunrise = Traeth ar godiad haul
@@ -441,6 +441,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -669,6 +673,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Rhestr newydd
+newtab-widget-section-title = Teclynnau
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Cuddio teclynnau
+    .aria-label = Cuddio pob teclyn
+newtab-widget-section-maximize =
+    .title = Ehangu teclynnau
+    .aria-label = Ehangu pob teclyn i'w faint llawn
+newtab-widget-section-minimize =
+    .title = Lleihau teclynnau
+    .aria-label = Lleihau pob teclyn i faint llai
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -681,10 +696,6 @@ newtab-widget-timer-mode-focus =
     .label = Canolbwyntio
 newtab-widget-timer-mode-break =
     .label = Seibiant
-newtab-widget-timer-play =
-    .title = Chwarae
-newtab-widget-timer-pause =
-    .title = Oedi
 newtab-widget-timer-label-play =
     .label = Chwarae
 newtab-widget-timer-label-pause =
@@ -695,8 +706,6 @@ newtab-widget-timer-menu-notifications = Diffodd hysbysiadau
 newtab-widget-timer-menu-notifications-on = Troi hysbysiadau ymlaen
 newtab-widget-timer-menu-hide = Cuddio'r amserydd
 newtab-widget-timer-menu-learn-more = Dysgu rhagor
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Sgrolio am ragor
 newtab-widget-message-title = Canolbwyntio gyda rhestrau a'r amserydd mewnol
 # to-dos stands for "things to do".
 newtab-widget-message-copy = O negeseuon atgoffa cyflym i dasgau bob dydd, sesiynau canolbwyntio i egwyliau ymarfer corff — cadwch i'r dasg ac amser.

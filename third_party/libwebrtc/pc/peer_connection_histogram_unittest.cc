@@ -18,6 +18,7 @@
 
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "api/create_modular_peer_connection_factory.h"
 #include "api/jsep.h"
 #include "api/jsep_session_description.h"
 #include "api/peer_connection_interface.h"
@@ -48,8 +49,14 @@
 #include "test/wait_until.h"
 
 namespace webrtc {
-
 namespace {
+
+using ::testing::NiceMock;
+using RTCConfiguration = PeerConnectionInterface::RTCConfiguration;
+using RTCOfferAnswerOptions = PeerConnectionInterface::RTCOfferAnswerOptions;
+
+class PeerConnectionWrapperForUsageHistogramTest;
+typedef PeerConnectionWrapperForUsageHistogramTest* RawWrapperPtr;
 
 constexpr const char kBasicRemoteDescription[] = R"(v=0
 o=- 0 0 IN IP4 127.0.0.1
@@ -68,11 +75,7 @@ a=rtcp-mux
 a=rtpmap:101 fake_audio_codec/8000
 )";
 
-using RTCConfiguration = PeerConnectionInterface::RTCConfiguration;
-using RTCOfferAnswerOptions = PeerConnectionInterface::RTCOfferAnswerOptions;
-using ::testing::NiceMock;
-
-const char kUsagePatternMetric[] = "WebRTC.PeerConnection.UsagePattern";
+constexpr char kUsagePatternMetric[] = "WebRTC.PeerConnection.UsagePattern";
 constexpr TimeDelta kDefaultTimeout = TimeDelta::Millis(10000);
 const SocketAddress kLocalAddrs[2] = {SocketAddress("1.1.1.1", 0),
                                       SocketAddress("2.2.2.2", 0)};
@@ -86,10 +89,6 @@ int MakeUsageFingerprint(std::set<UsageEvent> events) {
   }
   return signature;
 }
-
-class PeerConnectionWrapperForUsageHistogramTest;
-
-typedef PeerConnectionWrapperForUsageHistogramTest* RawWrapperPtr;
 
 class ObserverForUsageHistogramTest : public MockPeerConnectionObserver {
  public:
@@ -189,7 +188,8 @@ class PeerConnectionWrapperForUsageHistogramTest
   }
 
   bool GenerateOfferAndCollectCandidates() {
-    auto offer = CreateOffer(RTCOfferAnswerOptions());
+    std::unique_ptr<SessionDescriptionInterface> offer =
+        CreateOffer(RTCOfferAnswerOptions());
     if (!offer) {
       return false;
     }
@@ -608,13 +608,13 @@ struct IPAddressTypeTestConfig {
   absl::string_view address;
   IPAddressType address_type;
 } const kAllCandidateIPAddressTypeTestConfigs[] = {
-    {"127.0.0.1", IPAddressType::kLoopback},
-    {"::1", IPAddressType::kLoopback},
-    {"localhost", IPAddressType::kLoopback},
-    {"10.0.0.3", IPAddressType::kPrivate},
-    {"FE80::3", IPAddressType::kPrivate},
-    {"1.1.1.1", IPAddressType::kPublic},
-    {"2001:4860:4860::8888", IPAddressType::kPublic},
+    {.address = "127.0.0.1", .address_type = IPAddressType::kLoopback},
+    {.address = "::1", .address_type = IPAddressType::kLoopback},
+    {.address = "localhost", .address_type = IPAddressType::kLoopback},
+    {.address = "10.0.0.3", .address_type = IPAddressType::kPrivate},
+    {.address = "FE80::3", .address_type = IPAddressType::kPrivate},
+    {.address = "1.1.1.1", .address_type = IPAddressType::kPublic},
+    {.address = "2001:4860:4860::8888", .address_type = IPAddressType::kPublic},
 };
 
 // Used by the test framework to print the param value for parameterized tests.
@@ -692,13 +692,12 @@ TEST_F(PeerConnectionUsageHistogramTest,
   ASSERT_TRUE(cur_offer);
   std::string sdp_with_candidates_str;
   cur_offer->ToString(&sdp_with_candidates_str);
-  auto offer = std::make_unique<JsepSessionDescription>(SdpType::kOffer);
-  ASSERT_TRUE(SdpDeserialize(sdp_with_candidates_str, offer.get(),
-                             nullptr /* error */));
+  std::unique_ptr<SessionDescriptionInterface> offer =
+      SdpDeserialize(SdpType::kOffer, sdp_with_candidates_str);
   ASSERT_TRUE(callee->SetRemoteDescription(std::move(offer)));
 
   // By default, the Answer created does not contain ICE candidates.
-  auto answer = callee->CreateAnswer();
+  std::unique_ptr<SessionDescriptionInterface> answer = callee->CreateAnswer();
   callee->SetLocalDescription(CloneSessionDescription(answer.get()));
   caller->SetRemoteDescription(std::move(answer));
   EXPECT_THAT(
@@ -811,5 +810,4 @@ TEST_F(PeerConnectionUsageHistogramTest,
 #endif
 
 }  // namespace
-
 }  // namespace webrtc

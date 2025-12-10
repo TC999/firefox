@@ -7,11 +7,9 @@
 #ifdef MOZ_WAYLAND
 
 #  include "WaylandVsyncSource.h"
-#  include "mozilla/UniquePtr.h"
 #  include "nsThreadUtils.h"
 #  include "nsISupportsImpl.h"
 #  include "MainThreadUtils.h"
-#  include "mozilla/ScopeExit.h"
 #  include "nsGtkUtils.h"
 #  include "mozilla/StaticPrefs_layout.h"
 #  include "mozilla/StaticPrefs_widget.h"
@@ -43,7 +41,7 @@ static float GetFPS(TimeDuration aVsyncRate) {
   return 1000.0f / float(aVsyncRate.ToMilliseconds());
 }
 
-MOZ_RUNINIT static nsTArray<WaylandVsyncSource*> gWaylandVsyncSources;
+constinit static nsTArray<WaylandVsyncSource*> gWaylandVsyncSources;
 
 Maybe<TimeDuration> WaylandVsyncSource::GetFastestVsyncRate() {
   Maybe<TimeDuration> retVal;

@@ -35,7 +35,6 @@
 #include <iomanip>
 #include <ios>
 #include <limits>
-#include <map>
 #include <sstream>
 #include <utility>
 
@@ -74,7 +73,6 @@
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
 #include "mozilla/Assertions.h"
-#include "mozilla/Atomics.h"
 #include "mozilla/DataMutex.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/Mutex.h"
@@ -801,6 +799,17 @@ void WebrtcVideoConduit::OnControlConfigChange() {
                 .valueOr(-1);
           })());
 
+          // Set each layer's max-bitrate explicitly or libwebrtc may ignore all
+          // stream-specific max-bitrate settings later on, as provided by the
+          // VideoStreamFactory. Default to our max of 10Mbps, overriden by
+          // SDP/JS.
+          int maxBps = KBPS(10000);
+          maxBps = MinIgnoreZero(maxBps, mPrefMaxBitrate);
+          maxBps = MinIgnoreZero(maxBps, mNegotiatedMaxBitrate);
+          maxBps = MinIgnoreZero(maxBps,
+                                 static_cast<int>(encodingConstraints.maxBr));
+          video_stream.max_bitrate_bps = maxBps;
+
           // At this time, other values are not used until after
           // CreateEncoderStreams(). We fill these in directly from the codec
           // config in VideoStreamFactory.
@@ -962,6 +971,14 @@ void WebrtcVideoConduit::OnControlConfigChange() {
               mEncoderConfig.number_of_streams,
           "Each video substream must have a corresponding ssrc.");
       mEncoderConfig.video_stream_factory = CreateVideoStreamFactory();
+      for (const auto& stream : mEncoderConfig.simulcast_layers) {
+        CSFLogDebug(
+            LOGTAG,
+            "%s Reconfigure with simulcast stream maxFps=%d, "
+            "bitrate=[%dkbps, %dkbps, %dkbps]",
+            __FUNCTION__, stream.max_framerate, stream.min_bitrate_bps / 1000,
+            stream.target_bitrate_bps / 1000, stream.max_bitrate_bps / 1000);
+      }
       mSendStream->ReconfigureVideoEncoder(mEncoderConfig.Copy());
     }
     if (sendSourceUpdateNeeded && mTrackSource) {

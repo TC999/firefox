@@ -9,7 +9,6 @@
 #include "SMILEnumType.h"
 #include "SVGAttrTearoffTable.h"
 #include "mozAutoDocUpdate.h"
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/SMILValue.h"
 #include "mozilla/SVGContentUtils.h"
@@ -67,14 +66,14 @@ class MOZ_RAII AutoChangePreserveAspectRatioNotifier {
   bool mDoSetAttr;
 };
 
-MOZ_CONSTINIT static SVGAttrTearoffTable<SVGAnimatedPreserveAspectRatio,
-                                         DOMSVGAnimatedPreserveAspectRatio>
+constinit static SVGAttrTearoffTable<SVGAnimatedPreserveAspectRatio,
+                                     DOMSVGAnimatedPreserveAspectRatio>
     sSVGAnimatedPAspectRatioTearoffTable;
-MOZ_CONSTINIT static SVGAttrTearoffTable<SVGAnimatedPreserveAspectRatio,
-                                         DOMSVGPreserveAspectRatio>
+constinit static SVGAttrTearoffTable<SVGAnimatedPreserveAspectRatio,
+                                     DOMSVGPreserveAspectRatio>
     sBaseSVGPAspectRatioTearoffTable;
-MOZ_CONSTINIT static SVGAttrTearoffTable<SVGAnimatedPreserveAspectRatio,
-                                         DOMSVGPreserveAspectRatio>
+constinit static SVGAttrTearoffTable<SVGAnimatedPreserveAspectRatio,
+                                     DOMSVGPreserveAspectRatio>
     sAnimSVGPAspectRatioTearoffTable;
 
 already_AddRefed<DOMSVGPreserveAspectRatio>

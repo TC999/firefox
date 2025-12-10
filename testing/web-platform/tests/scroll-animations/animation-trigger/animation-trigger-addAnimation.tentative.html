@@ -75,17 +75,20 @@
       promise_test(async (test) => {
         const animation = setupAnimation();
         const trigger = setupAnimationTrigger(/*use_default_trigger=*/true);
+        assert_array_equals(trigger.getAnimations(), [],
+          "trigger has no animations");
 
         // As the default trigger is always  in the tripped state, the animation
         // should be played right away.
-        trigger.addAnimation(animation, "enter", "play-forwards");
-        trigger.addAnimation(animation, "exit", "play-backwards");
+        trigger.addAnimation(animation, "play-forwards", "play-backwards");
         await animation.finished;
 
         assert_times_equal(animation.currentTime, ANIMATION_DURATION_MS,
           "animation finish reflected in currentTime");
         assert_equals(animation.playState, "finished",
           "animation finish reflected in playeState");
+        assert_array_equals(trigger.getAnimations(), [animation],
+          "trigger has animation attached");
       }, "Animation attached to tripped (default) trigger plays.");
 
       promise_test(async (test) => {
@@ -94,12 +97,13 @@
 
         assert_equals(animation.playState, "idle", "animation is idle");
         assert_equals(animation.currentTime, null, "currentTime is null");
+        assert_array_equals(trigger.getAnimations(), [],
+          "trigger has no animations");
 
         assert_equals(scroller.scrollTop, 0, "scroller is not scrolled, i.e. " +
           "not within the trigger range");
 
-        trigger.addAnimation(animation, "enter", "play-forwards");
-        trigger.addAnimation(animation, "exit", "play-backwards");
+        trigger.addAnimation(animation, "play-forwards", "play-backwards");
 
         await waitForAnimationFrames(2);
 
@@ -115,6 +119,8 @@
           "animation is paused, awaiting trigger event");
         assert_times_equal(animation.currentTime, ANIMATION_DURATION_MS,
           "currentTime is 0");
+        assert_array_equals(trigger.getAnimations(), [animation],
+          "trigger has animation attached");
       }, "Animation attached to untripped trigger is paused at the beginning.");
 
       promise_test(async (test) => {
@@ -128,6 +134,8 @@
 
         assert_equals(animation.playState, "idle", "animation is idle");
         assert_equals(animation.currentTime, null, "currentTime is null");
+        assert_array_equals(trigger.getAnimations(), [],
+          "trigger has no animations");
 
         rangeBoundaries.enterTriggerRange();
         await waitForAnimationFrames(2);
@@ -135,14 +143,15 @@
         assert_equals(animation.playState, "idle", "animation is still idle");
         assert_equals(animation.currentTime, null, "currentTime is still null");
 
-        trigger.addAnimation(animation, "enter", "play-forwards");
-        trigger.addAnimation(animation, "exit", "play-backwards");
+        trigger.addAnimation(animation, "play-forwards", "play-backwards");
         await animation.finished;
 
         assert_equals(animation.playState, "finished",
           "animation is paused, awaiting trigger event");
         assert_times_equal(animation.currentTime, ANIMATION_DURATION_MS,
           `currentTime is ${ANIMATION_DURATION_MS}`);
+        assert_array_equals(trigger.getAnimations(), [animation],
+          "trigger has animation attached");
       }, "Animation attached to tripped trigger is played immediately.");
     </script>
   </body>

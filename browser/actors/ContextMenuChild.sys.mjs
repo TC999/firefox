@@ -179,50 +179,6 @@ export class ContextMenuChild extends JSWindowActorChild {
         break;
       }
 
-      case "ContextMenu:SearchFieldBookmarkData": {
-        let node = lazy.ContentDOMReference.resolve(
-          message.data.targetIdentifier
-        );
-        let charset = node.ownerDocument.characterSet;
-        let formBaseURI = Services.io.newURI(node.form.baseURI, charset);
-        let formURI = Services.io.newURI(
-          node.form.getAttribute("action"),
-          charset,
-          formBaseURI
-        );
-        let spec = formURI.spec;
-        let isURLEncoded =
-          node.form.method.toUpperCase() == "POST" &&
-          (node.form.enctype == "application/x-www-form-urlencoded" ||
-            node.form.enctype == "");
-        let title = node.ownerDocument.title;
-
-        function escapeNameValuePair([aName, aValue]) {
-          if (isURLEncoded) {
-            return escape(aName + "=" + aValue);
-          }
-
-          return encodeURIComponent(aName) + "=" + encodeURIComponent(aValue);
-        }
-        let formData = new this.contentWindow.FormData(node.form);
-        formData.delete(node.name);
-        formData = Array.from(formData).map(escapeNameValuePair);
-        formData.push(
-          escape(node.name) + (isURLEncoded ? escape("=%s") : "=%s")
-        );
-
-        let postData;
-
-        if (isURLEncoded) {
-          postData = formData.join("&");
-        } else {
-          let separator = spec.includes("?") ? "&" : "?";
-          spec += separator + formData.join("&");
-        }
-
-        return Promise.resolve({ spec, title, postData, charset });
-      }
-
       case "ContextMenu:SearchFieldEngineData": {
         let node = lazy.ContentDOMReference.resolve(
           message.data.targetIdentifier
@@ -312,15 +268,6 @@ export class ContextMenuChild extends JSWindowActorChild {
       }
 
       case "ContextMenu:GetTextDirective": {
-        if (
-          !Services.prefs.getBoolPref("dom.text_fragments.enabled", false) ||
-          !Services.prefs.getBoolPref(
-            "dom.text_fragments.create_text_fragment.enabled",
-            false
-          )
-        ) {
-          return null;
-        }
         const sel = this.contentWindow.getSelection();
         const ranges = !sel.isCollapsed
           ? Array.from({ length: sel.rangeCount }, (_, i) => sel.getRangeAt(i))
@@ -355,9 +302,10 @@ export class ContextMenuChild extends JSWindowActorChild {
    * Returns the event target of the context menu, using a locally stored
    * reference if possible. If not, and aMessage.objects is defined,
    * aMessage.objects[aKey] is returned. Otherwise null.
-   * @param  {Object} aMessage Message with a objects property
-   * @param  {String} aKey     Key for the target on aMessage.objects
-   * @return {Object}          Context menu target
+   *
+   * @param  {object} aMessage Message with a objects property
+   * @param  {string} aKey     Key for the target on aMessage.objects
+   * @return {object}          Context menu target
    */
   getTarget(aMessage, aKey = "target") {
     return this.target || (aMessage.objects && aMessage.objects[aKey]);
@@ -913,7 +861,6 @@ export class ContextMenuChild extends JSWindowActorChild {
     context.onPiPVideo = false;
     context.onEditable = false;
     context.onImage = false;
-    context.onKeywordField = false;
     context.onLink = false;
     context.onLoadedImage = false;
     context.onMailtoLink = false;
@@ -1148,7 +1095,6 @@ export class ContextMenuChild extends JSWindowActorChild {
         context.shouldInitInlineSpellCheckerUINoChildren = true;
       }
 
-      context.onKeywordField = editFlags & lazy.SpellCheckHelper.KEYWORD;
       context.onSearchField = editFlags & lazy.SpellCheckHelper.SEARCHENGINE;
     } else if (this.contentWindow.HTMLHtmlElement.isInstance(context.target)) {
       const bodyElt = context.target.ownerDocument.body;
@@ -1276,7 +1222,6 @@ export class ContextMenuChild extends JSWindowActorChild {
         // If this.onEditable is false but editFlags is CONTENTEDITABLE, then
         // the document itself must be editable.
         context.onTextInput = true;
-        context.onKeywordField = false;
         context.onImage = false;
         context.onLoadedImage = false;
         context.onCompletedImage = false;

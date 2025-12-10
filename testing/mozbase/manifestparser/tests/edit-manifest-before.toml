@@ -2,7 +2,7 @@
 
 ["bug_100.js"]
 skip-if = [
-  "os == 'android' && debug", # Bug 100, will be carried over
+  "os == 'android' && asan", # Bug 100, will be carried over
 ]
 
 ["bug_3.js"]
@@ -31,5 +31,5 @@ skip-if = [
 ["test_simplify_linux.js"]
 skip-if = [
   "os == 'mac'", # Bug 111
-  "os == 'linux' && version == '18,04'", # Bug 222
+  "os == 'linux' && os_version == '22.04'", # Bug 222
 ]

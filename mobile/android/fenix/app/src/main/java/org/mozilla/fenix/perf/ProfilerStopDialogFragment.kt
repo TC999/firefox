@@ -23,6 +23,7 @@ import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.activityViewModels
 import androidx.fragment.compose.content
 import org.mozilla.fenix.R
+import org.mozilla.fenix.theme.FirefoxTheme
 
 /**
  * Dialog fragment for stopping profiling sessions. The dialog uses the [ProfilerViewModel]
@@ -42,7 +43,6 @@ class ProfilerStopDialogFragment : DialogFragment() {
 
     override fun onDismiss(dialog: DialogInterface) {
         profilerViewModel.resetUiState()
-        profilerViewModel.updateProfilerActiveStatus()
         super.onDismiss(dialog)
         if (activity is StopProfilerActivity) {
             activity?.finish()
@@ -120,6 +120,7 @@ class ProfilerStopDialogFragment : DialogFragment() {
         ) {
             Text(
                 text = stringResource(R.string.profiler_url_warning_explained),
+                color = FirefoxTheme.colors.textPrimary,
                 fontWeight = FontWeight.Medium,
                 fontSize = 15.sp,
             )

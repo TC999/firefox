@@ -71,9 +71,10 @@
 #include "mozilla/net/RequestContextService.h"
 #include "mozilla/net/SocketProcessParent.h"
 #include "mozilla/net/SocketProcessChild.h"
+#include "mozilla/intl/LocaleService.h"
 #include "mozilla/ipc/URIUtils.h"
+#include "mozilla/glean/GleanPings.h"
 #include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
-#include "mozilla/Unused.h"
 #include "mozilla/AntiTrackingRedirectHeuristic.h"
 #include "mozilla/DynamicFpiRedirectHeuristic.h"
 #include "mozilla/BasePrincipal.h"
@@ -214,9 +215,9 @@ already_AddRefed<nsHttpHandler> nsHttpHandler::GetInstance() {
 static nsCString ImageAcceptHeader() {
   nsCString mimeTypes;
 
-  if (mozilla::StaticPrefs::image_avif_enabled()) {
-    mimeTypes.Append("image/avif,");
-  }
+#ifdef MOZ_AV1
+  mimeTypes.Append("image/avif,");
+#endif
 
   if (mozilla::StaticPrefs::image_jxl_enabled()) {
     mimeTypes.Append("image/jxl,");
@@ -239,9 +240,9 @@ static nsCString DocumentAcceptHeader() {
 
   // we also insert all of the image formats before */* when the pref is set
   if (mozilla::StaticPrefs::network_http_accept_include_images()) {
-    if (mozilla::StaticPrefs::image_avif_enabled()) {
-      mimeTypes.Append("image/avif,");
-    }
+#ifdef MOZ_AV1
+    mimeTypes.Append("image/avif,");
+#endif
 
     if (mozilla::StaticPrefs::image_jxl_enabled()) {
       mimeTypes.Append("image/jxl,");
@@ -321,7 +322,6 @@ static const char* gCallbackPrefs[] = {
     SECURITY_PREFIX,
     DOM_SECURITY_PREFIX,
     "image.http.accept",
-    "image.avif.enabled",
     "image.jxl.enabled",
     nullptr,
 };
@@ -509,6 +509,7 @@ nsresult nsHttpHandler::Init() {
     obsService->AddObserver(this, "network:socket-process-crashed", true);
     obsService->AddObserver(this, "network:reset_third_party_roots_check",
                             true);
+    obsService->AddObserver(this, "idle-daily", true);
 
     if (!IsNeckoChild()) {
       obsService->AddObserver(this, "net:current-browser-id", true);
@@ -558,7 +559,7 @@ void nsHttpHandler::UpdateParentalControlsEnabled(bool waitForCompletion) {
     // pref until the runnable completes
     sParentalControlsEnabled =
         mozilla::StaticPrefs::network_parental_controls_cached_state();
-    Unused << NS_DispatchToMainThreadQueue(
+    (void)NS_DispatchToMainThreadQueue(
         NS_NewRunnableFunction("GetParentalControlsEnabled",
                                std::move(getParentalControlsTask)),
         mozilla::EventQueuePriority::Idle);
@@ -631,7 +632,7 @@ nsresult nsHttpHandler::InitConnectionMgr() {
           self->mConnMgr->AsHttpConnectionMgrParent();
       RefPtr<SocketProcessParent> socketParent =
           SocketProcessParent::GetSingleton();
-      Unused << socketParent->SendPHttpConnectionMgrConstructor(
+      (void)socketParent->SendPHttpConnectionMgrConstructor(
           parent,
           HttpHandlerInitArgs(self->mLegacyAppName, self->mLegacyAppVersion,
                               self->mPlatform, self->mOscpu, self->mMisc,
@@ -659,8 +660,7 @@ nsresult nsHttpHandler::InitConnectionMgr() {
 // dictionary load.
 nsresult nsHttpHandler::AddAcceptAndDictionaryHeaders(
     nsIURI* aURI, ExtContentPolicyType aType, nsHttpRequestHead* aRequest,
-    bool aSecure, bool& aAsync, nsHttpChannel* aChan,
-    void (*aSuspend)(nsHttpChannel*),
+    bool aSecure, nsHttpChannel* aChan, void (*aSuspend)(nsHttpChannel*),
     const std::function<bool(bool, DictionaryCacheEntry*)>& aCallback) {
   LOG(("Adding Dictionary headers"));
   auto guard = MakeScopeExit([&]() { (aCallback)(false, nullptr); });
@@ -674,7 +674,7 @@ nsresult nsHttpHandler::AddAcceptAndDictionaryHeaders(
       // aCallback will now be owned by GetDictionaryFor
       guard.release();
       mDictionaryCache->GetDictionaryFor(
-          aURI, aType, aAsync, aChan, aSuspend,
+          aURI, aType, aChan, aSuspend,
           [self = RefPtr(this), aRequest, aCallback](
               bool aNeedsResume, DictionaryCacheEntry* aDict) {
             if (!aDict) {
@@ -726,11 +726,7 @@ nsresult nsHttpHandler::AddAcceptAndDictionaryHeaders(
             }
             return NS_OK;
           });
-    } else {
-      aAsync = false;
     }
-  } else {
-    aAsync = false;
   }
   // guard may call aCallback here
   return rv;
@@ -738,7 +734,8 @@ nsresult nsHttpHandler::AddAcceptAndDictionaryHeaders(
 
 nsresult nsHttpHandler::AddStandardRequestHeaders(
     nsHttpRequestHead* request, nsIURI* aURI, bool aIsHTTPS,
-    ExtContentPolicyType aContentPolicyType, bool aShouldResistFingerprinting) {
+    ExtContentPolicyType aContentPolicyType, bool aShouldResistFingerprinting,
+    const nsCString& aLanguageOverride) {
   nsresult rv;
 
   // Add the "User-Agent" header
@@ -770,18 +767,26 @@ nsresult nsHttpHandler::AddStandardRequestHeaders(
                           nsHttpHeaderArray::eVarietyRequestOverride);
   if (NS_FAILED(rv)) return rv;
 
-  // Add the "Accept-Language" header.  This header is also exposed to the
-  // service worker.
-  if (mAcceptLanguagesIsDirty) {
-    rv = SetAcceptLanguages();
-    MOZ_ASSERT(NS_SUCCEEDED(rv));
-  }
-
-  // Add the "Accept-Language" header
-  if (!mAcceptLanguages.IsEmpty()) {
-    rv = request->SetHeader(nsHttp::Accept_Language, mAcceptLanguages, false,
+  if (!aLanguageOverride.IsEmpty()) {
+    nsAutoCString acceptLanguage;
+    acceptLanguage.Assign(aLanguageOverride.get());
+    rv = request->SetHeader(nsHttp::Accept_Language, acceptLanguage, false,
                             nsHttpHeaderArray::eVarietyRequestOverride);
     if (NS_FAILED(rv)) return rv;
+  } else {
+    // Add the "Accept-Language" header.  This header is also exposed to the
+    // service worker.
+    if (mAcceptLanguagesIsDirty) {
+      rv = SetAcceptLanguages();
+      MOZ_ASSERT(NS_SUCCEEDED(rv));
+    }
+
+    // Add the "Accept-Language" header
+    if (!mAcceptLanguages.IsEmpty()) {
+      rv = request->SetHeader(nsHttp::Accept_Language, mAcceptLanguages, false,
+                              nsHttpHeaderArray::eVarietyRequestOverride);
+      if (NS_FAILED(rv)) return rv;
+    }
   }
 
   // add the "Send Hint" header
@@ -1294,7 +1299,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
         if (gIOService->SocketProcessReady()) {
           RefPtr<SocketProcessParent> socketParent =
               SocketProcessParent::GetSingleton();
-          Unused << socketParent->SendUpdateDeviceModelId(mDeviceModelId);
+          (void)socketParent->SendUpdateDeviceModelId(mDeviceModelId);
         }
       }
     } else {
@@ -1487,7 +1492,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     if (NS_SUCCEEDED(rv)) {
       mBeConservativeForProxy = cVar;
       if (mConnMgr) {
-        Unused << mConnMgr->UpdateParam(
+        (void)mConnMgr->UpdateParam(
             nsHttpConnectionMgr::PROXY_BE_CONSERVATIVE,
             static_cast<int32_t>(mBeConservativeForProxy));
       }
@@ -1571,13 +1576,6 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     cVar = false;
     rv = Preferences::GetBool(BROWSER_PREF("disk_cache_ssl"), &cVar);
     if (NS_SUCCEEDED(rv)) mEnablePersistentHttpsCaching = cVar;
-  }
-
-  if (PREF_CHANGED(HTTP_PREF("phishy-userpass-length"))) {
-    rv = Preferences::GetInt(HTTP_PREF("phishy-userpass-length"), &val);
-    if (NS_SUCCEEDED(rv)) {
-      mPhishyUserPassLength = (uint8_t)std::clamp(val, 0, 0xff);
-    }
   }
 
   if (PREF_CHANGED(HTTP_PREF("http2.timeout"))) {
@@ -1688,8 +1686,8 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
   if (PREF_CHANGED(HTTP_PREF("throttle.enable"))) {
     rv = Preferences::GetBool(HTTP_PREF("throttle.enable"), &mThrottleEnabled);
     if (NS_SUCCEEDED(rv) && mConnMgr) {
-      Unused << mConnMgr->UpdateParam(nsHttpConnectionMgr::THROTTLING_ENABLED,
-                                      static_cast<int32_t>(mThrottleEnabled));
+      (void)mConnMgr->UpdateParam(nsHttpConnectionMgr::THROTTLING_ENABLED,
+                                  static_cast<int32_t>(mThrottleEnabled));
     }
   }
 
@@ -1697,8 +1695,8 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     rv = Preferences::GetInt(HTTP_PREF("throttle.suspend-for"), &val);
     mThrottleSuspendFor = (uint32_t)std::clamp(val, 0, 120000);
     if (NS_SUCCEEDED(rv) && mConnMgr) {
-      Unused << mConnMgr->UpdateParam(
-          nsHttpConnectionMgr::THROTTLING_SUSPEND_FOR, mThrottleSuspendFor);
+      (void)mConnMgr->UpdateParam(nsHttpConnectionMgr::THROTTLING_SUSPEND_FOR,
+                                  mThrottleSuspendFor);
     }
   }
 
@@ -1706,8 +1704,8 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     rv = Preferences::GetInt(HTTP_PREF("throttle.resume-for"), &val);
     mThrottleResumeFor = (uint32_t)std::clamp(val, 0, 120000);
     if (NS_SUCCEEDED(rv) && mConnMgr) {
-      Unused << mConnMgr->UpdateParam(
-          nsHttpConnectionMgr::THROTTLING_RESUME_FOR, mThrottleResumeFor);
+      (void)mConnMgr->UpdateParam(nsHttpConnectionMgr::THROTTLING_RESUME_FOR,
+                                  mThrottleResumeFor);
     }
   }
 
@@ -1715,8 +1713,8 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     rv = Preferences::GetInt(HTTP_PREF("throttle.hold-time-ms"), &val);
     mThrottleHoldTime = (uint32_t)std::clamp(val, 0, 120000);
     if (NS_SUCCEEDED(rv) && mConnMgr) {
-      Unused << mConnMgr->UpdateParam(nsHttpConnectionMgr::THROTTLING_HOLD_TIME,
-                                      mThrottleHoldTime);
+      (void)mConnMgr->UpdateParam(nsHttpConnectionMgr::THROTTLING_HOLD_TIME,
+                                  mThrottleHoldTime);
     }
   }
 
@@ -1724,24 +1722,24 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     rv = Preferences::GetInt(HTTP_PREF("throttle.max-time-ms"), &val);
     mThrottleMaxTime = (uint32_t)std::clamp(val, 0, 120000);
     if (NS_SUCCEEDED(rv) && mConnMgr) {
-      Unused << mConnMgr->UpdateParam(nsHttpConnectionMgr::THROTTLING_MAX_TIME,
-                                      mThrottleMaxTime);
+      (void)mConnMgr->UpdateParam(nsHttpConnectionMgr::THROTTLING_MAX_TIME,
+                                  mThrottleMaxTime);
     }
   }
 
   if (PREF_CHANGED(HTTP_PREF("send_window_size"))) {
-    Unused << Preferences::GetInt(HTTP_PREF("send_window_size"), &val);
+    (void)Preferences::GetInt(HTTP_PREF("send_window_size"), &val);
     mSendWindowSize = val >= 0 ? val : 0;
   }
 
   if (PREF_CHANGED(HTTP_PREF("on_click_priority"))) {
-    Unused << Preferences::GetBool(HTTP_PREF("on_click_priority"),
-                                   &mUrgentStartEnabled);
+    (void)Preferences::GetBool(HTTP_PREF("on_click_priority"),
+                               &mUrgentStartEnabled);
   }
 
   if (PREF_CHANGED(HTTP_PREF("tailing.enabled"))) {
-    Unused << Preferences::GetBool(HTTP_PREF("tailing.enabled"),
-                                   &mTailBlockingEnabled);
+    (void)Preferences::GetBool(HTTP_PREF("tailing.enabled"),
+                               &mTailBlockingEnabled);
   }
   if (PREF_CHANGED(HTTP_PREF("tailing.delay-quantum"))) {
     val = StaticPrefs::network_http_tailing_delay_quantum();
@@ -1939,9 +1937,8 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     }
   }
 
-  const bool imageAcceptPrefChanged = PREF_CHANGED("image.http.accept") ||
-                                      PREF_CHANGED("image.avif.enabled") ||
-                                      PREF_CHANGED("image.jxl.enabled");
+  const bool imageAcceptPrefChanged =
+      PREF_CHANGED("image.http.accept") || PREF_CHANGED("image.jxl.enabled");
 
   if (imageAcceptPrefChanged) {
     nsAutoCString userSetImageAcceptHeader;
@@ -2064,7 +2061,7 @@ static nsresult PrepareAcceptLanguages(const char* i_AcceptLanguages,
 void nsHttpHandler::PresetAcceptLanguages() {
   if (!gHttpHandler) {
     RefPtr<nsHttpHandler> handler = nsHttpHandler::GetInstance();
-    Unused << handler.get();
+    (void)handler.get();
   }
   [[maybe_unused]] nsresult rv = gHttpHandler->SetAcceptLanguages();
 }
@@ -2091,7 +2088,7 @@ nsresult nsHttpHandler::SetAcceptLanguages() {
   mAcceptLanguagesIsDirty = false;
 
   nsAutoCString acceptLanguages;
-  Preferences::GetLocalizedCString(INTL_ACCEPT_LANGUAGES, acceptLanguages);
+  intl::LocaleService::GetInstance()->GetAcceptLanguages(acceptLanguages);
 
   nsAutoCString buf;
   nsresult rv = PrepareAcceptLanguages(acceptLanguages.get(), buf);
@@ -2364,7 +2361,7 @@ nsHttpHandler::Observe(nsISupports* subject, const char* topic,
     nsCORSListenerProxy::ClearPrivateBrowsingCache();
   } else if (!strcmp(topic, "browser:purge-session-history")) {
     if (mConnMgr) {
-      Unused << mConnMgr->ClearConnectionHistory();
+      (void)mConnMgr->ClearConnectionHistory();
     }
     if (mAltSvcCache) {
       mAltSvcCache->ClearAltServiceMappings();
@@ -2425,9 +2422,15 @@ nsHttpHandler::Observe(nsISupports* subject, const char* topic,
   } else if (!strcmp(topic, "network:socket-process-crashed")) {
     ShutdownConnectionManager();
     mConnMgr = nullptr;
-    Unused << InitConnectionMgr();
+    (void)InitConnectionMgr();
+  } else if (!strcmp(topic, "idle-daily")) {
+    // Submit the local-network-access ping once per day
+    if (XRE_IsParentProcess()) {
+#if defined(EARLY_BETA_OR_EARLIER)  // Submit custom telemetry ping.
+      glean_pings::LocalNetworkAccess.Submit();
+#endif
+    }
   }
-
   return NS_OK;
 }
 
@@ -2547,7 +2550,7 @@ nsresult nsHttpHandler::SpeculativeConnectInternal(
         if (!neckoParent) {
           continue;
         }
-        Unused << neckoParent->SendSpeculativeConnectRequest();
+        (void)neckoParent->SendSpeculativeConnectRequest();
       }
     }
   }
@@ -2585,8 +2588,8 @@ nsHttpHandler::SpeculativeConnectWithOriginAttributesNative(
     nsIInterfaceRequestor* aCallbacks, bool aAnonymous) {
   Maybe<OriginAttributes> originAttributes;
   originAttributes.emplace(aOriginAttributes);
-  Unused << SpeculativeConnectInternal(
-      aURI, nullptr, std::move(originAttributes), aCallbacks, aAnonymous);
+  (void)SpeculativeConnectInternal(aURI, nullptr, std::move(originAttributes),
+                                   aCallbacks, aAnonymous);
 }
 
 void nsHttpHandler::TickleWifi(nsIInterfaceRequestor* cb) {
@@ -2786,7 +2789,7 @@ void nsHttpHandler::ExcludeHttp2OrHttp3Internal(
           HttpConnectionInfoCloneArgs connInfoArgs;
           nsHttpConnectionInfo::SerializeHttpConnectionInfo(cinfo,
                                                             connInfoArgs);
-          Unused << SocketProcessChild::GetSingleton()->SendExcludeHttp2OrHttp3(
+          (void)SocketProcessChild::GetSingleton()->SendExcludeHttp2OrHttp3(
               connInfoArgs);
         }));
   }
@@ -2863,7 +2866,7 @@ bool nsHttpHandler::IsHttp3SupportedByServer(
   }
 
   nsAutoCString altSvc;
-  Unused << aResponseHead->GetHeader(nsHttp::Alternate_Service, altSvc);
+  (void)aResponseHead->GetHeader(nsHttp::Alternate_Service, altSvc);
   if (altSvc.IsEmpty() || !nsHttp::IsReasonableHeaderValue(altSvc)) {
     return false;
   }
@@ -3091,7 +3094,7 @@ void nsHttpHandler::ObserveHttpActivityWithArgs(
     return;
   }
 
-  Unused << mActivityDistributor->ObserveActivityWithArgs(
+  (void)mActivityDistributor->ObserveActivityWithArgs(
       aArgs, aActivityType, aActivitySubtype, aTimestamp, aExtraSizeData,
       aExtraStringData);
 }

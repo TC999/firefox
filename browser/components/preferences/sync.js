@@ -4,6 +4,10 @@
 
 /* import-globals-from preferences.js */
 
+const { SCOPE_APP_SYNC } = ChromeUtils.importESModule(
+  "resource://gre/modules/FxAccountsCommon.sys.mjs"
+);
+
 const FXA_PAGE_LOGGED_OUT = 0;
 const FXA_PAGE_LOGGED_IN = 1;
 
@@ -19,7 +23,12 @@ const FXA_LOGIN_FAILED = 2;
 const SYNC_DISCONNECTED = 0;
 const SYNC_CONNECTED = 1;
 
-const BACKUP_UI_ENABLED_PREF = "browser.backup.preferences.ui.enabled";
+const BACKUP_ARCHIVE_ENABLED_PREF_NAME = "browser.backup.archive.enabled";
+const BACKUP_RESTORE_ENABLED_PREF_NAME = "browser.backup.restore.enabled";
+
+ChromeUtils.defineESModuleGetters(lazy, {
+  BackupService: "resource:///modules/backup/BackupService.sys.mjs",
+});
 
 var gSyncPane = {
   get page() {
@@ -39,8 +48,6 @@ var gSyncPane = {
       .getElementById("weavePrefsDeck")
       .removeAttribute("data-hidden-from-search");
 
-    this.updateBackupUIVisibility();
-
     // If the Service hasn't finished initializing, wait for it.
     let xps = Cc["@mozilla.org/weave/service;1"].getService(
       Ci.nsISupports
@@ -50,8 +57,6 @@ var gSyncPane = {
       this._init();
       return;
     }
-
-    this._addPrefObservers();
 
     // it may take some time before all the promises we care about resolve, so
     // pre-load what we can from synchronous sources.
@@ -74,6 +79,26 @@ var gSyncPane = {
     window.addEventListener("unload", onUnload);
 
     xps.ensureLoaded();
+  },
+
+  /**
+   * This method allows us to override any hidden states that were set
+   * during preferences.js init(). Currently, this is used to hide the
+   * backup section if backup is disabled.
+   *
+   * Take caution when trying to flip the hidden state to true since the
+   * element might show up unexpectedly on different pages in about:preferences
+   * since this function will run at the end of preferences.js init().
+   *
+   * See Bug 1999032 to remove this in favor of config-based prefs.
+   */
+  handlePrefControlledSection() {
+    let bs = lazy.BackupService.init();
+
+    if (!bs.archiveEnabledStatus.enabled && !bs.restoreEnabledStatus.enabled) {
+      document.getElementById("backupCategory").hidden = true;
+      document.getElementById("dataBackupGroup").hidden = true;
+    }
   },
 
   _showLoadPage() {
@@ -244,8 +269,31 @@ var gSyncPane = {
         document.getElementById("fxaCancelChangeDeviceName").click();
       }
     });
-    setEventListener("syncSetup", "command", function () {
-      this._chooseWhatToSync(false, "setupSync");
+    setEventListener("syncSetup", "command", async function () {
+      // Check if the user has sync keys before opening CWTS
+      try {
+        const hasKeys = await fxAccounts.keys.hasKeysForScope(SCOPE_APP_SYNC);
+        if (hasKeys) {
+          // User has keys - open the choose what to sync dialog
+          this._chooseWhatToSync(false, "setupSync");
+        } else {
+          // User signed in via third-party auth without sync keys.
+          // Redirect to FxA to create a password and generate sync keys.
+          // canConnectAccount() checks if the Primary Password is locked and
+          // prompts the user to unlock it. Returns false if the user cancels.
+          if (!(await FxAccounts.canConnectAccount())) {
+            return;
+          }
+          const url = await FxAccounts.config.promiseConnectAccountURI(
+            this._getEntryPoint()
+          );
+          this.replaceTabWithUrl(url);
+        }
+      } catch (err) {
+        console.error("Failed to check for sync keys", err);
+        // Fallback to opening CWTS dialog
+        this._chooseWhatToSync(false, "setupSync");
+      }
     });
     setEventListener("syncChangeOptions", "command", function () {
       this._chooseWhatToSync(true, "manageSyncSettings");
@@ -290,43 +338,6 @@ var gSyncPane = {
       syncConfiguredEl.hidden = true;
       syncNotConfiguredEl.hidden = false;
     }
-  },
-
-  updateBackupUIVisibility() {
-    const isBackupUIEnabled = Services.prefs.getBoolPref(
-      BACKUP_UI_ENABLED_PREF,
-      false
-    );
-
-    let dataBackupSectionEl = document.getElementById("dataBackupSection");
-
-    dataBackupSectionEl.toggleAttribute(
-      "data-hidden-from-search",
-      !isBackupUIEnabled
-    );
-
-    let dataBackupGroupEl = document.getElementById("dataBackupGroup");
-    let backupGroupHeaderEl = document.getElementById("backupCategory");
-
-    dataBackupGroupEl.hidden = !isBackupUIEnabled;
-    backupGroupHeaderEl.hidden = !isBackupUIEnabled;
-  },
-
-  _addPrefObservers() {
-    Services.prefs.addObserver(
-      BACKUP_UI_ENABLED_PREF,
-      this.updateBackupUIVisibility
-    );
-
-    window.addEventListener(
-      "unload",
-      () =>
-        Services.prefs.removeObserver(
-          BACKUP_UI_ENABLED_PREF,
-          this.updateBackupUIVisibility
-        ),
-      { once: true }
-    );
   },
 
   async _chooseWhatToSync(isSyncConfigured, why = null) {
@@ -537,9 +548,10 @@ var gSyncPane = {
   /**
    * Attempts to take the user through the sign in flow by opening the web content
    * with the given entrypoint as a query parameter
+   *
    * @param entrypoint: An string appended to the query parameters, used in telemtry to differentiate
    * different entrypoints to accounts
-   * */
+   */
   async reSignIn(entrypoint) {
     const url = await FxAccounts.config.promiseConnectAccountURI(entrypoint);
     this.replaceTabWithUrl(url);

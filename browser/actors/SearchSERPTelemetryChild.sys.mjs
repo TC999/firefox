@@ -210,7 +210,7 @@ class ListenerHelper {
    * @param {EventListenerParam} eventListenerParam
    * @param {string} target
    * @param {Function} callback
-   * @returns {Array<function>} Array of remove event listener functions.
+   * @returns {Array<Function>} Array of remove event listener functions.
    */
   static addListener(elements, eventListenerParam, target, callback) {
     let { action, eventType, target: customTarget } = eventListenerParam;
@@ -751,7 +751,6 @@ class SearchAdImpression {
    * count because the parent used `countChildren` completed the calculation in a
    * previous step.
    *
-   *
    * @param {HTMLAnchorElement} anchor
    *  The anchor to be inspected.
    * @returns {object | null}
@@ -1285,7 +1284,8 @@ class DomainExtractor {
     }
   }
 
-  /* Given a list of elements, examine the text content for each element, which
+  /**
+   * Given a list of elements, examine the text content for each element, which
    * may be 1) a URL from which we can extract a domain or 2) text we can fix
    * up to create a best guess as to a URL. If either condition is met, we add
    * the domain to the result set.
@@ -1432,7 +1432,7 @@ export class SearchSERPTelemetryChild extends JSWindowActorChild {
    * the information associated with that provider.
    *
    * @param {string} url The url to check
-   * @returns {array|null} Returns null if there's no match, otherwise an array
+   * @returns {Array | null} Returns null if there's no match, otherwise an array
    *   of provider name and the provider information.
    */
   _getProviderInfoForUrl(url) {

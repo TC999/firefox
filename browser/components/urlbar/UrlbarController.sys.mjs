@@ -14,14 +14,15 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   ExtensionUtils: "resource://gre/modules/ExtensionUtils.sys.mjs",
   Interactions: "moz-src:///browser/components/places/Interactions.sys.mjs",
+  SearchbarProvidersManager:
+    "moz-src:///browser/components/urlbar/UrlbarProvidersManager.sys.mjs",
   UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
   UrlbarProviderSemanticHistorySearch:
     "moz-src:///browser/components/urlbar/UrlbarProviderSemanticHistorySearch.sys.mjs",
   UrlbarProvidersManager:
     "moz-src:///browser/components/urlbar/UrlbarProvidersManager.sys.mjs",
-  UrlbarTokenizer:
-    "moz-src:///browser/components/urlbar/UrlbarTokenizer.sys.mjs",
   UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
+  UrlUtils: "resource://gre/modules/UrlUtils.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "logger", () =>
@@ -89,7 +90,11 @@ export class UrlbarController {
     /**
      * @type {ProvidersManager}
      */
-    this.manager = options.manager || lazy.UrlbarProvidersManager;
+    this.manager =
+      options.manager ||
+      (this.input.sapName == "searchbar"
+        ? lazy.SearchbarProvidersManager
+        : lazy.UrlbarProvidersManager);
 
     this._listeners = new Set();
     this._userSelectionBehavior = "none";
@@ -322,12 +327,17 @@ export class UrlbarController {
       }
 
       let { queryContext } = this._lastQueryContextWrapper;
-      let handled = this.view.oneOffSearchButtons?.handleKeyDown(
-        event,
-        this.view.visibleRowCount,
-        this.view.allowEmptySelection,
-        queryContext.searchString
-      );
+      let handled = false;
+      if (lazy.UrlbarPrefs.get("scotchBonnet.enableOverride")) {
+        handled = this.input.searchModeSwitcher.handleKeyDown(event);
+      } else {
+        handled = this.view.oneOffSearchButtons?.handleKeyDown(
+          event,
+          this.view.visibleRowCount,
+          this.view.allowEmptySelection,
+          queryContext.searchString
+        );
+      }
       if (handled) {
         return;
       }
@@ -391,14 +401,14 @@ export class UrlbarController {
             // Button. Then make urlbar results selectable by tab + shift.
             event.preventDefault();
             this.view.selectedRowIndex = -1;
-            this.#focusOnUnifiedSearchButton();
+            this.focusOnUnifiedSearchButton();
             break;
           } else if (
             !this.view.selectedElement &&
             this.input.focusedViaMousedown
           ) {
             if (event.shiftKey) {
-              this.#focusOnUnifiedSearchButton();
+              this.focusOnUnifiedSearchButton();
             } else {
               this.view.selectBy(1, {
                 userPressedTab: true,
@@ -556,7 +566,8 @@ export class UrlbarController {
           if (result.type == lazy.UrlbarUtils.RESULT_TYPE.SEARCH) {
             // Speculative connect only if search suggestions are enabled.
             if (
-              lazy.UrlbarPrefs.get("suggest.searches") &&
+              (lazy.UrlbarPrefs.get("suggest.searches") ||
+                context.sapName == "searchbar") &&
               lazy.UrlbarPrefs.get("browser.search.suggest.enabled")
             ) {
               let engine = Services.search.getEngineByName(
@@ -719,7 +730,7 @@ export class UrlbarController {
     }
   }
 
-  #focusOnUnifiedSearchButton() {
+  focusOnUnifiedSearchButton() {
     this.input.setUnifiedSearchButtonAvailability(true);
 
     /** @type {HTMLElement} */
@@ -727,11 +738,11 @@ export class UrlbarController {
     // Set tabindex to be focusable.
     switcher.setAttribute("tabindex", "-1");
     // Remove blur listener to avoid closing urlbar view panel.
-    this.input.removeEventListener("blur", this.input);
+    this.input.inputField.removeEventListener("blur", this.input);
     // Move the focus.
     switcher.focus();
     // Restore all.
-    this.input.addEventListener("blur", this.input);
+    this.input.inputField.addEventListener("blur", this.input);
     switcher.addEventListener(
       "blur",
       /** @type {(e: FocusEvent) => void} */
@@ -741,7 +752,7 @@ export class UrlbarController {
         let relatedTarget = /** @type {HTMLElement} */ (e.relatedTarget);
         if (
           this.input.hasAttribute("focused") &&
-          !relatedTarget?.closest("#urlbar")
+          !this.input.contains(relatedTarget)
         ) {
           // If the focus is not back to urlbar, fire blur event explicitly to
           // clear the urlbar. Because the input field has been losing an
@@ -1517,7 +1528,7 @@ class TelemetryEvent {
     let searchWords = searchString
       .substring(0, lazy.UrlbarUtils.MAX_TEXT_LENGTH)
       .trim()
-      .split(lazy.UrlbarTokenizer.REGEXP_SPACES)
+      .split(lazy.UrlUtils.REGEXP_SPACES)
       .filter(t => t);
     let numWords = searchWords.length.toString();
 
@@ -1619,32 +1630,50 @@ class TelemetryEvent {
 
   #PING_PREFS = {
     maxRichResults: Glean.urlbar.prefMaxResults,
-    "quicksuggest.dataCollection.enabled":
-      Glean.urlbar.prefSuggestDataCollection,
-    "suggest.quicksuggest.nonsponsored": Glean.urlbar.prefSuggestNonsponsored,
+    "quicksuggest.online.available": Glean.urlbar.prefSuggestOnlineAvailable,
+    "quicksuggest.online.enabled": Glean.urlbar.prefSuggestOnlineEnabled,
+    "suggest.quicksuggest.all": Glean.urlbar.prefSuggestAll,
     "suggest.quicksuggest.sponsored": Glean.urlbar.prefSuggestSponsored,
     "suggest.topsites": Glean.urlbar.prefSuggestTopsites,
   };
 
+  // Used to record telemetry for prefs that are fallbacks for Nimbus variables.
+  // `onNimbusChanged` is called for these variables rather than `onPrefChanged`
+  // but we want to record telemetry as if the prefs themselves changed. This
+  // object maps Nimbus variable names to their fallback prefs.
+  #PING_NIMBUS_VARIABLES = {
+    quickSuggestOnlineAvailable: "quicksuggest.online.available",
+  };
+
   #readPingPrefs() {
     for (const p of Object.keys(this.#PING_PREFS)) {
-      this.onPrefChanged(p);
+      this.#recordPref(p);
     }
   }
 
-  onPrefChanged(pref) {
+  #recordPref(pref, newValue = undefined) {
     const metric = this.#PING_PREFS[pref];
-    const prefValue = lazy.UrlbarPrefs.get(pref);
+    const prefValue = newValue ?? lazy.UrlbarPrefs.get(pref);
     if (metric) {
       metric.set(prefValue);
     }
     switch (pref) {
-      case "suggest.quicksuggest.nonsponsored":
+      case "suggest.quicksuggest.all":
       case "suggest.quicksuggest.sponsored":
       case "quicksuggest.enabled":
         if (!prefValue) {
           this.handleDisableSuggest();
         }
+    }
+  }
+
+  onPrefChanged(pref) {
+    this.#recordPref(pref);
+  }
+
+  onNimbusChanged(name, newValue) {
+    if (this.#PING_NIMBUS_VARIABLES.hasOwnProperty(name)) {
+      this.#recordPref(this.#PING_NIMBUS_VARIABLES[name], newValue);
     }
   }
 

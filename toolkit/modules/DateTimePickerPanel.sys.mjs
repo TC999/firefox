@@ -76,10 +76,7 @@ export var DateTimePickerPanel = class {
     this.pickerState = {};
     this.type = undefined;
     this.dateTimePopupFrame.removeEventListener("load", this, true);
-    this.dateTimePopupFrame.contentDocument.removeEventListener(
-      "message",
-      this
-    );
+    this.dateTimePopupFrame.contentWindow.removeEventListener("message", this);
     this.dateTimePopupFrame.setAttribute("src", "");
     this.element.hidePopup();
   }
@@ -163,7 +160,7 @@ export var DateTimePickerPanel = class {
   }
 
   /**
-   * @param {Boolean} passAllValues: Pass spinner values regardless if they've been set/changed or not
+   * @param {boolean} passAllValues: Pass spinner values regardless if they've been set/changed or not
    */
   setInputBoxValue(passAllValues) {
     const value = {

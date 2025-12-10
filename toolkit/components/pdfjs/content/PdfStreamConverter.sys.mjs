@@ -42,13 +42,13 @@ XPCOMUtils.defineLazyServiceGetter(
   Svc,
   "mime",
   "@mozilla.org/mime;1",
-  "nsIMIMEService"
+  Ci.nsIMIMEService
 );
 XPCOMUtils.defineLazyServiceGetter(
   Svc,
   "handlers",
   "@mozilla.org/uriloader/handler-service;1",
-  "nsIHandlerService"
+  Ci.nsIHandlerService
 );
 
 ChromeUtils.defineLazyGetter(lazy, "gOurBinary", () => {
@@ -501,6 +501,11 @@ class ChromeActions {
     actor?.sendAsyncMessage("PDFJS:Parent:reportTelemetry", data);
   }
 
+  reportText(data) {
+    const actor = getActor(this.domWindow);
+    actor?.sendAsyncMessage("PDFJS:Parent:reportText", data);
+  }
+
   updateFindControlState(data) {
     if (!this.supportsIntegratedFind()) {
       return;
@@ -611,7 +616,8 @@ class ChromeActions {
   /**
    * Set the different editor states in order to be able to update the context
    * menu.
-   * @param {Object} details
+   *
+   * @param {object} details
    */
   updateEditorStates({ details }) {
     const doc = this.domWindow.document;

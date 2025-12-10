@@ -5,14 +5,11 @@
 #ifndef CanvasRenderingContext2D_h
 #define CanvasRenderingContext2D_h
 
-#include <vector>
-
 #include "FilterDescription.h"
 #include "gfx2DGlue.h"
 #include "gfxFontConstants.h"
 #include "gfxTextRun.h"
 #include "gfxUtils.h"
-#include "mozilla/Atomics.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/EnumeratedArray.h"
 #include "mozilla/Maybe.h"
@@ -623,7 +620,7 @@ class CanvasRenderingContext2D : public nsICanvasRenderingContextInternal,
                     nsACString& aNormalized);
 
   already_AddRefed<const ComputedStyle> ResolveStyleForProperty(
-      nsCSSPropertyID aProperty, const nsACString& aValue);
+      NonCustomCSSPropertyId aProperty, const nsACString& aValue);
 
   nsresult GetImageDataArray(JSContext* aCx, int32_t aX, int32_t aY,
                              uint32_t aWidth, uint32_t aHeight,

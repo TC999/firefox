@@ -13,7 +13,6 @@
 #include "SVGAttrTearoffTable.h"
 #include "SVGOrientSMILType.h"
 #include "mozAutoDocUpdate.h"
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/SMILValue.h"
 #include "mozilla/dom/SVGMarkerElement.h"
@@ -27,14 +26,14 @@ using namespace mozilla::dom::SVGMarkerElement_Binding;
 
 namespace mozilla {
 
-MOZ_CONSTINIT static SVGAttrTearoffTable<SVGAnimatedOrient,
-                                         DOMSVGAnimatedEnumeration>
+constinit static SVGAttrTearoffTable<SVGAnimatedOrient,
+                                     DOMSVGAnimatedEnumeration>
     sSVGAnimatedEnumTearoffTable;
-MOZ_CONSTINIT static SVGAttrTearoffTable<SVGAnimatedOrient, DOMSVGAnimatedAngle>
+constinit static SVGAttrTearoffTable<SVGAnimatedOrient, DOMSVGAnimatedAngle>
     sSVGAnimatedAngleTearoffTable;
-MOZ_CONSTINIT static SVGAttrTearoffTable<SVGAnimatedOrient, DOMSVGAngle>
+constinit static SVGAttrTearoffTable<SVGAnimatedOrient, DOMSVGAngle>
     sBaseSVGAngleTearoffTable;
-MOZ_CONSTINIT static SVGAttrTearoffTable<SVGAnimatedOrient, DOMSVGAngle>
+constinit static SVGAttrTearoffTable<SVGAnimatedOrient, DOMSVGAngle>
     sAnimSVGAngleTearoffTable;
 
 /* Helper functions */

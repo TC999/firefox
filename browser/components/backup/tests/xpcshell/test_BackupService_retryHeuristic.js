@@ -4,10 +4,8 @@ https://creativecommons.org/publicdomain/zero/1.0/ */
 "use strict";
 
 ChromeUtils.defineESModuleGetters(this, {
-  setTimeout: "resource://gre/modules/Timer.sys.mjs",
   BackupError: "resource:///modules/backup/BackupError.mjs",
   ERRORS: "chrome://browser/content/backup/backup-constants.mjs",
-  AppConstants: "resource://gre/modules/AppConstants.sys.mjs",
 });
 
 const BACKUP_RETRY_LIMIT_PREF_NAME = "browser.backup.backup-retry-limit";
@@ -21,18 +19,20 @@ const BACKUP_DEBUG_INFO_PREF_NAME = "browser.backup.backup-debug-info";
 const BACKUP_DEFAULT_LOCATION_PREF_NAME = "browser.backup.location";
 
 function bsInProgressStateUpdate(bs, isBackupInProgress) {
+  // Check if already in desired state
+  if (bs.state.backupInProgress === isBackupInProgress) {
+    return Promise.resolve();
+  }
+
   return new Promise(resolve => {
-    bs.addEventListener(
-      "BackupService:StateUpdate",
-      () => {
-        if (bs.state.backupInProgress == isBackupInProgress) {
-          resolve();
-        } else {
-          Assert.ok(false, "Failure in waiting for state updates");
-        }
-      },
-      { once: true }
-    );
+    const listener = () => {
+      if (bs.state.backupInProgress === isBackupInProgress) {
+        bs.removeEventListener("BackupService:StateUpdate", listener);
+        resolve();
+      }
+    };
+
+    bs.addEventListener("BackupService:StateUpdate", listener);
   });
 }
 
@@ -63,6 +63,8 @@ add_setup(async () => {
 });
 
 add_task(async function test_retry_limit() {
+  Services.fog.testResetFOG();
+
   let bs = new BackupService();
   let sandbox = sinon.createSandbox();
   // Make createBackup fail intentionally
@@ -81,7 +83,7 @@ add_task(async function test_retry_limit() {
     // ensure that there is no error code set
     Services.prefs.setIntPref(BACKUP_ERROR_CODE_PREF_NAME, ERRORS.NONE);
 
-    bs.createBackupOnIdleDispatch();
+    bs.createBackupOnIdleDispatch({});
 
     // #backupInProgress is set to true
     await bsInProgressStateUpdate(bs, true);
@@ -101,11 +103,27 @@ add_task(async function test_retry_limit() {
       ERRORS.UNKNOWN,
       "Error code has been set"
     );
+
+    if (i < n) {
+      Assert.equal(
+        Glean.browserBackup.backupThrottled.testGetValue(),
+        null,
+        "backupThrottled telemetry was not sent yet"
+      );
+    } else {
+      // On this call, createBackup _was_ called, but the next call will be
+      // ignored. However, the telemetry ping is sent now.
+      Assert.equal(
+        Glean.browserBackup.backupThrottled.testGetValue().length,
+        1,
+        "backupThrottled telemetry was sent"
+      );
+    }
   }
   // check if it switched to no longer creating backups on idle
   const previousCalls = bs.createBackup.callCount;
 
-  bs.createBackupOnIdleDispatch();
+  bs.createBackupOnIdleDispatch({});
 
   // wait a tick for the pref to update
   await new Promise(executeSoon);
@@ -120,6 +138,7 @@ add_task(async function test_retry_limit() {
     "Disable on idle has been enabled"
   );
 
+  Services.fog.testResetFOG();
   Services.prefs.setIntPref(MINIMUM_TIME_BETWEEN_BACKUPS_SECONDS_PREF_NAME, 0);
   registerCleanupFunction(() => {
     Services.prefs.clearUserPref(
@@ -131,7 +150,7 @@ add_task(async function test_retry_limit() {
   // eslint-disable-next-line mozilla/no-arbitrary-setTimeout
   await new Promise(resolve => setTimeout(resolve, 10));
 
-  bs.createBackupOnIdleDispatch();
+  bs.createBackupOnIdleDispatch({});
 
   // #backupInProgress is set to true
   await bsInProgressStateUpdate(bs, true);
@@ -140,6 +159,12 @@ add_task(async function test_retry_limit() {
     bs.createBackup.callCount,
     previousCalls + 1,
     "createBackup was called again"
+  );
+
+  Assert.equal(
+    Glean.browserBackup.backupThrottled.testGetValue(),
+    null,
+    "backupThrottled telemetry was not sent after resuming backups"
   );
 
   // #backupInProgress is set to false

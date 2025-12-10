@@ -4,6 +4,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 use neqo_common::qwarn;
 use neqo_crypto::Error as CryptoError;
 use thiserror::Error;
@@ -47,6 +49,7 @@ pub mod send_stream;
 mod sender;
 pub mod server;
 mod sni;
+mod stateless_reset;
 mod stats;
 pub mod stream_id;
 pub mod streams;
@@ -61,16 +64,20 @@ pub use self::{
         EmptyConnectionIdGenerator, RandomConnectionIdGenerator,
     },
     connection::{
-        params::ConnectionParameters, Connection, Output, OutputBatch, State, ZeroRttState,
+        params::{
+            ConnectionParameters, INITIAL_LOCAL_MAX_DATA, INITIAL_LOCAL_MAX_STREAM_DATA,
+            MAX_LOCAL_MAX_STREAM_DATA,
+        },
+        Connection, Output, OutputBatch, State, ZeroRttState,
     },
     events::{ConnectionEvent, ConnectionEvents},
     frame::CloseError,
     packet::MIN_INITIAL_PACKET_SIZE,
     pmtud::Pmtud,
     quic_datagrams::DatagramTracking,
-    recv_stream::INITIAL_RECV_WINDOW_SIZE,
     rtt::DEFAULT_INITIAL_RTT,
     sni::find_sni,
+    stateless_reset::Token,
     stats::Stats,
     stream_id::{StreamId, StreamType},
     version::Version,
@@ -251,7 +258,7 @@ pub enum CloseReason {
 
 impl CloseReason {
     /// Checks enclosed error for [`Error::None`] and
-    /// [`CloseReason::Application(0)`].
+    /// [`CloseReason::Application`] with code `0`.
     #[must_use]
     pub const fn is_error(&self) -> bool {
         !matches!(self, Self::Transport(Error::None) | Self::Application(0),)

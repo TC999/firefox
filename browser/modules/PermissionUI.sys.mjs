@@ -78,13 +78,13 @@ XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "IDNService",
   "@mozilla.org/network/idn-service;1",
-  "nsIIDNService"
+  Ci.nsIIDNService
 );
 XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "ContentPrefService2",
   "@mozilla.org/content-pref/service;1",
-  "nsIContentPrefService2"
+  Ci.nsIContentPrefService2
 );
 
 ChromeUtils.defineLazyGetter(lazy, "gBrandBundle", function () {
@@ -736,7 +736,7 @@ class SitePermsAddonInstallRequest extends PermissionPromptForRequest {
    * This should be overriden by children classes.
    *
    * @param {Components.Exception} err
-   * @returns {String} The error message
+   * @returns {string} The error message
    */
   getInstallErrorMessage() {
     return null;
@@ -1069,9 +1069,10 @@ class LocalHostPermissionPrompt extends PermissionPromptForRequest {
   }
 
   get message() {
-    return lazy.gBrowserBundle.formatStringFromName("localhost.allowWithSite", [
-      "<>",
-    ]);
+    return lazy.gBrowserBundle.formatStringFromName(
+      "localhost.allowWithSite2",
+      ["<>"]
+    );
   }
 
   get promptActions() {
@@ -1294,7 +1295,7 @@ class LocalNetworkPermissionPrompt extends PermissionPromptForRequest {
 
   get message() {
     return lazy.gBrowserBundle.formatStringFromName(
-      "localNetwork.allowWithSite",
+      "localNetwork.allowWithSite2",
       ["<>"]
     );
   }
@@ -1507,7 +1508,7 @@ class MIDIPermissionPrompt extends SitePermsAddonInstallRequest {
   /**
    * @override
    * @param {Components.Exception} err
-   * @returns {String}
+   * @returns {string}
    */
   getInstallErrorMessage(err) {
     return `WebMIDI access request was denied: ❝${err.message}❞. See https://developer.mozilla.org/docs/Web/API/Navigator/requestMIDIAccess for more information`;

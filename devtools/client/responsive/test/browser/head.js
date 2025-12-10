@@ -343,14 +343,14 @@ function dragElementBy(selector, x, y, ui) {
  *
  * @param {ResponsiveUI} ui
  *        The ResponsiveUI instance.
- * @param {String} selector
+ * @param {string} selector
  *        The css selector of the resize handler, eg .viewport-horizontal-resize-handle.
  * @param {Array<number>} moveBy
  *        Array of 2 integers representing the x,y distance of the resize action.
  * @param {Array<number>} moveBy
  *        Array of 2 integers representing the actual resize performed.
- * @param {Object} options
- * @param {Boolean} options.hasDevice
+ * @param {object} options
+ * @param {boolean} options.hasDevice
  *        Whether a device is currently set and will be overridden by the resize
  */
 async function testViewportResize(
@@ -951,8 +951,8 @@ async function waitForDeviceAndViewportState(ui) {
  *        The ResponsiveUI instance.
  * @param {Integer} expected
  *        The expected dpr for the content page.
- * @param {Object} options
- * @param {Boolean} options.waitForTargetConfiguration
+ * @param {object} options
+ * @param {boolean} options.waitForTargetConfiguration
  *        If set to true, the function will wait for the targetConfigurationCommand configuration
  *        to reflect the ratio that was set. This can be used to prevent pending requests
  *        to the actor.
@@ -1002,33 +1002,4 @@ async function waitForDevicePixelRatio(
   }
 
   return dpx;
-}
-
-async function moveMouse(x, y) {
-  info(`Moving mouse to (${x}, ${y})`);
-  await BrowserTestUtils.synthesizeMouse(
-    "html",
-    x,
-    y,
-    { type: "mousemove", isSynthesized: false },
-    gBrowser.selectedBrowser
-  );
-}
-
-async function openEyeDropper(inspector, highlighterTestFront) {
-  info("Opening the eyedropper");
-  const toggleButton = inspector.panelDoc.querySelector(
-    "#inspector-eyedropper-toggle"
-  );
-  toggleButton.click();
-  await TestUtils.waitForCondition(() =>
-    highlighterTestFront.isEyeDropperVisible()
-  );
-}
-
-async function waitForEyedropperColor(highlighterTestFront, expectedColor) {
-  await waitFor(async () => {
-    const color = await highlighterTestFront.getEyeDropperColorValue();
-    return color === expectedColor;
-  }, `Wait for the eyedropper color to be ${expectedColor}`);
 }

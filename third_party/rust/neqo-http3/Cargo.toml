@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.81.0"
 name = "neqo-http3"
-version = "0.16.1"
+version = "0.20.0"
 authors = ["The Neqo Authors <necko@mozilla.com>"]
 build = false
 autolib = false
@@ -39,6 +39,9 @@ categories = [
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/mozilla/neqo/"
 
+[package.metadata.bench.streams.codspeed]
+mode = "walltime"
+
 [package.metadata.cargo-machete]
 ignored = [
     "criterion",
@@ -51,12 +54,13 @@ bench = [
     "neqo-crypto/bench",
     "neqo-qpack/bench",
     "neqo-transport/bench",
+    "log/release_max_level_info",
 ]
 disable-encryption = [
     "neqo-transport/disable-encryption",
     "neqo-crypto/disable-encryption",
 ]
-draft-29 = []
+draft-29 = ["neqo-transport/draft-29"]
 
 [lib]
 name = "neqo_http3"
@@ -74,6 +78,10 @@ path = "tests/connect_udp.rs"
 [[test]]
 name = "httpconn"
 path = "tests/httpconn.rs"
+
+[[test]]
+name = "non_ascii_headers"
+path = "tests/non_ascii_headers.rs"
 
 [[test]]
 name = "priority"
@@ -142,16 +150,12 @@ features = ["std"]
 default-features = false
 
 [dev-dependencies.criterion]
-version = "0.6"
-features = ["cargo_bench_support"]
+version = "4"
 default-features = false
+package = "codspeed-criterion-compat"
 
 [dev-dependencies.neqo-http3]
 path = "."
-features = ["draft-29"]
-
-[dev-dependencies.neqo-transport]
-path = "./../neqo-transport"
 features = ["draft-29"]
 
 [dev-dependencies.test-fixture]
@@ -181,6 +185,7 @@ literal_string_with_formatting_args = "allow"
 lossy_float_literal = "warn"
 map_with_unused_argument_over_ranges = "warn"
 mem_forget = "warn"
+missing_asserts_for_indexing = "warn"
 mixed_read_write_in_expression = "warn"
 module_name_repetitions = "warn"
 multiple_crate_versions = "allow"
@@ -188,6 +193,8 @@ multiple_inherent_impl = "warn"
 mutex_atomic = "warn"
 mutex_integer = "warn"
 needless_raw_strings = "warn"
+non_ascii_literal = "warn"
+non_zero_suggestions = "warn"
 partial_pub_fields = "warn"
 pathbuf_init_then_push = "warn"
 precedence_bits = "warn"
@@ -240,3 +247,8 @@ unused_import_braces = "warn"
 unused_lifetimes = "warn"
 unused_macro_rules = "warn"
 unused_qualifications = "warn"
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = ["cfg(coverage,coverage_nightly,fuzzing)"]

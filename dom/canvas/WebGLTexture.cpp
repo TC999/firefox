@@ -18,14 +18,13 @@
 #include "mozilla/IntegerRange.h"
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/ScopeExit.h"
-#include "mozilla/Unused.h"
 #include "mozilla/dom/WebGLRenderingContextBinding.h"
 #include "mozilla/gfx/Logging.h"
 
 namespace mozilla {
 namespace webgl {
 
-MOZ_CONSTINIT /*static*/ const ImageInfo ImageInfo::kUndefined;
+constinit /*static*/ const ImageInfo ImageInfo::kUndefined;
 
 size_t ImageInfo::MemoryUsage() const {
   if (!IsDefined()) return 0;

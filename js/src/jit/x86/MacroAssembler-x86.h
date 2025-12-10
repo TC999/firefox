@@ -918,6 +918,11 @@ class MacroAssemblerX86 : public MacroAssemblerX86Shared {
   void unboxGCThingForGCBarrier(const Address& src, Register dest) {
     movl(payloadOf(src), dest);
   }
+  void unboxGCThingForGCBarrier(const ValueOperand& src, Register dest) {
+    if (src.payloadReg() != dest) {
+      movl(src.payloadReg(), dest);
+    }
+  }
 
   void unboxWasmAnyRefGCThingForGCBarrier(const Address& src, Register dest) {
     movl(ImmWord(wasm::AnyRef::GCThingMask), dest);
@@ -1062,7 +1067,13 @@ class MacroAssemblerX86 : public MacroAssemblerX86Shared {
                      FloatRegister dest);
   void vmulpdSimd128(const SimdConstant& v, FloatRegister lhs,
                      FloatRegister dest);
+  void vandpsSimd128(const SimdConstant& v, FloatRegister lhs,
+                     FloatRegister dest);
   void vandpdSimd128(const SimdConstant& v, FloatRegister lhs,
+                     FloatRegister dest);
+  void vxorpsSimd128(const SimdConstant& v, FloatRegister lhs,
+                     FloatRegister dest);
+  void vxorpdSimd128(const SimdConstant& v, FloatRegister lhs,
                      FloatRegister dest);
   void vminpdSimd128(const SimdConstant& v, FloatRegister lhs,
                      FloatRegister dest);

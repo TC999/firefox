@@ -155,7 +155,7 @@ class SitePackagesSource(enum.Enum):
         )
 
 
-class MozSiteMetadata:
+class MozSiteMetadata:  # noqa PLW1641
     """Details about a Moz-managed python site
 
     When a Moz-managed site is active, its associated metadata is available
@@ -761,8 +761,10 @@ class CommandSiteManager:
                 f'Failed to install "{path}" into the "{self._site_name}" site.'
             )
 
+        check_errors: str = "\n"  # save output when check fails
         check_result = subprocess.run(
             pip_command(python_executable=self.python_path, subcommand="check"),
+            check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -770,6 +772,8 @@ class CommandSiteManager:
 
         if not check_result.returncode:
             return
+        else:
+            check_errors += "\n" + check_result.stdout
 
         """
         Some commands may use the "setup.py" script of first-party modules. This causes
@@ -822,12 +826,15 @@ class CommandSiteManager:
 
         check_result = subprocess.run(
             pip_command(python_executable=self.python_path, subcommand="check"),
+            check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
         )
 
         if check_result.returncode:
+            if check_result.stdout not in check_errors:
+                check_errors += "\n" + check_result.stdout
             if quiet:
                 # If "quiet" was specified, then the "pip install" output wasn't printed
                 # earlier, and was buffered instead. Print that buffer so that debugging
@@ -846,7 +853,7 @@ class CommandSiteManager:
             raise InstallPipRequirementsException(
                 f'As part of validation after installing "{path}" into the '
                 f'"{self._site_name}" site, the site appears to contain installed '
-                "packages that are incompatible with each other."
+                "packages that are incompatible with each other." + check_errors
             )
 
     def _pthfile_lines(self):
@@ -1073,12 +1080,13 @@ class PythonVirtualenv:
         # self.python_path. However, this seems more risk than it's worth.
 
         try:
-            install_result = subprocess.run(
+            install_result = subprocess.run(  # noqa PLW1510
                 pip_command(
                     python_executable=self.python_path,
                     subcommand="install",
                     args=pip_install_args,
                 ),
+                check=kwargs.pop("check", True),
                 **kwargs,
             )
         except subprocess.CalledProcessError as cpe:
@@ -1295,7 +1303,7 @@ def resolve_requirements(topsrcdir, site_name):
             f"https://docs.astral.sh/uv/guides/install-python/"
         )
 
-        exit(1)
+        sys.exit(1)
 
     return requirements
 
@@ -1376,6 +1384,7 @@ def _assert_pip_check(pthfile_lines, virtualenv_name, requirements):
         # changes recently).
         process = subprocess.run(
             [sys.executable, "-m", "venv", "--without-pip", check_env_path],
+            check=False,
             capture_output=True,
             encoding="UTF-8",
         )
@@ -1422,6 +1431,7 @@ def _assert_pip_check(pthfile_lines, virtualenv_name, requirements):
 
         check_result = subprocess.run(
             pip + ["check"],
+            check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -1487,6 +1497,7 @@ def _create_venv_with_pthfile(
 
     process = subprocess.run(
         [sys.executable, "-m", "venv", "--without-pip", virtualenv_root],
+        check=False,
         capture_output=True,
         encoding="UTF-8",
     )
@@ -1524,6 +1535,10 @@ def _create_venv_with_pthfile(
     os.environ["VIRTUAL_ENV"] = virtualenv_root
 
     if populate_with_pip:
+        for requirements_txt_file in requirements.requirements_txt_files:
+            target_venv.pip_install(
+                ["--requirement", requirements_txt_file.path, "--require-hashes"]
+            )
         if requirements.pypi_requirements:
             requirements_list = [
                 str(req.requirement) for req in requirements.pypi_requirements
@@ -1556,6 +1571,16 @@ def _is_venv_up_to_date(
         if os.path.getmtime(dep_file) > metadata_mtime:
             return SiteUpToDateResult(
                 False, f'"{dep_file}" has changed since the virtualenv was created'
+            )
+
+    for requirements_txt_file in requirements.requirements_txt_files:
+        req_txt_path = requirements_txt_file.path
+        if (
+            os.path.exists(req_txt_path)
+            and os.path.getmtime(req_txt_path) > metadata_mtime
+        ):
+            return SiteUpToDateResult(
+                False, f'"{req_txt_path}" has changed since the virtualenv was created'
             )
 
     try:

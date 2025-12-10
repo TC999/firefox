@@ -1,6 +1,14 @@
 /* Any copyright is dedicated to the Public Domain.
    https://creativecommons.org/publicdomain/zero/1.0/ */
 
+const BLANK_PAGE =
+  "data:text/html;charset=utf-8,<!DOCTYPE html><title>Blank</title>Blank page";
+
+/** @type {import("../../../../../netwerk/test/httpserver/httpd.sys.mjs")} */
+const { HttpServer } = ChromeUtils.importESModule(
+  "resource://testing-common/httpd.sys.mjs"
+);
+
 /**
  * Use a tagged template literal to create a page extraction actor test. This spins
  * up an http server that serves the markup in a new tab. The page extractor can then
@@ -29,14 +37,30 @@ async function html(strings, ...values) {
     true // waitForLoad
   );
 
-  /** @type {PageExtractorParent} */
   const actor =
     tab.linkedBrowser.browsingContext.currentWindowGlobal.getActor(
       "PageExtractor"
     );
 
   return {
+    /**
+     * @type {PageExtractorParent}
+     */
     actor,
+
+    tab,
+
+    /**
+     * Get a new page extractor, which can change when navigating pages.
+     *
+     * @returns {PageExtractorParent}
+     */
+    getPageExtractor() {
+      return tab.linkedBrowser.browsingContext.currentWindowGlobal.getActor(
+        "PageExtractor"
+      );
+    },
+
     async cleanup() {
       info("Cleaning up");
       await serverClosed;
@@ -49,20 +73,18 @@ async function html(strings, ...values) {
  * Start an HTTP server that serves page.html with the provided HTML.
  *
  * @param {string} html
+ * @param {number} statusCode
  */
-function serveOnce(html) {
-  /** @type {import("../../../../../netwerk/test/httpserver/httpd.sys.mjs")} */
-  const { HttpServer } = ChromeUtils.importESModule(
-    "resource://testing-common/httpd.sys.mjs"
-  );
+function serveOnce(html, statusCode = 200) {
   info("Create server");
   const server = new HttpServer();
 
   const { promise, resolve } = Promise.withResolvers();
 
-  server.registerPathHandler("/page.html", (_request, response) => {
+  server.registerPathHandler("/page.html", (request, response) => {
     info("Request received for: " + url);
     response.setHeader("Content-Type", "text/html");
+    response.setStatusLine(request.httpVersion, statusCode);
     response.write(html);
     resolve(server.stop());
   });
@@ -75,4 +97,91 @@ function serveOnce(html) {
   info("Server listening for: " + url);
 
   return { url, serverClosed: promise };
+}
+
+/**
+ * Click the reader-mode button if the reader-mode button is available.
+ * Fails if the reader-mode button is hidden.
+ */
+async function toggleReaderMode() {
+  const readerButton = document.getElementById("reader-mode-button");
+  await BrowserTestUtils.waitForMutationCondition(
+    readerButton,
+    { attributes: true, attributeFilter: ["hidden"] },
+    () => readerButton.hidden === false
+  );
+
+  readerButton.getAttribute("readeractive")
+    ? info("Exiting reader mode")
+    : info("Entering reader mode");
+
+  const readyPromise = readerButton.getAttribute("readeractive")
+    ? BrowserTestUtils.waitForMutationCondition(
+        readerButton,
+        { attributes: true, attributeFilter: ["readeractive"] },
+        () => !readerButton.getAttribute("readeractive")
+      )
+    : BrowserTestUtils.waitForContentEvent(
+        gBrowser.selectedBrowser,
+        "AboutReaderContentReady"
+      );
+
+  click(readerButton, "Clicking the reader-mode button");
+  await readyPromise;
+}
+
+function click(button, message) {
+  info(message);
+  if (button.hidden) {
+    throw new Error("The button was hidden when trying to click it.");
+  }
+  button.click();
+}
+
+/**
+ * @param {string} file
+ */
+async function openSupportFile(file) {
+  // Support files can be served up from example.com
+  const url_prefix = "https://example.com/browser/";
+  const path_prefix = "toolkit/components/pageextractor/tests/browser/";
+  const url = url_prefix + path_prefix + file;
+
+  // Start the tab at a blank page.
+  const tab = await BrowserTestUtils.openNewForegroundTab(
+    gBrowser,
+    BLANK_PAGE,
+    true // waitForLoad
+  );
+
+  BrowserTestUtils.startLoadingURIString(tab.linkedBrowser, url);
+  await BrowserTestUtils.browserLoaded(
+    tab.linkedBrowser,
+    /* includeSubFrames */ false,
+    url
+  );
+
+  async function cleanup() {
+    if (url.endsWith(".pdf")) {
+      // Wait for the PDFViewerApplication to be closed before removing the
+      // tab to avoid spurious errors and potential intermittents.
+      await SpecialPowers.spawn(tab.linkedBrowser, [], async () => {
+        const viewer = content.wrappedJSObject.PDFViewerApplication;
+        await viewer.testingClose();
+      });
+    }
+    BrowserTestUtils.removeTab(tab);
+  }
+
+  return {
+    cleanup,
+    /**
+     * @returns {PageExtractorParent}
+     */
+    getPageExtractor() {
+      return tab.linkedBrowser.browsingContext.currentWindowGlobal.getActor(
+        "PageExtractor"
+      );
+    },
+  };
 }

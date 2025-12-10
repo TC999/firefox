@@ -6,15 +6,26 @@
 
 /* globals browser, InterventionHelpers */
 
+const debugLoggingPrefValue = browser.aboutConfigPrefs.getPref(
+  "disable_debug_logging"
+);
+let debugLog = function () {
+  if (debugLoggingPrefValue !== true) {
+    console.debug.apply(this, arguments);
+  }
+};
+
 class Interventions {
   constructor(availableInterventions, customFunctions) {
     this._originalInterventions = availableInterventions;
 
-    this.INTERVENTION_PREF = "perform_injections";
+    this.INTERVENTION_PREF = "enable_interventions";
 
     this._interventionsEnabled = true;
 
     this._readyPromise = new Promise(done => (this._resolveReady = done));
+
+    this._disabledPrefListeners = {};
 
     this._availableInterventions = this._reformatSourceJSON(
       availableInterventions
@@ -83,28 +94,13 @@ class Interventions {
 
   checkInterventionPref() {
     navigator.locks.request("pref_check_lock", async () => {
-      const value = await browser.aboutConfigPrefs.getPref(
-        this.INTERVENTION_PREF
-      );
+      const value = browser.aboutConfigPrefs.getPref(this.INTERVENTION_PREF);
       if (value === undefined) {
         await browser.aboutConfigPrefs.setPref(this.INTERVENTION_PREF, true);
       } else if (value === false) {
         await this.disableInterventions();
       } else {
         await this.enableInterventions();
-      }
-    });
-  }
-
-  checkOverridePref() {
-    navigator.locks.request("pref_check_lock", async () => {
-      const value = await browser.aboutConfigPrefs.getPref(this.OVERRIDE_PREF);
-      if (value === undefined) {
-        await browser.aboutConfigPrefs.setPref(this.OVERRIDE_PREF, true);
-      } else if (value === false) {
-        await this.unregisterUAOverrides();
-      } else {
-        await this.registerUAOverrides();
       }
     });
   }
@@ -132,6 +128,14 @@ class Interventions {
   ) {
     return navigator.locks.request("intervention_lock", async () => {
       for (const config of whichInterventions) {
+        const disabling_pref_listener = this._disabledPrefListeners[config.id];
+        if (disabling_pref_listener) {
+          browser.aboutConfigPrefs.onPrefChange.removeListener(
+            disabling_pref_listener
+          );
+          delete this._disabledPrefListeners[config.id];
+        }
+
         await this._disableInterventionNow(config);
       }
 
@@ -155,7 +159,7 @@ class Interventions {
     });
   }
 
-  async _check_for_needed_prefs(intervention) {
+  _check_for_needed_prefs(intervention) {
     if (!intervention.pref_check) {
       return true;
     }
@@ -163,14 +167,14 @@ class Interventions {
       if (!this.#checkedPrefListeners.has(pref)) {
         const listener = () => this.onCheckedPrefChanged(pref);
         this.#checkedPrefListeners.set(pref, listener);
-        await browser.aboutConfigPrefs.onPrefChange.addListener(listener, pref);
+        browser.aboutConfigPrefs.onPrefChange.addListener(listener, pref);
       }
     }
     for (const [pref, value] of Object.entries(intervention.pref_check ?? {})) {
       if (!this.#checkedPrefCache.has(pref)) {
         this.#checkedPrefCache.set(
           pref,
-          await browser.aboutConfigPrefs.getPref(pref)
+          browser.aboutConfigPrefs.getPref(pref)
         );
       }
       if (value !== this.#checkedPrefCache.get(pref)) {
@@ -205,21 +209,45 @@ class Interventions {
         continue;
       }
 
+      config.DISABLING_PREF = `disabled_interventions.${config.id}`;
+      const disabledPrefListener = () => {
+        navigator.locks.request("pref_check_lock", async () => {
+          const value = browser.aboutConfigPrefs.getPref(config.DISABLING_PREF);
+          if (value === true) {
+            await this.disableIntervention(config);
+            debugLog(
+              `Webcompat intervention for ${config.label} disabled by pref`
+            );
+          } else {
+            await this.enableIntervention(config);
+            debugLog(
+              `Webcompat intervention for ${config.label} enabled by pref`
+            );
+          }
+          this._aboutCompatBroker.portsToAboutCompatTabs.broadcast({
+            interventionsChanged:
+              this._aboutCompatBroker.filterInterventions(whichInterventions),
+          });
+        });
+      };
+      this._disabledPrefListeners[config.id] = disabledPrefListener;
+      browser.aboutConfigPrefs.onPrefChange.addListener(
+        disabledPrefListener,
+        config.DISABLING_PREF
+      );
+
+      const disablingPrefValue = browser.aboutConfigPrefs.getPref(
+        config.DISABLING_PREF
+      );
+
       for (const intervention of config.interventions) {
         intervention.enabled = false;
-        if (!(await this._check_for_needed_prefs(intervention))) {
+        if (!this._check_for_needed_prefs(intervention)) {
           continue;
         }
         if (
-          await InterventionHelpers.shouldSkip(
-            intervention,
-            cleanVersion,
-            channel
-          )
+          InterventionHelpers.shouldSkip(intervention, cleanVersion, channel)
         ) {
-          continue;
-        }
-        if (!(await InterventionHelpers.checkPlatformMatches(intervention))) {
           continue;
         }
         if (
@@ -230,11 +258,26 @@ class Interventions {
         ) {
           continue;
         }
+        if (!(await InterventionHelpers.checkPlatformMatches(intervention))) {
+          // special case: allow platforms=[] to indicate "disabled by default"
+          if (
+            intervention.platforms &&
+            !intervention.platforms.length &&
+            !intervention.not_platforms
+          ) {
+            config.availableOnPlatform = true;
+          }
+          continue;
+        }
         intervention.enabled = true;
         config.availableOnPlatform = true;
       }
 
       if (!config.availableOnPlatform) {
+        skipped.push(config.label);
+        continue;
+      }
+      if (disablingPrefValue === true) {
         skipped.push(config.label);
         continue;
       }
@@ -247,7 +290,7 @@ class Interventions {
     }
 
     if (skipped.length) {
-      console.warn(
+      debugLog(
         "Skipping",
         skipped.length,
         "un-needed interventions",
@@ -264,9 +307,9 @@ class Interventions {
     resolveReady();
   }
 
-  async enableIntervention(config) {
+  async enableIntervention(config, force = false) {
     return navigator.locks.request("intervention_lock", async () => {
-      await this._enableInterventionNow(config);
+      await this._enableInterventionNow(config, force);
     });
   }
 
@@ -276,7 +319,7 @@ class Interventions {
     });
   }
 
-  async _enableInterventionNow(config) {
+  async _enableInterventionNow(config, force = false) {
     if (config.active) {
       return;
     }
@@ -291,8 +334,9 @@ class Interventions {
       .flat()
       .filter(v => v !== undefined);
 
+    let somethingWasEnabled = false;
     for (const intervention of config.interventions) {
-      if (!intervention.enabled) {
+      if (!intervention.enabled && !force) {
         continue;
       }
 
@@ -307,21 +351,23 @@ class Interventions {
       }
       await this._enableUAOverrides(label, intervention, matches);
       await this._enableRequestBlocks(label, intervention, blocks);
+      somethingWasEnabled = true;
+      intervention.enabled = true;
     }
 
     if (!this._getActiveInterventionById(config.id)) {
       this._availableInterventions.push(config);
-      console.info("Added webcompat intervention", config.id, config);
+      debugLog("Added webcompat intervention", config.id, config);
     } else {
       for (const [index, oldConfig] of this._availableInterventions.entries()) {
         if (oldConfig.id === config.id && oldConfig !== config) {
-          console.info("Replaced webcompat intervention", oldConfig.id, config);
+          debugLog("Replaced webcompat intervention", oldConfig.id, config);
           this._availableInterventions[index] = config;
         }
       }
     }
 
-    config.active = true;
+    config.active = somethingWasEnabled;
   }
 
   async _disableInterventionNow(_config) {
@@ -431,7 +477,7 @@ class Interventions {
 
     listeners.onBeforeSendHeaders = listener;
 
-    console.info(`Enabled UA override for ${label}`);
+    debugLog(`Enabled UA override for ${label}`);
   }
 
   async _enableRequestBlocks(label, intervention, blocks) {
@@ -454,7 +500,7 @@ class Interventions {
     ]);
 
     listeners.onBeforeRequest = listener;
-    console.info(`Blocking requests as specified for ${label}`);
+    debugLog(`Blocking requests as specified for ${label}`);
   }
 
   async _enableContentScripts(bug, label, intervention, matches) {
@@ -482,14 +528,14 @@ class Interventions {
         ({ id }) => !alreadyReggedIds.includes(id)
       );
       await browser.scripting.registerContentScripts(stillNeeded);
-      console.info(
+      debugLog(
         `Registered still-not-active content scripts for ${label}`,
         stillNeeded
       );
     } catch (e) {
       try {
         await browser.scripting.registerContentScripts(scriptsToReg);
-        console.debug(
+        debugLog(
           `Registered all content scripts for ${label} after error registering just non-active ones`,
           scriptsToReg,
           e

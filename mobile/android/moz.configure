@@ -40,6 +40,25 @@ set_config("MOZ_ANDROID_CONTENT_SERVICE_COUNT", num_content_services)
 set_define("MOZ_ANDROID_CONTENT_SERVICE_COUNT", num_content_services)
 
 option(
+    "--enable-isolated-zygote-process",
+    env="MOZ_ANDROID_CONTENT_SERVICE_ISOLATED_WITH_ZYGOTE",
+    help="Enable generating content process services with app Zygote preloading and isolated processes",
+    default=False,
+)
+
+isIsolatedAppZygoteProcessEnabled = depends_if(
+    "MOZ_ANDROID_CONTENT_SERVICE_ISOLATED_WITH_ZYGOTE"
+)(lambda _: True)
+set_config(
+    "MOZ_ANDROID_CONTENT_SERVICE_ISOLATED_WITH_ZYGOTE",
+    isIsolatedAppZygoteProcessEnabled,
+)
+set_define(
+    "MOZ_ANDROID_CONTENT_SERVICE_ISOLATED_WITH_ZYGOTE",
+    isIsolatedAppZygoteProcessEnabled,
+)
+
+option(
     "--enable-isolated-process",
     env="MOZ_ANDROID_CONTENT_SERVICE_ISOLATED_PROCESS",
     help="Enable generating content process services with isolatedProcess=true",
@@ -119,6 +138,20 @@ imply_option("MOZ_APP_UA_NAME", "Firefox")
 imply_option("MOZ_APP_VENDOR", "Mozilla")
 imply_option("MOZ_APP_ID", "{aa3c5121-dab2-40e2-81ca-7ea25febc110}")
 imply_option("BROWSER_CHROME_URL", "chrome://geckoview/content/geckoview.xhtml")
+
+option(
+    "--enable-appservices-in-tree",
+    help="Enables building from an in-tree app-services",
+)
+
+
+@depends("--enable-appservices-in-tree")
+def enable_appservices_in_tree(value):
+    if value:
+        return True
+
+
+set_config("MOZ_APPSERVICES_IN_TREE", enable_appservices_in_tree)
 
 
 @depends(target)

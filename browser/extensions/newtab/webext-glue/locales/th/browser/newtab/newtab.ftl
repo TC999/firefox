@@ -406,7 +406,7 @@ newtab-wallpaper-abstract-purple-green = เกรเดียนท์สีอ
 newtab-wallpaper-abstract-blue-purple-waves = รูปทรงคลื่นสีน้ำเงินและสีม่วง
 newtab-wallpaper-abstract-black-waves = รูปทรงคลื่นสีดำ
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = ภาพถ่าย
 newtab-wallpaper-beach-at-sunrise = ชายหาดตอนพระอาทิตย์ขึ้น
@@ -435,6 +435,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -663,6 +667,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = รายการใหม่
+newtab-widget-section-title = วิดเจ็ต
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = ซ่อนวิดเจ็ต
+    .aria-label = ซ่อนวิดเจ็ตทั้งหมด
+newtab-widget-section-maximize =
+    .title = ขยายวิดเจ็ต
+    .aria-label = ขยายวิดเจ็ตทั้งหมดให้เต็มขนาด
+newtab-widget-section-minimize =
+    .title = ย่อขนาดวิดเจ็ด
+    .aria-label = ยุบวิดเจ็ตทั้งหมดให้เป็นขนาดกะทัดรัด
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -675,10 +690,6 @@ newtab-widget-timer-mode-focus =
     .label = โฟกัส
 newtab-widget-timer-mode-break =
     .label = พัก
-newtab-widget-timer-play =
-    .title = เล่น
-newtab-widget-timer-pause =
-    .title = หยุดชั่วคราว
 newtab-widget-timer-label-play =
     .label = เล่น
 newtab-widget-timer-label-pause =
@@ -689,8 +700,6 @@ newtab-widget-timer-menu-notifications = ปิดการแจ้งเตื
 newtab-widget-timer-menu-notifications-on = เปิดการแจ้งเตือน
 newtab-widget-timer-menu-hide = ซ่อนตัวจับเวลา
 newtab-widget-timer-menu-learn-more = เรียนรู้เพิ่มเติม
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = เลื่อนเพื่อดูเพิ่มเติม
 newtab-widget-message-title = มีสมาธิด้วยรายการสิ่งที่ต้องทำและตัวจับเวลาในตัว
 # to-dos stands for "things to do".
 newtab-widget-message-copy = ตั้งแต่เตือนความจำด่วน ๆ ไปจนถึงสิ่งที่ต้องทำในแต่ละวัน ช่วงเวลาโฟกัสไปจนถึงช่วงเวลาพัก ให้คุณอยู่กับงานและตรงเวลาเสมอ

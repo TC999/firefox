@@ -13,7 +13,6 @@
 
 #include <cstdint>
 #include <new>
-#include <type_traits>
 #include <utility>
 
 #include "AudioChannelService.h"
@@ -48,7 +47,6 @@
 #include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/AppShutdown.h"
 #include "mozilla/ArrayIterator.h"
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/BaseProfilerMarkersPrerequisites.h"
 #include "mozilla/BasicEvents.h"
@@ -91,7 +89,6 @@
 #include "mozilla/ThrottledEventQueue.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/UniquePtr.h"
-#include "mozilla/Unused.h"
 #include "mozilla/dom/AudioContext.h"
 #include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/BarProps.h"
@@ -182,6 +179,7 @@
 #include "mozilla/dom/VRDisplayEventBinding.h"
 #include "mozilla/dom/VREventObserver.h"
 #include "mozilla/dom/VisualViewport.h"
+#include "mozilla/dom/WebCompatBinding.h"
 #include "mozilla/dom/WebIDLGlobalNameHash.h"
 #include "mozilla/dom/WebIdentityHandler.h"
 #include "mozilla/dom/WebTaskSchedulerMainThread.h"
@@ -1744,7 +1742,7 @@ void nsGlobalWindowInner::UpdateAutoplayPermission() {
   }
 
   // Setting autoplay permission on a discarded context has no effect.
-  Unused << GetWindowContext()->SetAutoplayPermission(perm);
+  (void)GetWindowContext()->SetAutoplayPermission(perm);
 }
 
 void nsGlobalWindowInner::UpdateShortcutsPermission() {
@@ -1762,7 +1760,7 @@ void nsGlobalWindowInner::UpdateShortcutsPermission() {
   }
 
   // If the WindowContext is discarded this has no effect.
-  Unused << GetWindowContext()->SetShortcutsPermission(perm);
+  (void)GetWindowContext()->SetShortcutsPermission(perm);
 }
 
 /* static */
@@ -1788,7 +1786,7 @@ void nsGlobalWindowInner::UpdatePopupPermission() {
   }
 
   // If the WindowContext is discarded this has no effect.
-  Unused << GetWindowContext()->SetPopupPermission(perm);
+  (void)GetWindowContext()->SetPopupPermission(perm);
 }
 
 void nsGlobalWindowInner::UpdatePermissions() {
@@ -1809,7 +1807,7 @@ void nsGlobalWindowInner::UpdatePermissions() {
   }
 
   // Setting permissions on a discarded WindowContext has no effect
-  Unused << txn.Commit(windowContext);
+  (void)txn.Commit(windowContext);
 }
 
 void nsGlobalWindowInner::InitDocumentDependentState(JSContext* aCx) {
@@ -1840,6 +1838,11 @@ void nsGlobalWindowInner::InitDocumentDependentState(JSContext* aCx) {
 
   if (!mWindowGlobalChild) {
     mWindowGlobalChild = WindowGlobalChild::Create(this);
+  } else {
+    // If the window global existed before the window, it must've come from the
+    // AboutBlankInitializer
+    MOZ_ASSERT(NS_IsAboutBlankAllowQueryAndFragment(GetDocumentURI()),
+               "AboutBlankInitializer should only be used with about:blank");
   }
   MOZ_ASSERT(!GetWindowContext()->HasBeenUserGestureActivated(),
              "WindowContext should always not have user gesture activation at "
@@ -1861,7 +1864,7 @@ void nsGlobalWindowInner::InitDocumentDependentState(JSContext* aCx) {
   if (mWindowGlobalChild && GetBrowsingContext() &&
       !GetBrowsingContext()->GetParent()) {
     // Return value of setting synced field should be checked. See bug 1656492.
-    Unused << GetBrowsingContext()->ResetGVAutoplayRequestStatus();
+    (void)GetBrowsingContext()->ResetGVAutoplayRequestStatus();
   }
 #endif
 
@@ -1887,7 +1890,7 @@ nsresult nsGlobalWindowInner::EnsureClientSource() {
   nsCOMPtr<nsIChannel> channel = mDoc->GetChannel();
   if (channel) {
     nsCOMPtr<nsIURI> uri;
-    Unused << channel->GetURI(getter_AddRefs(uri));
+    (void)channel->GetURI(getter_AddRefs(uri));
 
     bool ignoreLoadInfo = false;
 
@@ -1914,7 +1917,7 @@ nsresult nsGlobalWindowInner::EnsureClientSource() {
 
   // Try to get the reserved client from the LoadInfo.  A Client is
   // reserved at the start of the channel load if there is not an
-  // initial about:blank document that will be reused.  It is also
+  // initial uncommitted about:blank whose window will be reused. It is also
   // created if the channel load encounters a cross-origin redirect.
   if (loadInfo) {
     UniquePtr<ClientSource> reservedClient =
@@ -2140,6 +2143,77 @@ void nsGlobalWindowInner::GetEventTargetParent(EventChainPreVisitor& aVisitor) {
   aVisitor.SetParentTarget(GetParentTarget(), true);
 }
 
+// ckeditor 4 uses UA sniffing to wait for an async load event for its editor
+// iframe. This patch makes it work by delaying the sync-about:blank's load
+// event on such frames. See bug 2002481 and:
+// https://github.com/ckeditor/ckeditor4/blob/c7e59ec199298b6b23f4aa7a7668f18572385bac/plugins/wysiwygarea/plugin.js#L43
+MOZ_CAN_RUN_SCRIPT static bool IsCkEditor4EmptyFrame(Element& aEmbedder) {
+  if (!StaticPrefs::dom_about_blank_ckeditor_hack_enabled()) {
+    return false;
+  }
+  const nsAttrValue* classes = aEmbedder.GetClasses();
+  // We're looking for an <iframe> with a cke_wysiwyg_frame class. That's the
+  // most likely check to fail so do it first.
+  if (!classes ||
+      !classes->Contains(nsGkAtoms::cke_wysiwyg_frame, eCaseMatters)) {
+    return false;
+  }
+  if (!aEmbedder.IsHTMLElement(nsGkAtoms::iframe)) {
+    return false;
+  }
+  // Additionally, we expect it to have an empty src attribute.
+  if (const auto* src = aEmbedder.GetParsedAttr(nsGkAtoms::src);
+      !src || !src->IsEmptyString()) {
+    return false;
+  }
+  // Deal with the blocklist here before checking for the ckeditor version
+  // (which is potentially observable via JS getters).
+  if (aEmbedder.NodePrincipal()->IsURIInPrefList(
+          "dom.about-blank-ckeditor-hack.disabled-domains")) {
+    return false;
+  }
+  // Finally, we also get the version string off the embedder's global to be
+  // extra sure.
+  RefPtr global = aEmbedder.GetOwnerGlobal();
+  if (!global || !global->GetGlobalJSObject()) {
+    return false;
+  }
+  AutoJSAPI jsapi;
+  if (!jsapi.Init(global)) {
+    return false;
+  }
+  CkEditorProperty property;
+  JS::Rooted<JS::Value> v(jsapi.cx(),
+                          JS::ObjectValue(*global->GetGlobalJSObject()));
+  if (!property.Init(jsapi.cx(), v)) {
+    JS_ClearPendingException(jsapi.cx());
+    return false;
+  }
+  const auto* version = [&]() -> const CkEditorVersion* {
+    if (property.mCKEDITOR.WasPassed()) {
+      return &property.mCKEDITOR.Value();
+    }
+    if (property.mJEDITOR.WasPassed()) {
+      return &property.mJEDITOR.Value();
+    }
+    return nullptr;
+  }();
+  if (!version || !StringBeginsWith(version->mVersion, u"4."_ns)) {
+    return false;
+  }
+  aEmbedder.OwnerDoc()->WarnOnceAbout(
+      DeprecatedOperations::eCKEditor4CompatHack);
+  return true;
+}
+
+MOZ_CAN_RUN_SCRIPT static bool NeedsAsyncLoadEventForInitialDocument(
+    nsGlobalWindowInner& aInner, Element& aEmbedder) {
+  if (auto* doc = aInner.GetExtantDoc(); !doc || !doc->IsInitialDocument()) {
+    return false;
+  }
+  return IsCkEditor4EmptyFrame(aEmbedder);
+}
+
 void nsGlobalWindowInner::FireFrameLoadEvent() {
   // If we're not in a content frame, or are at a BrowsingContext tree boundary,
   // such as the content-chrome boundary, don't fire the "load" event.
@@ -2152,8 +2226,13 @@ void nsGlobalWindowInner::FireFrameLoadEvent() {
   //
   // XXX: Bug 1440212 is looking into potentially changing this behaviour to act
   // more like the remote case when in-process.
-  RefPtr<Element> element = GetBrowsingContext()->GetEmbedderElement();
-  if (element) {
+  if (RefPtr<Element> element = GetBrowsingContext()->GetEmbedderElement()) {
+    if (NeedsAsyncLoadEventForInitialDocument(*this, *element)) {
+      (new AsyncEventDispatcher(element, eLoad, CanBubble::eNo))
+          ->PostDOMEvent();
+      return;
+    }
+
     nsEventStatus status = nsEventStatus_eIgnore;
     WidgetEvent event(/* aIsTrusted = */ true, eLoad);
     event.mFlags.mBubbles = false;
@@ -2184,7 +2263,7 @@ void nsGlobalWindowInner::FireFrameLoadEvent() {
       return;
     }
 
-    mozilla::Unused << browserChild->SendMaybeFireEmbedderLoadEvents(
+    (void)browserChild->SendMaybeFireEmbedderLoadEvents(
         EmbedderElementEventType::LoadEvent);
   }
 }
@@ -2204,11 +2283,9 @@ nsresult nsGlobalWindowInner::PostHandleEvent(EventChainPostVisitor& aVisitor) {
    function under some circumstances (events that destroy the window)
    without this addref. */
   RefPtr<EventTarget> kungFuDeathGrip1(mChromeEventHandler);
-  mozilla::Unused
-      << kungFuDeathGrip1;  // These aren't referred to through the function
+  (void)kungFuDeathGrip1;  // These aren't referred to through the function
   nsCOMPtr<nsIScriptContext> kungFuDeathGrip2(GetContextInternal());
-  mozilla::Unused
-      << kungFuDeathGrip2;  // These aren't referred to through the function
+  (void)kungFuDeathGrip2;  // These aren't referred to through the function
 
   if (aVisitor.mEvent->mMessage == eResize) {
     mIsHandlingResizeEvent = false;
@@ -2637,10 +2714,10 @@ CallState nsGlobalWindowInner::ShouldReportForServiceWorkerScopeInternal(
   nsCOMPtr<nsIDocumentLoader> loader(do_QueryInterface(GetDocShell()));
   if (loader) {
     nsCOMPtr<nsILoadGroup> loadgroup;
-    Unused << loader->GetLoadGroup(getter_AddRefs(loadgroup));
+    (void)loader->GetLoadGroup(getter_AddRefs(loadgroup));
     if (loadgroup) {
       nsCOMPtr<nsISimpleEnumerator> iter;
-      Unused << loadgroup->GetRequests(getter_AddRefs(iter));
+      (void)loadgroup->GetRequests(getter_AddRefs(iter));
       if (iter) {
         nsCOMPtr<nsISupports> tmp;
         bool hasMore = true;
@@ -2656,12 +2733,12 @@ CallState nsGlobalWindowInner::ShouldReportForServiceWorkerScopeInternal(
             continue;
           }
           nsCOMPtr<nsIURI> loadingURL;
-          Unused << loadingChannel->GetURI(getter_AddRefs(loadingURL));
+          (void)loadingChannel->GetURI(getter_AddRefs(loadingURL));
           if (!loadingURL) {
             continue;
           }
           nsAutoCString loadingSpec;
-          Unused << loadingURL->GetSpec(loadingSpec);
+          (void)loadingURL->GetSpec(loadingSpec);
           // Perform a simple substring comparison to match the scope
           // against the channel URL.
           if (StringBeginsWith(loadingSpec, aScope)) {
@@ -2949,7 +3026,7 @@ void nsGlobalWindowInner::SetActiveLoadingState(bool aIsLoading) {
       ("SetActiveLoadingState innerwindow %p: %d", (void*)this, aIsLoading));
   if (GetBrowsingContext()) {
     // Setting loading on a discarded context has no effect.
-    Unused << GetBrowsingContext()->SetLoading(aIsLoading);
+    (void)GetBrowsingContext()->SetLoading(aIsLoading);
   }
 
   if (!nsGlobalWindowInner::Cast(this)->IsChromeWindow()) {
@@ -3870,9 +3947,7 @@ void nsGlobalWindowInner::ScrollTo(const ScrollToOptions& aOptions) {
   if (scrollPos.y > maxpx) {
     scrollPos.y = maxpx;
   }
-  auto scrollMode = sf->IsSmoothScroll(aOptions.mBehavior)
-                        ? ScrollMode::SmoothMsd
-                        : ScrollMode::Instant;
+  auto scrollMode = sf->ScrollModeForScrollBehavior(aOptions.mBehavior);
   sf->ScrollToCSSPixels(scrollPos, scrollMode);
 }
 
@@ -3905,9 +3980,7 @@ void nsGlobalWindowInner::ScrollBy(const ScrollToOptions& aOptions) {
     return;
   }
 
-  auto scrollMode = sf->IsSmoothScroll(aOptions.mBehavior)
-                        ? ScrollMode::SmoothMsd
-                        : ScrollMode::Instant;
+  auto scrollMode = sf->ScrollModeForScrollBehavior(aOptions.mBehavior);
   sf->ScrollByCSSPixels(scrollDelta, scrollMode);
 }
 
@@ -3924,9 +3997,7 @@ void nsGlobalWindowInner::ScrollByLines(int32_t numLines,
   // It seems like it would make more sense for ScrollByLines to use
   // SMOOTH mode, but tests seem to depend on the synchronous behaviour.
   // Perhaps Web content does too.
-  ScrollMode scrollMode = sf->IsSmoothScroll(aOptions.mBehavior)
-                              ? ScrollMode::SmoothMsd
-                              : ScrollMode::Instant;
+  ScrollMode scrollMode = sf->ScrollModeForScrollBehavior(aOptions.mBehavior);
   sf->ScrollBy(nsIntPoint(0, numLines), ScrollUnit::LINES, scrollMode);
 }
 
@@ -3943,9 +4014,7 @@ void nsGlobalWindowInner::ScrollByPages(int32_t numPages,
   // It seems like it would make more sense for ScrollByPages to use
   // SMOOTH mode, but tests seem to depend on the synchronous behaviour.
   // Perhaps Web content does too.
-  ScrollMode scrollMode = sf->IsSmoothScroll(aOptions.mBehavior)
-                              ? ScrollMode::SmoothMsd
-                              : ScrollMode::Instant;
+  ScrollMode scrollMode = sf->ScrollModeForScrollBehavior(aOptions.mBehavior);
 
   sf->ScrollBy(nsIntPoint(0, numPages), ScrollUnit::PAGES, scrollMode);
 }
@@ -4942,8 +5011,12 @@ already_AddRefed<CacheStorage> nsGlobalWindowInner::GetCaches(
 void nsGlobalWindowInner::FireOfflineStatusEventIfChanged() {
   if (!IsCurrentInnerWindow()) return;
 
+  bool isOffline =
+      NS_IsOffline() ||
+      (GetBrowsingContext() && GetBrowsingContext()->Top()->GetForceOffline());
+
   // Don't fire an event if the status hasn't changed
-  if (mWasOffline == NS_IsOffline()) {
+  if (mWasOffline == isOffline) {
     return;
   }
 
@@ -5198,8 +5271,10 @@ nsGlobalWindowInner::ShowSlowScriptDialog(JSContext* aCx,
 
 nsresult nsGlobalWindowInner::Observe(nsISupports* aSubject, const char* aTopic,
                                       const char16_t* aData) {
-  if (!nsCRT::strcmp(aTopic, "audio-playback") &&
-      ToSupports(GetOuterWindow()) == aSubject) {
+  if (!nsCRT::strcmp(aTopic, "audio-playback")) {
+    if (ToSupports(GetOuterWindow()) != aSubject) {
+      return NS_OK;
+    }
     AUTO_PROFILER_MARKER_UNTYPED("audio-playback", DOM, {});
 
     nsGlobalWindowOuter* outer =
@@ -5316,7 +5391,7 @@ nsresult nsGlobalWindowInner::Observe(nsISupports* aSubject, const char* aTopic,
     return rv.StealNSResult();
   }
 
-  NS_WARNING("unrecognized topic in nsGlobalWindowInner::Observe");
+  NS_WARNING(nsPrintfCString("unrecognized topic %s", aTopic).get());
   return NS_ERROR_FAILURE;
 }
 
@@ -6462,7 +6537,7 @@ void nsGlobalWindowInner::NotifyDetectXRRuntimesCompleted() {
   mXRPermissionRequestInFlight = true;
   RefPtr<XRPermissionRequest> request =
       new XRPermissionRequest(this, WindowID());
-  Unused << NS_WARN_IF(NS_FAILED(request->Start()));
+  (void)NS_WARN_IF(NS_FAILED(request->Start()));
 }
 
 void nsGlobalWindowInner::RequestXRPermission() {
@@ -6568,7 +6643,7 @@ void nsGlobalWindowInner::EventListenerAdded(nsAtom* aType) {
         mLocalStorage->Type() == Storage::eLocalStorage) {
       auto object = static_cast<LSObject*>(mLocalStorage.get());
 
-      Unused << NS_WARN_IF(NS_FAILED(object->EnsureObserver()));
+      (void)NS_WARN_IF(NS_FAILED(object->EnsureObserver()));
     }
   }
 }
@@ -7625,7 +7700,7 @@ JS::loader::ModuleLoaderBase* nsGlobalWindowInner::GetModuleLoader(
     return nullptr;
   }
 
-  ScriptLoader* loader = document->ScriptLoader();
+  ScriptLoader* loader = document->GetScriptLoader();
   if (!loader) {
     return nullptr;
   }
@@ -7701,7 +7776,7 @@ void nsPIDOMWindowInner::MaybeCreateDoc() {
     // don't have to explicitly set the member variable because the docshell
     // has already called SetNewDocument().
     nsCOMPtr<Document> document = docShell->GetDocument();
-    Unused << document;
+    (void)document;
   }
 }
 
@@ -7730,7 +7805,7 @@ RefPtr<GenericPromise>
 nsPIDOMWindowInner::SaveStorageAccessPermissionGranted() {
   WindowContext* wc = GetWindowContext();
   if (wc) {
-    Unused << wc->SetUsingStorageAccess(true);
+    (void)wc->SetUsingStorageAccess(true);
   }
 
   return nsGlobalWindowInner::Cast(this)->StorageAccessPermissionChanged(true);
@@ -7740,7 +7815,7 @@ RefPtr<GenericPromise>
 nsPIDOMWindowInner::SaveStorageAccessPermissionRevoked() {
   WindowContext* wc = GetWindowContext();
   if (wc) {
-    Unused << wc->SetUsingStorageAccess(false);
+    (void)wc->SetUsingStorageAccess(false);
   }
 
   return nsGlobalWindowInner::Cast(this)->StorageAccessPermissionChanged(false);
@@ -7777,14 +7852,14 @@ CloseWatcherManager* nsPIDOMWindowInner::EnsureCloseWatcherManager() {
 void nsPIDOMWindowInner::NotifyCloseWatcherAdded() {
   MOZ_ASSERT(mCloseWatcherManager && !mCloseWatcherManager->IsEmpty());
   if (WindowContext* top = TopWindowContext(*this)) {
-    Unused << top->SetHasActiveCloseWatcher(true);
+    (void)top->SetHasActiveCloseWatcher(true);
   }
 }
 
 void nsPIDOMWindowInner::NotifyCloseWatcherRemoved() {
   MOZ_ASSERT(mCloseWatcherManager);
   if (WindowContext* top = TopWindowContext(*this)) {
-    Unused << top->SetHasActiveCloseWatcher(!mCloseWatcherManager->IsEmpty());
+    (void)top->SetHasActiveCloseWatcher(!mCloseWatcherManager->IsEmpty());
   }
 }
 

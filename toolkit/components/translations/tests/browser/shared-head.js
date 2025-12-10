@@ -678,13 +678,27 @@ const { TranslationsDocument, LRUCache } = ChromeUtils.importESModule(
 );
 
 /**
- * @param {string} html
- * @param {{
- *  mockedTranslatorPort?: (message: string) => Promise<string>,
- *  mockedReportVisibleChange?: () => void
- * }} [options]
+ * Creates a translated document from the provided HTML string.
+ *
+ * @param {string} html - The HTML source to translate.
+ * @param {object} [options] - Optional configuration.
+ * @param {string} [options.sourceLanguage="en"] - Source language code (default: "en").
+ * @param {string} [options.targetLanguage="en"] - Target language code (default: "en").
+ * @param {DOMParserSupportedType} [options.parserType="text/html"] - Parser type for the source content.
+ * @param {(message: string) => Promise<string>} [options.mockedTranslatorPort] - Optional mock translation function.
+ * @param {() => void} [options.mockedReportVisibleChange] - Optional callback for visibility reporting.
+ * @returns {Promise<void>} Resolves when the document translation is complete.
  */
-async function createTranslationsDoc(html, options) {
+async function createTranslationsDoc(
+  html,
+  {
+    sourceLanguage = "en",
+    targetLanguage = "es",
+    parserType = "text/html",
+    mockedTranslatorPort,
+    mockedReportVisibleChange,
+  } = {}
+) {
   await SpecialPowers.pushPrefEnv({
     set: [
       ["browser.translations.enable", true],
@@ -694,12 +708,14 @@ async function createTranslationsDoc(html, options) {
   });
 
   const parser = new DOMParser();
-  const document = parser.parseFromString(html, "text/html");
+  const document = parser.parseFromString(html, parserType);
 
   // For some reason, the document <body> here from the DOMParser is "display: flex" by
   // default. Ensure that it is "display: block" instead, otherwise the children of the
   // <body> will not be "display: inline".
-  document.body.style.display = "block";
+  if (document.body) {
+    document.body.style.display = "block";
+  }
 
   let translationsDoc = null;
 
@@ -707,14 +723,14 @@ async function createTranslationsDoc(html, options) {
     info("Creating the TranslationsDocument.");
     translationsDoc = new TranslationsDocument(
       document,
-      "en",
-      "EN",
+      sourceLanguage,
+      targetLanguage,
       0, // This is a fake innerWindowID
-      options?.mockedTranslatorPort ?? createMockedTranslatorPort(),
+      mockedTranslatorPort ?? createMockedTranslatorPort(),
       () => {
         throw new Error("Cannot request a new port");
       },
-      options?.mockedReportVisibleChange ?? (() => {}),
+      mockedReportVisibleChange ?? (() => {}),
       new LRUCache(),
       false
     );
@@ -811,6 +827,12 @@ async function createTranslationsDoc(html, options) {
 
     let didSimulateIntersectionObservation = false;
 
+    const getHTMLSource = () => {
+      return (
+        sourceDoc.body?.innerHTML ?? sourceDoc.documentElement?.outerHTML ?? ""
+      );
+    };
+
     try {
       await waitForCondition(async () => {
         await waitForCondition(
@@ -848,7 +870,7 @@ async function createTranslationsDoc(html, options) {
           () => !translationsDoc.hasPendingCallbackOnEventLoop()
         );
 
-        const actualHtml = naivelyPrettify(sourceDoc.body.innerHTML);
+        const actualHtml = naivelyPrettify(getHTMLSource());
         const htmlMatches = expected.test(actualHtml);
 
         if (!htmlMatches && !didSimulateIntersectionObservation) {
@@ -881,7 +903,7 @@ async function createTranslationsDoc(html, options) {
       console.error(error);
 
       // Provide a nice error message.
-      const actual = naivelyPrettify(sourceDoc.body.innerHTML);
+      const actual = naivelyPrettify(getHTMLSource());
       ok(
         false,
         `${message}\n\nExpected HTML:\n\n${
@@ -1368,11 +1390,15 @@ class MockedA11yUtils {
  */
 async function ensureWindowSize(win, width, height) {
   if (
-    Math.abs(win.outerWidth - width) < 1 &&
-    Math.abs(win.outerHeight - height) < 1
+    Math.abs(win.outerWidth - width) <= 1 &&
+    Math.abs(win.outerHeight - height) <= 1
   ) {
     return;
   }
+
+  info(
+    `Resizing to ${width}x${height} (currently ${win.outerWidth}x${win.outerHeight})`
+  );
 
   const resizePromise = BrowserTestUtils.waitForEvent(win, "resize");
 
@@ -2506,7 +2532,7 @@ class TestTranslationsTelemetry {
           if (typeof expected === "function") {
             ok(
               expected(event.extra[key]),
-              `Telemetry event ${name} value for ${key} should match the expected predicate`
+              `Telemetry event ${name} value for ${key} should match the expected predicate: got ${event.extra[key]}`
             );
           } else {
             is(
@@ -2529,7 +2555,7 @@ class TestTranslationsTelemetry {
         if (typeof expected === "function") {
           ok(
             expected(events[eventCount - 1].extra[key]),
-            `Telemetry event ${name} value for ${key} should match the expected predicate`
+            `Telemetry event ${name} value for ${key} should match the expected predicate: got ${events[eventCount - 1].extra[key]}`
           );
         } else {
           is(

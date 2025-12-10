@@ -18,24 +18,28 @@ import "chrome://browser/content/backup/enable-backup-encryption.mjs";
 // eslint-disable-next-line import/no-unassigned-import
 import "chrome://browser/content/backup/disable-backup-encryption.mjs";
 
-const BACKUP_ERROR_CODE_PREF_NAME = "browser.backup.errorCode";
-
 /**
  * The widget for managing the BackupService that is embedded within the main
  * document of about:settings / about:preferences.
  */
 export default class BackupSettings extends MozLitElement {
   #placeholderIconURL = "chrome://global/skin/icons/page-portrait.svg";
+  inProgressTimeout = null;
+  showInProgress = false;
+
+  // Decides how long the progress message bar persists for
+  MESSAGE_BAR_BUFFER = 3000;
 
   static properties = {
     backupServiceState: { type: Object },
-    backupErrorCode: { type: Number },
     _enableEncryptionTypeAttr: { type: String },
   };
 
   static get queries() {
     return {
       scheduledBackupsButtonEl: "#backup-toggle-scheduled-button",
+      archiveSectionEl: "#scheduled-backups",
+      restoreSectionEl: "#restore-from-backup",
       triggerBackupButtonEl: "#backup-trigger-button",
       changePasswordButtonEl: "#backup-change-password-button",
       disableBackupEncryptionEl: "disable-backup-encryption",
@@ -59,7 +63,18 @@ export default class BackupSettings extends MozLitElement {
       backupLocationEditButtonEl: "#backup-location-edit",
       scheduledBackupsDescriptionEl: "#scheduled-backups-description",
       backupErrorBarEl: "#create-backup-error",
+      backupInProgressMessageBarEl: "#backup-in-progress-message",
     };
+  }
+
+  get dialogs() {
+    return [
+      this.disableBackupEncryptionDialogEl,
+      this.enableBackupEncryptionDialogEl,
+      this.turnOnScheduledBackupsDialogEl,
+      this.turnOffScheduledBackupsDialogEl,
+      this.restoreFromBackupDialogEl,
+    ];
   }
 
   /**
@@ -84,9 +99,11 @@ export default class BackupSettings extends MozLitElement {
       supportBaseLink: "",
       backupInProgress: false,
       recoveryInProgress: false,
-      recoveryErrorCode: 0,
+      recoveryErrorCode: ERRORS.NONE,
+      backupErrorCode: ERRORS.NONE,
+      archiveEnabledStatus: false,
+      restoreEnabledStatus: false,
     };
-    this.backupErrorCode = this.#readBackupErrorPref();
     this._enableEncryptionTypeAttr = "";
   }
 
@@ -105,29 +122,18 @@ export default class BackupSettings extends MozLitElement {
     this.addEventListener("restoreFromBackupChooseFile", this);
   }
 
-  #readBackupErrorPref() {
-    return Services.prefs.getIntPref(BACKUP_ERROR_CODE_PREF_NAME);
-  }
-
   handleErrorBarDismiss = () => {
     // Reset the pref and reactive state; Lit will re-render without the bar.
-    Services.prefs.setIntPref(BACKUP_ERROR_CODE_PREF_NAME, ERRORS.NONE);
-    this.backupErrorCode = 0;
+    this.dispatchEvent(
+      new CustomEvent("BackupUI:ErrorBarDismissed", { bubbles: true })
+    );
   };
 
   handleEvent(event) {
     switch (event.type) {
       case "dialogCancel":
-        if (this.turnOnScheduledBackupsDialogEl.open) {
-          this.turnOnScheduledBackupsDialogEl.close();
-        } else if (this.turnOffScheduledBackupsDialogEl.open) {
-          this.turnOffScheduledBackupsDialogEl.close();
-        } else if (this.restoreFromBackupDialogEl.open) {
-          this.restoreFromBackupDialogEl.close();
-        } else if (this.disableBackupEncryptionDialogEl.open) {
-          this.disableBackupEncryptionDialogEl.close();
-        } else if (this.enableBackupEncryptionDialogEl.open) {
-          this.enableBackupEncryptionDialogEl.close();
+        for (let dialog of this.dialogs) {
+          dialog?.close();
         }
         break;
       case "restoreFromBackupConfirm":
@@ -205,11 +211,11 @@ export default class BackupSettings extends MozLitElement {
         id="scheduled-backups-description"
         data-l10n-id="settings-data-backup-scheduled-backups-description"
       >
-        <!--TODO: finalize support page links (bug 1900467)-->
         <a
           is="moz-support-link"
-          support-page="todo-backup"
+          support-page="firefox-backup"
           data-l10n-name="support-link"
+          utm-content="backup-off"
         ></a>
       </div>
     `;
@@ -220,6 +226,7 @@ export default class BackupSettings extends MozLitElement {
     return html`<dialog
       id="turn-on-scheduled-backups-dialog"
       class="backup-dialog"
+      @close=${this.handleTurnOnScheduledBackupsDialogClose}
     >
       <turn-on-scheduled-backups
         defaultlabel=${fileName}
@@ -294,10 +301,19 @@ export default class BackupSettings extends MozLitElement {
     );
   }
 
+  handleTurnOnScheduledBackupsDialogClose() {
+    this.turnOnScheduledBackupsEl.reset();
+  }
+
+  handleEnableBackupEncryptionDialogClose() {
+    this.enableBackupEncryptionEl.reset();
+  }
+
   enableBackupEncryptionDialogTemplate() {
     return html`<dialog
       id="enable-backup-encryption-dialog"
       class="backup-dialog"
+      @close=${this.handleEnableBackupEncryptionDialogClose}
     >
       <enable-backup-encryption
         type=${this._enableEncryptionTypeAttr}
@@ -394,13 +410,13 @@ export default class BackupSettings extends MozLitElement {
         >
           <span
             id="backup-sensitive-data-checkbox-description-span"
-            data-l10n-id="settings-data-toggle-encryption-description"
+            data-l10n-id="settings-sensitive-data-encryption-description"
           ></span>
-          <!--TODO: finalize support page links (bug 1900467)-->
           <a
             id="settings-data-toggle-encryption-learn-more-link"
             is="moz-support-link"
-            support-page="todo-backup"
+            support-page="firefox-backup"
+            utm-content="encryption"
             data-l10n-id="settings-data-toggle-encryption-support-link"
           ></a>
         </div>
@@ -415,8 +431,18 @@ export default class BackupSettings extends MozLitElement {
     </section>`;
   }
 
+  inProgressMessageBarTemplate() {
+    return html`
+      <moz-message-bar
+        type="info"
+        id="backup-in-progress-message"
+        data-l10n-id="settings-data-backup-in-progress-message"
+      ></moz-message-bar>
+    `;
+  }
+
   errorBarTemplate() {
-    const l10nId = getErrorL10nId(this.backupErrorCode);
+    const l10nId = getErrorL10nId(this.backupServiceState.backupErrorCode);
     return html`
       <moz-message-bar
         type="error"
@@ -424,7 +450,16 @@ export default class BackupSettings extends MozLitElement {
         dismissable
         data-l10n-id=${l10nId}
         @message-bar:user-dismissed=${this.handleErrorBarDismiss}
-      ></moz-message-bar>
+      >
+        <a
+          id="create-backup-error-learn-more-link"
+          slot="support-link"
+          is="moz-support-link"
+          support-page="firefox-backup"
+          data-l10n-id="settings-data-toggle-encryption-support-link"
+          utm-content="backup-error"
+        ></a>
+      </moz-message-bar>
     `;
   }
 
@@ -436,14 +471,28 @@ export default class BackupSettings extends MozLitElement {
   }
 
   render() {
-    let scheduledBackupsEnabledL10nID = this.backupServiceState
-      .scheduledBackupsEnabled
+    let scheduledBackupsEnabledState =
+      this.backupServiceState.scheduledBackupsEnabled;
+
+    let scheduledBackupsEnabledL10nID = scheduledBackupsEnabledState
       ? "settings-data-backup-scheduled-backups-on"
       : "settings-data-backup-scheduled-backups-off";
 
-    let backupTriggerL10nID = this.backupServiceState.backupInProgress
-      ? "settings-data-backup-in-progress-button"
-      : "settings-data-backup-trigger-button";
+    let backupToggleL10nID = scheduledBackupsEnabledState
+      ? "settings-data-backup-toggle-off"
+      : "settings-data-backup-toggle-on";
+
+    if (this.backupServiceState.backupInProgress) {
+      if (!this.showInProgress) {
+        this.showInProgress = true;
+        // Keep the in progress message bar visible for at least 3 seconds
+        clearTimeout(this.inProgressTimeout);
+        this.inProgressTimeout = setTimeout(() => {
+          this.showInProgress = false;
+          this.requestUpdate();
+        }, this.MESSAGE_BAR_BUFFER);
+      }
+    }
 
     return html`<link
         rel="stylesheet"
@@ -453,51 +502,59 @@ export default class BackupSettings extends MozLitElement {
         rel="stylesheet"
         href="chrome://browser/content/backup/backup-settings.css"
       />
-      ${this.backupErrorCode ? this.errorBarTemplate() : null}
+      ${this.backupServiceState.backupErrorCode
+        ? this.errorBarTemplate()
+        : null}
+      ${this.showInProgress ? this.inProgressMessageBarTemplate() : null}
       ${this.turnOnScheduledBackupsDialogTemplate()}
       ${this.turnOffScheduledBackupsDialogTemplate()}
       ${this.enableBackupEncryptionDialogTemplate()}
       ${this.disableBackupEncryptionDialogTemplate()}
+      ${this.backupServiceState.archiveEnabledStatus
+        ? html` <section id="scheduled-backups">
+            <div class="backups-control">
+              <span
+                id="scheduled-backups-enabled"
+                data-l10n-id=${scheduledBackupsEnabledL10nID}
+                class="heading-medium"
+              ></span>
 
-      <section id="scheduled-backups">
-        <div class="backups-control">
-          <span
-            id="scheduled-backups-enabled"
-            data-l10n-id=${scheduledBackupsEnabledL10nID}
-            class="heading-medium"
-          ></span>
+              ${scheduledBackupsEnabledState
+                ? html`
+                    <moz-button
+                      id="backup-trigger-button"
+                      @click=${this.handleBackupTrigger}
+                      data-l10n-id="settings-data-backup-trigger-button"
+                      ?disabled=${this.showInProgress}
+                    ></moz-button>
+                  `
+                : null}
 
-          <moz-button
-            id="backup-trigger-button"
-            @click=${this.handleBackupTrigger}
-            data-l10n-id=${backupTriggerL10nID}
-            ?disabled=${this.backupServiceState.backupInProgress ||
-            !this.backupServiceState.scheduledBackupsEnabled}
-          ></moz-button>
+              <moz-button
+                id="backup-toggle-scheduled-button"
+                @click=${this.handleShowScheduledBackups}
+                data-l10n-id=${backupToggleL10nID}
+              ></moz-button>
 
-          <moz-button
-            id="backup-toggle-scheduled-button"
-            @click=${this.handleShowScheduledBackups}
-            data-l10n-id="settings-data-backup-toggle"
-          ></moz-button>
+              ${this.backupServiceState.scheduledBackupsEnabled
+                ? null
+                : this.scheduledBackupsDescriptionTemplate()}
+            </div>
 
-          ${this.backupServiceState.scheduledBackupsEnabled
-            ? null
-            : this.scheduledBackupsDescriptionTemplate()}
-        </div>
-
-        ${this.backupServiceState.lastBackupDate
-          ? this.lastBackupInfoTemplate()
-          : null}
-        ${this.backupServiceState.scheduledBackupsEnabled
-          ? this.backupLocationTemplate()
-          : null}
-        ${this.backupServiceState.scheduledBackupsEnabled
-          ? this.sensitiveDataTemplate()
-          : null}
-      </section>
-
-      ${this.restoreFromBackupTemplate()} `;
+            ${this.backupServiceState.lastBackupDate
+              ? this.lastBackupInfoTemplate()
+              : null}
+            ${this.backupServiceState.scheduledBackupsEnabled
+              ? this.backupLocationTemplate()
+              : null}
+            ${this.backupServiceState.scheduledBackupsEnabled
+              ? this.sensitiveDataTemplate()
+              : null}
+          </section>`
+        : null}
+      ${this.backupServiceState.restoreEnabledStatus
+        ? this.restoreFromBackupTemplate()
+        : null} `;
   }
 }
 

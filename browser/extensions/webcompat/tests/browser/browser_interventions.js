@@ -54,11 +54,8 @@ function check_valid_array(a, key, id) {
   if (a === undefined) {
     return false;
   }
-  const valid = Array.isArray(a) && a.length;
-  ok(
-    valid,
-    `if defined, ${key} is an array with at least one element for id ${id}`
-  );
+  const valid = Array.isArray(a);
+  ok(valid, `if defined, ${key} is an array for id ${id}`);
   return valid;
 }
 
@@ -66,7 +63,8 @@ function check_valid_array(a, key, id) {
 add_task(async function test_json_data() {
   const addon = await AddonManager.getAddonByID("webcompat@mozilla.org");
   const addonURI = addon.getResourceURI();
-  const checkableGlobalPrefs = WebCompatExtension.getCheckableGlobalPrefs();
+  const checkableGlobalPrefs =
+    await WebCompatExtension.getCheckableGlobalPrefs();
 
   const exports = {};
   Services.scriptloader.loadSubScript(

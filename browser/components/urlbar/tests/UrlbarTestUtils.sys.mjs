@@ -13,7 +13,8 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   BrowserTestUtils: "resource://testing-common/BrowserTestUtils.sys.mjs",
   BrowserUIUtils: "resource:///modules/BrowserUIUtils.sys.mjs",
-  BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
+  DEFAULT_FORM_HISTORY_PARAM:
+    "moz-src:///toolkit/components/search/SearchSuggestionController.sys.mjs",
   ExperimentAPI: "resource://nimbus/ExperimentAPI.sys.mjs",
   FormHistoryTestUtils:
     "resource://testing-common/FormHistoryTestUtils.sys.mjs",
@@ -1235,7 +1236,6 @@ export var UrlbarTestUtils = {
       Object.assign(
         {
           input: {
-            isAddressbar: true,
             isPrivate: false,
             onFirstResult() {
               return false;
@@ -1485,13 +1485,13 @@ UrlbarTestUtils.formHistory = {
    *
    * @param {Array} values
    *   The form history entries to remove.
-   * @param {object} window
-   *   The window containing the urlbar.
    * @returns {Promise} resolved once the operation is complete.
    */
-  add(values = [], window = lazy.BrowserWindowTracker.getTopWindow()) {
-    let fieldname = this.getFormHistoryName(window);
-    return lazy.FormHistoryTestUtils.add(fieldname, values);
+  add(values = []) {
+    return lazy.FormHistoryTestUtils.add(
+      lazy.DEFAULT_FORM_HISTORY_PARAM,
+      values
+    );
   },
 
   /**
@@ -1500,26 +1500,23 @@ UrlbarTestUtils.formHistory = {
    *
    * @param {Array} values
    *   The form history entries to remove.
-   * @param {object} window
-   *   The window containing the urlbar.
    * @returns {Promise} resolved once the operation is complete.
    */
-  remove(values = [], window = lazy.BrowserWindowTracker.getTopWindow()) {
-    let fieldname = this.getFormHistoryName(window);
-    return lazy.FormHistoryTestUtils.remove(fieldname, values);
+  remove(values = []) {
+    return lazy.FormHistoryTestUtils.remove(
+      lazy.DEFAULT_FORM_HISTORY_PARAM,
+      values
+    );
   },
 
   /**
    * Removes all values from the urlbar's form history.  If you want to remove
    * individual values, use removeFormHistory.
    *
-   * @param {object} window
-   *   The window containing the urlbar.
    * @returns {Promise} resolved once the operation is complete.
    */
-  clear(window = lazy.BrowserWindowTracker.getTopWindow()) {
-    let fieldname = this.getFormHistoryName(window);
-    return lazy.FormHistoryTestUtils.clear(fieldname);
+  clear() {
+    return lazy.FormHistoryTestUtils.clear(lazy.DEFAULT_FORM_HISTORY_PARAM);
   },
 
   /**
@@ -1527,14 +1524,14 @@ UrlbarTestUtils.formHistory = {
    *
    * @param {object} criteria
    *   Criteria to narrow the search.  See FormHistory.search.
-   * @param {object} window
-   *   The window containing the urlbar.
    * @returns {Promise}
    *   A promise resolved with an array of found form history entries.
    */
-  search(criteria = {}, window = lazy.BrowserWindowTracker.getTopWindow()) {
-    let fieldname = this.getFormHistoryName(window);
-    return lazy.FormHistoryTestUtils.search(fieldname, criteria);
+  search(criteria = {}) {
+    return lazy.FormHistoryTestUtils.search(
+      lazy.DEFAULT_FORM_HISTORY_PARAM,
+      criteria
+    );
   },
 
   /**
@@ -1550,18 +1547,6 @@ UrlbarTestUtils.formHistory = {
       "satchel-storage-changed",
       (subject, data) => !change || data == "formhistory-" + change
     );
-  },
-
-  /**
-   * Returns the form history name for the urlbar in a window.
-   *
-   * @param {object} window
-   *   The window.
-   * @returns {string}
-   *   The form history name of the urlbar in the window.
-   */
-  getFormHistoryName(window = lazy.BrowserWindowTracker.getTopWindow()) {
-    return window ? window.gURLBar.formHistoryName : "searchbar-history";
   },
 };
 
@@ -1589,6 +1574,10 @@ class TestProvider extends UrlbarProvider {
    *   If non-zero, each result will be added on this timeout.  If zero, all
    *   results will be added immediately and synchronously.
    *   If there's no results, the query will be completed after this timeout.
+   * @param {Function} [options.getViewTemplate]
+   *   If given, override the UrlbarProvider.getViewTemplate().
+   * @param {Function} [options.getViewUpdate]
+   *   If given, override the UrlbarProvider.getViewUpdate().
    * @param {Function} [options.onCancel]
    *   If given, a function that will be called when the provider's cancelQuery
    *   method is called.
@@ -1614,6 +1603,8 @@ class TestProvider extends UrlbarProvider {
     type = UrlbarUtils.PROVIDER_TYPE.PROFILE,
     priority = 0,
     addTimeout = 0,
+    getViewTemplate = null,
+    getViewUpdate = null,
     onCancel = null,
     onSelection = null,
     onEngagement = null,
@@ -1641,6 +1632,14 @@ class TestProvider extends UrlbarProvider {
     // type to heuristic if any result is heuristic.
     if (!type && this.results?.some(r => r.heuristic)) {
       this._type = UrlbarUtils.PROVIDER_TYPE.HEURISTIC;
+    }
+
+    if (getViewTemplate) {
+      this.getViewTemplate = getViewTemplate.bind(this);
+    }
+
+    if (getViewUpdate) {
+      this.getViewUpdate = getViewUpdate.bind(this);
     }
 
     if (onEngagement) {

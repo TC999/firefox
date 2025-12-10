@@ -407,7 +407,7 @@ newtab-wallpaper-abstract-purple-green = Paars en groene lichtgradiënt
 newtab-wallpaper-abstract-blue-purple-waves = Blauwe en paarse golvende vormen
 newtab-wallpaper-abstract-black-waves = Zwarte golvende vormen
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Foto’s
 newtab-wallpaper-beach-at-sunrise = Strand bij zonsopgang
@@ -436,6 +436,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -664,6 +668,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Nieuwe lijst
+newtab-widget-section-title = Widgets
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Widgets verbergen
+    .aria-label = Alle widgets verbergen
+newtab-widget-section-maximize =
+    .title = Widgets uitvouwen
+    .aria-label = Alle widgets tot volledige afmeting uitvouwen
+newtab-widget-section-minimize =
+    .title = Widgets minimaliseren
+    .aria-label = Alle widgets samenvouwen tot compacte afmeting
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -676,10 +691,6 @@ newtab-widget-timer-mode-focus =
     .label = Focus
 newtab-widget-timer-mode-break =
     .label = Pauze
-newtab-widget-timer-play =
-    .title = Afspelen
-newtab-widget-timer-pause =
-    .title = Pauzeren
 newtab-widget-timer-label-play =
     .label = Afspelen
 newtab-widget-timer-label-pause =
@@ -690,8 +701,6 @@ newtab-widget-timer-menu-notifications = Notificaties uitschakelen
 newtab-widget-timer-menu-notifications-on = Notificaties inschakelen
 newtab-widget-timer-menu-hide = Timer verbergen
 newtab-widget-timer-menu-learn-more = Meer info
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Scrol voor meer
 newtab-widget-message-title = Blijf gefocust met lijsten en een ingebouwde timer
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Van snelle herinneringen tot dagelijkse to-do’s, en van focussessies tot lange pauzes – blijf bij de taak en op tijd.

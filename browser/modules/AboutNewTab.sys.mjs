@@ -94,10 +94,10 @@ export const AboutNewTab = {
    *
    * This will only act if there is a change of state and if not overridden.
    *
-   * @returns {Boolean} Returns if there has been a state change
+   * @returns {boolean} Returns if there has been a state change
    *
-   * @param {Boolean}   stateEnabled    activity stream enabled state to set to
-   * @param {Boolean}   forceState      force state change
+   * @param {boolean}   stateEnabled    activity stream enabled state to set to
+   * @param {boolean}   forceState      force state change
    */
   toggleActivityStream(stateEnabled, forceState = false) {
     if (
@@ -238,11 +238,16 @@ export const AboutNewTab = {
       this.activityStream.uninit();
       this.activityStream = null;
     }
-    Services.obs.removeObserver(this, TOPIC_APP_QUIT);
-    Services.obs.removeObserver(
-      this,
-      lazy.TelemetryReportingPolicy.TELEMETRY_TOU_ACCEPTED_OR_INELIGIBLE
-    );
+    try {
+      Services.obs.removeObserver(this, TOPIC_APP_QUIT);
+      Services.obs.removeObserver(
+        this,
+        lazy.TelemetryReportingPolicy.TELEMETRY_TOU_ACCEPTED_OR_INELIGIBLE
+      );
+    } catch (e) {
+      // If init failed before registering these observers, removeObserver may throw.
+      // Safe to ignore during shutdown.
+    }
 
     this.initialized = false;
   },

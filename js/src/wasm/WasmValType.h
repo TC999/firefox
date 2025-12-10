@@ -19,10 +19,7 @@
 #ifndef wasm_valtype_h
 #define wasm_valtype_h
 
-#include "mozilla/HashTable.h"
 #include "mozilla/Maybe.h"
-
-#include <type_traits>
 
 #include "jit/IonTypes.h"
 #include "wasm/WasmConstants.h"

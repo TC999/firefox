@@ -6,12 +6,10 @@
 
 #include "vm/NativeObject-inl.h"
 
-#include "mozilla/Casting.h"
 #include "mozilla/CheckedInt.h"
 #include "mozilla/Maybe.h"
 
 #include <algorithm>
-#include <iterator>
 
 #include "gc/MaybeRooted.h"
 #include "gc/StableCellHasher.h"

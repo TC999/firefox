@@ -17,7 +17,7 @@ import java.util.UUID
 /**
  * Some randomly generated fake addresses that match the expected locale.
  */
-internal fun String.generateFakeAddressForLangTag(): UpdatableAddressFields = when (this) {
+fun String.generateFakeAddressForLangTag(): UpdatableAddressFields = when (this) {
     "en-CA" -> UpdatableAddressFields(
         name = "Tim Horton",
         organization = "",
@@ -72,9 +72,9 @@ internal fun String.generateFakeAddressForLangTag(): UpdatableAddressFields = wh
         streetAddress = " 530 E McDowell Rd",
         addressLevel3 = "",
         addressLevel2 = "Phoenix",
-        addressLevel1 = "Arizona",
+        addressLevel1 = "AZ",
         postalCode = "85003",
-        country = "United States",
+        country = "US",
         tel = " (602) 555-5555",
         email = "englishunitedstates@gmail.com",
     )
@@ -150,37 +150,11 @@ internal class FakeCreditCardsAddressesStorage : CreditCardsAddressesStorage {
         throw UnsupportedOperationException()
     }
 
-    private fun UpdatableAddressFields.toAddress() =
-        Address(
-            guid = UUID.randomUUID().toString(),
-            organization = organization,
-            name = name,
-            streetAddress = streetAddress,
-            addressLevel1 = addressLevel1,
-            addressLevel2 = addressLevel2,
-            addressLevel3 = addressLevel3,
-            postalCode = postalCode,
-            country = country,
-            tel = tel,
-            email = email,
-        )
-
-    private fun NewCreditCardFields.toCreditCard() = CreditCard(
-        guid = UUID.randomUUID().toString(),
-        billingName = billingName,
-        cardNumberLast4 = cardNumberLast4,
-        expiryMonth = expiryMonth,
-        expiryYear = expiryYear,
-        cardType = cardType,
-        encryptedCardNumber = CreditCardNumber.Encrypted(plaintextCardNumber.number),
-    )
-
     companion object {
         fun getAllPossibleLocaleLangTags(): List<String> = listOf(
-            "en-US",
-            "en-CA",
-            "fr-CA",
-        ) + DebugLocale.entries.map { it.langTag }
+            "US",
+            "CA",
+        ) + DebugRegion.entries.map { it.country }
 
         private val randomNames = listOf("John Doe", "Jane Doe", "Bob Smith", "Alice Johnson")
         private val randomCardNumbers = listOf(
@@ -201,5 +175,30 @@ internal class FakeCreditCardsAddressesStorage : CreditCardsAddressesStorage {
                 cardType = randomCardTypes.random(),
             )
         }
+
+        fun NewCreditCardFields.toCreditCard() = CreditCard(
+            guid = UUID.randomUUID().toString(),
+            billingName = billingName,
+            cardNumberLast4 = cardNumberLast4,
+            expiryMonth = expiryMonth,
+            expiryYear = expiryYear,
+            cardType = cardType,
+            encryptedCardNumber = CreditCardNumber.Encrypted(plaintextCardNumber.number),
+        )
+
+        fun UpdatableAddressFields.toAddress() =
+            Address(
+                guid = UUID.randomUUID().toString(),
+                organization = organization,
+                name = name,
+                streetAddress = streetAddress,
+                addressLevel1 = addressLevel1,
+                addressLevel2 = addressLevel2,
+                addressLevel3 = addressLevel3,
+                postalCode = postalCode,
+                country = country,
+                tel = tel,
+                email = email,
+            )
     }
 }

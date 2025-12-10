@@ -7,9 +7,11 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   CustomizableUI:
     "moz-src:///browser/components/customizableui/CustomizableUI.sys.mjs",
+  IPPEnrollAndEntitleManager:
+    "resource:///modules/ipprotection/IPPEnrollAndEntitleManager.sys.mjs",
+  IPPProxyManager: "resource:///modules/ipprotection/IPPProxyManager.sys.mjs",
+  IPPProxyStates: "resource:///modules/ipprotection/IPPProxyManager.sys.mjs",
   IPProtectionService:
-    "resource:///modules/ipprotection/IPProtectionService.sys.mjs",
-  IPProtectionStates:
     "resource:///modules/ipprotection/IPProtectionService.sys.mjs",
   IPProtection: "resource:///modules/ipprotection/IPProtection.sys.mjs",
   IPPSignInWatcher: "resource:///modules/ipprotection/IPPSignInWatcher.sys.mjs",
@@ -32,6 +34,9 @@ export class IPProtectionPanel {
   static WIDGET_ID = "ipprotection-button";
   static PANEL_ID = "PanelUI-ipprotection";
   static TITLE_L10N_ID = "ipprotection-title";
+  static HEADER_AREA_ID = "PanelUI-ipprotection-header";
+  static CONTENT_AREA_ID = "PanelUI-ipprotection-content";
+  static HEADER_BUTTON_ID = "ipprotection-header-button";
 
   /**
    * Loads the ipprotection custom element script
@@ -72,10 +77,12 @@ export class IPProtectionPanel {
    *  The location country code
    * @property {"generic" | ""} error
    *  The error type as a string if an error occurred, or empty string if there are no errors.
-   * @property {"alpha"} variant
-   *  The feature variant type as a string.
+   * @property {boolean} isAlpha
+   *  True if we're running the Alpha variant, else false.
    * @property {boolean} hasUpgraded
    *  True if a Mozilla VPN subscription is linked to the user's Mozilla account.
+   * @property {string} onboardingMessage
+   * Continuous onboarding message to display in-panel, empty string if none applicable
    */
 
   /**
@@ -104,14 +111,11 @@ export class IPProtectionPanel {
    *
    * @param {Window} window
    *   Window containing the panelView to manage.
-   * @param {string} variant
-   *   Variant of the panel that should be used.
    */
-  constructor(window, variant = "") {
+  constructor(window) {
     this.handleEvent = this.#handleEvent.bind(this);
 
-    let { activatedAt: protectionEnabledSince, hasUpgraded } =
-      lazy.IPProtectionService;
+    let { activatedAt: protectionEnabledSince } = lazy.IPPProxyManager;
 
     this.state = {
       isSignedOut: !lazy.IPPSignInWatcher.isSignedIn,
@@ -122,8 +126,9 @@ export class IPProtectionPanel {
         code: "us",
       },
       error: "",
-      variant,
-      hasUpgraded,
+      isAlpha: lazy.IPPEnrollAndEntitleManager.isAlpha,
+      hasUpgraded: lazy.IPPEnrollAndEntitleManager.hasUpgraded,
+      onboardingMessage: "",
     };
 
     if (window) {
@@ -173,18 +178,27 @@ export class IPProtectionPanel {
   }
 
   #startProxy() {
-    lazy.IPProtectionService.start();
+    lazy.IPPProxyManager.start();
   }
 
   #stopProxy() {
-    lazy.IPProtectionService.stop();
+    lazy.IPPProxyManager.stop();
   }
 
-  showHelpPage() {
-    let win = this.panel.ownerGlobal;
-    if (win && !Cu.isInAutomation) {
+  /**
+   * Opens the help page in a new tab and closes the panel.
+   *
+   * @param {Event} e
+   */
+  static showHelpPage(e) {
+    let win = e.target?.ownerGlobal;
+    if (win) {
       win.openWebLinkIn(LINKS.SUPPORT_URL, "tab");
-      this.close();
+    }
+
+    let panelParent = e.target?.closest("panel");
+    if (panelParent) {
+      panelParent.hidePopup();
     }
   }
 
@@ -200,7 +214,7 @@ export class IPProtectionPanel {
    */
   showing(panelView) {
     if (this.initiatedUpgrade) {
-      lazy.IPProtectionService.refetchEntitlement();
+      lazy.IPPEnrollAndEntitleManager.refetchEntitlement();
       this.initiatedUpgrade = false;
     }
 
@@ -209,6 +223,16 @@ export class IPProtectionPanel {
     } else {
       this.#createPanel(panelView);
     }
+
+    // TODO: Stop counting after all onboarding messages have been shown - Bug 1997332
+    let currentCount = Services.prefs.getIntPref(
+      "browser.ipProtection.panelOpenCount"
+    );
+    let updatedCount = currentCount + 1;
+    Services.prefs.setIntPref(
+      "browser.ipProtection.panelOpenCount",
+      updatedCount
+    );
   }
 
   /**
@@ -223,10 +247,23 @@ export class IPProtectionPanel {
   /**
    * Creates a panel component in a panelView.
    *
-   * @param {XULBrowserElement} panelView
+   * @param {MozBrowser} panelView
    */
   #createPanel(panelView) {
     let { ownerDocument } = panelView;
+
+    let headerArea = panelView.querySelector(
+      `#${IPProtectionPanel.HEADER_AREA_ID}`
+    );
+    let headerButton = headerArea.querySelector(
+      `#${IPProtectionPanel.HEADER_BUTTON_ID}`
+    );
+    if (!headerButton) {
+      headerButton = this.#createHeaderButton(ownerDocument);
+      headerArea.appendChild(headerButton);
+    }
+    // Reset the tab index to ensure it is focusable.
+    headerButton.setAttribute("tabindex", "0");
 
     let contentEl = ownerDocument.createElement(
       IPProtectionPanel.CONTENT_TAGNAME
@@ -237,7 +274,27 @@ export class IPProtectionPanel {
 
     this.#addPanelListeners(ownerDocument);
 
-    panelView.appendChild(contentEl);
+    let contentArea = panelView.querySelector(
+      `#${IPProtectionPanel.CONTENT_AREA_ID}`
+    );
+    contentArea.appendChild(contentEl);
+  }
+
+  #createHeaderButton(ownerDocument) {
+    const headerButton = ownerDocument.createXULElement("toolbarbutton");
+
+    headerButton.id = IPProtectionPanel.HEADER_BUTTON_ID;
+    headerButton.className = "panel-info-button";
+    headerButton.dataset.capturesFocus = "true";
+
+    ownerDocument.l10n.setAttributes(headerButton, "ipprotection-help-button");
+    headerButton.addEventListener("click", IPProtectionPanel.showHelpPage);
+    headerButton.addEventListener("keypress", e => {
+      if (e.code == "Space" || e.code == "Enter") {
+        IPProtectionPanel.showHelpPage(e);
+      }
+    });
+    return headerButton;
   }
 
   /**
@@ -307,8 +364,8 @@ export class IPProtectionPanel {
     doc.addEventListener("IPProtection:Close", this.handleEvent);
     doc.addEventListener("IPProtection:UserEnable", this.handleEvent);
     doc.addEventListener("IPProtection:UserDisable", this.handleEvent);
-    doc.addEventListener("IPProtection:ShowHelpPage", this.handleEvent);
     doc.addEventListener("IPProtection:SignIn", this.handleEvent);
+    doc.addEventListener("IPProtection:UserShowSiteSettings", this.handleEvent);
   }
 
   #removePanelListeners(doc) {
@@ -317,8 +374,11 @@ export class IPProtectionPanel {
     doc.removeEventListener("IPProtection:Close", this.handleEvent);
     doc.removeEventListener("IPProtection:UserEnable", this.handleEvent);
     doc.removeEventListener("IPProtection:UserDisable", this.handleEvent);
-    doc.removeEventListener("IPProtection:ShowHelpPage", this.handleEvent);
     doc.removeEventListener("IPProtection:SignIn", this.handleEvent);
+    doc.removeEventListener(
+      "IPProtection:UserShowSiteSettings",
+      this.handleEvent
+    );
   }
 
   #addProxyListeners() {
@@ -326,9 +386,25 @@ export class IPProtectionPanel {
       "IPProtectionService:StateChanged",
       this.handleEvent
     );
+    lazy.IPPProxyManager.addEventListener(
+      "IPPProxyManager:StateChanged",
+      this.handleEvent
+    );
+    lazy.IPPEnrollAndEntitleManager.addEventListener(
+      "IPPEnrollAndEntitleManager:StateChanged",
+      this.handleEvent
+    );
   }
 
   #removeProxyListeners() {
+    lazy.IPPEnrollAndEntitleManager.removeEventListener(
+      "IPPEnrollAndEntitleManager:StateChanged",
+      this.handleEvent
+    );
+    lazy.IPPProxyManager.removeEventListener(
+      "IPPProxyManager:StateChanged",
+      this.handleEvent
+    );
     lazy.IPProtectionService.removeEventListener(
       "IPProtectionService:StateChanged",
       this.handleEvent
@@ -346,31 +422,31 @@ export class IPProtectionPanel {
     } else if (event.type == "IPProtection:UserDisable") {
       this.#stopProxy();
       Services.prefs.setBoolPref("browser.ipProtection.userEnabled", false);
-    } else if (event.type == "IPProtection:ShowHelpPage") {
-      this.showHelpPage();
     } else if (event.type == "IPProtection:ClickUpgrade") {
       // Let the service know that we tried upgrading at least once
       this.initiatedUpgrade = true;
       this.close();
     } else if (event.type == "IPProtection:SignIn") {
       this.startLoginFlow();
-    } else if (event.type == "IPProtectionService:StateChanged") {
-      let {
-        state,
-        activatedAt: protectionEnabledSince,
-        hasUpgraded,
-      } = lazy.IPProtectionService;
+    } else if (
+      event.type == "IPPProxyManager:StateChanged" ||
+      event.type == "IPProtectionService:StateChanged" ||
+      event.type === "IPPEnrollAndEntitleManager:StateChanged"
+    ) {
+      let { activatedAt: protectionEnabledSince } = lazy.IPPProxyManager;
       let hasError =
-        state === lazy.IPProtectionStates.ERROR &&
-        lazy.IPProtectionService.errors.includes(ERRORS.GENERIC);
+        lazy.IPPProxyManager.state === lazy.IPPProxyStates.ERROR &&
+        lazy.IPPProxyManager.errors.includes(ERRORS.GENERIC);
 
       this.setState({
         isSignedOut: !lazy.IPPSignInWatcher.isSignedIn,
         isProtectionEnabled: !!protectionEnabledSince,
         protectionEnabledSince,
-        hasUpgraded,
+        hasUpgraded: lazy.IPPEnrollAndEntitleManager.hasUpgraded,
         error: hasError ? ERRORS.GENERIC : "",
       });
+    } else if (event.type == "IPProtection:UserShowSiteSettings") {
+      // TODO: show subview for site settings (Bug 1997413)
     }
   }
 }

@@ -279,8 +279,9 @@ add_task(async function () {
 
 add_task(async function checkClearSearch() {
   const fillerDeclarations = Array.from({ length: 50 }, (_, i) => ({
-    name: `--x-${i}`,
+    name: `line-height`,
     value: i.toString(),
+    overridden: i !== 49,
   }));
 
   await addTab(
@@ -317,10 +318,16 @@ add_task(async function checkClearSearch() {
 
   // check that the rule view is filtered as expected
   await checkRuleViewContent(view, [
-    { selector: "element", declarations: [] },
+    { selector: "element", selectorEditable: false, declarations: [] },
     {
       selector: "h1",
-      declarations: [{ name: "--my-unique-var", value: "var(--my-color-1)" }],
+      declarations: [
+        {
+          name: "--my-unique-var",
+          value: "var(--my-color-1)",
+          highlighted: true,
+        },
+      ],
     },
   ]);
   const rule = getRuleViewRuleEditor(view, 1).rule;
@@ -338,7 +345,7 @@ add_task(async function checkClearSearch() {
 
   // check that the rule view is no longer filtered
   await checkRuleViewContent(view, [
-    { selector: "element", declarations: [] },
+    { selector: "element", selectorEditable: false, declarations: [] },
     { selector: "h1#title", declarations: fillerDeclarations },
     {
       selector: "h1",
@@ -349,9 +356,93 @@ add_task(async function checkClearSearch() {
     },
     {
       selector: ":root",
+      inherited: true,
       declarations: [{ name: "--my-color-1", value: "tomato" }],
     },
   ]);
+});
+
+add_task(async function checkJumpToUnusedVariable() {
+  await addTab(
+    "data:text/html;charset=utf-8," +
+      encodeURIComponent(`
+        <style>
+          :where(h3) {
+            ${Array.from({ length: 15 }, (_, i) => `--unused-${i}: ${i};`).join("\n")}
+          }
+
+          h3 {
+            --another-unused: var(--unused-5);
+          }
+        </style>
+        <h3>for unused variables</h3>
+  `)
+  );
+
+  const { inspector, view } = await openRuleView();
+  await selectNode("h1", inspector);
+
+  info("Check that jump to definition of unused variables do work");
+  // If you have 2 rules, one with hidden custom properties, and the other one with
+  // custom properties not being hidden because we're not entering the threshold
+  // Make sure the clicking the Jump to definition button will reveal the hidden property
+  await selectNode("h3", inspector);
+
+  await checkRuleViewContent(view, [
+    {
+      selector: "element",
+      selectorEditable: false,
+      declarations: [],
+    },
+    {
+      selector: "h3",
+      declarations: [{ name: "--another-unused", value: "var(--unused-5)" }],
+    },
+    {
+      // Contains the hidden variables
+      selector: ":where(h3)",
+      // All the variables are hidden
+      declarations: [],
+    },
+  ]);
+
+  is(
+    getUnusedVariableButton(view, 2)?.textContent,
+    "Show 15 unused custom CSS properties",
+    "Show unused variables button has expected text"
+  );
+
+  const rule = getRuleViewRuleEditor(view, 1).rule;
+  is(rule.selectorText, "h3", "Got expected rule");
+
+  const variableButtonEls = getJumpToDefinitionButtonForDeclaration(rule, {
+    "--another-unused": "var(--unused-5)",
+  });
+  is(variableButtonEls.length, 1, "There's one jump to variable button");
+  await highlightProperty(view, variableButtonEls[0], "--unused-5", "5");
+
+  await checkRuleViewContent(view, [
+    {
+      selector: "element",
+      selectorEditable: false,
+      declarations: [],
+    },
+    {
+      selector: "h3",
+      declarations: [{ name: "--another-unused", value: "var(--unused-5)" }],
+    },
+    {
+      // Contains the hidden variables
+      selector: ":where(h3)",
+      declarations: [{ name: "--unused-5", value: "5" }],
+    },
+  ]);
+
+  is(
+    getUnusedVariableButton(view, 2)?.textContent,
+    "Show 14 unused custom CSS properties",
+    "Show unused variables button has expected text"
+  );
 });
 
 function getJumpToDefinitionButtonForDeclaration(rule, declaration) {
@@ -373,8 +464,8 @@ function getJumpToDefinitionButtonForDeclaration(rule, declaration) {
  *
  * @param {RuleView} view
  * @param {Element} jumpToDefinitionButton
- * @param {String} expectedPropertyName: The name of the property that should be highlighted
- * @param {String} expectedPropertyValue: The value of the property that should be highlighted
+ * @param {string} expectedPropertyName: The name of the property that should be highlighted
+ * @param {string} expectedPropertyValue: The value of the property that should be highlighted
  */
 async function highlightProperty(
   view,

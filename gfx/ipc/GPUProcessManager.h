@@ -9,7 +9,6 @@
 #include "base/basictypes.h"
 #include "base/process.h"
 #include "Units.h"
-#include "mozilla/UniquePtr.h"
 #include "mozilla/dom/ipc/IdType.h"
 #include "mozilla/gfx/GPUProcessHost.h"
 #include "mozilla/gfx/PGPUChild.h"
@@ -27,6 +26,8 @@ enum class DeviceResetReason;
 namespace mozilla {
 class MemoryReportingProcess;
 class PRemoteMediaManagerChild;
+class RDDProcessManager;
+class RDDChild;
 namespace layers {
 class IAPZCTreeManager;
 class CompositorOptions;
@@ -50,6 +51,9 @@ class BrowserParent;
 }  // namespace dom
 namespace ipc {
 class GeckoChildProcessHost;
+#ifdef MOZ_WMF_MEDIA_ENGINE
+class UtilityMediaServiceChild;
+#endif
 }  // namespace ipc
 namespace gfx {
 
@@ -88,7 +92,7 @@ class GPUProcessManager final : public GPUProcessHost::Listener {
   ~GPUProcessManager();
 
   // If not using a GPU process, launch a new GPU process asynchronously.
-  bool LaunchGPUProcess();
+  nsresult LaunchGPUProcess();
   bool IsGPUProcessLaunching();
 
   // Ensure that GPU-bound methods can be used. If no GPU process is being
@@ -103,10 +107,11 @@ class GPUProcessManager final : public GPUProcessHost::Listener {
   // process, even if in shutdown.
   // - NS_ERROR_ILLEGAL_DURING_SHUTDOWN if compositing is not ready, and we are
   // in shutdown.
-  // - NS_ERROR_ABORT if compositing is not ready, we failed to make it ready
-  // under the previous configuration, and that the configuration may have
-  // changed. This is only returned when aRetryAfterFallback is false.
-  nsresult EnsureGPUReady(bool aRetryAfterFallback = true);
+  // - NS_ERROR_ABORT if on Android and we are in the background. This is a
+  // temporary error that we should recover from when in the foreground.
+  nsresult EnsureGPUReady();
+
+  bool IsGPUReady() const;
 
   already_AddRefed<CompositorSession> CreateTopLevelCompositor(
       nsIWidget* aWidget, WebRenderLayerManager* aLayerManager,
@@ -114,6 +119,9 @@ class GPUProcessManager final : public GPUProcessHost::Listener {
       bool aUseExternalSurfaceSize, const gfx::IntSize& aSurfaceSize,
       uint64_t aInnerWindowId, bool* aRetry);
 
+  // It is asserted that IsGPUReady() is true for this method. If not on a path
+  // which guarantees that, then the caller must call EnsureGPUReady() and check
+  // its return code first.
   bool CreateContentBridges(
       mozilla::ipc::EndpointProcInfo aOtherProcess,
       mozilla::ipc::Endpoint<PCompositorManagerChild>* aOutCompositor,
@@ -122,14 +130,12 @@ class GPUProcessManager final : public GPUProcessHost::Listener {
       mozilla::ipc::Endpoint<PRemoteMediaManagerChild>* aOutVideoManager,
       dom::ContentParentId aChildId, nsTArray<uint32_t>* aNamespaces);
 
-  // Initialize GPU process with consuming end of PVideoBridge.
-  void InitVideoBridge(
-      mozilla::ipc::Endpoint<PVideoBridgeParent>&& aVideoBridge,
-      layers::VideoBridgeSource aSource);
-
-  // Maps the layer tree and process together so that aOwningPID is allowed
-  // to access aLayersId across process.
-  void MapLayerTreeId(LayersId aLayersId, base::ProcessId aOwningId);
+  nsresult CreateRddVideoBridge(RDDProcessManager* aRDD, RDDChild* aChild);
+#ifdef MOZ_WMF_MEDIA_ENGINE
+  nsresult CreateUtilityMFCDMVideoBridge(
+      mozilla::ipc::UtilityMediaServiceChild* aChild,
+      mozilla::ipc::EndpointProcInfo aOtherProcess);
+#endif
 
   // Release compositor-thread resources referred to by |aID|.
   //
@@ -153,6 +159,9 @@ class GPUProcessManager final : public GPUProcessHost::Listener {
   // Allocate a layers ID and connect it to a compositor. If the compositor is
   // null, the connect operation will not be performed, but an ID will still be
   // allocated. This must be called from the browser main thread.
+  //
+  // It also maps the layer tree and process together so that aOwningPID is
+  // allowed to access aLayersId across process.
   //
   // Note that a layer tree id is always allocated, even if this returns false.
   bool AllocateAndConnectLayerTreeId(PCompositorBridgeChild* aCompositorBridge,
@@ -199,7 +208,7 @@ class GPUProcessManager final : public GPUProcessHost::Listener {
 
   // Invoked when we know we will shutdown (but before shutdown begins), to
   // avoid races with other shutdown observers.
-  void StopObserving();
+  void StopBatteryObserving();
 
   // Causes the GPU process to crash. Used for tests and diagnostics
   void CrashProcess();
@@ -235,12 +244,8 @@ class GPUProcessManager final : public GPUProcessHost::Listener {
   RefPtr<PGPUChild::TestTriggerMetricsPromise> TestTriggerMetrics();
 
  private:
-  // Called from our xpcom-shutdown observer.
-  void OnXPCOMShutdown();
   void OnPreferenceChange(const char16_t* aData);
   void ScreenInformationChanged();
-
-  bool IsGPUReady() const;
 
   bool CreateContentCompositorManager(
       mozilla::ipc::EndpointProcInfo aOtherProcess,
@@ -259,6 +264,11 @@ class GPUProcessManager final : public GPUProcessHost::Listener {
       dom::ContentParentId aChildId,
       mozilla::ipc::Endpoint<PRemoteMediaManagerChild>* aOutEndPoint);
 
+  nsresult EnsureVideoBridge(
+      layers::VideoBridgeSource aSource,
+      mozilla::ipc::EndpointProcInfo aOtherProcess,
+      mozilla::ipc::Endpoint<layers::PVideoBridgeChild>* aOutChildPipe);
+
   // Called from RemoteCompositorSession. We track remote sessions so we can
   // notify their owning widgets that the session must be restarted.
   void RegisterRemoteProcessSession(RemoteCompositorSession* aSession);
@@ -276,8 +286,7 @@ class GPUProcessManager final : public GPUProcessHost::Listener {
   // acceleration.
   bool OnDeviceReset(bool aTrackThreshold);
 
-  // Returns true if WebRender was enabled and is now disabled.
-  bool DisableWebRenderConfig(wr::WebRenderError aError, const nsCString& aMsg);
+  void DisableWebRenderConfig(wr::WebRenderError aError, const nsCString& aMsg);
 
   void FallbackToSoftware(const char* aMessage);
 
@@ -306,7 +315,7 @@ class GPUProcessManager final : public GPUProcessHost::Listener {
   bool IsProcessStable(const TimeStamp& aNow);
 
   // Shutdown the GPU process.
-  void CleanShutdown();
+  void ShutdownInternal();
   // Destroy the process and clean up resources.
   // Setting aUnexpectedShutdown = true indicates that this is being called to
   // clean up resources in response to an unexpected shutdown having been
@@ -329,11 +338,6 @@ class GPUProcessManager final : public GPUProcessHost::Listener {
   void SetProcessIsForeground();
 #endif
 
-#if defined(MOZ_WIDGET_ANDROID)
-  RefPtr<UiCompositorControllerChild> CreateUiCompositorController(
-      nsIWidget* aWidget, const LayersId aId);
-#endif  // defined(MOZ_WIDGET_ANDROID)
-
   RefPtr<CompositorSession> CreateRemoteSession(
       nsIWidget* aWidget, WebRenderLayerManager* aLayerManager,
       const LayersId& aRootLayerTreeId, CSSToLayoutDeviceScale aScale,
@@ -342,33 +346,32 @@ class GPUProcessManager final : public GPUProcessHost::Listener {
 
   DISALLOW_COPY_AND_ASSIGN(GPUProcessManager);
 
+  void NotifyObserve(const char* aTopic, const char16_t* aData);
   void NotifyBatteryInfo(const hal::BatteryInformation& aBatteryInfo);
 
   class Observer final : public nsIObserver {
    public:
     NS_DECL_ISUPPORTS
     NS_DECL_NSIOBSERVER
-    explicit Observer(GPUProcessManager* aManager);
+
+    Observer();
+    void Shutdown();
 
    protected:
     virtual ~Observer() = default;
-
-    GPUProcessManager* mManager;
   };
   friend class Observer;
 
   class BatteryObserver final : public hal::BatteryObserver {
    public:
     NS_INLINE_DECL_REFCOUNTING(BatteryObserver)
-    explicit BatteryObserver(GPUProcessManager* aManager);
 
+    BatteryObserver();
     void Notify(const hal::BatteryInformation& aBatteryInfo) override;
-    void ShutDown();
+    void Shutdown();
 
    protected:
-    virtual ~BatteryObserver();
-
-    GPUProcessManager* mManager;
+    ~BatteryObserver() override = default;
   };
 
  private:
@@ -389,7 +392,7 @@ class GPUProcessManager final : public GPUProcessHost::Listener {
 
   nsTArray<RefPtr<RemoteCompositorSession>> mRemoteSessions;
   nsTArray<RefPtr<InProcessCompositorSession>> mInProcessSessions;
-  nsTArray<GPUProcessListener*> mListeners;
+  nsTArray<RefPtr<GPUProcessListener>> mListeners;
 
   uint32_t mDeviceResetCount;
   TimeStamp mDeviceResetLastTime;
@@ -400,7 +403,7 @@ class GPUProcessManager final : public GPUProcessHost::Listener {
   // Fields that are associated with the current GPU process.
   GPUProcessHost* mProcess;
   uint64_t mProcessToken;
-  bool mProcessStable;
+  bool mProcessStable = false;
   bool mProcessStableOnce = false;
   Maybe<wr::WebRenderError> mLastError;
   Maybe<nsCString> mLastErrorMsg;

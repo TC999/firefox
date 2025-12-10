@@ -1296,8 +1296,7 @@ class ContentParent final : public PContentParent,
       ServiceWorkerShutdownState::Progress aProgress);
 
   mozilla::ipc::IPCResult RecvRawMessage(
-      const JSActorMessageMeta& aMeta,
-      const UniquePtr<ClonedMessageData>& aData,
+      const JSActorMessageMeta& aMeta, JSIPCValue&& aData,
       const UniquePtr<ClonedMessageData>& aStack);
 
   mozilla::ipc::IPCResult RecvAbortOtherOrientationPendingPromises(
@@ -1355,6 +1354,10 @@ class ContentParent final : public PContentParent,
   mozilla::ipc::IPCResult RecvGetLoadingSessionHistoryInfoFromParent(
       const MaybeDiscarded<BrowsingContext>& aContext,
       GetLoadingSessionHistoryInfoFromParentResolver&& aResolver);
+
+  mozilla::ipc::IPCResult RecvSynchronizeNavigationAPIState(
+      const MaybeDiscarded<BrowsingContext>& aContext,
+      const ClonedMessageData& aState);
 
   mozilla::ipc::IPCResult RecvRemoveFromBFCache(
       const MaybeDiscarded<BrowsingContext>& aContext);
@@ -1414,6 +1417,10 @@ class ContentParent final : public PContentParent,
 
 #ifdef FUZZING_SNAPSHOT
   mozilla::ipc::IPCResult RecvSignalFuzzingReady();
+#endif
+
+#ifdef FUZZING
+  mozilla::ipc::IPCResult RecvKillGPUProcess();
 #endif
 
  public:

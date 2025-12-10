@@ -20,7 +20,6 @@
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "api/candidate.h"
 #include "api/jsep.h"
 
 namespace webrtc {
@@ -28,55 +27,24 @@ namespace webrtc {
 class SessionDescription;
 
 // Implementation of SessionDescriptionInterface.
-class JsepSessionDescription : public SessionDescriptionInterface {
+class JsepSessionDescription final : public SessionDescriptionInterface {
  public:
+  // TODO: bugs.webrtc.org/442220720 - Remove this constructor and make sure
+  // that JsepSessionDescription can only be constructed with a valid
+  // SessionDescription object (with the exception of kRollback).
+  [[deprecated(
+      "JsepSessionDescription needs to be initialized with a valid description "
+      "object")]]
   explicit JsepSessionDescription(SdpType type);
-  // TODO(steveanton): Remove this once callers have switched to SdpType.
-  explicit JsepSessionDescription(const std::string& type);
   JsepSessionDescription(SdpType type,
                          std::unique_ptr<SessionDescription> description,
                          absl::string_view session_id,
-                         absl::string_view session_version);
-  virtual ~JsepSessionDescription();
+                         absl::string_view session_version,
+                         std::vector<IceCandidateCollection> candidates = {});
+  ~JsepSessionDescription() override;
 
   JsepSessionDescription(const JsepSessionDescription&) = delete;
   JsepSessionDescription& operator=(const JsepSessionDescription&) = delete;
-
-  // Takes ownership of `description`.
-  bool Initialize(std::unique_ptr<SessionDescription> description,
-                  const std::string& session_id,
-                  const std::string& session_version);
-
-  virtual std::unique_ptr<SessionDescriptionInterface> Clone() const;
-
-  virtual SessionDescription* description() { return description_.get(); }
-  virtual const SessionDescription* description() const {
-    return description_.get();
-  }
-  virtual std::string session_id() const { return session_id_; }
-  virtual std::string session_version() const { return session_version_; }
-  virtual SdpType GetType() const { return type_; }
-  virtual std::string type() const { return SdpTypeToString(type_); }
-  // Allows changing the type. Used for testing.
-  virtual bool AddCandidate(const IceCandidate* candidate);
-  virtual bool RemoveCandidate(const IceCandidate* candidate);
-  // TODO: https://issues.webrtc.org/42233526 - Remove this method in favor of
-  // the IceCandidate version.
-  virtual size_t RemoveCandidates(const std::vector<Candidate>& candidates);
-  virtual size_t number_of_mediasections() const;
-  virtual const IceCandidateCollection* candidates(
-      size_t mediasection_index) const;
-  virtual bool ToString(std::string* out) const;
-
- private:
-  std::unique_ptr<SessionDescription> description_;
-  std::string session_id_;
-  std::string session_version_;
-  SdpType type_;
-  std::vector<JsepCandidateCollection> candidate_collection_;
-
-  bool GetMediasectionIndex(const IceCandidate* candidate, size_t* index);
-  int GetMediasectionIndex(const Candidate& candidate);
 };
 
 }  // namespace webrtc

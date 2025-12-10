@@ -27,7 +27,6 @@
 #include "mozilla/ProfilerMarkers.h"
 #include "mozilla/ResultExtensions.h"
 #include "mozilla/Try.h"
-#include "mozilla/Unused.h"
 
 #include "GeckoProfiler.h"
 #include "prprf.h"
@@ -989,8 +988,7 @@ static nsresult RemoveIncompleteStartupFile() {
         if (NS_WARN_IF(incompleteStartup.isErr())) {
           return;
         }
-        Unused << NS_WARN_IF(
-            NS_FAILED(incompleteStartup.unwrap()->Remove(false)));
+        (void)NS_WARN_IF(NS_FAILED(incompleteStartup.unwrap()->Remove(false)));
       }));
 }
 
@@ -1009,7 +1007,7 @@ nsAppStartup::TrackStartupCrashEnd() {
 
   // Remove the incomplete startup canary file, so the next startup doesn't
   // detect a recent startup crash.
-  Unused << NS_WARN_IF(NS_FAILED(RemoveIncompleteStartupFile()));
+  (void)NS_WARN_IF(NS_FAILED(RemoveIncompleteStartupFile()));
 
   // Use the timestamp of XRE_main as an approximation for the lock file
   // timestamp. See MAX_STARTUP_BUFFER for the buffer time period.
@@ -1067,7 +1065,8 @@ nsAppStartup::RestartInSafeMode(uint32_t aQuitMode) {
 }
 
 NS_IMETHODIMP
-nsAppStartup::CreateInstanceWithProfile(nsIToolkitProfile* aProfile) {
+nsAppStartup::CreateInstanceWithProfile(nsIToolkitProfile* aProfile,
+                                        const nsTArray<nsString>& aArgs) {
   if (NS_WARN_IF(!aProfile)) {
     return NS_ERROR_FAILURE;
   }
@@ -1100,8 +1099,15 @@ nsAppStartup::CreateInstanceWithProfile(nsIToolkitProfile* aProfile) {
 
   NS_ConvertUTF8toUTF16 wideName(profileName);
 
-  const char16_t* args[] = {u"-P", wideName.get()};
-  rv = process->Runw(false, args, 2);
+  // Build argument list: -P <profile_name> followed by any additional args
+  AutoTArray<const char16_t*, 2> args = {u"-P", wideName.get()};
+
+  // Add optional arguments if provided
+  for (const auto& arg : aArgs) {
+    args.AppendElement(arg.get());
+  }
+
+  rv = process->Runw(false, args.Elements(), args.Length());
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;
   }

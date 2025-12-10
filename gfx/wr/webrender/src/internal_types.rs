@@ -4,13 +4,12 @@
 
 use api::{ColorF, DocumentId, ExternalImageId, PrimitiveFlags, Parameter, RenderReasons};
 use api::{ImageFormat, NotificationRequest, Shadow, FilterOpGraphPictureBufferId, FilterOpGraphPictureReference, FilterOpGraphNode, FilterOp, ImageBufferKind};
-use api::FramePublishId;
+use api::{FramePublishId, TextureCacheCategory};
 use api::units::*;
 use crate::render_api::DebugCommand;
 use crate::composite::NativeSurfaceOperation;
 use crate::device::TextureFilter;
 use crate::renderer::{FullFrameStats, PipelineInfo};
-use crate::gpu_cache::GpuCacheUpdateList;
 use crate::gpu_types::BlurEdgeMode;
 use crate::frame_builder::Frame;
 use crate::profiler::TransactionProfile;
@@ -1113,17 +1112,6 @@ pub struct TextureCacheAllocation {
     pub kind: TextureCacheAllocationKind,
 }
 
-/// A little bit of extra information to make memory reports more useful
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub enum TextureCacheCategory {
-    Atlas,
-    Standalone,
-    PictureTile,
-    RenderTarget,
-}
-
 /// Information used when allocating / reallocating.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct TextureCacheAllocInfo {
@@ -1361,7 +1349,6 @@ pub enum ResultMsg {
     DebugCommand(DebugCommand),
     DebugOutput(DebugOutput),
     RefreshShader(PathBuf),
-    UpdateGpuCache(GpuCacheUpdateList),
     UpdateResources {
         resource_updates: ResourceUpdateList,
         memory_pressure: bool,

@@ -33,6 +33,7 @@ LIVE_SITE_TIMEOUT_MULTIPLIER = 1.2
 
 required_settings = [
     "alert_threshold",
+    "subtest_alert_threshold",
     "apps",
     "lower_is_better",
     "measure",
@@ -85,6 +86,9 @@ def validate_test_toml(test_details):
         if setting == "measure" and test_details["type"] == "benchmark":
             continue
         if setting == "scenario_time" and test_details["type"] != "scenario":
+            continue
+        # subtest_alert_threshold is optional
+        if setting == "subtest_alert_threshold":
             continue
         if test_details.get(setting) is None:
             # if page-cycles is not specified, it's ok as long as browser-cycles is there
@@ -437,11 +441,10 @@ def get_raptor_test_list(args, oskey):
                         next_test["playback_pageset_manifest"], next_test["name"]
                     )
 
-        else:
-            if next_test.get("playback") is not None:
-                next_test["playback_pageset_manifest"] = transform_subtest(
-                    next_test["playback_pageset_manifest"], next_test["name"]
-                )
+        elif next_test.get("playback") is not None:
+            next_test["playback_pageset_manifest"] = transform_subtest(
+                next_test["playback_pageset_manifest"], next_test["name"]
+            )
 
         # Check if either --gecko-profiler or --extra-profiler-run is enabled.
         if args.gecko_profile or (

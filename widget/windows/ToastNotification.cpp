@@ -360,31 +360,6 @@ NS_IMETHODIMP ToastNotification::PbmTeardown() {
 }
 
 NS_IMETHODIMP
-ToastNotification::ShowAlertNotification(
-    const nsAString& aImageUrl, const nsAString& aAlertTitle,
-    const nsAString& aAlertText, bool aAlertTextClickable,
-    const nsAString& aAlertCookie, nsIObserver* aAlertListener,
-    const nsAString& aAlertName, const nsAString& aBidi, const nsAString& aLang,
-    const nsAString& aData, nsIPrincipal* aPrincipal, bool aInPrivateBrowsing,
-    bool aRequireInteraction) {
-  nsCOMPtr<nsIAlertNotification> alert =
-      do_CreateInstance(ALERT_NOTIFICATION_CONTRACTID);
-  if (NS_WARN_IF(!alert)) {
-    return NS_ERROR_FAILURE;
-  }
-  // vibrate is unused for now
-  nsTArray<uint32_t> vibrate;
-  nsresult rv = alert->Init(aAlertName, aImageUrl, aAlertTitle, aAlertText,
-                            aAlertTextClickable, aAlertCookie, aBidi, aLang,
-                            aData, aPrincipal, aInPrivateBrowsing,
-                            aRequireInteraction, false, vibrate);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-  return ShowAlert(alert, aAlertListener);
-}
-
-NS_IMETHODIMP
 ToastNotification::SetManualDoNotDisturb(bool aDoNotDisturb) {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
@@ -732,8 +707,7 @@ ToastNotification::HandleWindowsTag(const nsAString& aWindowsTag,
             JS::Rooted<JSObject*> obj(cx, JS_NewPlainObject(cx));
 
             JS::Rooted<JS::Value> attVal(cx, JS::BooleanValue(aTagWasHandled));
-            Unused << NS_WARN_IF(
-                !JS_SetProperty(cx, obj, "tagWasHandled", attVal));
+            (void)NS_WARN_IF(!JS_SetProperty(cx, obj, "tagWasHandled", attVal));
 
             promise->MaybeResolve(obj);
           },
@@ -860,7 +834,7 @@ ToastNotification::RemoveAllNotificationsForInstall() {
       }
 
       hr = notifier->RemoveFromSchedule(schedToast.Get());
-      Unused << NS_WARN_IF(FAILED(hr));
+      (void)NS_WARN_IF(FAILED(hr));
     }
   }();
 

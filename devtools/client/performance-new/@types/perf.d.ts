@@ -203,6 +203,7 @@ export interface RecordingSettings {
   objdirs: string[];
   // The duration is currently not wired up to the UI yet. See Bug 1587165.
   duration?: number;
+  mozLogs?: string;
 }
 
 /**
@@ -447,6 +448,7 @@ export interface PresetDefinition {
   threads: string[];
   duration: number;
   profilerViewMode?: ProfilerViewMode;
+  mozLogs?: string;
   l10nIds: {
     popup: {
       label: string;
@@ -481,7 +483,8 @@ export type RequestFromFrontend =
   | GetSymbolTableRequest
   | QuerySymbolicationApiRequest
   | GetPageFaviconsRequest
-  | OpenScriptInTabDebuggerRequest;
+  | OpenScriptInTabDebuggerRequest
+  | GetJSSourcesRequest;
 
 type StatusQueryRequest = { type: "STATUS_QUERY" };
 type EnableMenuButtonRequest = { type: "ENABLE_MENU_BUTTON" };
@@ -517,6 +520,10 @@ type OpenScriptInTabDebuggerRequest = {
   line: number;
   column: number;
 };
+type GetJSSourcesRequest = {
+  type: "GET_JS_SOURCES";
+  sourceUuids: Array<string>;
+};
 
 export type MessageToFrontend<R> =
   | OutOfBandErrorMessageToFrontend
@@ -549,7 +556,8 @@ export type ResponseToFrontend =
   | GetSymbolTableResponse
   | QuerySymbolicationApiResponse
   | GetPageFaviconsResponse
-  | OpenScriptInTabDebuggerResponse;
+  | OpenScriptInTabDebuggerResponse
+  | GetJSSourcesResponse;
 
 type StatusQueryResponse = {
   menuButtonIsEnabled: boolean;
@@ -580,6 +588,8 @@ type GetSymbolTableResponse = SymbolTableAsTuple;
 type QuerySymbolicationApiResponse = string;
 type GetPageFaviconsResponse = Array<ProfilerFaviconData | null>;
 type OpenScriptInTabDebuggerResponse = void;
+type GetJSSourceReponseItem = { sourceText: string } | { error: string };
+type GetJSSourcesResponse = Array<GetJSSourceReponseItem>;
 
 /**
  * This represents an event channel that can talk to a content page on the web.
@@ -604,6 +614,10 @@ export class ProfilerWebChannel {
   ) => void;
 }
 
+type JSSources = Partial<{
+  [sourceUuid: string]: string;
+}>;
+
 /**
  * The per-tab information that is stored when a new profile is captured
  * and a profiler tab is opened, to serve the correct profile to the tab
@@ -612,6 +626,7 @@ export class ProfilerWebChannel {
 export type ProfilerBrowserInfo = {
   profileCaptureResult: ProfileCaptureResult;
   symbolicationService: SymbolicationService | null;
+  jsSources: JSSources | null;
 };
 
 export type ProfileCaptureResult =

@@ -310,6 +310,9 @@ struct BaseCompiler final {
   // emitted at the end of compilation.
   Vector<OutOfLineCode*, 8, SystemAllocPolicy> outOfLine_;
 
+  // The stack maps for this compilation.
+  StackMaps* stackMaps_;
+
   // Stack map state.  This keeps track of live pointer slots and allows precise
   // stack maps to be generated at safe points.
   StackMapGenerator stackMapGenerator_;
@@ -392,7 +395,8 @@ struct BaseCompiler final {
   inline bool isMem64(uint32_t memoryIndex) const;
   inline bool hugeMemoryEnabled(uint32_t memoryIndex) const;
   inline uint32_t instanceOffsetOfMemoryBase(uint32_t memoryIndex) const;
-  inline uint32_t instanceOffsetOfBoundsCheckLimit(uint32_t memoryIndex) const;
+  inline uint32_t instanceOffsetOfBoundsCheckLimit(uint32_t memoryIndex,
+                                                   unsigned byteSize) const;
 
   // The casts are used by some of the ScratchRegister implementations.
   operator MacroAssembler&() const { return masm; }
@@ -954,12 +958,6 @@ struct BaseCompiler final {
   [[nodiscard]] bool createStackMap(
       const char* who, HasDebugFrameWithLiveRefs debugFrameWithLiveRefs);
 
-  // The most general stackmap construction.
-  [[nodiscard]] bool createStackMap(
-      const char* who, const ExitStubMapVector& extras,
-      uint32_t assemblerOffset,
-      HasDebugFrameWithLiveRefs debugFrameWithLiveRefs);
-
   ////////////////////////////////////////////////////////////
   //
   // Control stack
@@ -1239,17 +1237,17 @@ struct BaseCompiler final {
 
   void branchAddNoOverflow(uint64_t offset, RegI32 ptr, Label* ok);
   void branchTestLowZero(RegI32 ptr, Imm32 mask, Label* ok);
-  void boundsCheck4GBOrLargerAccess(uint32_t memoryIndex, RegPtr instance,
-                                    RegI32 ptr, Label* ok);
-  void boundsCheckBelow4GBAccess(uint32_t memoryIndex, RegPtr instance,
-                                 RegI32 ptr, Label* ok);
+  void boundsCheck4GBOrLargerAccess(uint32_t memoryIndex, unsigned byteSize,
+                                    RegPtr instance, RegI32 ptr, Label* ok);
+  void boundsCheckBelow4GBAccess(uint32_t memoryIndex, unsigned byteSize,
+                                 RegPtr instance, RegI32 ptr, Label* ok);
 
   void branchAddNoOverflow(uint64_t offset, RegI64 ptr, Label* ok);
   void branchTestLowZero(RegI64 ptr, Imm32 mask, Label* ok);
-  void boundsCheck4GBOrLargerAccess(uint32_t memoryIndex, RegPtr instance,
-                                    RegI64 ptr, Label* ok);
-  void boundsCheckBelow4GBAccess(uint32_t memoryIndex, RegPtr instance,
-                                 RegI64 ptr, Label* ok);
+  void boundsCheck4GBOrLargerAccess(uint32_t memoryIndex, unsigned byteSize,
+                                    RegPtr instance, RegI64 ptr, Label* ok);
+  void boundsCheckBelow4GBAccess(uint32_t memoryIndex, unsigned byteSize,
+                                 RegPtr instance, RegI64 ptr, Label* ok);
 
   // Some consumers depend on the returned Address not incorporating instance,
   // as instance may be the scratch register.

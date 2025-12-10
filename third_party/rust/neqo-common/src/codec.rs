@@ -104,7 +104,6 @@ impl<'a> Decoder<'a> {
         Some(res)
     }
 
-    #[inline]
     pub(crate) fn decode_n(&mut self, n: usize) -> Option<u64> {
         debug_assert!(n > 0 && n <= 8);
         if self.remaining() < n {
@@ -240,7 +239,7 @@ impl<B: Buffer> Encoder<B> {
     /// Note: for a view of a slice, use `Decoder::new(&enc[s..e])`
     #[must_use]
     pub fn as_decoder(&self) -> Decoder<'_> {
-        Decoder::new(self.buf.as_slice())
+        Decoder::new(self.as_ref())
     }
 
     /// Generic encode routine for arbitrary data.
@@ -248,9 +247,9 @@ impl<B: Buffer> Encoder<B> {
     /// # Panics
     ///
     /// When writing to the underlying buffer fails.
-    pub fn encode(&mut self, data: &[u8]) -> &mut Self {
+    pub fn encode(&mut self, data: impl AsRef<[u8]>) -> &mut Self {
         self.buf
-            .write_all(data)
+            .write_all(data.as_ref())
             .expect("Buffer has enough capacity.");
         self
     }
@@ -275,10 +274,10 @@ impl<B: Buffer> Encoder<B> {
     pub fn encode_uint<T: Into<u64>>(&mut self, n: usize, v: T) -> &mut Self {
         let v = v.into();
         assert!(n > 0 && n <= 8);
-        for i in 0..n {
-            self.encode_byte(((v >> (8 * (n - i - 1))) & 0xff) as u8);
-        }
-        self
+        // Using to_be_bytes() generates better assembly, especially for odd sizes
+        // where it uses rev + strh instead of multiple strb instructions
+        let bytes = v.to_be_bytes();
+        self.encode(&bytes[8 - n..])
     }
 
     /// Encode a QUIC varint.
@@ -288,14 +287,16 @@ impl<B: Buffer> Encoder<B> {
     /// When `v >= 1<<62`.
     pub fn encode_varint<T: Into<u64>>(&mut self, v: T) -> &mut Self {
         let v = v.into();
+        // Using to_be_bytes() generates better assembly with rev instructions
+        // instead of multiple shifts and ors
+        #[expect(clippy::cast_possible_truncation, reason = "This is intentional.")]
         match () {
-            () if v < (1 << 6) => self.encode_uint(1, v),
-            () if v < (1 << 14) => self.encode_uint(2, v | (1 << 14)),
-            () if v < (1 << 30) => self.encode_uint(4, v | (2 << 30)),
-            () if v < (1 << 62) => self.encode_uint(8, v | (3 << 62)),
+            () if v < (1 << 6) => self.encode_byte(v as u8),
+            () if v < (1 << 14) => self.encode((v as u16 | (1 << 14)).to_be_bytes()),
+            () if v < (1 << 30) => self.encode((v as u32 | (2 << 30)).to_be_bytes()),
+            () if v < (1 << 62) => self.encode((v | (3 << 62)).to_be_bytes()),
             () => panic!("Varint value too large"),
-        };
-        self
+        }
     }
 
     /// Encode a vector in TLS style.
@@ -675,6 +676,7 @@ impl Buffer for Cursor<&mut [u8]> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use std::io::Cursor;
 
@@ -925,7 +927,7 @@ mod tests {
     #[test]
     fn encode() {
         let mut enc = Encoder::default();
-        enc.encode(&[1, 2, 3]);
+        enc.encode([1, 2, 3]);
         assert_eq!(enc, Encoder::from_hex("010203"));
     }
 
@@ -1034,7 +1036,7 @@ mod tests {
     fn encode_vec_with_overflow() {
         let mut enc = Encoder::default();
         enc.encode_vec_with(1, |enc_inner| {
-            enc_inner.encode(&[0xb0; 256]);
+            enc_inner.encode([0xb0; 256]);
         });
     }
 
@@ -1058,7 +1060,7 @@ mod tests {
     fn encode_vvec_with_longer() {
         let mut enc = Encoder::default();
         enc.encode_vvec_with(|enc_inner| {
-            enc_inner.encode(&[0xa5; 65]);
+            enc_inner.encode([0xa5; 65]);
         });
         let v: Vec<u8> = enc.into();
         assert_eq!(&v[..3], &[0x40, 0x41, 0xa5]);
@@ -1191,5 +1193,19 @@ mod tests {
         let mut a = [0; 16];
         let buf = Cursor::new(&mut a[..]);
         assert_eq!(Buffer::position(&buf), 0);
+    }
+
+    /// [`Encoder::as_decoder`] should only expose the bytes actively encoded through this
+    /// [`Encoder`], not all bytes of the underlying [`Buffer`].
+    #[test]
+    fn as_decoder_exposes_encoded_bytes_only_not_whole_buffer() {
+        let mut buffer = vec![1, 2, 3, 4];
+        let mut enc = Encoder::new_borrowed_vec(&mut buffer);
+        enc.encode([5, 6, 7]);
+
+        let decoder = enc.as_decoder();
+        assert_eq!(decoder.as_ref().len(), 3);
+        assert_eq!(decoder.as_ref(), &[5, 6, 7]);
+        assert_eq!(buffer, &[1, 2, 3, 4, 5, 6, 7]);
     }
 }

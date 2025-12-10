@@ -23,7 +23,6 @@
 #include "js/Utility.h"  // JS::FreePolicy
 #include "js/experimental/JSStencil.h"
 #include "mozilla/AlreadyAddRefed.h"
-#include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/BasicEvents.h"
 #include "mozilla/RefPtr.h"
@@ -50,6 +49,7 @@
 #include "nsStyledElement.h"
 #include "nsTArray.h"
 #include "nsTLiteralString.h"
+#include "nsWindowSizes.h"
 #include "nscore.h"
 
 class JSObject;
@@ -266,6 +266,8 @@ class nsXULPrototypeScript : public nsXULPrototypeNode {
 
   nsresult InstantiateScript(JSContext* aCx,
                              JS::MutableHandle<JSScript*> aScript);
+
+  void AddSizeOfExcludingThis(nsWindowSizes& aSizes, size_t* aNodeSize) const;
 
   nsCOMPtr<nsIURI> mSrcURI;
   uint32_t mLineNo;

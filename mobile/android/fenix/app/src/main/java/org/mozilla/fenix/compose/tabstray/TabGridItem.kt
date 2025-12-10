@@ -122,7 +122,7 @@ fun TabGridItem(
     }
 }
 
-@Suppress("LongMethod")
+@Suppress("LongMethod", "CognitiveComplexMethod")
 @Composable
 private fun TabContent(
     tab: TabSessionState,
@@ -316,7 +316,7 @@ private fun Thumbnail(
     ) {
         TabThumbnail(
             tab = tab,
-            size = size,
+            thumbnailSizePx = size,
             modifier = Modifier.fillMaxSize(),
         )
 

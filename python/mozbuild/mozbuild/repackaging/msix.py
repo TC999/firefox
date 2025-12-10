@@ -354,6 +354,7 @@ def repackage_msix(
     if channel not in (
         "official",
         "beta",
+        "esr",
         "aurora",
         "nightly",
         "unofficial",
@@ -412,9 +413,17 @@ def repackage_msix(
     if not displayname:
         displayname = f"Mozilla {first}"
 
+        # Release (official) and Beta share branding.  Differentiate Beta a little bit.
         if channel == "beta":
-            # Release (official) and Beta share branding.  Differentiate Beta a little bit.
-            displayname += " Beta"
+            suffix = " Beta"
+            if not displayname.endswith(suffix):
+                displayname += suffix
+
+        elif channel == "esr":
+            # Release (official) and ESR share branding.  Differentiate ESR a little bit.
+            suffix = " ESR"
+            if not displayname.endswith(suffix):
+                displayname += suffix
 
     second = next(values)
     vendor = vendor or second
@@ -472,9 +481,17 @@ def repackage_msix(
     _, _, brandFullName = brandFullName.partition("=")
     brandFullName = brandFullName.strip()
 
+    # Release (official) and Beta share branding.  Differentiate Beta a little bit.
     if channel == "beta":
-        # Release (official) and Beta share branding.  Differentiate Beta a little bit.
-        brandFullName += " Beta"
+        suffix = " Beta"
+        if not brandFullName.endswith(suffix):
+            brandFullName += suffix
+
+    elif channel == "esr":
+        # Release (official) and ESR share branding.  Differentiate ESR a little bit.
+        suffix = " ESR"
+        if not brandFullName.endswith(suffix):
+            brandFullName += suffix
 
     branding = get_branding(
         use_official_branding, topsrcdir, build_app, unpack_finder, log
@@ -969,9 +986,9 @@ def _sign_msix_posix(output, force, log, verbose):
     if not openssl:
         raise ValueError("openssl is required; " "set OPENSSL or PATH")
 
-    if "sign" not in subprocess.run(makeappx, capture_output=True).stdout.decode(
-        "utf-8"
-    ):
+    if "sign" not in subprocess.run(
+        makeappx, check=False, capture_output=True
+    ).stdout.decode("utf-8"):
         raise ValueError(
             "makeappx must support 'sign' operation. ",
             "You probably need to build Mozilla's version of it: ",

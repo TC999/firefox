@@ -6,7 +6,6 @@
 
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/ErrorNames.h"
-#include "mozilla/ResultExtensions.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/Services.h"
 #include "mozilla/Try.h"
@@ -127,7 +126,8 @@ nsresult ViaductRequest::LaunchRequest(
                      nullptr, loadFlags);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(mChannel);
+  nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(mChannel, &rv);
+  NS_ENSURE_SUCCESS(rv, rv);
   nsCString method = ConvertMethod(request.method());
   rv = httpChannel->SetRequestMethod(method);
   NS_ENSURE_SUCCESS(rv, rv);

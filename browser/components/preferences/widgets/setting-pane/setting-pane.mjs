@@ -5,6 +5,13 @@
 import { html } from "chrome://global/content/vendor/lit.all.mjs";
 import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
 
+/**
+ * @typedef {object} SettingPaneConfig
+ * @property {string} [parent] The pane that links to this one.
+ * @property {string} l10nId Fluent id for the heading/description.
+ * @property {string[]} groupIds What setting groups should be rendered.
+ */
+
 export class SettingPane extends MozLitElement {
   static properties = {
     name: { type: String },
@@ -12,28 +19,63 @@ export class SettingPane extends MozLitElement {
     config: { type: Object },
   };
 
+  static queries = {
+    pageHeaderEl: "moz-page-header",
+  };
+
+  constructor() {
+    super();
+    /** @type {string} */
+    this.name = undefined;
+    /** @type {boolean} */
+    this.isSubPane = false;
+    /** @type {SettingPaneConfig} */
+    this.config = undefined;
+  }
+
   createRenderRoot() {
     return this;
+  }
+
+  async getUpdateComplete() {
+    let result = await super.getUpdateComplete();
+    // @ts-ignore bug 1997478
+    await this.pageHeaderEl.updateComplete;
+    return result;
   }
 
   goBack() {
     window.gotoPref(this.config.parent);
   }
 
-  backButtonTemplate() {
-    if (!this.isSubPane) {
-      return "";
-    }
-    return html`<moz-button
-      type="icon"
-      title="Go back"
-      iconsrc="chrome://global/skin/icons/arrow-left.svg"
-      @click=${this.goBack}
-    ></moz-button>`;
-  }
-
   connectedCallback() {
     super.connectedCallback();
+
+    document.addEventListener(
+      "paneshown",
+      /**
+       * @param {CustomEvent} e
+       */
+      e => {
+        if (this.isSubPane && e.detail.category === this.name) {
+          /**
+           * Automatically focus to the first focusable element in the
+           * sub page when it's accessed, which is always the Back Button.
+           */
+          this.pageHeaderEl.backButtonEl.focus();
+          /**
+           * ...but execute moveFocus here to move to the very
+           * next focusable element after the Back button (if there is one).
+           */
+          Services.focus.moveFocus(
+            window,
+            null,
+            Services.focus.MOVEFOCUS_FORWARD,
+            Services.focus.FLAG_BYJS
+          );
+        }
+      }
+    );
     this.setAttribute("data-category", this.name);
     this.hidden = true;
     if (this.isSubPane) {
@@ -62,16 +104,18 @@ export class SettingPane extends MozLitElement {
     document.getElementById("categories").append(categoryButton);
   }
 
+  /** @param {string} groupId */
   groupTemplate(groupId) {
     return html`<setting-group groupid=${groupId}></setting-group>`;
   }
 
   render() {
     return html`
-      <div class="page-header">
-        ${this.backButtonTemplate()}
-        <h2 data-l10n-id=${this.config.l10nId}></h2>
-      </div>
+      <moz-page-header
+        data-l10n-id=${this.config.l10nId}
+        .backButton=${this.isSubPane}
+        @navigate-back=${this.goBack}
+      ></moz-page-header>
       ${this.config.groupIds.map(groupId => this.groupTemplate(groupId))}
     `;
   }

@@ -17,18 +17,13 @@
    *    browser.display.background_color.dark
    */
 
-  --in-content-box-border-color: color-mix(in srgb, currentColor 41%, transparent);
-
   --in-content-item-hover: color-mix(in srgb, var(--button-background-color-primary) 20%, transparent);
   --in-content-item-hover-text: var(--text-color);
-  --in-content-item-selected: var(--button-background-color-primary);
-  --in-content-item-selected-text: var(--button-text-color-primary);
 
   --in-content-border-invalid: light-dark(var(--red-50), rgb(255, 132, 139));
-  --in-content-border-color: light-dark(#d7d7db, rgba(249, 249, 250, 0.2));
 
   --in-content-table-background: light-dark(#f8f8fa, rgb(35, 34, 43));
-  --in-content-table-border-color: var(--in-content-box-border-color);
+  --in-content-table-border-color: var(--border-color);
   --in-content-table-header-background: var(--button-background-color-primary);
   --in-content-table-header-color: var(--button-text-color-primary);
   --in-content-sidebar-width: 280px;
@@ -75,18 +70,13 @@
 @media (forced-colors) {
   :host(.anonymous-content-host),
   :root {
-    --in-content-box-border-color: -moz-DialogText;
-
     --in-content-item-hover: SelectedItem;
     --in-content-item-hover-text: SelectedItemText;
-    --in-content-item-selected: SelectedItem;
-    --in-content-item-selected-text: SelectedItemText;
 
     /* This is not great, but there is no suitable keyword for this.
      * In theory, we shouldn't be conveying invalid state just with a colour
      * change... */
     --in-content-border-invalid: ThreeDShadow;
-    --in-content-border-color: CanvasText;
 
     --in-content-table-border-color: ThreeDDarkShadow;
     --in-content-table-background: -moz-Dialog;
@@ -113,7 +103,7 @@ html|body {
 
 html|hr {
   border-style: solid none none none;
-  border-color: var(--in-content-border-color);
+  border-color: var(--border-color);
 }
 
 .main-content {
@@ -142,7 +132,7 @@ xul|tab {
   &:where(:hover) {
     background-color: var(--button-background-color-hover);
     color: var(--button-text-color-hover);
-    border-bottom-color: var(--in-content-border-color);
+    border-bottom-color: var(--border-color);
 
     @media (forced-colors) {
       border-bottom-color: currentColor;
@@ -186,7 +176,7 @@ xul|menulist {
   border: var(--button-border);
   border-radius: var(--button-border-radius);
   background-color: var(--button-background-color);
-  font-weight: 400;
+  font-weight: normal;
   padding: 0.45em 1em;
   text-decoration: none;
   margin: 4px 8px;
@@ -252,7 +242,7 @@ html|select:not([size], [multiple]) {
   -moz-context-properties: fill;
   fill: currentColor;
   font: inherit;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 
   /* See above for some explanation about these values. */
   padding-inline-start: var(--start-padding);
@@ -391,7 +381,7 @@ xul|menulist > xul|menupopup {
   border: none;
   background-color: transparent;
 
-  --panel-border-color: var(--in-content-box-border-color);
+  --panel-border-color: var(--border-color);
   --panel-border-radius: 2px;
   --panel-background: var(--background-color-box);
   --panel-color: var(--text-color);
@@ -414,8 +404,8 @@ xul|menulist > xul|menupopup > xul|menuitem:not([disabled="true"])[_moz-menuacti
 
 xul|menulist > xul|menupopup > xul|menu:not([disabled="true"])[selected="true"],
 xul|menulist > xul|menupopup > xul|menuitem:not([disabled="true"])[selected="true"] {
-  color: var(--in-content-item-selected-text);
-  background-color: var(--in-content-item-selected);
+  color: var(--text-color-accent-primary-selected);
+  background-color: var(--color-accent-primary-selected);
 }
 
 xul|menulist > xul|menupopup > xul|menu[disabled="true"],
@@ -430,7 +420,7 @@ xul|menulist > xul|menupopup xul|menuseparator {
   appearance: none;
   margin: 0;
   padding: 0;
-  border-top: 1px solid var(--in-content-box-border-color);
+  border-top: 1px solid var(--border-color);
   border-bottom: none;
 }
 
@@ -439,7 +429,7 @@ xul|menulist > xul|menupopup xul|menuseparator {
 html|input:where([type="email"], [type="tel"], [type="text"], [type="password"], [type="url"], [type="number"]),
 html|textarea {
   appearance: none;
-  border: 1px solid var(--in-content-box-border-color);
+  border: 1px solid var(--border-color);
   border-radius: var(--border-radius-medium);
   color: inherit;
   background-color: var(--background-color-box);
@@ -763,7 +753,7 @@ xul|richlistbox {
   appearance: none;
   margin-inline: 0;
   background-color: var(--background-color-box);
-  border: 1px solid var(--in-content-box-border-color);
+  border: 1px solid var(--border-color);
   border-radius: var(--border-radius-small);
   color: var(--text-color);
 }
@@ -802,8 +792,8 @@ xul|treechildren::-moz-tree-row(hover) {
 
 xul|richlistbox > xul|richlistitem[selected],
 xul|treechildren::-moz-tree-row(selected) {
-  background-color: var(--in-content-item-selected);
-  color: var(--in-content-item-selected-text);
+  background-color: var(--color-accent-primary-selected);
+  color: var(--text-color-accent-primary-selected);
 }
 
 @media not (forced-colors) {
@@ -812,10 +802,10 @@ xul|treechildren::-moz-tree-row(selected) {
     --button-background-color: color-mix(in srgb, currentColor 15%, transparent);
     --button-background-color-hover: color-mix(in srgb, currentColor 30%, transparent);
     --button-background-color-active: color-mix(in srgb, currentColor 45%, transparent);
-    --button-text-color: var(--in-content-item-selected-text);
-    --button-text-color-hover: var(--in-content-item-selected-text);
+    --button-text-color: var(--text-color-accent-primary-selected);
+    --button-text-color-hover: var(--text-color-accent-primary-selected);
     --button-text-color-active: var(--button-text-color-hover);
-    --focus-outline-color: var(--in-content-item-selected-text);
+    --focus-outline-color: var(--text-color-accent-primary-selected);
   }
 }
 
@@ -834,7 +824,7 @@ xul|richlistitem[selected] xul|menulist:focus-visible {
 
 xul|panel[type="autocomplete-richlistbox"] {
   background-color: var(--background-color-box);
-  border: 1px solid var(--in-content-box-border-color);
+  border: 1px solid var(--border-color);
   color: var(--text-color);
 }
 
@@ -843,7 +833,7 @@ xul|panel[type="autocomplete-richlistbox"] {
 xul|tree {
   appearance: none;
   font-size: 1em;
-  border: 1px solid var(--in-content-box-border-color);
+  border: 1px solid var(--border-color);
   border-radius: var(--border-radius-small);
   background-color: var(--background-color-box);
   color: inherit;
@@ -886,21 +876,13 @@ xul|treecol:not([hideheader="true"], :first-child),
 .tree-columnpicker-button {
   border-inline-start-width: 1px;
   border-inline-start-style: solid;
-  border-image: linear-gradient(
-      transparent 0%,
-      transparent 20%,
-      var(--in-content-box-border-color) 20%,
-      var(--in-content-box-border-color) 80%,
-      transparent 80%,
-      transparent 100%
-    )
-    1 1;
+  border-image: linear-gradient(transparent 0%, transparent 20%, var(--border-color) 20%, var(--border-color) 80%, transparent 80%, transparent 100%) 1 1;
 }
 
 @media (forced-colors) {
   xul|treecol:not([hideheader="true"], :first-child),
   xul|treecolpicker {
-    --in-content-box-border-color: var(--button-border-color);
+    --border-color: var(--button-border-color);
   }
 }
 
@@ -930,7 +912,7 @@ xul|treechildren::-moz-tree-image(hover) {
 xul|treechildren::-moz-tree-cell-text(selected),
 xul|treechildren::-moz-tree-twisty(selected),
 xul|treechildren::-moz-tree-image(selected) {
-  color: var(--in-content-item-selected-text);
+  color: var(--text-color-accent-primary-selected);
 }
 
 /* Message bars */

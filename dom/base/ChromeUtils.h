@@ -201,6 +201,8 @@ class ChromeUtils {
                                  const dom::ClearResourceCacheOptions& aOptions,
                                  ErrorResult& aRv);
 
+  static void InvalidateResourceCache(GlobalObject& aGlobal, ErrorResult& aRv);
+
   static void ClearBfcacheByPrincipal(GlobalObject& aGlobal,
                                       nsIPrincipal* aPrincipal,
                                       ErrorResult& aRv);
@@ -215,6 +217,11 @@ class ChromeUtils {
 
   static already_AddRefed<Promise> RequestProcInfo(GlobalObject& aGlobal,
                                                    ErrorResult& aRv);
+
+  static uint64_t GetCurrentProcessMemoryUsage(GlobalObject& aGlobal,
+                                               ErrorResult& aRv);
+  static uint64_t GetCpuTimeSinceProcessStart(GlobalObject& aGlobal,
+                                              ErrorResult& aRv);
 
   static bool VsyncEnabled(GlobalObject& aGlobal);
 
@@ -359,6 +366,11 @@ class ChromeUtils {
       nsIPrincipal* aLoadingPrincipal, ErrorResult& aRv);
 
   static bool IsJSIdentifier(GlobalObject& aGlobal, const nsAString& aStr);
+
+  static already_AddRefed<Promise> FetchDecodedImage(GlobalObject& aGlobal,
+                                                     nsIURI* aURI,
+                                                     nsIChannel* aChannel,
+                                                     ErrorResult& aRv);
 };
 
 }  // namespace dom

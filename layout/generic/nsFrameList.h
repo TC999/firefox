@@ -11,7 +11,6 @@
 
 #include "mozilla/EnumSet.h"
 #include "mozilla/FunctionTypeTraits.h"
-#include "mozilla/RefPtr.h"
 #include "nsDebug.h"
 #include "nsTArray.h"
 
@@ -37,13 +36,14 @@ enum class FrameChildListID {
   Principal,
   ColGroup,
   Absolute,
+  PushedAbsolute,
   Fixed,
   Overflow,
   OverflowContainers,
   ExcessOverflowContainers,
   OverflowOutOfFlow,
   Float,
-  Bullet,
+  Marker,
   PushedFloats,
   Backdrop,
   // A special alias for FrameChildListID::Principal that suppress the reflow
@@ -271,7 +271,7 @@ class nsFrameList {
   nsIFrame* LastChild() const { return mLastChild; }
 
   nsIFrame* FrameAt(int32_t aIndex) const;
-  int32_t IndexOf(nsIFrame* aFrame) const;
+  int32_t IndexOf(const nsIFrame* aFrame) const;
 
   bool IsEmpty() const { return nullptr == mFirstChild; }
 
@@ -401,13 +401,8 @@ class nsFrameList {
       return ret;
     }
 
-    bool operator==(const Iterator<FrameTraversal>& aOther) const {
-      return mCurrent == aOther.mCurrent;
-    }
-
-    bool operator!=(const Iterator<FrameTraversal>& aOther) const {
-      return !(*this == aOther);
-    }
+    bool operator==(const Iterator<FrameTraversal>& aOther) const = default;
+    bool operator!=(const Iterator<FrameTraversal>& aOther) const = default;
 
    private:
     nsIFrame* mCurrent;

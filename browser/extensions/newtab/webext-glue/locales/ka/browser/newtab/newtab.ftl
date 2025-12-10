@@ -406,7 +406,7 @@ newtab-wallpaper-abstract-purple-green = იისფრიდან თან�
 newtab-wallpaper-abstract-blue-purple-waves = ლურჯი და იისფერი ტალღოვანი ფორმები
 newtab-wallpaper-abstract-black-waves = შავი ტალღოვანი ფორმები
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = ფოტოსურათები
 newtab-wallpaper-beach-at-sunrise = სანაპირო მზის ამოსვლისას
@@ -435,6 +435,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -663,6 +667,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = ახალი სია
+newtab-widget-section-title = ჩანამატები
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = ჩანამატების დამალვა
+    .aria-label = ყველა ჩანამატის დამალვა
+newtab-widget-section-maximize =
+    .title = ჩანამატების გაშლა
+    .aria-label = ყველა ჩანამატი სრული ზომით
+newtab-widget-section-minimize =
+    .title = ჩანამატების ჩაკეცვა
+    .aria-label = ყველა ჩანამატი შემცირებული ზომით
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -675,22 +690,16 @@ newtab-widget-timer-mode-focus =
     .label = საქმიანობა
 newtab-widget-timer-mode-break =
     .label = შესვენება
-newtab-widget-timer-play =
-    .title = გაშვება
-newtab-widget-timer-pause =
-    .title = შეჩერება
 newtab-widget-timer-label-play =
     .label = გაშვება
 newtab-widget-timer-label-pause =
     .label = შეჩერება
 newtab-widget-timer-reset =
-    .title = განულება
+    .title = ჩამოყრა
 newtab-widget-timer-menu-notifications = შეტყობინებების გამორთვა
 newtab-widget-timer-menu-notifications-on = შეტყობინებების ჩართვა
 newtab-widget-timer-menu-hide = წამმზომის დამალვა
 newtab-widget-timer-menu-learn-more = ვრცლად
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = ჩაუყევით ვრცლად სანახავად
 newtab-widget-message-title = მოიკრიბეთ ყურადღება სიებისა და ჩაშენებული წამმზომის მეშვეობით
 # to-dos stands for "things to do".
 newtab-widget-message-copy = სწრაფი შეხსენებები იქნება ეს, თუ ყოველდღიური საქმიანობები, დაძაბული სამუშაო მონაკვეთები თუ შესვენებები განსატვირთად — მიჰყევით და ნუ გადაუხვევთ გეგმებს.

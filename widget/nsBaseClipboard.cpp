@@ -15,7 +15,6 @@
 #include "mozilla/dom/WindowGlobalParent.h"
 #include "mozilla/dom/WindowContext.h"
 #include "mozilla/ErrorResult.h"
-#include "mozilla/MoveOnlyFunction.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/Services.h"
 #include "mozilla/StaticPrefs_dom.h"
@@ -618,12 +617,6 @@ NS_IMETHODIMP nsBaseClipboard::GetDataSnapshot(
         return NS_OK;
       }
     }
-  }
-
-  // TODO: enable showing the "Paste" button in this case; see bug 1773681.
-  if (aRequestingPrincipal->GetIsAddonOrExpandedAddonPrincipal()) {
-    MOZ_CLIPBOARD_LOG("%s: Addon without read permission.", __FUNCTION__);
-    return aCallback->OnError(NS_ERROR_FAILURE);
   }
 
   RequestUserConfirmation(aWhichClipboard, aFlavorList,

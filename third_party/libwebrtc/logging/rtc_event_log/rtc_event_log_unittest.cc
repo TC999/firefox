@@ -21,8 +21,8 @@
 #include <utility>
 #include <vector>
 
-#include "api/environment/environment.h"
 #include "api/environment/environment_factory.h"
+#include "api/field_trials_view.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
@@ -36,7 +36,6 @@
 #include "logging/rtc_event_log/events/rtc_event_dtls_transport_state.h"
 #include "logging/rtc_event_log/events/rtc_event_dtls_writable_state.h"
 #include "logging/rtc_event_log/events/rtc_event_frame_decoded.h"
-#include "logging/rtc_event_log/events/rtc_event_generic_ack_received.h"
 #include "logging/rtc_event_log/events/rtc_event_generic_packet_received.h"
 #include "logging/rtc_event_log/events/rtc_event_generic_packet_sent.h"
 #include "logging/rtc_event_log/events/rtc_event_ice_candidate_pair.h"
@@ -61,7 +60,7 @@
 #include "rtc_base/fake_clock.h"
 #include "rtc_base/random.h"
 #include "rtc_base/time_utils.h"
-#include "test/explicit_key_value_config.h"
+#include "test/create_test_field_trials.h"
 #include "test/gtest.h"
 #include "test/logging/log_writer.h"
 #include "test/logging/memory_log_writer.h"
@@ -70,8 +69,6 @@
 namespace webrtc {
 
 namespace {
-
-using test::ExplicitKeyValueConfig;
 
 struct EventCounts {
   size_t audio_send_streams = 0;
@@ -98,7 +95,6 @@ struct EventCounts {
   size_t outgoing_rtcp_packets = 0;
   size_t generic_packets_sent = 0;
   size_t generic_packets_received = 0;
-  size_t generic_acks_received = 0;
 
   size_t total_nonconfig_events() const {
     return alr_states + route_changes + audio_playouts + ana_configs +
@@ -107,7 +103,7 @@ struct EventCounts {
            probe_successes + probe_failures + ice_configs + ice_events +
            incoming_rtp_packets + outgoing_rtp_packets + incoming_rtcp_packets +
            outgoing_rtcp_packets + generic_packets_sent +
-           generic_packets_received + generic_acks_received;
+           generic_packets_received;
   }
 
   size_t total_config_events() const {
@@ -124,11 +120,9 @@ std::unique_ptr<FieldTrialsView> CreateFieldTrialsFor(
     RtcEventLog::EncodingType encoding_type) {
   switch (encoding_type) {
     case RtcEventLog::EncodingType::Legacy:
-      return std::make_unique<ExplicitKeyValueConfig>(
-          "WebRTC-RtcEventLogNewFormat/Disabled/");
+      return CreateTestFieldTrialsPtr("WebRTC-RtcEventLogNewFormat/Disabled/");
     case RtcEventLog::EncodingType::NewFormat:
-      return std::make_unique<ExplicitKeyValueConfig>(
-          "WebRTC-RtcEventLogNewFormat/Enabled/");
+      return CreateTestFieldTrialsPtr("WebRTC-RtcEventLogNewFormat/Enabled/");
     case RtcEventLog::EncodingType::ProtoFree:
       RTC_CHECK(false);
       return nullptr;
@@ -201,8 +195,6 @@ class RtcEventLogSession
       dtls_writable_state_list_;
   std::map<uint32_t, std::vector<std::unique_ptr<RtcEventFrameDecoded>>>
       frame_decoded_event_map_;
-  std::vector<std::unique_ptr<RtcEventGenericAckReceived>>
-      generic_acks_received_;
   std::vector<std::unique_ptr<RtcEventGenericPacketReceived>>
       generic_packets_received_;
   std::vector<std::unique_ptr<RtcEventGenericPacketSent>> generic_packets_sent_;
@@ -592,15 +584,6 @@ void RtcEventLogSession::WriteLog(EventCounts count,
     }
     selection -= count.generic_packets_received;
 
-    if (selection < count.generic_acks_received) {
-      auto event = gen_.NewGenericAckReceived();
-      generic_acks_received_.push_back(event->Copy());
-      event_log->Log(std::move(event));
-      count.generic_acks_received--;
-      continue;
-    }
-    selection -= count.generic_acks_received;
-
     RTC_DCHECK_NOTREACHED();
   }
 
@@ -830,13 +813,6 @@ void RtcEventLogSession::ReadAndVerifyLog() {
                                             parsed_generic_packets_sent[i]);
   }
 
-  auto& parsed_generic_acks_received = parsed_log.generic_acks_received();
-  ASSERT_EQ(parsed_generic_acks_received.size(), generic_acks_received_.size());
-  for (size_t i = 0; i < parsed_generic_acks_received.size(); i++) {
-    verifier_.VerifyLoggedGenericAckReceived(*generic_acks_received_[i],
-                                             parsed_generic_acks_received[i]);
-  }
-
   EXPECT_EQ(first_timestamp_ms_, parsed_log.first_timestamp().ms());
   EXPECT_EQ(last_timestamp_ms_, parsed_log.last_timestamp().ms());
 
@@ -874,7 +850,6 @@ TEST_P(RtcEventLogSession, StartLoggingFromBeginning) {
     count.frame_decoded_events = 50;
     count.generic_packets_sent = 100;
     count.generic_packets_received = 100;
-    count.generic_acks_received = 20;
     count.route_changes = 4;
   }
 
@@ -908,7 +883,6 @@ TEST_P(RtcEventLogSession, StartLoggingInTheMiddle) {
     count.frame_decoded_events = 250;
     count.generic_packets_sent = 500;
     count.generic_packets_received = 500;
-    count.generic_acks_received = 50;
     count.route_changes = 10;
   }
 

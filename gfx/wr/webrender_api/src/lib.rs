@@ -714,8 +714,6 @@ bitflags! {
         const TEXTURE_CACHE_DBG_CLEAR_EVICTED = 1 << 10;
         /// Show picture caching debug overlay
         const PICTURE_CACHING_DBG   = 1 << 11;
-        /// Highlight all primitives with colors based on kind.
-        const PRIMITIVE_DBG = 1 << 12;
         /// Draw a zoom widget showing part of the framebuffer zoomed in.
         const ZOOM_DBG = 1 << 13;
         /// Scale the debug renderer down for a smaller screen. This will disrupt
@@ -761,6 +759,9 @@ bitflags! {
         const MISSING_SNAPSHOT_PINK     = (1 as u64) << 32;
         /// Highlight backdrop filters
         const HIGHLIGHT_BACKDROP_FILTERS = (1 as u64) << 33;
+        /// Show external composite border rects in debug overlay.
+        /// TODO: Add native compositor support
+        const EXTERNAL_COMPOSITE_BORDERS = (1 as u64) << 34;
     }
 }
 
@@ -778,8 +779,6 @@ impl core::fmt::Debug for DebugFlags {
 /// uniquely identifies a primitive template by key.
 #[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash, Serialize, Deserialize)]
 pub enum PrimitiveKeyKind {
-    /// Clear an existing rect, used for special effects on some platforms.
-    Clear,
     ///
     Rectangle {
         ///
@@ -804,6 +803,7 @@ pub enum ScrollLocation {
 pub enum CrashAnnotation {
     CompileShader = 0,
     DrawShader = 1,
+    FontFile = 2,
 }
 
 /// Handler to expose support for annotating crash reports.
@@ -847,4 +847,24 @@ impl<'a> Drop for CrashAnnotatorGuard<'a> {
             annotator.clear(self.annotation);
         }
     }
+}
+
+/// A little bit of extra information to make memory reports more useful
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serialize", derive(Serialize))]
+#[cfg_attr(feature = "deserialize", derive(Deserialize))]
+pub enum TextureCacheCategory {
+    Atlas,
+    Standalone,
+    PictureTile,
+    RenderTarget,
+}
+
+/// For debugging purposes
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serialize", derive(Serialize))]
+#[cfg_attr(feature = "deserialize", derive(Deserialize))]
+pub enum RenderCommandInfo {
+    RenderTarget { kind: String, size: DeviceIntSize },
+    DrawCall { shader: String, instances: u32 },
 }

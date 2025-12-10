@@ -32,6 +32,8 @@ nimbus_targeting_environment:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1971552
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1967328
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1983122
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1997164
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1995896
     data_reviews: &targeting_context_data_reviews
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1928107
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1937207
@@ -42,6 +44,8 @@ nimbus_targeting_environment:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1971552
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1967328
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1983122
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1997164
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1995896
     notification_emails: &targeting_context_notification_emails
       - beth@mozilla.com
       - project-nimbus@mozilla.com
@@ -80,10 +84,10 @@ nimbus_targeting_environment:
       - "browser.newtabpage.activity-stream.showSearch"
       - "browser.newtabpage.activity-stream.showSponsoredTopSites"
       - "browser.newtabpage.enabled"
+      - "browser.profiles.created"
       - "browser.startup.page"
       - "browser.toolbars.bookmarks.visibility"
       - "browser.urlbar.lastUrlbarSearchSeconds"
-      - "browser.urlbar.quicksuggest.dataCollection.enabled"
       - "browser.urlbar.showSearchSuggestionsFirst"
       - "browser.urlbar.suggest.quicksuggest.sponsored"
       - "media.videocontrols.picture-in-picture.enabled"
@@ -94,6 +98,7 @@ nimbus_targeting_environment:
       - "nimbus.qa.pref-1"
       - "nimbus.qa.pref-2"
       - "security.sandbox.content.level"
+      - "termsofuse.acceptedDate"
       - "trailhead.firstrun.didSeeAboutWelcome"
 
   attr_eval_errors:
@@ -136,6 +141,7 @@ nimbus_targeting_environment:
       - "os"
       - "primaryResolution"
       - "profileAgeCreated"
+      - "profileGroupProfileCount"
       - "region"
       - "totalBookmarksCount"
       - "userMonthlyActivity"
@@ -188,14 +194,14 @@ nimbus_targeting_environment:
           type: boolean
         browser__newtabpage__enabled:
           type: boolean
+        browser__profiles__created:
+          type: boolean
         browser__startup__page:
           type: number
         browser__toolbars__bookmarks__visibility:
           type: string
         browser__urlbar__lastUrlbarSearchSeconds:
           type: number
-        browser__urlbar__quicksuggest__dataCollection__enabled:
-          type: boolean
         browser__urlbar__showSearchSuggestionsFirst:
           type: boolean
         browser__urlbar__suggest__quicksuggest__sponsored:
@@ -212,6 +218,8 @@ nimbus_targeting_environment:
           type: number
         security__sandbox__content__level:
           type: number
+        termsofuse__acceptedDate:
+          type: string
         trailhead__firstrun__didSeeAboutWelcome:
           type: boolean
 
@@ -292,8 +300,6 @@ nimbus_targeting_context:
     unit: addresses
 
   arch_bits:
-    no_lint:
-      - UNIT_IN_NAME # metric name must match the targeting context attribute
     bugs: *targeting_context_bugs
     data_reviews: *targeting_context_data_reviews
     expires: *targeting_context_expiry
@@ -648,6 +654,20 @@ nimbus_targeting_context:
     type: quantity
     unit: seconds since UNIX epoch
 
+  profile_group_profile_count:
+    bugs: *targeting_context_bugs
+    data_reviews: *targeting_context_data_reviews
+    expires: *targeting_context_expiry
+    notification_emails: *targeting_context_notification_emails
+    send_in_pings: *targeting_context_pings
+    description: >
+      The number of profiles in the current profile group or zero if either the
+      feature is not enabled or the user has not created any profiles.
+    data_sensitivity:
+      - interaction
+    type: quantity
+    unit: profiles
+
   region:
     bugs: *targeting_context_bugs
     data_reviews: *targeting_context_data_reviews
@@ -774,9 +794,11 @@ nimbus_events:
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1773563
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1781953
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1997467
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1773563
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1781953
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1997467
     data_sensitivity:
       - technical
     notification_emails:
@@ -826,6 +848,15 @@ nimbus_events:
         description: >
           If reason == "l10n-missing-entry" or "l10n-missing-locale" this is the
           locale we failed to find in the set of available translations.
+      about_config_change:
+        description: >
+          If reason == "changed-pref", whether or not the change was triggerd
+          via about:config.
+        type: string
+      migration:
+        description: >
+          If reason == "migration", the migration that triggered the unenrollment.
+        type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1773563
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1781953
@@ -833,6 +864,7 @@ nimbus_events:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1896718
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1907649
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1976329
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1993057
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1773563
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1781953
@@ -840,6 +872,7 @@ nimbus_events:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1896718
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1907649
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1976329
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1993057
     data_sensitivity:
       - technical
     notification_emails:
@@ -1003,12 +1036,17 @@ nimbus_events:
       conflict_slug:
         type: string
         description: If the enrollment hit a feature conflict, the slug of the conflicting experiment/rollout
+      migration:
+        type: string
+        description: If the unenrollment was caused by a migration, the name of the migration.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1817481
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1955169
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1997467
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1817481
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1955169
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1997467
     data_sensitivity:
       - technical
     notification_emails:
@@ -1202,7 +1240,7 @@ normandy:
     data_reviews:
       - https://bugzil.la/1675104
     notification_emails:
-      - ujet@mozilla.com
+      - omc-core@mozilla.com
     expires: never
     extra_keys:
       value:

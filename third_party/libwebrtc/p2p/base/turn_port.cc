@@ -21,10 +21,12 @@
 #include <vector>
 
 #include "absl/algorithm/container.h"
+#include "absl/memory/memory.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "api/array_view.h"
 #include "api/candidate.h"
+#include "api/local_network_access_permission.h"
 #include "api/packet_socket_factory.h"
 #include "api/scoped_refptr.h"
 #include "api/task_queue/pending_task_safety_flag.h"
@@ -50,6 +52,7 @@
 #include "rtc_base/network.h"
 #include "rtc_base/network/received_packet.h"
 #include "rtc_base/network/sent_packet.h"
+#include "rtc_base/platform_thread_types.h"
 #include "rtc_base/socket.h"
 #include "rtc_base/socket_address.h"
 #include "rtc_base/ssl_certificate.h"
@@ -297,10 +300,6 @@ TurnPort::~TurnPort() {
 
   if (socket_)
     socket_->UnsubscribeCloseEvent(this);
-
-  if (!SharedSocket()) {
-    delete socket_;
-  }
 }
 
 void TurnPort::set_realm(absl::string_view realm) {
@@ -367,7 +366,7 @@ void TurnPort::PrepareAddress() {
                       << ": Attempt to start allocation with disallowed port# "
                       << server_address_.address.port();
     OnAllocateError(STUN_ERROR_SERVER_ERROR,
-                    "Attempt to start allocation to a disallowed port");
+                    "Attempt to start allocation to a disallowed port.");
     return;
   }
 
@@ -392,6 +391,24 @@ void TurnPort::PrepareAddress() {
       static_cast<int>(server_address_.address.GetIPAddressType()),
       static_cast<int>(IPAddressType::kMaxValue));
 
+  MaybeRequestLocalNetworkAccessPermission(
+      server_address_.address,
+      [this](LocalNetworkAccessPermissionStatus status) {
+        if (status != LocalNetworkAccessPermissionStatus::kGranted) {
+          RTC_LOG(LS_ERROR)
+              << ToString() << ": Permission denied to connect to TURN server "
+              << server_address_.address.HostAsSensitiveURIString();
+          OnAllocateError(STUN_ERROR_NOT_AN_ERROR,
+                          "Attempt to start allocation without Local Network "
+                          "Access Permission.");
+          return;
+        }
+
+        OnLocalNetworkAccessPermissionGranted();
+      });
+}
+
+void TurnPort::OnLocalNetworkAccessPermissionGranted() {
   // Insert the current address to prevent redirection pingpong.
   attempted_server_addresses_.insert(server_address_.address);
 
@@ -416,8 +433,10 @@ bool TurnPort::CreateTurnClientSocket() {
   RTC_DCHECK(!socket_ || SharedSocket());
 
   if (server_address_.proto == PROTO_UDP && !SharedSocket()) {
-    socket_ = socket_factory()->CreateUdpSocket(
-        SocketAddress(Network()->GetBestIP(), 0), min_port(), max_port());
+    owned_socket_ = socket_factory()->CreateUdpSocket(
+        env(), SocketAddress(Network()->GetBestIP(), 0), min_port(),
+        max_port());
+    socket_ = owned_socket_.get();
   } else if (server_address_.proto == PROTO_TCP ||
              server_address_.proto == PROTO_TLS) {
     RTC_DCHECK(!SharedSocket());
@@ -438,9 +457,10 @@ bool TurnPort::CreateTurnClientSocket() {
     tcp_options.tls_alpn_protocols = tls_alpn_protocols_;
     tcp_options.tls_elliptic_curves = tls_elliptic_curves_;
     tcp_options.tls_cert_verifier = tls_cert_verifier_;
-    socket_ = socket_factory()->CreateClientTcpSocket(
-        SocketAddress(Network()->GetBestIP(), 0), server_address_.address,
-        tcp_options);
+    owned_socket_ = socket_factory()->CreateClientTcpSocket(
+        env(), SocketAddress(Network()->GetBestIP(), 0),
+        server_address_.address, tcp_options);
+    socket_ = owned_socket_.get();
   }
 
   if (!socket_) {
@@ -470,7 +490,8 @@ bool TurnPort::CreateTurnClientSocket() {
   // while UDP port is ready to do so once the socket is created.
   if (server_address_.proto == PROTO_TCP ||
       server_address_.proto == PROTO_TLS) {
-    socket_->SignalConnect.connect(this, &TurnPort::OnSocketConnect);
+    socket_->SubscribeConnect(
+        [this](AsyncPacketSocket* socket) { OnSocketConnect(socket); });
     socket_->SubscribeCloseEvent(
         this, [this](AsyncPacketSocket* s, int err) { OnSocketClose(s, err); });
   } else {
@@ -568,9 +589,8 @@ void TurnPort::OnAllocateMismatch() {
 
   if (SharedSocket()) {
     ResetSharedSocket();
-  } else {
-    delete socket_;
   }
+  owned_socket_ = nullptr;
   socket_ = nullptr;
 
   ResetNonce();
@@ -604,7 +624,7 @@ Connection* TurnPort::CreateConnection(const Candidate& remote_candidate,
     if (local_candidate.is_relay() && local_candidate.address().family() ==
                                           remote_candidate.address().family()) {
       ProxyConnection* conn =
-          new ProxyConnection(NewWeakPtr(), index, remote_candidate);
+          new ProxyConnection(env(), NewWeakPtr(), index, remote_candidate);
       // Create an entry, if needed, so we can get our permissions set up
       // correctly.
       if (CreateOrRefreshEntry(conn, next_channel_number_)) {
@@ -921,8 +941,7 @@ void TurnPort::OnAllocateError(int error_code, absl::string_view reason) {
     port = 0;
   }
   if (error_code != STUN_ERROR_NOT_AN_ERROR) {
-    SignalCandidateError(
-        this,
+    SendCandidateError(
         IceCandidateErrorEvent(address, port, server_url_, error_code, reason));
   }
 }
@@ -997,7 +1016,7 @@ void TurnPort::TryAlternateServer() {
     RTC_DCHECK(server_address().proto == PROTO_TCP ||
                server_address().proto == PROTO_TLS);
     RTC_DCHECK(!SharedSocket());
-    delete socket_;
+    owned_socket_ = nullptr;
     socket_ = nullptr;
     PrepareAddress();
   }
@@ -1144,7 +1163,7 @@ bool TurnPort::ScheduleRefresh(uint32_t lifetime) {
 }
 
 void TurnPort::SendRequest(StunRequest* req, int delay) {
-  request_manager_.SendDelayed(req, delay);
+  request_manager_.Send(absl::WrapUnique(req), TimeDelta::Millis(delay));
 }
 
 void TurnPort::AddRequestAuthInfo(StunMessage* msg) {
@@ -1320,7 +1339,8 @@ void TurnPort::MaybeAddTurnLoggingId(StunMessage* msg) {
 }
 
 TurnAllocateRequest::TurnAllocateRequest(TurnPort* port)
-    : StunRequest(port->request_manager(),
+    : StunRequest(port->env(),
+                  port->request_manager(),
                   std::make_unique<TurnMessage>(TURN_ALLOCATE_REQUEST)),
       port_(port) {
   StunMessage* message = mutable_msg();
@@ -1411,13 +1431,16 @@ void TurnAllocateRequest::OnErrorResponse(StunMessage* response) {
       port->thread()->PostTask(SafeTask(
           port->task_safety_.flag(), [port] { port->OnAllocateMismatch(); }));
     } break;
-    default:
-      RTC_LOG(LS_WARNING) << port_->ToString()
-                          << ": Received TURN allocate error response, id="
-                          << hex_encode(id()) << ", code=" << error_code
-                          << ", rtt=" << Elapsed();
+    default: {
       const StunErrorCodeAttribute* attr = response->GetErrorCode();
-      port_->OnAllocateError(error_code, attr ? attr->reason() : "");
+      RTC_LOG(LS_WARNING) << port_->ToString()
+                          << ": Received TURN allocate error response"
+                          << ", id=" << hex_encode(id())
+                          << ", code=" << error_code << ", rtt=" << Elapsed()
+                          << ", reason='" << (attr ? attr->reason() : "")
+                          << "'";
+      port_->OnAllocateError(error_code, "TURN allocate error.");
+    } break;
   }
 }
 
@@ -1430,11 +1453,12 @@ void TurnAllocateRequest::OnTimeout() {
 void TurnAllocateRequest::OnAuthChallenge(StunMessage* response, int code) {
   // If we failed to authenticate even after we sent our credentials, fail hard.
   if (code == STUN_ERROR_UNAUTHORIZED && !port_->hash().empty()) {
+    const StunErrorCodeAttribute* attr = response->GetErrorCode();
     RTC_LOG(LS_WARNING) << port_->ToString()
                         << ": Failed to authenticate with the server "
-                           "after challenge.";
-    const StunErrorCodeAttribute* attr = response->GetErrorCode();
-    port_->OnAllocateError(STUN_ERROR_UNAUTHORIZED, attr ? attr->reason() : "");
+                           "after challenge, reason='"
+                        << (attr ? attr->reason() : "") << "'";
+    port_->OnAllocateError(STUN_ERROR_UNAUTHORIZED, "Unauthorized.");
     return;
   }
 
@@ -1467,21 +1491,22 @@ void TurnAllocateRequest::OnTryAlternate(StunMessage* response, int code) {
   // According to RFC 5389 section 11, there are use cases where
   // authentication of response is not possible, we're not validating
   // message integrity.
-  const StunErrorCodeAttribute* error_code_attr = response->GetErrorCode();
   // Get the alternate server address attribute value.
   const StunAddressAttribute* alternate_server_attr =
       response->GetAddress(STUN_ATTR_ALTERNATE_SERVER);
   if (!alternate_server_attr) {
+    const StunErrorCodeAttribute* attr = response->GetErrorCode();
     RTC_LOG(LS_WARNING) << port_->ToString()
                         << ": Missing STUN_ATTR_ALTERNATE_SERVER "
-                           "attribute in try alternate error response";
+                           "attribute in try alternate error response, reason='"
+                        << (attr ? attr->reason() : "") << "'";
     port_->OnAllocateError(STUN_ERROR_TRY_ALTERNATE,
-                           error_code_attr ? error_code_attr->reason() : "");
+                           "Missing alternate server attribute.");
     return;
   }
   if (!port_->SetAlternateServer(alternate_server_attr->GetAddress())) {
     port_->OnAllocateError(STUN_ERROR_TRY_ALTERNATE,
-                           error_code_attr ? error_code_attr->reason() : "");
+                           "Failed to set alternate server.");
     return;
   }
 
@@ -1513,7 +1538,8 @@ void TurnAllocateRequest::OnTryAlternate(StunMessage* response, int code) {
 }
 
 TurnRefreshRequest::TurnRefreshRequest(TurnPort* port, int lifetime /*= -1*/)
-    : StunRequest(port->request_manager(),
+    : StunRequest(port->env(),
+                  port->request_manager(),
                   std::make_unique<TurnMessage>(TURN_REFRESH_REQUEST)),
       port_(port) {
   StunMessage* message = mutable_msg();
@@ -1600,6 +1626,7 @@ TurnCreatePermissionRequest::TurnCreatePermissionRequest(
     TurnEntry* entry,
     const SocketAddress& ext_addr)
     : StunRequest(
+          port->env(),
           port->request_manager(),
           std::make_unique<TurnMessage>(TURN_CREATE_PERMISSION_REQUEST)),
       port_(port),
@@ -1669,7 +1696,8 @@ TurnChannelBindRequest::TurnChannelBindRequest(TurnPort* port,
                                                TurnEntry* entry,
                                                uint16_t channel_id,
                                                const SocketAddress& ext_addr)
-    : StunRequest(port->request_manager(),
+    : StunRequest(port->env(),
+                  port->request_manager(),
                   std::make_unique<TurnMessage>(TURN_CHANNEL_BIND_REQUEST)),
       port_(port),
       entry_(entry),

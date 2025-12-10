@@ -426,6 +426,7 @@ nsresult HTMLEditor::Init(Document& aDocument,
 
   MOZ_ASSERT(!mInitSucceeded, "HTMLEditor::Init() shouldn't be nested");
   mInitSucceeded = true;
+  editActionData.OnEditorInitialized();
   return NS_OK;
 }
 
@@ -713,10 +714,9 @@ nsresult HTMLEditor::FocusedElementOrDocumentBecomesEditable(
     }
     // Although editor is already initialized due to re-used, ISM may not
     // create IME content observer yet. So we have to create it.
-    IMEState newState;
-    nsresult rv = GetPreferredIMEState(&newState);
-    if (NS_FAILED(rv)) {
-      NS_WARNING("EditorBase::GetPreferredIMEState() failed");
+    Result<IMEState, nsresult> newStateOrError = GetPreferredIMEState();
+    if (MOZ_UNLIKELY(newStateOrError.isErr())) {
+      NS_WARNING("HTMLEditor::GetPreferredIMEState() failed");
       mIsInDesignMode = false;
       return NS_OK;
     }
@@ -735,7 +735,8 @@ nsresult HTMLEditor::FocusedElementOrDocumentBecomesEditable(
         mHasFocus = false;
         mIsInDesignMode = false;
       }
-      IMEStateManager::UpdateIMEState(newState, focusedElement, *this);
+      IMEStateManager::UpdateIMEState(newStateOrError.unwrap(), focusedElement,
+                                      *this);
       // XXX Do we need to notify focused TextEditor of focus?  In theory,
       // the TextEditor should get focus event in this case.
     }
@@ -1189,8 +1190,8 @@ nsresult HTMLEditor::MaybeCollapseSelectionAtFirstEditableNode(
       // the visible character.
       const WSScanResult scanResultInTextNode =
           WSRunScanner::ScanInclusiveNextVisibleNodeOrBlockBoundary(
-              WSRunScanner::Scan::EditableNodes, EditorRawDOMPoint(text, 0),
-              BlockInlineCheck::UseComputedDisplayStyle);
+              {WSRunScanner::Option::OnlyEditableNodes},
+              EditorRawDOMPoint(text, 0));
       if ((scanResultInTextNode.InVisibleOrCollapsibleCharacters() ||
            scanResultInTextNode.ReachedPreformattedLineBreak()) &&
           scanResultInTextNode.TextPtr() == text) {
@@ -3346,7 +3347,7 @@ Result<CreateElementResult, nsresult> HTMLEditor::CreateAndInsertElement(
   // XXX We need offset at new node for RangeUpdaterRef().  Therefore, we need
   //     to compute the offset now but this is expensive.  So, if it's possible,
   //     we need to redesign RangeUpdaterRef() as avoiding using indices.
-  Unused << aPointToInsert.Offset();
+  (void)aPointToInsert.Offset();
 
   IgnoredErrorResult ignoredError;
   AutoEditSubActionNotifier startToHandleEditSubAction(
@@ -4270,7 +4271,7 @@ Result<CreateLineBreakResult, nsresult> HTMLEditor::InsertLineBreak(
       }
       insertTextNodeResult.unwrap().IgnoreCaretPointSuggestion();
     } else {
-      Unused << pointToInsert.Offset();
+      (void)pointToInsert.Offset();
       RefPtr<InsertNodeTransaction> transaction =
           InsertNodeTransaction::Create(*this, *newTextNode, pointToInsert);
       nsresult rv = transaction->DoTransaction();
@@ -4360,9 +4361,7 @@ nsresult HTMLEditor::EnsureNoFollowingUnnecessaryLineBreak(
     if (IsPlaintextMailComposer()) {
       const WSScanResult nextThing =
           WSRunScanner::ScanInclusiveNextVisibleNodeOrBlockBoundary(
-              WSRunScanner::Scan::All,
-              unnecessaryLineBreak->After<EditorRawDOMPoint>(),
-              BlockInlineCheck::UseComputedDisplayOutsideStyle);
+              {}, unnecessaryLineBreak->After<EditorRawDOMPoint>());
       if (nextThing.ReachedOtherBlockElement() &&
           HTMLEditUtils::IsMailCiteElement(*nextThing.ElementPtr()) &&
           HTMLEditUtils::IsInlineContent(
@@ -5213,7 +5212,7 @@ Result<SplitNodeResult, nsresult> HTMLEditor::SplitNodeDeepWithTransaction(
 Result<SplitNodeResult, nsresult> HTMLEditor::DoSplitNode(
     const EditorDOMPoint& aStartOfRightNode, nsIContent& aNewNode) {
   // Ensure computing the offset if it's initialized with a child content node.
-  Unused << aStartOfRightNode.Offset();
+  (void)aStartOfRightNode.Offset();
 
   // XXX Perhaps, aStartOfRightNode may be invalid if this is a redo
   //     operation after modifying DOM node with JS.
@@ -5564,7 +5563,7 @@ nsresult HTMLEditor::DoJoinNodes(nsIContent& aContentToKeep,
   const uint32_t keepingContentLength = aContentToKeep.Length();
   const EditorDOMPoint oldPointAtRightContent(&aContentToRemove);
   if (MOZ_LIKELY(oldPointAtRightContent.IsSet())) {
-    Unused << oldPointAtRightContent.Offset();  // Fix the offset
+    (void)oldPointAtRightContent.Offset();  // Fix the offset
   }
 
   // Remember all selection points.
@@ -7135,9 +7134,9 @@ Element* HTMLEditor::ComputeEditingHostInternal(
       if (!selectionCommonAncestor) {
         selectionCommonAncestor = commonAncestor;
       } else {
-        selectionCommonAncestor =
+        selectionCommonAncestor = nsIContent::FromNodeOrNull(
             nsContentUtils::GetCommonFlattenedTreeAncestorForSelection(
-                commonAncestor, selectionCommonAncestor);
+                commonAncestor, selectionCommonAncestor));
       }
     }
     if (selectionCommonAncestor) {
@@ -7418,15 +7417,10 @@ bool HTMLEditor::IsAcceptableInputEvent(WidgetGUIEvent* aGUIEvent) const {
   return IsActiveInDOMWindow();
 }
 
-nsresult HTMLEditor::GetPreferredIMEState(IMEState* aState) {
+Result<widget::IMEState, nsresult> HTMLEditor::GetPreferredIMEState() const {
   // HTML editor don't prefer the CSS ime-mode because IE didn't do so too.
-  aState->mOpen = IMEState::DONT_CHANGE_OPEN_STATE;
-  if (IsReadonly()) {
-    aState->mEnabled = IMEEnabled::Disabled;
-  } else {
-    aState->mEnabled = IMEEnabled::Enabled;
-  }
-  return NS_OK;
+  return IMEState{IsReadonly() ? IMEEnabled::Disabled : IMEEnabled::Enabled,
+                  IMEState::DONT_CHANGE_OPEN_STATE};
 }
 
 already_AddRefed<Element> HTMLEditor::GetInputEventTargetElement() const {

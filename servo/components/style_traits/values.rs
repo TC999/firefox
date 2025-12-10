@@ -9,6 +9,7 @@ use cssparser::ToCss as CssparserToCss;
 use cssparser::{serialize_string, ParseError, Parser, Token, UnicodeRange};
 use servo_arc::Arc;
 use std::fmt::{self, Write};
+use thin_vec::ThinVec;
 
 /// Serialises a value according to its CSS representation.
 ///
@@ -594,6 +595,41 @@ pub mod specified {
     }
 }
 
+/// A numeric value used by the Typed OM.
+///
+/// This corresponds to `CSSNumericValue` and its subclasses in the Typed OM
+/// specification. It represents numbers that can appear in CSS values,
+/// including both simple unit quantities and sums of numeric terms.
+///
+/// Unlike the parser-level representation, `NumericValue` is property-agnostic
+/// and suitable for conversion to or from the `CSSNumericValue` family of DOM
+/// objects.
+#[derive(Clone, Debug)]
+#[repr(C)]
+pub enum NumericValue {
+    /// A single numeric value with a concrete unit.
+    ///
+    /// This corresponds to `CSSUnitValue`. The `value` field stores the raw
+    /// numeric component, and the `unit` field stores the textual unit
+    /// identifier (e.g. `"px"`, `"em"`, `"%"`, `"deg"`).
+    Unit {
+        /// The numeric component of the value.
+        value: f32,
+        /// The textual unit string (e.g. `"px"`, `"em"`, `"deg"`).
+        unit: CssString,
+    },
+
+    /// A sum of multiple numeric values.
+    ///
+    /// This corresponds to `CSSMathSum`, representing an expression such as
+    /// `10px + 2em`. Each entry in `values` is another `NumericValue`, which
+    /// may itself be a unit value or a nested sum.
+    Sum {
+        /// The list of numeric terms that make up the sum.
+        values: ThinVec<NumericValue>,
+    },
+}
+
 /// A property-agnostic representation of a value, used by Typed OM.
 ///
 /// `TypedValue` is the internal counterpart of the various `CSSStyleValue`
@@ -608,6 +644,12 @@ pub enum TypedValue {
     /// transferred independently of any specific property. This corresponds
     /// to `CSSKeywordValue` in the Typed OM specification.
     Keyword(CssString),
+
+    /// A numeric value such as a length, angle, time, or a sum thereof.
+    ///
+    /// This corresponds to the `CSSNumericValue` hierarchy in the Typed OM
+    /// specification, including `CSSUnitValue` and `CSSMathSum`.
+    Numeric(NumericValue),
 }
 
 /// Reifies a value into its Typed OM representation.
@@ -617,17 +659,28 @@ pub enum TypedValue {
 /// exposed to the DOM as `CSSStyleValue` subclasses.
 ///
 /// This trait is derivable with `#[derive(ToTyped)]`. The derived
-/// implementation behaves as follows:
+/// implementation currently supports:
 ///
-/// * For enums whose variants are all unit variants (representing keywords),
-///   it automatically reifies the value as [`TypedValue::Keyword`], using the
-///   same serialization logic as [`ToCss`].
-/// * For all other cases, the derived implementation does not attempt to reify
-///   anything and falls back to the default method (which always returns
-///   `None`).
+/// * Keyword enums: Enums whose variants are all unit variants are
+///   automatically reified as [`TypedValue::Keyword`], using the same
+///   serialization logic as [`ToCss`].
 ///
-/// Over time, the derive may be extended to cover additional common patterns,
-/// similar to how `ToCss` supports multiple attribute annotations.
+/// * Structs and data-carrying variants: When the
+///   `#[typed_value(derive_fields)]` attribute is present, the derive attempts
+///   to call `.to_typed()` recursively on inner fields or variant payloads,
+///   producing a nested [`TypedValue`] representation when possible.
+///
+/// * Other cases: If no automatic mapping is defined or recursion is not
+///   enabled, the derived implementation falls back to the default method,
+///   returning `None`.
+///
+/// The `derive_fields` attribute is intentionally opt-in for now to avoid
+/// forcing types that do not participate in reification to implement
+/// [`ToTyped`]. Once Typed OM coverage stabilizes, this behavior is expected
+/// to become the default (see the corresponding follow-up bug).
+///
+/// Over time, the derive may be extended to handle additional CSS value
+/// categories such as numeric, color, and transform types.
 pub trait ToTyped {
     /// Attempt to convert `self` into a [`TypedValue`].
     ///
@@ -651,9 +704,9 @@ where
 
 impl ToTyped for Au {
     fn to_typed(&self) -> Option<TypedValue> {
-        // XXX Should return TypedValue::Numeric in px units once that variant
-        // is available. Tracked in bug 1990419.
-        None
+        let value = self.to_f32_px();
+        let unit = CssString::from("px");
+        Some(TypedValue::Numeric(NumericValue::Unit { value, unit }))
     }
 }
 

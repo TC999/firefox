@@ -82,7 +82,7 @@ newtab-topsites-add-button = Adaugă
 
 newtab-confirm-delete-history-p1 = Sigur vrei să ștergi fiecare instanță a acestei pagini din istoric?
 # "This action" refers to deleting a page from history.
-newtab-confirm-delete-history-p2 = Această acțiune este ireversibilă.
+newtab-confirm-delete-history-p2 = Acțiunea este ireversibilă.
 
 ## Top Sites - Sponsored label
 
@@ -122,7 +122,7 @@ newtab-menu-topsites-placeholder-tooltip =
 newtab-menu-edit-topsites = Editează
 newtab-menu-open-new-window = Deschide într-o fereastră nouă
 newtab-menu-open-new-private-window = Deschide într-o fereastră privată nouă
-newtab-menu-dismiss = Respinge
+newtab-menu-dismiss = Elimină
 newtab-menu-pin = Fixează
 newtab-menu-unpin = Anulează fixarea
 newtab-menu-delete-history = Șterge din istoric
@@ -404,7 +404,7 @@ newtab-wallpaper-abstract-purple-green = Gradient de lumină violet și verde
 newtab-wallpaper-abstract-blue-purple-waves = Forme ondulate albastre și violete
 newtab-wallpaper-abstract-black-waves = Forme ondulate negre
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Fotografii
 newtab-wallpaper-beach-at-sunrise = Plajă la răsărit
@@ -434,6 +434,10 @@ feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
 
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
+
 ## Celestial
 
 # “Celestial” referring to astronomy; positioned in or relating to the sky,
@@ -452,7 +456,7 @@ newtab-wallpaper-celestial-river = Imagine din satelit cu un râu
 # Variables:
 #   $provider (string) - Service provider for weather data
 newtab-weather-see-forecast =
-    .title = Vedeți prognoza meteo în { $provider }
+    .title = Vezi prognoza meteo în { $provider }
 # Variables:
 #   $provider (string) - Service provider for weather data
 newtab-weather-sponsored = { $provider } ∙ Sponsorizat
@@ -661,6 +665,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Listă nouă
+newtab-widget-section-title = Widgeturi
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Ascunde widgeturile
+    .aria-label = Ascunde toate widgeturile
+newtab-widget-section-maximize =
+    .title = Extinde widgeturile
+    .aria-label = Extinde toate widgeturile la mărimea maximă
+newtab-widget-section-minimize =
+    .title = Minimizează widgeturile
+    .aria-label = Minimizează toate widgeturile la mărimea compactă
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -673,10 +688,6 @@ newtab-widget-timer-mode-focus =
     .label = Concentrează-te
 newtab-widget-timer-mode-break =
     .label = Pauză
-newtab-widget-timer-play =
-    .title = Redă
-newtab-widget-timer-pause =
-    .title = Pauză
 newtab-widget-timer-label-play =
     .label = Redă
 newtab-widget-timer-label-pause =
@@ -687,8 +698,6 @@ newtab-widget-timer-menu-notifications = Oprește notificările
 newtab-widget-timer-menu-notifications-on = Activează notificările
 newtab-widget-timer-menu-hide = Ascunde cronometrul
 newtab-widget-timer-menu-learn-more = Află mai multe
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Derulează pentru mai multe
 newtab-widget-message-title = Stai concentrat(ă) cu liste și un cronometru încorporat
 # to-dos stands for "things to do".
 newtab-widget-message-copy = De la mementouri rapide la liste zilnice de sarcini, sesiuni de concentrare până la pauze de întindere — stai concentrat(ă) pe sarcină și o termini la timp.

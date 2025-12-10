@@ -100,10 +100,9 @@ var PointerlockFsWarning = {
     } else {
       textElem.removeAttribute("hidden");
       // Document's principal's URI has a host. Display a warning including it.
-      let { DownloadUtils } = ChromeUtils.importESModule(
-        "resource://gre/modules/DownloadUtils.sys.mjs"
-      );
-      let displayHost = DownloadUtils.getURIHost(uri.spec)[0];
+      let displayHost = BrowserUtils.formatURIForDisplay(uri, {
+        onlyBaseDomain: true,
+      });
       let l10nString = {
         "fullscreen-warning": "fullscreen-warning-domain",
         "pointerlock-warning": "pointerlock-warning-domain",
@@ -130,6 +129,7 @@ var PointerlockFsWarning = {
 
   /**
    * Close the full screen or pointerlock warning.
+   *
    * @param {('fullscreen-warning'|'pointerlock-warning')} elementId - Id of the
    * warning element to close. If the id does not match the currently shown
    * warning this is a no-op.
@@ -409,6 +409,7 @@ var FullScreen = {
   /**
    * Shifts the browser toolbar down when it is moused over on macOS in
    * fullscreen.
+   *
    * @param {number} shiftSize
    *   A distance, in pixels, by which to shift the browser toolbar down.
    */
@@ -425,9 +426,7 @@ var FullScreen = {
 
     let transform = shiftSize > 0 ? `translateY(${shiftSize}px)` : "";
     gNavToolbox.style.transform = transform;
-    gURLBar.textbox.style.transform = gURLBar.textbox.hasAttribute("breakout")
-      ? transform
-      : "";
+    gURLBar.style.transform = gURLBar.hasAttribute("breakout") ? transform : "";
     if (shiftSize > 0) {
       // If the mouse tracking missed our fullScreenToggler, then the toolbox
       // might not have been shown before the menubar is animated down. Make
@@ -686,7 +685,6 @@ var FullScreen = {
    * Search for the first ancestor of aActor that lives in a different process.
    * If found, that ancestor actor and the browsing context for its child which
    * was in process are returned. Otherwise [request origin, null].
-   *
    *
    * @param {JSWindowActorParent} aActor
    *        The actor that called this function.

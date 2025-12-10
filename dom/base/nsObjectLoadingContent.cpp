@@ -1407,7 +1407,7 @@ bool nsObjectLoadingContent::IsAboutBlankLoadOntoInitialAboutBlank(
   return NS_IsAboutBlank(aURI) && aInheritPrincipal &&
          (!mFrameLoader || !mFrameLoader->GetExistingDocShell() ||
           mFrameLoader->GetExistingDocShell()
-              ->IsAboutBlankLoadOntoInitialAboutBlank(aURI, aInheritPrincipal,
+              ->IsAboutBlankLoadOntoInitialAboutBlank(aURI,
                                                       aPrincipalToInherit));
 }
 
@@ -1884,7 +1884,7 @@ void nsObjectLoadingContent::MaybeStoreCrossOriginFeaturePolicy() {
   }
 
   if (ContentChild* cc = ContentChild::GetSingleton()) {
-    Unused << cc->SendSetContainerFeaturePolicy(
+    (void)cc->SendSetContainerFeaturePolicy(
         browsingContext, Some(mFeaturePolicy->ToFeaturePolicyInfo()));
   }
 }

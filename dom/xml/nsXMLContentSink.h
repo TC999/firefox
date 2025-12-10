@@ -8,13 +8,11 @@
 #define nsXMLContentSink_h__
 
 #include "js/ColumnNumber.h"  // JS::ColumnNumberOneOrigin
-#include "mozilla/Attributes.h"
 #include "mozilla/dom/FromParser.h"
 #include "nsCOMPtr.h"
 #include "nsCRT.h"
 #include "nsContentSink.h"
 #include "nsCycleCollectionParticipant.h"
-#include "nsIDTD.h"
 #include "nsIDocumentTransformer.h"
 #include "nsIExpatSink.h"
 #include "nsIXMLContentSink.h"
@@ -60,7 +58,7 @@ class nsXMLContentSink : public nsContentSink,
 
   // nsIContentSink
   NS_IMETHOD WillParse(void) override;
-  NS_IMETHOD WillBuildModel(nsDTDMode aDTDMode) override;
+  NS_IMETHOD WillBuildModel() override;
   NS_IMETHOD DidBuildModel(bool aTerminated) override;
   NS_IMETHOD WillInterrupt(void) override;
   void WillResume() override;

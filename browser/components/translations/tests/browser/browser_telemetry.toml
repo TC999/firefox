@@ -25,7 +25,6 @@ support-files = [
 ["browser_translations_full_page_telemetry_translation_request.js"]
 
 ["browser_translations_full_page_telemetry_unsupported_lang.js"]
-skip-if = ["os == 'linux' && os_version == '22.04' && display == 'wayland' && !debug"] # Bug 1994245
 
 ["browser_translations_select_telemetry_change_both_languages_together.js"]
 
@@ -38,6 +37,9 @@ skip-if = ["os == 'linux' && os_version == '22.04' && display == 'wayland' && !d
 ["browser_translations_select_telemetry_keypresses_cancel_button.js"]
 
 ["browser_translations_select_telemetry_keypresses_copy_button.js"]
+skip-if = [
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && ccov",
+]
 
 ["browser_translations_select_telemetry_keypresses_done_button.js"]
 

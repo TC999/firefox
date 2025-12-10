@@ -169,6 +169,36 @@ about-glean-metrics-table-header-type = Type
 about-glean-metrics-table-header-value = Value
 # This message refers to the UI action buttons for a given metric.
 about-glean-metrics-table-header-actions = Actions
+about-glean-metrics-table-settings-button = Settings
+
+# Settings for the metrics table and its visualizations in about:glean
+about-glean-metrics-table-settings-title = Metrics Table Settings
+about-glean-metrics-table-settings-category-general = General
+about-glean-metrics-table-settings-hide-empty-value-rows = Hide empty value rows
+
+about-glean-metrics-table-settings-category-visualizations = Visualizations
+# This is a heading that is immediately followed by an example data visualization
+about-glean-metrics-table-settings-visualization-example = Example
+
+about-glean-metrics-table-settings-category-visualizations-histogram = Histogram
+about-glean-metrics-table-settings-histograms-chart-max = Chart maximum height
+# The maximum height after to which the y-values on the chart will be scaled
+about-glean-metrics-table-settings-histograms-scaled-max = Scaled maximum height
+about-glean-metrics-table-settings-histograms-box-padding = Box padding
+about-glean-metrics-table-settings-histograms-chart-padding = Chart padding
+about-glean-metrics-table-settings-histograms-left-padding = Additional left padding
+
+about-glean-metrics-table-settings-category-visualizations-timeline = Timeline
+about-glean-metrics-table-settings-timelines-height = Height
+about-glean-metrics-table-settings-timelines-width = Width
+about-glean-metrics-table-settings-timelines-chart-padding = Chart padding
+# The radius of each circle denoting individual events recorded for an event metric
+about-glean-metrics-table-settings-timelines-circle-radius = Circle radius
+# The offset on the x-axis from the end of the horizontal line for the y-axis line
+about-glean-metrics-table-settings-timelines-vertical-line-x-offset = Y-axis X offset
+# The offset on the y-axis from the x-axis for the y-axis line
+about-glean-metrics-table-settings-timelines-vertical-line-y-offset = Y-axis Y offset
+
 
 # Label displayed near an input field that can be used to filter metrics
 about-glean-label-for-filter-metrics = Filter
@@ -191,7 +221,7 @@ about-glean-button-unwatch = Unwatch
 about-glean-no-data-to-display = No data to display.
 
 # Do not translate strings between <code> </code> tags.
-about-glean-labeled-metric-warning = Labeled metrics are not yet supported in the <code>about:glean</code> view.
+about-glean-dual-labeled-metric-warning = <code>DualLabeledCounter</code> metrics are not yet supported in the <code>about:glean</code> view.
 about-glean-unknown-metric-type-warning = Unknown metric type.
 
 about-glean-enable-new-features-promo =

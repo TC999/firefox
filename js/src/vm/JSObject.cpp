@@ -2202,6 +2202,10 @@ JS_PUBLIC_API bool js::ShouldIgnorePropertyDefinition(JSContext* cx,
         id == NameToId(cx->names().isError)) {
       return true;
     }
+    if (!JS::Prefs::experimental_iterator_sequencing() &&
+        id == NameToId(cx->names().concat)) {
+      return true;
+    }
   }
 
 #ifdef JS_HAS_INTL_API
@@ -2225,10 +2229,6 @@ JS_PUBLIC_API bool js::ShouldIgnorePropertyDefinition(JSContext* cx,
          id == NameToId(cx->names().zipKeyed))) {
       return true;
     }
-    if (!JS::Prefs::experimental_iterator_sequencing() &&
-        id == NameToId(cx->names().concat)) {
-      return true;
-    }
   }
   if (key == JSProto_Map || key == JSProto_WeakMap) {
     if (!JS::Prefs::experimental_upsert() &&
@@ -2245,18 +2245,22 @@ JS_PUBLIC_API bool js::ShouldIgnorePropertyDefinition(JSContext* cx,
       return true;
     }
   }
+  if (key == JSProto_Iterator && !JS::Prefs::experimental_iterator_chunking()) {
+    if (id == NameToId(cx->names().chunks) ||
+        id == NameToId(cx->names().windows)) {
+      return true;
+    }
+  }
+  if (key == JSProto_Iterator && !JS::Prefs::experimental_iterator_join()) {
+    if (id == NameToId(cx->names().join)) {
+      return true;
+    }
+  }
 #endif
 
   if (key == JSProto_Function &&
       !JS::Prefs::experimental_error_capture_stack_trace() &&
       id == NameToId(cx->names().captureStackTrace)) {
-    return true;
-  }
-
-  if (key == JSProto_JSON &&
-      !JS::Prefs::experimental_json_parse_with_source() &&
-      (id == NameToId(cx->names().isRawJSON) ||
-       id == NameToId(cx->names().rawJSON))) {
     return true;
   }
 

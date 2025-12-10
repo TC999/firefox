@@ -407,7 +407,7 @@ newtab-wallpaper-abstract-purple-green = Violetin ja vihreän valon liukuväriä
 newtab-wallpaper-abstract-blue-purple-waves = Sinisiä ja violetteja aaltoilevia muotoja
 newtab-wallpaper-abstract-black-waves = Mustia aaltoilevia muotoja
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Valokuvat
 newtab-wallpaper-beach-at-sunrise = Ranta auringonnousun aikaan
@@ -436,6 +436,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -486,6 +490,8 @@ newtab-weather-opt-in-not-now =
     .label = Ei nyt
 newtab-weather-opt-in-yes =
     .label = Kyllä
+# We'll be showing static (fake) weather data if the user has not opted in to using their location
+newtab-weather-static-city = Helsinki
 
 ## Topic Labels
 
@@ -662,6 +668,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Uusi lista
+newtab-widget-section-title = Widgetit
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Piilota widgetit
+    .aria-label = Piilota kaikki widgetit
+newtab-widget-section-maximize =
+    .title = Laajenna widgetit
+    .aria-label = Laajenna widgetit täyteen kokoon
+newtab-widget-section-minimize =
+    .title = Pienennä widgetit
+    .aria-label = Supista widgetit kompaktiin kokoon
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -674,12 +691,8 @@ newtab-widget-timer-mode-focus =
     .label = Keskity
 newtab-widget-timer-mode-break =
     .label = Tauko
-newtab-widget-timer-play =
-    .title = Toista
-newtab-widget-timer-pause =
-    .title = Keskeytä
 newtab-widget-timer-label-play =
-    .label = Toista
+    .label = Käynnistä
 newtab-widget-timer-label-pause =
     .label = Keskeytä
 newtab-widget-timer-reset =
@@ -688,8 +701,6 @@ newtab-widget-timer-menu-notifications = Poista ilmoitukset käytöstä
 newtab-widget-timer-menu-notifications-on = Ota ilmoitukset käyttöön
 newtab-widget-timer-menu-hide = Piilota ajastin
 newtab-widget-timer-menu-learn-more = Lue lisää
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Vieritä nähdäksesi lisää
 newtab-widget-message-title = Pysy keskittyneenä listojen ja sisäänrakennetun ajastimen avulla
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Nopeista muistutuksista päivittäisiin tehtäviin, keskittymisharjoituksista venyttelytaukoihin – pysy tehtävässäsi ja aikataulussa.

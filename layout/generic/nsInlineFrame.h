@@ -9,7 +9,6 @@
 #ifndef nsInlineFrame_h___
 #define nsInlineFrame_h___
 
-#include "mozilla/Attributes.h"
 #include "nsContainerFrame.h"
 
 class nsLineLayout;
@@ -68,7 +67,7 @@ class nsInlineFrame : public nsContainerFrame {
   void AddInlinePrefISize(const mozilla::IntrinsicSizeInput& aInput,
                           InlinePrefISizeData* aData) override;
   SizeComputationResult ComputeSize(
-      gfxContext* aRenderingContext, mozilla::WritingMode aWM,
+      const SizeComputationInput& aSizingInput, mozilla::WritingMode aWM,
       const mozilla::LogicalSize& aCBSize, nscoord aAvailableISize,
       const mozilla::LogicalSize& aMargin,
       const mozilla::LogicalSize& aBorderPadding,

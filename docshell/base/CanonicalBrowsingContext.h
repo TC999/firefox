@@ -10,6 +10,7 @@
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/MediaControlKeySource.h"
 #include "mozilla/dom/BrowsingContextWebProgress.h"
+#include "mozilla/dom/EntryList.h"
 #include "mozilla/dom/FeaturePolicy.h"
 #include "mozilla/dom/ProcessIsolation.h"
 #include "mozilla/dom/Promise.h"
@@ -128,7 +129,7 @@ class CanonicalBrowsingContext final : public BrowsingContext {
 
   nsISHistory* GetSessionHistory();
   SessionHistoryEntry* GetActiveSessionHistoryEntry();
-  void SetActiveSessionHistoryEntry(SessionHistoryEntry* aEntry);
+  void SetActiveSessionHistoryEntryFromBFCache(SessionHistoryEntry* aEntry);
 
   bool ManuallyManagesActiveness() const;
 
@@ -285,12 +286,6 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   bool HasCreatedMediaController() const;
 
   // Attempts to start loading the given load state in this BrowsingContext,
-  // without requiring any communication from a docshell. This will handle
-  // computing the right process to load in, and organising handoff to
-  // the right docshell when we get a response.
-  bool LoadInParent(nsDocShellLoadState* aLoadState, bool aSetNavigating);
-
-  // Attempts to start loading the given load state in this BrowsingContext,
   // in parallel with a DocumentChannelChild being created in the docshell.
   // Requires the DocumentChannel to connect with this load for it to
   // complete successfully.
@@ -336,6 +331,8 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   void HistoryCommitIndexAndLength();
 
   void SynchronizeLayoutHistoryState();
+
+  void SynchronizeNavigationAPIState(nsIStructuredCloneContainer* aState);
 
   void ResetScalingZoom();
 
@@ -450,6 +447,13 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   already_AddRefed<BounceTrackingState> GetBounceTrackingState();
 
   bool CanOpenModalPicker();
+
+  static bool ShouldEnforceParentalControls();
+
+  void MaybeReconstructActiveEntryList();
+
+  // Get the load listener for the current load in this browsing context.
+  already_AddRefed<net::DocumentLoadListener> GetCurrentLoad();
 
  protected:
   // Called when the browsing context is being discarded.
@@ -580,6 +584,11 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   already_AddRefed<nsDocShellLoadState> CreateLoadInfo(
       SessionHistoryEntry* aEntry);
 
+  void GetContiguousEntriesForLoad(LoadingSessionHistoryInfo& aLoadingInfo,
+                                   const RefPtr<SessionHistoryEntry>& aEntry);
+
+  EntryList* GetActiveEntries();
+
   // XXX(farre): Store a ContentParent pointer here rather than mProcessId?
   // Indicates which process owns the docshell.
   uint64_t mProcessId;
@@ -620,7 +629,7 @@ class CanonicalBrowsingContext final : public BrowsingContext {
     RefPtr<SessionHistoryEntry> mEntry;
   };
   nsTArray<LoadingSessionHistoryEntry> mLoadingEntries;
-  LinkedList<SessionHistoryEntry> mActiveEntryList;
+  RefPtr<EntryList> mActiveEntryList;
   RefPtr<SessionHistoryEntry> mActiveEntry;
 
   RefPtr<nsSecureBrowserUI> mSecureBrowserUI;

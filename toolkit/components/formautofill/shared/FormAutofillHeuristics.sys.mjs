@@ -1015,7 +1015,8 @@ export const FormAutofillHeuristics = {
     // needs to find the field name.
     if (
       autocompleteInfo?.fieldName &&
-      !["on", "off"].includes(autocompleteInfo.fieldName)
+      !["on", "off"].includes(autocompleteInfo.fieldName) &&
+      !lazy.FormAutofillUtils.isUnsupportedField(autocompleteInfo.fieldName)
     ) {
       inferredInfo.autocompleteInfo = autocompleteInfo;
       return [autocompleteInfo.fieldName, inferredInfo];
@@ -1032,6 +1033,7 @@ export const FormAutofillHeuristics = {
     }
 
     let fathomFoundType;
+    let matchedFieldNames = [];
 
     if (lazy.FormAutofillUtils.isFathomCreditCardsEnabled()) {
       // We don't care fields that are not supported by fathom
@@ -1054,7 +1056,8 @@ export const FormAutofillHeuristics = {
           return [matchedFieldName, inferredInfo];
         }
 
-        fathomFoundType == CC_TYPE;
+        matchedFieldNames = [matchedFieldName];
+        fathomFoundType = CC_TYPE;
       }
 
       // Continue to run regex-based heuristics even when fathom doesn't recognize
@@ -1105,11 +1108,18 @@ export const FormAutofillHeuristics = {
     }
 
     // Find a matched field name using regexp-based heuristics
-    const matchedFieldNames = this._findMatchedFieldNames(
+    const heuristicMatchedFieldNames = this._findMatchedFieldNames(
       element,
       fields,
       fathomFoundType
     );
+    matchedFieldNames.push(...heuristicMatchedFieldNames);
+
+    // If regular expression based heuristics doesn't find any matched field name,
+    // and the input type is "tel", just use "tel" as the field name.
+    if (!matchedFieldNames.length && element.type == "tel") {
+      return ["tel", inferredInfo];
+    }
 
     return [matchedFieldNames, inferredInfo];
   },
@@ -1258,6 +1268,12 @@ export const FormAutofillHeuristics = {
         const labels = lazy.LabelUtils.findLabelElements(element);
         for (let label of labels) {
           yield* lazy.LabelUtils.extractLabelStrings(label);
+        }
+
+        // If no labels were found, look for nearby text that could
+        // be used as a label.
+        if (!labels.length) {
+          yield lazy.LabelUtils.findNearbyText(element);
         }
 
         const ariaLabels = element.getAttribute("aria-label");

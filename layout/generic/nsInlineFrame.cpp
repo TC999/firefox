@@ -262,10 +262,10 @@ void nsInlineFrame::AddInlinePrefISize(const IntrinsicSizeInput& aInput,
 
 /* virtual */
 nsIFrame::SizeComputationResult nsInlineFrame::ComputeSize(
-    gfxContext* aRenderingContext, WritingMode aWM, const LogicalSize& aCBSize,
-    nscoord aAvailableISize, const LogicalSize& aMargin,
-    const LogicalSize& aBorderPadding, const StyleSizeOverrides& aSizeOverrides,
-    ComputeSizeFlags aFlags) {
+    const SizeComputationInput& aSizingInput, WritingMode aWM,
+    const LogicalSize& aCBSize, nscoord aAvailableISize,
+    const LogicalSize& aMargin, const LogicalSize& aBorderPadding,
+    const StyleSizeOverrides& aSizeOverrides, ComputeSizeFlags aFlags) {
   // Inlines and text don't compute size before reflow.
   return {LogicalSize(aWM, NS_UNCONSTRAINEDSIZE, NS_UNCONSTRAINEDSIZE),
           AspectRatioUsage::None};
@@ -372,7 +372,7 @@ void nsInlineFrame::Reflow(nsPresContext* aPresContext,
   if (mFrames.IsEmpty()) {
     // Try to pull over one frame before starting so that we know
     // whether we have an anonymous block or not.
-    Unused << PullOneFrame(aPresContext, irs);
+    (void)PullOneFrame(aPresContext, irs);
   }
 
   ReflowFrames(aPresContext, aReflowInput, irs, aReflowOutput, aStatus);

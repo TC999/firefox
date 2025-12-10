@@ -11,7 +11,8 @@ use crate::dom::{TElement, TNode};
 use crate::invalidation::element::element_wrapper::{ElementSnapshot, ElementWrapper};
 use crate::invalidation::element::invalidation_map::*;
 use crate::invalidation::element::invalidator::{
-    any_next_has_scope_in_negation, note_scope_dependency_force_at_subject, DescendantInvalidationLists, InvalidationVector, SiblingTraversalMap
+    any_next_has_scope_in_negation, note_scope_dependency_force_at_subject,
+    DescendantInvalidationLists, InvalidationVector, SiblingTraversalMap,
 };
 use crate::invalidation::element::invalidator::{Invalidation, InvalidationProcessor};
 use crate::invalidation::element::restyle_hints::RestyleHint;
@@ -562,12 +563,7 @@ where
             return;
         }
 
-        if self.check_dependency(dependency, set_scope)
-            || matches!(
-                dependency.invalidation_kind(),
-                DependencyInvalidationKind::Scope(_)
-            )
-        {
+        if self.check_dependency(dependency, set_scope) {
             return self.note_dependency(dependency, set_scope);
         }
     }
@@ -590,7 +586,28 @@ where
         }
 
         if let DependencyInvalidationKind::Scope(scope_kind) = invalidation_kind {
-            if dependency.selector_offset == 0 {
+            if scope_kind == ScopeDependencyInvalidationKind::ImplicitScope {
+                if let Some(ref next) = dependency.next {
+                    // When we reach an implicit scope dependency, we know there's an
+                    // element matching that implicit scope somewhere in the descendant.
+                    // We need to go find it so that we can continue the invalidation from
+                    // its next dependencies.
+                    for dep in next.as_ref().slice() {
+                        let invalidation = Invalidation::new_always_effective_for_next_descendant(
+                            dep,
+                            self.matching_context.current_host.clone(),
+                            self.matching_context.scope_element,
+                        );
+
+                        self.descendant_invalidations
+                            .dom_descendants
+                            .push(invalidation);
+                    }
+                    return;
+                }
+            }
+
+            if dependency.selector.is_rightmost(dependency.selector_offset) {
                 let force_add = any_next_has_scope_in_negation(dependency);
                 if scope_kind == ScopeDependencyInvalidationKind::ScopeEnd || force_add {
                     let invalidations = note_scope_dependency_force_at_subject(
@@ -663,6 +680,8 @@ pub(crate) fn push_invalidation<'a>(
         DependencyInvalidationKind::FullSelector => unreachable!(),
         DependencyInvalidationKind::Relative(_) => unreachable!(),
         DependencyInvalidationKind::Scope(_) => {
+            // Scope invalidation kind matters only upon reaching the subject.
+            // Examine the combinator to the right of the compound.
             let combinator = invalidation.combinator_to_right();
             if combinator.is_sibling() {
                 sibling_invalidations.push(invalidation);

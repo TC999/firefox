@@ -85,7 +85,7 @@ class TextInputHandler;
 - (void)createTrackingArea;
 - (void)removeTrackingArea;
 
-- (void)setBeingShown:(BOOL)aValue;
+- (void)setIsBeingShown:(BOOL)aValue;
 - (BOOL)isBeingShown;
 - (BOOL)isVisibleOrBeingShown;
 
@@ -204,11 +204,11 @@ class nsCocoaWindow final : public nsIWidget {
   nsCocoaWindow();
 
   [[nodiscard]] nsresult Create(nsIWidget* aParent, const DesktopIntRect& aRect,
-                                InitData* = nullptr) override;
+                                const InitData&) override;
 
   [[nodiscard]] nsresult Create(nsIWidget* aParent,
                                 const LayoutDeviceIntRect& aRect,
-                                InitData* = nullptr) override;
+                                const InitData&) override;
 
   void Destroy() override;
 
@@ -232,7 +232,7 @@ class nsCocoaWindow final : public nsIWidget {
 
   void ConstrainPosition(DesktopIntPoint&) override;
   void SetSizeConstraints(const SizeConstraints& aConstraints) override;
-  void Move(double aX, double aY) override;
+  void Move(const DesktopPoint&) override;
   nsSizeMode SizeMode() override { return mSizeMode; }
   void SetSizeMode(nsSizeMode aMode) override;
   void GetWorkspaceID(nsAString& workspaceID) override;
@@ -354,12 +354,12 @@ class nsCocoaWindow final : public nsIWidget {
     mFullscreenTransitionAnimation = nil;
   }
 
-  void Resize(double aWidth, double aHeight, bool aRepaint) override;
-  void Resize(double aX, double aY, double aWidth, double aHeight,
-              bool aRepaint) override;
+  void Resize(const DesktopSize&, bool aRepaint) override;
+  void Resize(const DesktopRect&, bool aRepaint) override;
   NSRect GetClientCocoaRect();
   LayoutDeviceIntRect GetClientBounds() override;
   LayoutDeviceIntRect GetScreenBounds() override;
+  LayoutDeviceIntRect GetBounds() override { return mBounds; }
   void ReportMoveEvent();
   void ReportSizeEvent();
   bool WidgetTypeSupportsAcceleration() override { return true; }
@@ -375,9 +375,8 @@ class nsCocoaWindow final : public nsIWidget {
   int32_t RoundsWidgetCoordinatesTo() override;
 
   // Mac specific methods
-  void WillPaintWindow();
-  bool PaintWindow(LayoutDeviceIntRegion aRegion);
-  bool PaintWindowInDrawTarget(mozilla::gfx::DrawTarget* aDT,
+  void PaintWindow();
+  void PaintWindowInDrawTarget(mozilla::gfx::DrawTarget* aDT,
                                const LayoutDeviceIntRegion& aRegion,
                                const mozilla::gfx::IntSize& aSurfaceSize);
 
@@ -403,7 +402,7 @@ class nsCocoaWindow final : public nsIWidget {
 
   bool PreRender(mozilla::widget::WidgetRenderingContext* aContext) override;
   void PostRender(mozilla::widget::WidgetRenderingContext* aContext) override;
-  RefPtr<mozilla::layers::NativeLayerRoot> GetNativeLayerRoot() override;
+  mozilla::layers::NativeLayerRoot* GetNativeLayerRoot() override;
 
   void UpdateWindowDraggingRegion(
       const LayoutDeviceIntRegion& aRegion) override;
@@ -423,8 +422,7 @@ class nsCocoaWindow final : public nsIWidget {
   nsresult SetTitle(const nsAString& aTitle) override;
 
   void Invalidate(const LayoutDeviceIntRect& aRect) override;
-  nsresult DispatchEvent(mozilla::WidgetGUIEvent* aEvent,
-                         nsEventStatus& aStatus) override;
+  nsEventStatus DispatchEvent(mozilla::WidgetGUIEvent* aEvent) override;
   void CaptureRollupEvents(bool aDoCapture) override;
   [[nodiscard]] nsresult GetAttention(int32_t aCycleCount) override;
   bool HasPendingInputEvent() override;
@@ -465,7 +463,7 @@ class nsCocoaWindow final : public nsIWidget {
   bool HasModalDescendants() const { return mNumModalDescendants > 0; }
   bool IsModal() const { return mModal; }
 
-  NSWindow* GetCocoaWindow() { return mWindow; }
+  NSWindow* GetCocoaWindow() { return [[mWindow retain] autorelease]; }
 
   void SetMenuBar(RefPtr<nsMenuBarX>&& aMenuBar);
   nsMenuBarX* GetMenuBar();
@@ -489,10 +487,6 @@ class nsCocoaWindow final : public nsIWidget {
   void CocoaWindowDidResize();
   void CocoaSendToplevelActivateEvents();
   void CocoaSendToplevelDeactivateEvents();
-
-  nsIWidgetListener* GetPaintListener() const {
-    return mAttachedWidgetListener ? mAttachedWidgetListener : mWidgetListener;
-  }
 
   enum class TransitionType {
     Windowed,
@@ -520,6 +514,7 @@ class nsCocoaWindow final : public nsIWidget {
   void UpdateBounds();
   int32_t GetWorkspaceID();
   void MoveVisibleWindowToWorkspace(int32_t workspaceID);
+  CGFloat ComputeBackingScaleFactor() const;
 
   void DoResize(double aX, double aY, double aWidth, double aHeight,
                 bool aRepaint, bool aConstrainToCurrentScreen);
@@ -527,12 +522,7 @@ class nsCocoaWindow final : public nsIWidget {
   void UpdateFullscreenState(bool aFullScreen, bool aNativeMode);
   nsresult DoMakeFullScreen(bool aFullScreen, bool aUseSystemTransition);
 
-  already_AddRefed<nsIWidget> AllocateChildPopupWidget() override {
-    return nsIWidget::CreateTopLevelWindow();
-  }
-
-  BaseWindow* mWindow;                // our cocoa window [STRONG]
-  BaseWindow* mClosedRetainedWindow;  // a second strong reference to our
+  BaseWindow* mWindow;  // our cocoa window [STRONG]
   // window upon closing it, held through our destructor. This is useful
   // to ensure that macOS run loops which reference the window will still
   // have something to point to even if they don't use proper retain and
@@ -664,6 +654,8 @@ class nsCocoaWindow final : public nsIWidget {
   RefPtr<mozilla::widget::TextInputHandler> mTextInputHandler;
   InputContext mInputContext;
   NSWindowAnimationBehavior mWindowAnimationBehavior;
+
+  LayoutDeviceIntRect mBounds;
 
   mozilla::widget::PlatformCompositorWidgetDelegate* mCompositorWidgetDelegate =
       nullptr;

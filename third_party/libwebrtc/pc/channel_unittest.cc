@@ -10,8 +10,7 @@
 
 #include "pc/channel.h"
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -58,7 +57,6 @@
 #include "rtc_base/socket.h"
 #include "rtc_base/ssl_identity.h"
 #include "rtc_base/task_queue_for_test.h"
-#include "rtc_base/third_party/sigslot/sigslot.h"
 #include "rtc_base/thread.h"
 #include "rtc_base/unique_id_generator.h"
 #include "test/create_test_field_trials.h"
@@ -78,6 +76,7 @@ using ::webrtc::FakeVoiceMediaSendChannel;
 using ::webrtc::FieldTrials;
 using ::webrtc::RidDescription;
 using ::webrtc::RidDirection;
+using ::webrtc::RtpExtension;
 using ::webrtc::RtpTransceiverDirection;
 using ::webrtc::SdpType;
 using ::webrtc::StreamParams;
@@ -88,12 +87,14 @@ const webrtc::Codec kIsacCodec =
     webrtc::CreateAudioCodec(103, "ISAC", 40000, 1);
 const webrtc::Codec kH264Codec = webrtc::CreateVideoCodec(97, "H264");
 const webrtc::Codec kH264SvcCodec = webrtc::CreateVideoCodec(99, "H264-SVC");
-const uint32_t kSsrc1 = 0x1111;
-const uint32_t kSsrc2 = 0x2222;
-const uint32_t kSsrc3 = 0x3333;
-const uint32_t kSsrc4 = 0x4444;
-const int kAudioPts[] = {0, 8};
-const int kVideoPts[] = {97, 99};
+constexpr uint32_t kSsrc1 = 0x1111;
+constexpr uint32_t kSsrc2 = 0x2222;
+constexpr uint32_t kSsrc3 = 0x3333;
+constexpr uint32_t kSsrc4 = 0x4444;
+constexpr int kAudioPts[] = {0, 8};
+constexpr int kVideoPts[] = {97, 99};
+constexpr char kAudioMid[] = "0";
+constexpr char kVideoMid[] = "1";
 enum class NetworkIsWorker { Yes, No };
 
 template <class ChannelT,
@@ -136,7 +137,7 @@ class VideoTraits : public Traits<webrtc::VideoChannel,
 
 // Base class for Voice/Video tests
 template <class T>
-class ChannelTest : public ::testing::Test, public sigslot::has_slots<> {
+class ChannelTest : public ::testing::Test {
  public:
   enum Flags {
     RTCP_MUX = 0x1,
@@ -645,6 +646,65 @@ class ChannelTest : public ::testing::Test, public sigslot::has_slots<> {
               media_send_channel1_impl()->send_codecs()[0]);
   }
 
+  void TestRemovesExtensionNotPresentInRemoteAnswer() {
+    typename T::Content local;
+    typename T::Content remote;
+    CreateContent(/*flags=*/0, kPcmuCodec, kH264Codec, &local);
+    CreateContent(/*flags=*/0, kPcmuCodec, kH264Codec, &remote);
+    local.set_rtp_header_extensions({
+        RtpExtension(RtpExtension::kTransportSequenceNumberUri, 0),
+        RtpExtension(RtpExtension::kVideoRotationUri, 1),
+    });
+    remote.set_rtp_header_extensions({
+        RtpExtension(RtpExtension::kVideoRotationUri, 1),
+    });
+
+    CreateChannels(0, 0);
+    std::string err;
+    ASSERT_TRUE(channel1_->SetLocalContent(&local, SdpType::kOffer, err))
+        << err;
+    ASSERT_TRUE(channel1_->SetRemoteContent(&remote, SdpType::kAnswer, err))
+        << err;
+
+    EXPECT_THAT(media_receive_channel1_impl()->recv_extensions(),
+                ElementsAre(AllOf(Field("id", &RtpExtension::id, 1),
+                                  Field("uri", &RtpExtension::uri,
+                                        RtpExtension::kVideoRotationUri))));
+    EXPECT_THAT(media_send_channel1_impl()->send_extensions(),
+                ElementsAre(AllOf(Field("id", &RtpExtension::id, 1),
+                                  Field("uri", &RtpExtension::uri,
+                                        RtpExtension::kVideoRotationUri))));
+  }
+  void TestRemovesExtensionNotPresentInLocalAnswer() {
+    typename T::Content local;
+    typename T::Content remote;
+    CreateContent(/*flags=*/0, kPcmuCodec, kH264Codec, &local);
+    CreateContent(/*flags=*/0, kPcmuCodec, kH264Codec, &remote);
+    local.set_rtp_header_extensions({
+        RtpExtension(RtpExtension::kVideoRotationUri, 1),
+    });
+    remote.set_rtp_header_extensions({
+        RtpExtension(RtpExtension::kTransportSequenceNumberUri, 0),
+        RtpExtension(RtpExtension::kVideoRotationUri, 1),
+    });
+
+    CreateChannels(0, 0);
+    std::string err;
+    ASSERT_TRUE(channel1_->SetRemoteContent(&remote, SdpType::kOffer, err))
+        << err;
+    ASSERT_TRUE(channel1_->SetLocalContent(&local, SdpType::kAnswer, err))
+        << err;
+
+    EXPECT_THAT(media_receive_channel1_impl()->recv_extensions(),
+                ElementsAre(AllOf(Field("id", &RtpExtension::id, 1),
+                                  Field("uri", &RtpExtension::uri,
+                                        RtpExtension::kVideoRotationUri))));
+    EXPECT_THAT(media_send_channel1_impl()->send_extensions(),
+                ElementsAre(AllOf(Field("id", &RtpExtension::id, 1),
+                                  Field("uri", &RtpExtension::uri,
+                                        RtpExtension::kVideoRotationUri))));
+  }
+
   // Test that SetLocalContent and SetRemoteContent properly configure
   // extmap-allow-mixed.
   void TestSetContentsExtmapAllowMixedCaller(bool offer, bool answer) {
@@ -986,7 +1046,7 @@ class ChannelTest : public ::testing::Test, public sigslot::has_slots<> {
     SendTask(network_thread_, [this] {
       webrtc::NetworkRoute network_route;
       // The transport channel becomes disconnected.
-      fake_rtp_dtls_transport1_->ice_transport()->SignalNetworkRouteChanged(
+      fake_rtp_dtls_transport1_->ice_transport()->NotifyNetworkRouteChanged(
           std::optional<webrtc::NetworkRoute>(network_route));
     });
     WaitForThreads();
@@ -1004,7 +1064,7 @@ class ChannelTest : public ::testing::Test, public sigslot::has_slots<> {
       network_route.last_sent_packet_id = kLastPacketId;
       network_route.packet_overhead = kTransportOverheadPerPacket;
       // The transport channel becomes connected.
-      fake_rtp_dtls_transport1_->ice_transport()->SignalNetworkRouteChanged(
+      fake_rtp_dtls_transport1_->ice_transport()->NotifyNetworkRouteChanged(
 
           std::optional<webrtc::NetworkRoute>(network_route));
     });
@@ -1609,7 +1669,7 @@ std::unique_ptr<webrtc::VoiceChannel> ChannelTest<VoiceTraits>::CreateChannel(
   webrtc::Thread* signaling_thread = webrtc::Thread::Current();
   auto channel = std::make_unique<webrtc::VoiceChannel>(
       worker_thread, network_thread, signaling_thread, std::move(send_ch),
-      std::move(receive_ch), webrtc::CN_AUDIO, (flags & DTLS) != 0,
+      std::move(receive_ch), kAudioMid, (flags & DTLS) != 0,
       webrtc::CryptoOptions(), &ssrc_generator_);
   SendTask(network_thread, [&]() {
     RTC_DCHECK_RUN_ON(channel->network_thread());
@@ -1689,7 +1749,7 @@ std::unique_ptr<webrtc::VideoChannel> ChannelTest<VideoTraits>::CreateChannel(
   webrtc::Thread* signaling_thread = webrtc::Thread::Current();
   auto channel = std::make_unique<webrtc::VideoChannel>(
       worker_thread, network_thread, signaling_thread, std::move(send_ch),
-      std::move(receive_ch), webrtc::CN_VIDEO, (flags & DTLS) != 0,
+      std::move(receive_ch), kVideoMid, (flags & DTLS) != 0,
       webrtc::CryptoOptions(), &ssrc_generator_);
   SendTask(network_thread, [&]() {
     RTC_DCHECK_RUN_ON(channel->network_thread());
@@ -1875,6 +1935,14 @@ TEST_F(VoiceChannelSingleThreadTest, DefaultMaxBitrateIsUnlimited) {
 
 TEST_F(VoiceChannelSingleThreadTest, SocketOptionsMergedOnSetTransport) {
   Base::SocketOptionsMergedOnSetTransport();
+}
+
+TEST_F(VoiceChannelSingleThreadTest, RemovesExtensionNotPresentInRemoteAnswer) {
+  Base::TestRemovesExtensionNotPresentInRemoteAnswer();
+}
+
+TEST_F(VoiceChannelSingleThreadTest, RemovesExtensionNotPresentInLocalAnswer) {
+  Base::TestRemovesExtensionNotPresentInLocalAnswer();
 }
 
 // VoiceChannelDoubleThreadTest
@@ -2157,6 +2225,14 @@ TEST_F(VideoChannelSingleThreadTest, UpdateLocalStreamsWithSimulcast) {
   Base::TestUpdateLocalStreamsWithSimulcast();
 }
 
+TEST_F(VideoChannelSingleThreadTest, RemovesExtensionNotPresentInRemoteAnswer) {
+  Base::TestRemovesExtensionNotPresentInRemoteAnswer();
+}
+
+TEST_F(VideoChannelSingleThreadTest, RemovesExtensionNotPresentInLocalAnswer) {
+  Base::TestRemovesExtensionNotPresentInLocalAnswer();
+}
+
 TEST_F(VideoChannelSingleThreadTest, TestSetLocalOfferWithPacketization) {
   const webrtc::Codec kVp8Codec = webrtc::CreateVideoCodec(97, "VP8");
   webrtc::Codec vp9_codec = webrtc::CreateVideoCodec(98, "VP9");
@@ -2385,18 +2461,22 @@ TEST_F(VideoChannelSingleThreadTest,
 
   EXPECT_THAT(
       media_receive_channel1_impl()->recv_codecs(),
-      ElementsAre(AllOf(Field(&webrtc::Codec::id, 96),
-                        Field(&webrtc::Codec::packetization, "foo")),
-                  AllOf(Field(&webrtc::Codec::id, 98),
-                        Field(&webrtc::Codec::packetization, std::nullopt))));
+      ElementsAre(
+          AllOf(Field("id", &webrtc::Codec::id, 96),
+                Field("packetization", &webrtc::Codec::packetization, "foo")),
+          AllOf(Field("id", &webrtc::Codec::id, 98),
+                Field("packetization", &webrtc::Codec::packetization,
+                      std::nullopt))));
   EXPECT_THAT(
       media_send_channel1_impl()->send_codecs(),
-      ElementsAre(AllOf(Field(&webrtc::Codec::id, 96),
-                        Field(&webrtc::Codec::packetization, "foo")),
-                  AllOf(Field(&webrtc::Codec::id, 97),
-                        Field(&webrtc::Codec::packetization, "bar")),
-                  AllOf(Field(&webrtc::Codec::id, 99),
-                        Field(&webrtc::Codec::packetization, std::nullopt))));
+      ElementsAre(
+          AllOf(Field("id", &webrtc::Codec::id, 96),
+                Field("packetization", &webrtc::Codec::packetization, "foo")),
+          AllOf(Field("id", &webrtc::Codec::id, 97),
+                Field("packetization", &webrtc::Codec::packetization, "bar")),
+          AllOf(Field("id", &webrtc::Codec::id, 99),
+                Field("packetization", &webrtc::Codec::packetization,
+                      std::nullopt))));
 }
 
 TEST_F(VideoChannelSingleThreadTest,
@@ -2415,16 +2495,16 @@ TEST_F(VideoChannelSingleThreadTest,
   ASSERT_TRUE(channel1_->SetRemoteContent(&remote, SdpType::kAnswer, err))
       << err;
 
-  EXPECT_THAT(
-      media_receive_channel1_impl()->recv_codecs(),
-      ElementsAre(AllOf(Field(&webrtc::Codec::id, 96),
+  EXPECT_THAT(media_receive_channel1_impl()->recv_codecs(),
+              UnorderedElementsAre(
+                  AllOf(Field(&webrtc::Codec::id, 96),
                         Field(&webrtc::Codec::packetization, std::nullopt)),
                   AllOf(Field(&webrtc::Codec::id, 97),
                         Field(&webrtc::Codec::packetization,
                               webrtc::kPacketizationParamRaw))));
-  EXPECT_THAT(
-      media_send_channel1_impl()->send_codecs(),
-      ElementsAre(AllOf(Field(&webrtc::Codec::id, 97),
+  EXPECT_THAT(media_send_channel1_impl()->send_codecs(),
+              UnorderedElementsAre(
+                  AllOf(Field(&webrtc::Codec::id, 97),
                         Field(&webrtc::Codec::packetization,
                               webrtc::kPacketizationParamRaw)),
                   AllOf(Field(&webrtc::Codec::id, 96),

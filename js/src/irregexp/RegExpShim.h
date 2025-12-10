@@ -17,11 +17,9 @@
 #include "mozilla/Maybe.h"
 #include "mozilla/SegmentedVector.h"
 #include "mozilla/Sprintf.h"
-#include "mozilla/Types.h"
 
 #include <algorithm>
 #include <cctype>
-#include <iterator>
 #include <optional>
 
 #include "irregexp/RegExpTypes.h"

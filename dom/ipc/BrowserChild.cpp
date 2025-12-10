@@ -42,7 +42,6 @@
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/ToString.h"
-#include "mozilla/Unused.h"
 #include "mozilla/dom/AutoPrintEventDispatcher.h"
 #include "mozilla/dom/BrowserBridgeChild.h"
 #include "mozilla/dom/DataTransfer.h"
@@ -119,7 +118,6 @@
 #include "nsThreadManager.h"
 #include "nsThreadUtils.h"
 #include "nsVariant.h"
-#include "nsViewManager.h"
 #include "nsWebBrowser.h"
 #include "nsWindowWatcher.h"
 
@@ -297,7 +295,7 @@ class BrowserChild::DelayedDeleteRunnable final : public Runnable,
 
     // Check in case ActorDestroy was called after RecvDestroy message.
     if (mBrowserChild->IPCOpen()) {
-      Unused << PBrowserChild::Send__delete__(mBrowserChild);
+      (void)PBrowserChild::Send__delete__(mBrowserChild);
     }
 
     mBrowserChild = nullptr;
@@ -453,9 +451,13 @@ bool BrowserChild::DoUpdateZoomConstraints(
 }
 
 nsresult BrowserChild::Init(mozIDOMWindowProxy* aParent,
-                            WindowGlobalChild* aInitialWindowChild) {
-  MOZ_ASSERT_IF(aInitialWindowChild,
-                aInitialWindowChild->BrowsingContext() == mBrowsingContext);
+                            WindowGlobalChild* aInitialWindowChild,
+                            nsIOpenWindowInfo* aOpenWindowInfo) {
+  MOZ_ASSERT(aOpenWindowInfo, "Must have openwindowinfo");
+  MOZ_ASSERT(aInitialWindowChild, "Must have window child");
+  MOZ_ASSERT(aInitialWindowChild->BrowsingContext() == mBrowsingContext);
+  MOZ_ASSERT(aInitialWindowChild->DocumentPrincipal() ==
+             aOpenWindowInfo->PrincipalToInheritForAboutBlank());
 
   nsCOMPtr<nsIWidget> widget = nsIWidget::CreatePuppetWidget(this);
   mPuppetWidget = static_cast<PuppetWidget*>(widget.get());
@@ -463,12 +465,16 @@ nsresult BrowserChild::Init(mozIDOMWindowProxy* aParent,
     NS_ERROR("couldn't create fake widget");
     return NS_ERROR_FAILURE;
   }
-  mPuppetWidget->InfallibleCreate(nullptr,  // No parent
-                                  LayoutDeviceIntRect(0, 0, 0, 0),
-                                  nullptr);  // HandleWidgetEvent
+  mPuppetWidget->InfallibleCreate(nullptr, LayoutDeviceIntRect(),
+                                  widget::InitData());
 
   mWebBrowser = nsWebBrowser::Create(this, mPuppetWidget, mBrowsingContext,
-                                     aInitialWindowChild);
+                                     aInitialWindowChild, aOpenWindowInfo);
+  if (!mWebBrowser) {
+    // At least the JS recursion depth check can cause an early return
+    // here. dom/base/crashtests/1419902.html
+    return NS_ERROR_FAILURE;
+  }
   nsIWebBrowser* webBrowser = mWebBrowser;
 
   mWebNav = do_QueryInterface(webBrowser);
@@ -1035,7 +1041,7 @@ nsresult BrowserChild::UpdateRemotePrintSettings(
       }());
     } else if (RefPtr<BrowserBridgeChild> remoteChild =
                    BrowserBridgeChild::GetFrom(aBc->GetEmbedderElement())) {
-      Unused << remoteChild->SendUpdateRemotePrintSettings(aPrintData);
+      (void)remoteChild->SendUpdateRemotePrintSettings(aPrintData);
       return BrowsingContext::WalkFlag::Skip;
     }
     return BrowsingContext::WalkFlag::Next;
@@ -1182,11 +1188,10 @@ mozilla::ipc::IPCResult BrowserChild::RecvUpdateDimensions(
   baseWin->SetPositionAndSize(0, 0, innerSize.width, innerSize.height,
                               nsIBaseWindow::eRepaint);
 
-  const LayoutDeviceIntRect outerRect =
-      GetOuterRect() + mClientOffset + mChromeOffset;
-
-  mPuppetWidget->Resize(outerRect.x, outerRect.y, innerSize.width,
-                        innerSize.height, true);
+  const LayoutDeviceIntRect widgetRect(
+      GetOuterRect().TopLeft() + mClientOffset + mChromeOffset, innerSize);
+  mPuppetWidget->Resize(widgetRect / mPuppetWidget->GetDesktopToDeviceScale(),
+                        true);
 
   RecvSafeAreaInsetsChanged(mPuppetWidget->GetSafeAreaInsets());
 
@@ -1512,10 +1517,10 @@ void BrowserChild::ProcessPendingCoalescedTouchData() {
 
   UniquePtr<WidgetTouchEvent> touchMoveEvent =
       mCoalescedTouchData.TakeCoalescedEvent();
-  Unused << RecvRealTouchEvent(*touchMoveEvent,
-                               mCoalescedTouchData.GetScrollableLayerGuid(),
-                               mCoalescedTouchData.GetInputBlockId(),
-                               mCoalescedTouchData.GetApzResponse());
+  (void)RecvRealTouchEvent(*touchMoveEvent,
+                           mCoalescedTouchData.GetScrollableLayerGuid(),
+                           mCoalescedTouchData.GetInputBlockId(),
+                           mCoalescedTouchData.GetApzResponse());
 }
 
 void BrowserChild::ProcessPendingCoalescedMouseDataAndDispatchEvents() {
@@ -2548,8 +2553,8 @@ mozilla::ipc::IPCResult BrowserChild::RecvCompositionEvent(
   WidgetCompositionEvent localEvent(aEvent);
   localEvent.mWidget = mPuppetWidget;
   DispatchWidgetEventViaAPZ(localEvent);
-  Unused << SendOnEventNeedingAckHandled(aEvent.mMessage,
-                                         localEvent.mCompositionId);
+  (void)SendOnEventNeedingAckHandled(aEvent.mMessage,
+                                     localEvent.mCompositionId);
   return IPC_OK();
 }
 
@@ -2563,7 +2568,7 @@ mozilla::ipc::IPCResult BrowserChild::RecvSelectionEvent(
   WidgetSelectionEvent localEvent(aEvent);
   localEvent.mWidget = mPuppetWidget;
   DispatchWidgetEventViaAPZ(localEvent);
-  Unused << SendOnEventNeedingAckHandled(aEvent.mMessage, 0u);
+  (void)SendOnEventNeedingAckHandled(aEvent.mMessage, 0u);
   return IPC_OK();
 }
 
@@ -2576,7 +2581,7 @@ mozilla::ipc::IPCResult BrowserChild::RecvSimpleContentCommandEvent(
     const EventMessage& aMessage) {
   WidgetContentCommandEvent localEvent(true, aMessage, mPuppetWidget);
   DispatchWidgetEventViaAPZ(localEvent);
-  Unused << SendOnEventNeedingAckHandled(aMessage, 0u);
+  (void)SendOnEventNeedingAckHandled(aMessage, 0u);
   return IPC_OK();
 }
 
@@ -2593,7 +2598,7 @@ mozilla::ipc::IPCResult BrowserChild::RecvInsertText(
                                        mPuppetWidget);
   localEvent.mString = Some(nsString(aStringToInsert));
   DispatchWidgetEventViaAPZ(localEvent);
-  Unused << SendOnEventNeedingAckHandled(eContentCommandInsertText, 0u);
+  (void)SendOnEventNeedingAckHandled(eContentCommandInsertText, 0u);
   return IPC_OK();
 }
 
@@ -2613,7 +2618,7 @@ mozilla::ipc::IPCResult BrowserChild::RecvReplaceText(
   localEvent.mSelection.mOffset = aOffset;
   localEvent.mSelection.mPreventSetSelection = aPreventSetSelection;
   DispatchWidgetEventViaAPZ(localEvent);
-  Unused << SendOnEventNeedingAckHandled(eContentCommandReplaceText, 0u);
+  (void)SendOnEventNeedingAckHandled(eContentCommandReplaceText, 0u);
   return IPC_OK();
 }
 
@@ -3068,12 +3073,11 @@ mozilla::ipc::IPCResult BrowserChild::RecvRenderLayers(const bool& aEnabled) {
   if (nsContentUtils::IsSafeToRunScript()) {
     WebWidget()->PaintNowIfNeeded();
   } else {
-    RefPtr<nsViewManager> vm = presShell->GetViewManager();
-    if (nsView* view = vm->GetRootView()) {
-      presShell->PaintAndRequestComposite(
-          view->GetFrame(), view->GetWidget()->GetWindowRenderer(),
-          PaintFlags::None);
-    }
+    // NOTE: We want to call in even without a root frame (we might paint the
+    // canvas background in that case).
+    presShell->PaintAndRequestComposite(presShell->GetRootFrame(),
+                                        mPuppetWidget->GetWindowRenderer(),
+                                        PaintFlags::None);
   }
   presShell->SuppressDisplayport(false);
   return IPC_OK();
@@ -3633,10 +3637,10 @@ mozilla::ipc::IPCResult BrowserChild::RecvUIResolutionChanged(
     baseWin->SetPositionAndSize(0, 0, innerSize.width, innerSize.height,
                                 nsIBaseWindow::eRepaint);
 
-    const LayoutDeviceIntRect outerRect =
-        GetOuterRect() + mClientOffset + mChromeOffset;
-    mPuppetWidget->Resize(outerRect.x, outerRect.y, innerSize.width,
-                          innerSize.height, true);
+    const LayoutDeviceIntRect widgetRect(
+        GetOuterRect().TopLeft() + mClientOffset + mChromeOffset, innerSize);
+    mPuppetWidget->Resize(widgetRect / mPuppetWidget->GetDesktopToDeviceScale(),
+                          true);
   }
 
   nsCOMPtr<Document> document(GetTopLevelDocument());
@@ -3941,8 +3945,8 @@ NS_IMETHODIMP BrowserChild::OnStateChange(nsIWebProgress* aWebProgress,
     }
   }
 
-  Unused << SendOnStateChange(webProgressData, requestData, aStateFlags,
-                              aStatus, stateChangeData);
+  (void)SendOnStateChange(webProgressData, requestData, aStateFlags, aStatus,
+                          stateChangeData);
 
   return NS_OK;
 }
@@ -3967,7 +3971,7 @@ NS_IMETHODIMP BrowserChild::OnProgressChange(nsIWebProgress* aWebProgress,
   // NOTE: ProgressChange notifications delivered here are filtered by
   // nsBrowserStatusFilter, which passes meaningless values for all other
   // arguments, so they are ignored here.
-  Unused << SendOnProgressChange(aCurTotalProgress, aMaxTotalProgress);
+  (void)SendOnProgressChange(aCurTotalProgress, aMaxTotalProgress);
 
   return NS_OK;
 }
@@ -4057,9 +4061,9 @@ NS_IMETHODIMP BrowserChild::OnLocationChange(nsIWebProgress* aWebProgress,
 #endif
   }
 
-  Unused << SendOnLocationChange(
-      webProgressData, requestData, aLocation, aFlags, canGoBack,
-      canGoBackIgnoringUserInteraction, canGoForward, locationChangeData);
+  (void)SendOnLocationChange(webProgressData, requestData, aLocation, aFlags,
+                             canGoBack, canGoBackIgnoringUserInteraction,
+                             canGoForward, locationChangeData);
 
   return NS_OK;
 }
@@ -4075,7 +4079,7 @@ NS_IMETHODIMP BrowserChild::OnStatusChange(nsIWebProgress* aWebProgress,
   // NOTE: StatusChange notifications delivered here are filtered by
   // nsBrowserStatusFilter, which passes meaningless values for all other
   // arguments, so they are ignored here.
-  Unused << SendOnStatusChange(nsDependentString(aMessage));
+  (void)SendOnStatusChange(nsDependentString(aMessage));
 
   return NS_OK;
 }
@@ -4100,7 +4104,7 @@ NS_IMETHODIMP BrowserChild::OnContentBlockingEvent(nsIWebProgress* aWebProgress,
 }
 
 NS_IMETHODIMP BrowserChild::NotifyNavigationFinished() {
-  Unused << SendNavigationFinished();
+  (void)SendNavigationFinished();
   return NS_OK;
 }
 
@@ -4195,19 +4199,16 @@ void BrowserChild::NotifyContentBlockingEvent(
     const Maybe<
         mozilla::ContentBlockingNotifier::StorageAccessPermissionGrantedReason>&
         aReason,
-    const Maybe<ContentBlockingNotifier::CanvasFingerprinter>&
-        aCanvasFingerprinter,
-    const Maybe<bool> aCanvasFingerprinterKnownText) {
+    const Maybe<CanvasFingerprintingEvent>& aCanvasFingerprintingEvent) {
   if (!IPCOpen()) {
     return;
   }
 
   RequestData requestData;
   if (NS_SUCCEEDED(PrepareRequestData(aChannel, requestData))) {
-    Unused << SendNotifyContentBlockingEvent(
+    (void)SendNotifyContentBlockingEvent(
         aEvent, requestData, aBlocked, PromiseFlatCString(aTrackingOrigin),
-        aTrackingFullHashes, aReason, aCanvasFingerprinter,
-        aCanvasFingerprinterKnownText);
+        aTrackingFullHashes, aReason, aCanvasFingerprintingEvent);
   }
 }
 

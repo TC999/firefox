@@ -12,7 +12,6 @@
 #include "mozilla/layers/APZCTreeManagerChild.h"
 #include "mozilla/layers/CompositorBridgeChild.h"
 #include "mozilla/layers/GeckoContentController.h"
-#include "mozilla/Unused.h"
 #include "nsIWidget.h"
 #if defined(MOZ_WIDGET_ANDROID)
 #  include "mozilla/layers/UiCompositorControllerChild.h"
@@ -27,8 +26,10 @@ using namespace widget;
 RemoteCompositorSession::RemoteCompositorSession(
     nsIWidget* aWidget, CompositorBridgeChild* aChild,
     CompositorWidgetDelegate* aWidgetDelegate, APZCTreeManagerChild* aAPZ,
+    UiCompositorControllerChild* aUiController,
     const LayersId& aRootLayerTreeId)
-    : CompositorSession(aWidget, aWidgetDelegate, aChild, aRootLayerTreeId),
+    : CompositorSession(aWidget, aWidgetDelegate, aChild, aUiController,
+                        aRootLayerTreeId),
       mAPZ(aAPZ) {
   MOZ_ASSERT(!gfxPlatform::IsHeadless());
   GPUProcessManager::Get()->RegisterRemoteProcessSession(this);

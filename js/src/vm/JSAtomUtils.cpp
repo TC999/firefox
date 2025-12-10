@@ -14,7 +14,6 @@
 #include "mozilla/RangedPtr.h"
 
 #include <charconv>
-#include <iterator>
 #include <string.h>
 
 #include "jstypes.h"
@@ -411,7 +410,8 @@ AtomizeAndCopyCharsNonStaticValidLengthFromLookup(
     return nullptr;
   }
 
-  if (MOZ_UNLIKELY(!cx->atomMarking().inlinedMarkAtomFallible(cx, atom))) {
+  if (MOZ_UNLIKELY(
+          !cx->atomMarking().inlinedMarkAtomFallible(cx->zone(), atom))) {
     ReportOutOfMemory(cx);
     return nullptr;
   }

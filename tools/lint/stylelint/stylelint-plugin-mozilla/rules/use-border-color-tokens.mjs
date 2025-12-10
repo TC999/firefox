@@ -1,9 +1,9 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-/* eslint-env node */
 
 import stylelint from "stylelint";
+import valueParser from "postcss-value-parser";
 import {
   namespace,
   createTokenNamesArray,
@@ -26,7 +26,7 @@ const messages = ruleMessages(ruleName, {
 
 const meta = {
   url: "https://firefox-source-docs.mozilla.org/code-quality/lint/linters/stylelint-plugin-mozilla/rules/use-border-color-tokens.html",
-  fixable: false,
+  fixable: true,
 };
 
 // Gather an array of the ready css `['var(--token-name)']`
@@ -38,6 +38,8 @@ const tokenCSS = createTokenNamesArray(INCLUDE_CATEGORIES);
 const ALLOW_LIST = createAllowList([
   "transparent",
   "currentColor",
+  "white",
+  "black",
   "auto",
   "normal",
   "none",
@@ -74,6 +76,13 @@ const CSS_PROPERTIES = [
   "border-inline-end-color",
   ...SHORTHAND_CSS_PROPERTIES,
 ];
+
+const VIOLATION_AUTOFIX_MAP = {
+  "#fff": "white",
+  "#ffffff": "white",
+  "#000": "black",
+  "#000000": "black",
+};
 
 const ruleFunction = primaryOption => {
   return (root, result) => {
@@ -114,6 +123,23 @@ const ruleFunction = primaryOption => {
         node: declarations,
         result,
         ruleName,
+        fix: () => {
+          const val = valueParser(declarations.value);
+          let hasFixes = false;
+          val.walk(node => {
+            if (node.type == "word") {
+              const token =
+                VIOLATION_AUTOFIX_MAP[node.value.trim().toLowerCase()];
+              if (token) {
+                hasFixes = true;
+                node.value = token;
+              }
+            }
+          });
+          if (hasFixes) {
+            declarations.value = val.toString();
+          }
+        },
       });
     });
   };

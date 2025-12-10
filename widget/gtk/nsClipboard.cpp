@@ -5,8 +5,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/ArrayUtils.h"
-
 #include "nsArrayUtils.h"
 #include "nsClipboard.h"
 #if defined(MOZ_X11)
@@ -70,8 +68,8 @@ static const char kURIListMime[] = "text/uri-list";
 // just KDE.
 static const char kKDEPasswordManagerHintMime[] = "x-kde-passwordManagerHint";
 
-MOZ_CONSTINIT ClipboardTargets nsRetrievalContext::sClipboardTargets;
-MOZ_CONSTINIT ClipboardTargets nsRetrievalContext::sPrimaryTargets;
+constinit ClipboardTargets nsRetrievalContext::sClipboardTargets;
+constinit ClipboardTargets nsRetrievalContext::sPrimaryTargets;
 
 // Callback when someone asks us for the data
 static void clipboard_get_cb(GtkClipboard* aGtkClipboard,

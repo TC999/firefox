@@ -31,6 +31,16 @@ interface TabManagementFeatureHelper {
      * Whether the Tabs Tray enhancements are enabled for the user.
      */
     val enhancementsEnabled: Boolean
+
+    /**
+     * Whether the Tab Manager opening animation is enabled.
+     */
+    val openingAnimationEnabled: Boolean
+
+    /**
+     * Whether the Tab Search feature is enabled.
+     */
+    val tabSearchEnabled: Boolean
 }
 
 /**
@@ -55,4 +65,10 @@ data object DefaultTabManagementFeatureHelper : TabManagementFeatureHelper {
             Config.channel.isRelease -> enhancementsEnabledRelease
             else -> false
         }
+
+    override val openingAnimationEnabled: Boolean
+        get() = Config.channel.isDebug || FxNimbus.features.tabManagementEnhancements.value().openingAnimationEnabled
+
+    override val tabSearchEnabled: Boolean
+        get() = Config.channel.isDebug
 }

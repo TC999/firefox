@@ -630,13 +630,13 @@ class MarionetteGlobalPrivacyControlProtocolPart(GlobalPrivacyControlProtocolPar
             "gpc": gpc,
         }
         try:
-            return self.marionette._send_message("WebDriver:SetGlobalPrivacyControl", body)["value"]
+            return self.marionette._send_message("GPC:SetGlobalPrivacyControl", body)["value"]
         except errors.UnsupportedOperationException as e:
             raise NotImplementedError("set_global_privacy_control not yet implemented") from e
 
     def get_global_privacy_control(self):
         try:
-            return self.marionette._send_message("WebDriver:GetGlobalPrivacyControl")["value"]
+            return self.marionette._send_message("GPC:GetGlobalPrivacyControl")["value"]
         except errors.UnsupportedOperationException as e:
             raise NotImplementedError("get_global_privacy_control not yet implemented") from e
 
@@ -789,12 +789,12 @@ class MarionetteWebExtensionsProtocolPart(WebExtensionsProtocolPart):
     def setup(self):
         self.addons = Addons(self.parent.marionette)
 
-    def install_web_extension(self, extension):
-        if extension["type"] == "base64":
-            extension_id = self.addons.install(data=extension["value"], temp=True)
+    def install_web_extension(self, type, path, value):
+        if type == "base64":
+            extension_id = self.addons.install(data=value, temp=True)
         else:
-            path = self.parent.test_dir + extension["path"]
-            extension_id = self.addons.install(path, temp=True)
+            extension_path = self.parent.test_dir + path
+            extension_id = self.addons.install(extension_path, temp=True)
 
         return {'extension': extension_id}
 

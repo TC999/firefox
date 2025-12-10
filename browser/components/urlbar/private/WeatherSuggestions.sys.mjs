@@ -153,6 +153,7 @@ export class WeatherSuggestions extends SuggestProvider {
     return [
       "weatherFeatureGate",
       "suggest.weather",
+      "suggest.quicksuggest.all",
       "suggest.quicksuggest.sponsored",
     ];
   }
@@ -251,13 +252,10 @@ export class WeatherSuggestions extends SuggestProvider {
             ...titleL10n.args,
           },
           parseMarkup: true,
-          cacheable: true,
-          excludeArgsFromCacheKey: true,
         },
         bottomTextL10n: {
           id: "urlbar-result-weather-provider-sponsored",
           args: { provider: WEATHER_PROVIDER_DISPLAY_NAME },
-          cacheable: true,
         },
         helpUrl: lazy.QuickSuggest.HELP_URL,
       },
@@ -296,7 +294,6 @@ export class WeatherSuggestions extends SuggestProvider {
       currently: {
         l10n: {
           id: "firefox-suggest-weather-currently",
-          cacheable: true,
         },
       },
       temperature: {
@@ -306,8 +303,6 @@ export class WeatherSuggestions extends SuggestProvider {
             value: result.payload.temperature,
             unit: uppercaseUnit,
           },
-          cacheable: true,
-          excludeArgsFromCacheKey: true,
         },
       },
       weatherIcon: {
@@ -317,8 +312,6 @@ export class WeatherSuggestions extends SuggestProvider {
         l10n: {
           id: "firefox-suggest-weather-title",
           args: { city: result.payload.city, region: result.payload.region },
-          cacheable: true,
-          excludeArgsFromCacheKey: true,
         },
       },
       url: {
@@ -333,8 +326,6 @@ export class WeatherSuggestions extends SuggestProvider {
                 currentConditions: result.payload.currentConditions,
                 forecast: result.payload.forecast,
               },
-              cacheable: true,
-              excludeArgsFromCacheKey: true,
             },
           },
       highLow: {
@@ -345,8 +336,6 @@ export class WeatherSuggestions extends SuggestProvider {
             low: result.payload.low,
             unit: uppercaseUnit,
           },
-          cacheable: true,
-          excludeArgsFromCacheKey: true,
         },
       },
       highLowWrap: {
@@ -363,7 +352,6 @@ export class WeatherSuggestions extends SuggestProvider {
         l10n: {
           id: "urlbar-result-weather-provider-sponsored",
           args: { provider: WEATHER_PROVIDER_DISPLAY_NAME },
-          cacheable: true,
         },
       },
     };
@@ -500,9 +488,13 @@ export class WeatherSuggestions extends SuggestProvider {
   async #fetchMerinoSuggestion(cityGeoname) {
     if (!this.#merino) {
       this.#merino = new lazy.MerinoClient(this.constructor.name, {
+        allowOhttp: true,
         cachePeriodMs: MERINO_WEATHER_CACHE_PERIOD_MS,
       });
     }
+
+    let merino = this.#merino;
+    let fetchInstance = (this.#fetchInstance = {});
 
     // Set up location params to pass to Merino. We need to null-check each
     // suggestion property because `MerinoClient` will stringify null values.
@@ -523,10 +515,30 @@ export class WeatherSuggestions extends SuggestProvider {
       if (adminCodes) {
         otherParams.region = adminCodes;
       }
+    } else {
+      let geolocation = await lazy.GeolocationUtils.geolocation();
+
+      if (
+        !geolocation ||
+        fetchInstance != this.#fetchInstance ||
+        merino != this.#merino
+      ) {
+        return null;
+      }
+
+      if (geolocation.country_code) {
+        otherParams.country = geolocation.country_code;
+      }
+      let region = geolocation.region_code || geolocation.region;
+      if (region) {
+        otherParams.region = region;
+      }
+      let city = geolocation.city || geolocation.region;
+      if (city) {
+        otherParams.city = city;
+      }
     }
 
-    let merino = this.#merino;
-    let fetchInstance = (this.#fetchInstance = {});
     let merinoSuggestions = await merino.fetch({
       query: "",
       otherParams,

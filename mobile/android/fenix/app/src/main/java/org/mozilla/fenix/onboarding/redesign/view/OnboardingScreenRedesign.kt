@@ -6,8 +6,10 @@ package org.mozilla.fenix.onboarding.redesign.view
 
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.foundation.layout.Column
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.PagerState
@@ -32,14 +35,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -57,6 +56,7 @@ import org.mozilla.fenix.compose.LinkTextState
 import org.mozilla.fenix.compose.PagerIndicator
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.onboarding.WidgetPinnedReceiver.WidgetPinnedState
+import org.mozilla.fenix.onboarding.notification.NotificationMainImage
 import org.mozilla.fenix.onboarding.redesign.view.defaultbrowser.SetToDefaultMainImage
 import org.mozilla.fenix.onboarding.redesign.view.sync.SyncMainImage
 import org.mozilla.fenix.onboarding.store.OnboardingAction.OnboardingToolbarAction
@@ -69,6 +69,7 @@ import org.mozilla.fenix.onboarding.view.OnboardingTermsOfServiceEventHandler
 import org.mozilla.fenix.onboarding.view.ToolbarOption
 import org.mozilla.fenix.onboarding.view.ToolbarOptionType
 import org.mozilla.fenix.onboarding.view.mapToOnboardingPageState
+import org.mozilla.fenix.onboarding.widget.SetSearchWidgetMainImage
 import org.mozilla.fenix.theme.FirefoxTheme
 import org.mozilla.fenix.utils.isLargeScreenSize
 
@@ -79,6 +80,25 @@ private val SMALL_SCREEN_MAX_HEIGHT = 480.dp
 private val logger: Logger = Logger("OnboardingScreenRedesign")
 
 /**
+ * The colors used for the gradient background.
+ */
+private object GradientColors {
+    val nonDarkMode = listOf(
+        Color(0xFFF5C1BD), // light pink (top)
+        Color(0xFFED8043), // orange
+        Color(0xFFEB691D), // deeper orange-red
+        Color(0xFFE00B1D), // strong red (bottom)
+    )
+
+    val darkMode = listOf(
+        Color(0xFF9B7AE0), // soft violet (top)
+        Color(0xFF7B4FC9), // medium purple
+        Color(0xFF4A289A), // deep purple
+        Color(0xFF2E1468), // darkest purple (bottom)
+    )
+}
+
+/**
  * A screen for displaying onboarding.
  *
  * @param pagesToDisplay List of pages to be displayed in onboarding pager ui.
@@ -86,6 +106,9 @@ private val logger: Logger = Logger("OnboardingScreenRedesign")
  * @param onSkipDefaultClick Invoked when negative button on default browser page is clicked.
  * @param onSignInButtonClick Invoked when the positive button on the sign in page is clicked.
  * @param onSkipSignInClick Invoked when the negative button on the sign in page is clicked.
+ * @param onNotificationPermissionButtonClick Invoked when positive button on notification page is
+ * clicked.
+ * @param onSkipNotificationClick Invoked when negative button on notification page is clicked.
  * @param onAddFirefoxWidgetClick Invoked when positive button on add search widget page is clicked.
  * @param onSkipFirefoxWidgetClick Invoked when negative button on add search widget page is clicked.
  * @param onboardingStore The store which contains all the state related to the add-ons onboarding screen.
@@ -107,6 +130,8 @@ fun OnboardingScreenRedesign(
     onSkipDefaultClick: () -> Unit,
     onSignInButtonClick: () -> Unit,
     onSkipSignInClick: () -> Unit,
+    onNotificationPermissionButtonClick: () -> Unit,
+    onSkipNotificationClick: () -> Unit,
     onAddFirefoxWidgetClick: () -> Unit,
     onSkipFirefoxWidgetClick: () -> Unit,
     onboardingStore: OnboardingStore? = null,
@@ -200,6 +225,14 @@ fun OnboardingScreenRedesign(
             scrollToNextPageOrDismiss()
             onSkipSignInClick()
         },
+        onNotificationPermissionButtonClick = {
+            scrollToNextPageOrDismiss()
+            onNotificationPermissionButtonClick()
+        },
+        onNotificationPermissionSkipClick = {
+            scrollToNextPageOrDismiss()
+            onSkipNotificationClick()
+        },
         onAddFirefoxWidgetClick = {
             if (isWidgetPinnedState) {
                 scrollToNextPageOrDismiss()
@@ -261,6 +294,8 @@ private fun OnboardingContent(
     onMakeFirefoxDefaultSkipClick: () -> Unit,
     onSignInButtonClick: () -> Unit,
     onSignInSkipClick: () -> Unit,
+    onNotificationPermissionButtonClick: () -> Unit,
+    onNotificationPermissionSkipClick: () -> Unit,
     onAddFirefoxWidgetClick: () -> Unit,
     onSkipFirefoxWidgetClick: () -> Unit,
     onboardingStore: OnboardingStore? = null,
@@ -271,8 +306,6 @@ private fun OnboardingContent(
     onMarketingDataLearnMoreClick: () -> Unit,
     onMarketingDataContinueClick: (allowMarketingDataCollection: Boolean) -> Unit,
 ) {
-    val nestedScrollConnection = remember { DisableForwardSwipeNestedScrollConnection(pagerState) }
-
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val boxWithConstraintsScope = this
         val isSmallPhoneScreen = boxWithConstraintsScope.maxHeight <= SMALL_SCREEN_MAX_HEIGHT
@@ -287,22 +320,21 @@ private fun OnboardingContent(
         val paddingValue = if (!isLargeScreen && isLandscape) 0.dp else pagePeekWidth
 
         if (!isNonLargeScreenLandscape(isLargeScreen, isLandscape)) {
-            Image(
-                painter = painterResource(onboardingRedesignBackground(isLandscape)),
-                contentDescription = null, // Decorative image only.
-                contentScale = ContentScale.FillWidth,
-            )
+            GradientBackground()
         }
 
-        Column(verticalArrangement = Arrangement.Center) {
+        Column(
+            modifier = Modifier.systemBarsPadding(),
+            verticalArrangement = Arrangement.Center,
+        ) {
             Spacer(Modifier.weight(1f))
 
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(pagerHeight)
-                    .nestedScroll(nestedScrollConnection),
+                    .height(pagerHeight),
+                userScrollEnabled = pagerState.currentPage != 0, // Disable scroll for the Terms of Use card.
                 contentPadding = PaddingValues(horizontal = paddingValue),
                 pageSize = PageSize.Fill,
                 beyondViewportPageCount = 2,
@@ -319,6 +351,8 @@ private fun OnboardingContent(
                     onMakeFirefoxDefaultSkipClick = onMakeFirefoxDefaultSkipClick,
                     onSignInButtonClick = onSignInButtonClick,
                     onSignInSkipClick = onSignInSkipClick,
+                    onNotificationPermissionButtonClick = onNotificationPermissionButtonClick,
+                    onNotificationPermissionSkipClick = onNotificationPermissionSkipClick,
                     onAddFirefoxWidgetClick = onAddFirefoxWidgetClick,
                     onAddFirefoxWidgetSkipClick = onSkipFirefoxWidgetClick,
                     onCustomizeToolbarButtonClick = onCustomizeToolbarButtonClick,
@@ -341,8 +375,6 @@ private fun OnboardingContent(
             if (!isSmallPhoneScreen) {
                 PagerIndicator(
                     pagerState = pagerState,
-                    activeColor = FirefoxTheme.colors.actionPrimary,
-                    inactiveColor = FirefoxTheme.colors.actionSecondary,
                     leaveTrail = true,
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
@@ -351,6 +383,17 @@ private fun OnboardingContent(
             }
         }
     }
+}
+
+@Composable
+private fun GradientBackground() {
+    val colors = if (isSystemInDarkTheme()) GradientColors.darkMode else GradientColors.nonDarkMode
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(brush = Brush.verticalGradient(colors = colors)),
+    )
 }
 
 @Composable
@@ -372,6 +415,16 @@ private fun OnboardingPageForType(
         OnboardingPageUiData.Type.SYNC_SIGN_IN -> OnboardingPageRedesign(
             pageState = state,
             mainImage = { SyncMainImage() },
+        )
+
+        OnboardingPageUiData.Type.ADD_SEARCH_WIDGET -> OnboardingPageRedesign(
+            pageState = state,
+            mainImage = { SetSearchWidgetMainImage() },
+        )
+
+        OnboardingPageUiData.Type.NOTIFICATION_PERMISSION -> OnboardingPageRedesign(
+            pageState = state,
+            mainImage = { NotificationMainImage() },
         )
 
         OnboardingPageUiData.Type.TOOLBAR_PLACEMENT -> {
@@ -406,8 +459,6 @@ private fun OnboardingPageForType(
         )
 
         // no-ops
-        OnboardingPageUiData.Type.ADD_SEARCH_WIDGET,
-        OnboardingPageUiData.Type.NOTIFICATION_PERMISSION,
         OnboardingPageUiData.Type.THEME_SELECTION,
             -> {
             logger.error("Unsupported page type: $type used for onboarding redesign.")
@@ -422,7 +473,7 @@ private object PageContentLayout {
     val MIN_WIDTH_SMALL_SCREEN_DP = 300.dp
     val MIN_HEIGHT_TABLET_DP = 620.dp
     val MIN_WIDTH_TABLET_DP = 440.dp
-    const val HEIGHT_RATIO = 0.8f
+    const val HEIGHT_RATIO = 0.6f
     const val WIDTH_RATIO = 0.85f
     const val TABLET_WIDTH_RATIO = 0.35f
     const val TABLET_HEIGHT_RATIO = 0.50f
@@ -496,39 +547,11 @@ private fun minWidth(
     else -> PageContentLayout.MIN_WIDTH_DP
 }
 
-private fun onboardingRedesignBackground(isLandscape: Boolean) =
-    if (isLandscape) {
-        R.drawable.onboarding_redesign_background_landscape
-    } else {
-        R.drawable.onboarding_redesign_background
-    }
-
 private fun isNonLargeScreenLandscape(isLargeScreen: Boolean, isLandscape: Boolean) =
     (isLandscape && !isLargeScreen)
 
 private fun pageSpacing(isLargeScreen: Boolean, isSmallScreen: Boolean, pagePeekWidth: Dp) =
     if (isLargeScreen || isSmallScreen) pagePeekWidth else 8.dp
-
-private class DisableForwardSwipeNestedScrollConnection(
-    private val pagerState: PagerState,
-) : NestedScrollConnection {
-
-    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
-        if (available.x > 0) {
-            // Allow going back on swipe
-            Offset.Zero
-        } else {
-            // For forward swipe, only allow if the visible item offset is less than 0,
-            // this would be a result of a slow back fling, and we should allow snapper to
-            // snap to the appropriate item.
-            // Else consume the whole offset and disable going forward.
-            if (pagerState.currentPageOffsetFraction < 0) {
-                Offset.Zero
-            } else {
-                Offset(available.x, 0f)
-            }
-        }
-}
 
 // *** Code below used for previews only *** //
 
@@ -554,6 +577,8 @@ private fun OnboardingScreenPreview() {
             onMarketingDataLearnMoreClick = {},
             onMarketingOptInToggle = {},
             onMarketingDataContinueClick = {},
+            onNotificationPermissionButtonClick = {},
+            onNotificationPermissionSkipClick = {},
         )
     }
 }

@@ -383,7 +383,7 @@ newtab-wallpaper-light-fox-anniversary = Liška na louce se zamlženou horskou k
 
 ## Solid Colors
 
-newtab-wallpaper-category-title-colors = Plné barvy
+newtab-wallpaper-category-title-colors = Jednobarevné
 newtab-wallpaper-blue = Modrá
 newtab-wallpaper-light-blue = Světle modrá
 newtab-wallpaper-light-purple = Světle fialová
@@ -414,7 +414,7 @@ newtab-wallpaper-abstract-purple-green = Přechod fialové a zelené barvy
 newtab-wallpaper-abstract-blue-purple-waves = Modré a fialové zvlněné tvary
 newtab-wallpaper-abstract-black-waves = Černé zvlněné tvary
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Fotografie
 newtab-wallpaper-beach-at-sunrise = Pláž při východu slunce
@@ -443,6 +443,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -610,8 +614,8 @@ newtab-download-mobile-highlight-body-variant-c =
 newtab-download-mobile-highlight-image =
     .aria-label =
         { -brand-product-name.case-status ->
-            [with-cases] QR kód pro stažení { -brand-product-name(case: "gen") } pro mobilní zařízení
-           *[no-cases] QR kód pro stažení aplikace { -brand-product-name } pro mobilní zařízení
+            [with-cases] QR kód pro stažení { -brand-product-name(case: "gen") } pro mobily
+           *[no-cases] QR kód pro stažení aplikace { -brand-product-name } pro mobily
         }
 
 ## Strings for shortcuts highlight
@@ -656,7 +660,7 @@ newtab-trending-searches-title = Trendy ve vyhledávání
 ## Strings for task / to-do list productivity widget
 
 # "Add one" means adding a new task to the list (e.g., "Walk the dog")
-newtab-widget-lists-empty-cta = Možnosti jsou nekonečné. Přidejte si svoji.
+newtab-widget-lists-empty-cta = Možnosti jsou nekonečné. Přidejte si svůj.
 # A simple label next to the default list name letting users know this is a new / beta feature
 newtab-widget-lists-label-new =
     .label = Nový
@@ -691,6 +695,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Nový seznam
+newtab-widget-section-title = Widgety
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Skrýt widgety
+    .aria-label = Skrýt všechny widgety
+newtab-widget-section-maximize =
+    .title = Rozbalit widgety
+    .aria-label = Rozbalení všech widgetů na plnou velikost
+newtab-widget-section-minimize =
+    .title = Minimalizovat wigety
+    .aria-label = Sbalení všech widgetů na kompaktní velikost
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -703,12 +718,8 @@ newtab-widget-timer-mode-focus =
     .label = Soustředění
 newtab-widget-timer-mode-break =
     .label = Přestávka
-newtab-widget-timer-play =
-    .title = Přehrát
-newtab-widget-timer-pause =
-    .title = Pozastavit
 newtab-widget-timer-label-play =
-    .label = Přehrát
+    .label = Spustit
 newtab-widget-timer-label-pause =
     .label = Pozastavit
 newtab-widget-timer-reset =
@@ -717,8 +728,6 @@ newtab-widget-timer-menu-notifications = Vypnout oznámení
 newtab-widget-timer-menu-notifications-on = Zapnout oznámení
 newtab-widget-timer-menu-hide = Skrýt časovač
 newtab-widget-timer-menu-learn-more = Zjistit více
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Rolováním zobrazíte další položky
 newtab-widget-message-title = Soustřeďte se díky seznamům a vestavěnému časovači
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Od rychlých připomínek po každodenní úkoly, od soustředění po přestávky na protažení - plňte úkoly včas.

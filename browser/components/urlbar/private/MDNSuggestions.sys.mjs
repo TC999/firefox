@@ -24,11 +24,7 @@ const RESULT_MENU_COMMAND = {
  */
 export class MDNSuggestions extends SuggestProvider {
   get enablingPreferences() {
-    return [
-      "mdn.featureGate",
-      "suggest.mdn",
-      "suggest.quicksuggest.nonsponsored",
-    ];
+    return ["mdn.featureGate", "suggest.mdn", "suggest.quicksuggest.all"];
   }
 
   get primaryUserControlledPreferences() {
@@ -66,7 +62,9 @@ export class MDNSuggestions extends SuggestProvider {
       title: [suggestion.title, lazy.UrlbarUtils.HIGHLIGHT.TYPED],
       description: suggestion.description,
       shouldShowUrl: true,
-      bottomTextL10n: { id: "firefox-suggest-mdn-bottom-text" },
+      bottomTextL10n: {
+        id: "firefox-suggest-mdn-bottom-text",
+      },
     };
 
     return new lazy.UrlbarResult({

@@ -25,7 +25,9 @@ support-files = [
 ]
 
 ["browser_about_translations_debounce.js"]
-skip-if = ["os == 'linux'"]  # Bug 1821461
+skip-if = [
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11'", # Bug 1821461
+]
 
 ["browser_about_translations_directions.js"]
 
@@ -88,3 +90,5 @@ skip-if = ["os == 'linux'"]  # Bug 1821461
 ["browser_translations_translation_document.js"]
 
 ["browser_translations_translation_document_mutations.js"]
+
+["browser_translations_translation_document_script_direction.js"]

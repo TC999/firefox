@@ -171,10 +171,6 @@ export const INITIAL_STATE = {
     locationSearchString: "",
     suggestedLocations: [],
   },
-  TrendingSearch: {
-    suggestions: [],
-    collapsed: false,
-  },
   // Widgets
   ListsWidget: {
     // value pointing to last selectled list
@@ -828,7 +824,8 @@ function DiscoveryStream(prevState = INITIAL_STATE.DiscoveryStream, action) {
       if (action.data) {
         // If spocs have been loaded on this tab, we can ignore future updates.
         // This should never be true on the main store, only content pages.
-        if (prevState.spocs.onDemand.loaded) {
+        // We check agasint onDemand just to be safe. It generally shouldn't be needed.
+        if (prevState.spocs?.onDemand?.loaded) {
           return prevState;
         }
         return {
@@ -1095,17 +1092,6 @@ function Ads(prevState = INITIAL_STATE.Ads, action) {
   }
 }
 
-function TrendingSearch(prevState = INITIAL_STATE.TrendingSearch, action) {
-  switch (action.type) {
-    case at.TRENDING_SEARCH_UPDATE:
-      return { ...prevState, suggestions: action.data };
-    case at.TRENDING_SEARCH_TOGGLE_COLLAPSE:
-      return { ...prevState, collapsed: action.data.collapsed };
-    default:
-      return prevState;
-  }
-}
-
 function TimerWidget(prevState = INITIAL_STATE.TimerWidget, action) {
   // fallback to current timerType in state if not provided in action
   const timerType = action.data?.timerType || prevState.timerType;
@@ -1209,7 +1195,6 @@ export const reducers = {
   Search,
   TimerWidget,
   ListsWidget,
-  TrendingSearch,
   Wallpapers,
   Weather,
 };

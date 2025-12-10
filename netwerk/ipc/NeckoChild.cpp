@@ -12,11 +12,9 @@
 #include "mozilla/net/HttpChannelChild.h"
 #include "mozilla/net/ChildDNSService.h"
 #include "mozilla/net/CookieServiceChild.h"
-#include "mozilla/net/DataChannelChild.h"
 #ifdef MOZ_WIDGET_GTK
 #  include "mozilla/net/GIOChannelChild.h"
 #endif
-#include "mozilla/net/FileChannelChild.h"
 #include "mozilla/net/WebSocketChannelChild.h"
 #include "mozilla/net/WebSocketEventListenerChild.h"
 #include "mozilla/net/DNSRequestChild.h"
@@ -25,6 +23,7 @@
 #include "mozilla/dom/network/TCPServerSocketChild.h"
 #include "mozilla/dom/network/UDPSocketChild.h"
 #include "mozilla/net/AltDataOutputStreamChild.h"
+#include "mozilla/net/CacheEntryWriteHandleChild.h"
 #include "mozilla/net/SocketProcessBridgeChild.h"
 #ifdef MOZ_WEBRTC
 #  include "mozilla/net/StunAddrsRequestChild.h"
@@ -113,9 +112,27 @@ bool NeckoChild::DeallocPWebrtcTCPSocketChild(PWebrtcTCPSocketChild* aActor) {
   return true;
 }
 
+PCacheEntryWriteHandleChild* NeckoChild::AllocPCacheEntryWriteHandleChild(
+    PHttpChannelChild* channel) {
+  // We don't allocate here: see HttpChannelChild::GetCacheEntryWriteHandle()
+  MOZ_ASSERT_UNREACHABLE(
+      "AllocPCacheEntryWriteHandleChild should not be called");
+  return nullptr;
+}
+
+bool NeckoChild::DeallocPCacheEntryWriteHandleChild(
+    PCacheEntryWriteHandleChild* aActor) {
+  CacheEntryWriteHandleChild* child =
+      static_cast<CacheEntryWriteHandleChild*>(aActor);
+  child->ReleaseIPDLReference();
+  return true;
+}
+
 PAltDataOutputStreamChild* NeckoChild::AllocPAltDataOutputStreamChild(
     const nsACString& type, const int64_t& predictedSize,
-    PHttpChannelChild* channel) {
+    const mozilla::Maybe<mozilla::NotNull<PHttpChannelChild*>>& channel,
+    const mozilla::Maybe<mozilla::NotNull<PCacheEntryWriteHandleChild*>>&
+        handle) {
   // We don't allocate here: see HttpChannelChild::OpenAlternativeOutputStream()
   MOZ_ASSERT_UNREACHABLE("AllocPAltDataOutputStreamChild should not be called");
   return nullptr;
@@ -187,17 +204,6 @@ bool NeckoChild::DeallocPWebSocketEventListenerChild(
   RefPtr<WebSocketEventListenerChild> c =
       dont_AddRef(static_cast<WebSocketEventListenerChild*>(aActor));
   MOZ_ASSERT(c);
-  return true;
-}
-
-PSimpleChannelChild* NeckoChild::AllocPSimpleChannelChild(
-    const uint32_t& channelId) {
-  MOZ_ASSERT_UNREACHABLE("Should never get here");
-  return nullptr;
-}
-
-bool NeckoChild::DeallocPSimpleChannelChild(PSimpleChannelChild* child) {
-  static_cast<SimpleChannelChild*>(child)->Release();
   return true;
 }
 

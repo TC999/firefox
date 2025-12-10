@@ -26,7 +26,6 @@
 #include "api/audio/audio_processing.h"
 #include "api/environment/environment.h"
 #include "api/environment/environment_factory.h"
-#include "api/field_trials.h"
 #include "modules/audio_processing/agc/agc.h"
 #include "modules/audio_processing/agc/gain_control.h"
 #include "modules/audio_processing/agc/mock_agc.h"
@@ -34,6 +33,7 @@
 #include "rtc_base/checks.h"
 #include "rtc_base/numerics/safe_minmax.h"
 #include "rtc_base/strings/string_builder.h"
+#include "test/create_test_field_trials.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 #include "test/testsupport/file_utils.h"
@@ -105,8 +105,7 @@ struct AgcManagerDirectTestParams {
 std::unique_ptr<AgcManagerDirect> CreateAgcManagerDirect(
     AgcManagerDirectTestParams p = {}) {
   auto manager = std::make_unique<AgcManagerDirect>(
-      CreateEnvironment(FieldTrials::CreateNoGlobal(p.field_trials)),
-      kNumChannels,
+      CreateEnvironment(CreateTestFieldTrialsPtr(p.field_trials)), kNumChannels,
       AnalogAgcConfig{.startup_min_volume = kInitialInputVolume,
                       .clipped_level_min = p.clipped_level_min,
                       .enable_digital_adaptive = p.enable_digital_adaptive,
@@ -257,7 +256,8 @@ class SpeechSamplesReader {
   // in the PCM file if `num_frames` is too large - i.e., does not loop.
   void Feed(int num_frames, int gain_db, AgcManagerDirect& agc) {
     float gain = std::pow(10.0f, gain_db / 20.0f);  // From dB to linear gain.
-    is_.seekg(0, is_.beg);  // Start from the beginning of the PCM file.
+    is_.seekg(0,
+              std::ifstream::beg);  // Start from the beginning of the PCM file.
 
     // Read and feed frames.
     for (int i = 0; i < num_frames; ++i) {
@@ -291,7 +291,8 @@ class SpeechSamplesReader {
             std::optional<float> speech_level_override,
             AgcManagerDirect& agc) {
     float gain = std::pow(10.0f, gain_db / 20.0f);  // From dB to linear gain.
-    is_.seekg(0, is_.beg);  // Start from the beginning of the PCM file.
+    is_.seekg(0,
+              std::ifstream::beg);  // Start from the beginning of the PCM file.
 
     // Read and feed frames.
     for (int i = 0; i < num_frames; ++i) {
@@ -459,7 +460,7 @@ class AgcManagerDirectParametrizedTest
     : public ::testing::TestWithParam<std::tuple<std::optional<int>, bool>> {
  protected:
   AgcManagerDirectParametrizedTest()
-      : env_(CreateEnvironment(FieldTrials::CreateNoGlobal(
+      : env_(CreateEnvironment(CreateTestFieldTrialsPtr(
             GetAgcMinMicLevelExperimentFieldTrial(std::get<0>(GetParam()))))) {}
 
   bool IsMinMicLevelOverridden() const {
@@ -508,7 +509,7 @@ TEST_P(AgcManagerDirectParametrizedTest,
   // controller read the input volume. That is needed because clipping input
   // causes the controller to stay in idle state for
   // `AnalogAgcConfig::clipped_wait_frames` frames.
-  WriteAudioBufferSamples(/*samples_value=*/0.0f, /*clipping_ratio=*/0.0f,
+  WriteAudioBufferSamples(/*samples_value=*/0.0f, /*clipped_ratio=*/0.0f,
                           audio_buffer);
   manager_no_analog_agc.AnalyzePreProcess(audio_buffer);
   manager_with_analog_agc.AnalyzePreProcess(audio_buffer);
@@ -520,7 +521,7 @@ TEST_P(AgcManagerDirectParametrizedTest,
                                   GetOverrideOrEmpty(-18.0f));
 
   // Feed clipping input to trigger a downward adapation of the analog level.
-  WriteAudioBufferSamples(/*samples_value=*/0.0f, /*clipping_ratio=*/0.2f,
+  WriteAudioBufferSamples(/*samples_value=*/0.0f, /*clipped_ratio=*/0.2f,
                           audio_buffer);
   manager_no_analog_agc.AnalyzePreProcess(audio_buffer);
   manager_with_analog_agc.AnalyzePreProcess(audio_buffer);

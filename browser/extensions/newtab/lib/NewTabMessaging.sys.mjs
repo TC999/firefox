@@ -103,7 +103,8 @@ export class NewTabMessaging {
 
   /**
    * Send impression to ASRouter
-   * @param {Object} message
+   *
+   * @param {object} message
    */
   handleImpression(message) {
     this.sendTelemetry("IMPRESSION", message);
@@ -145,7 +146,7 @@ export class NewTabMessaging {
     }
   }
 
-  async onAction(action) {
+  onAction(action) {
     switch (action.type) {
       case at.INIT:
         this.init();

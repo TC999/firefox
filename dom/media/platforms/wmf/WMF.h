@@ -141,7 +141,7 @@ class MediaFoundationInitializer final {
   // WMF from threads with the same COM compartment model.
   HRESULT MFShutdown();
 
-  MOZ_RUNINIT static inline UniquePtr<MediaFoundationInitializer> sInitializer;
+  constinit static inline UniquePtr<MediaFoundationInitializer> sInitializer;
   static inline StaticMutex sCreateMutex;
   static inline Atomic<bool> sIsShutdown{false};
   const bool mHasInitialized;

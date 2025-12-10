@@ -110,15 +110,12 @@ class ScriptLoaderInterface : public nsISupports {
       JSContext* cx, ScriptLoadRequest* aRequest, CompileOptions* aOptions,
       MutableHandle<JSScript*> aIntroductionScript) = 0;
 
-  virtual void MaybePrepareModuleForCacheBeforeExecute(
-      JSContext* aCx, ModuleLoadRequest* aRequest) {}
-
-  virtual nsresult MaybePrepareModuleForCacheAfterExecute(
+  virtual nsresult MaybePrepareModuleForDiskCacheAfterExecute(
       ModuleLoadRequest* aRequest, nsresult aRv) {
     return NS_OK;
   }
 
-  virtual void MaybeUpdateCache() {}
+  virtual void MaybeUpdateDiskCache() {}
 };
 
 class ModuleMapKey : public PLDHashEntryHdr {
@@ -336,6 +333,8 @@ class ModuleLoaderBase : public nsISupports {
 
   virtual bool IsDynamicImportSupported() { return true; }
 
+  virtual bool IsForServiceWorker() const { return false; }
+
   // Called when dynamic import started successfully.
   virtual void OnDynamicImportStarted(ModuleLoadRequest* aRequest) {}
 
@@ -343,12 +342,12 @@ class ModuleLoaderBase : public nsISupports {
   // NS_OK to abort load without returning an error.
   virtual bool CanStartLoad(ModuleLoadRequest* aRequest, nsresult* aRvOut) = 0;
 
-  // Start the process of fetching module source (or bytecode). This is only
-  // called if CanStartLoad returned true.
+  // Start the process of fetching module source or serialized stencil. This is
+  // only called if CanStartLoad returned true.
   virtual nsresult StartFetch(ModuleLoadRequest* aRequest) = 0;
 
   // Create a JS module for a fetched module request. This might compile source
-  // text or decode cached bytecode.
+  // text or decode stencil.
   virtual nsresult CompileFetchedModule(
       JSContext* aCx, Handle<JSObject*> aGlobal, CompileOptions& aOptions,
       ModuleLoadRequest* aRequest, MutableHandle<JSObject*> aModuleOut) = 0;
@@ -491,7 +490,9 @@ class ModuleLoaderBase : public nsISupports {
                                      Handle<JSScript*> aReferrer,
                                      Handle<JSObject*> aModuleRequest,
                                      Handle<Value> aHostDefined,
-                                     Handle<Value> aPayload);
+                                     Handle<Value> aPayload,
+                                     uint32_t aLineNumber,
+                                     JS::ColumnNumberOneOrigin aColumnNumber);
   static bool FinishLoadingImportedModule(JSContext* aCx,
                                           ModuleLoadRequest* aRequest);
 
@@ -525,10 +526,6 @@ class ModuleLoaderBase : public nsISupports {
 
  private:
   ModuleScript* GetFetchedModule(const ModuleMapKey& moduleMapKey) const;
-
-  nsresult ResolveRequestedModules(
-      ModuleLoadRequest* aRequest,
-      nsTArray<ModuleMapKey>* aRequestedModulesOut);
 
   already_AddRefed<LoadingRequest> SetModuleFetchFinishedAndGetWaitingRequests(
       ModuleLoadRequest* aRequest, nsresult aResult);

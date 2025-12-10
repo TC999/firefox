@@ -7,9 +7,14 @@
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  IPPProxyManager: "resource:///modules/ipprotection/IPPProxyManager.sys.mjs",
   IPProtectionService:
     "resource:///modules/ipprotection/IPProtectionService.sys.mjs",
 });
+
+const { ERRORS } = ChromeUtils.importESModule(
+  "chrome://browser/content/ipprotection/ipprotection-constants.mjs"
+);
 
 async function resetStateToObj(content, originalState) {
   content.state = originalState;
@@ -49,21 +54,23 @@ add_task(async function user_toggle_on_and_off() {
 
   setupService({
     isSignedIn: true,
-    isEnrolled: true,
+    isEnrolledAndEntitled: true,
   });
-  await IPProtectionService.updateState();
+  IPProtectionService.updateState();
   await content.updateComplete;
 
-  let toggle = content.connectionToggleEl;
+  let statusCard = content.shadowRoot.querySelector("ipprotection-status-card");
+
+  let toggle = statusCard.connectionToggleEl;
   Assert.ok(toggle, "Status card connection toggle should be present");
 
   Services.fog.testResetFOG();
   await Services.fog.testFlushAllChildren();
   let vpnOnPromise = BrowserTestUtils.waitForEvent(
-    lazy.IPProtectionService,
-    "IPProtectionService:StateChanged",
+    lazy.IPPProxyManager,
+    "IPPProxyManager:StateChanged",
     false,
-    () => !!IPProtectionService.activatedAt
+    () => !!IPPProxyManager.activatedAt
   );
   // Toggle the VPN on
   toggle.click();
@@ -76,10 +83,10 @@ add_task(async function user_toggle_on_and_off() {
   Assert.equal(toggledEvents[0].extra.userAction, "true");
 
   let vpnOffPromise = BrowserTestUtils.waitForEvent(
-    lazy.IPProtectionService,
-    "IPProtectionService:StateChanged",
+    lazy.IPPProxyManager,
+    "IPPProxyManager:StateChanged",
     false,
-    () => !IPProtectionService.activatedAt
+    () => !IPPProxyManager.activatedAt
   );
   // Toggle the VPN off
   toggle.click();
@@ -134,22 +141,23 @@ add_task(async function toggle_off_on_shutdown() {
 
   setupService({
     isSignedIn: true,
-    isEnrolled: true,
+    isEnrolledAndEntitled: true,
   });
   IPProtectionService.updateState();
   await content.updateComplete;
   await putServerInRemoteSettings();
 
-  let toggle = content.connectionToggleEl;
+  let statusCard = content.statusCardEl;
+  let toggle = statusCard.connectionToggleEl;
   Assert.ok(toggle, "Status card connection toggle should be present");
 
   Services.fog.testResetFOG();
 
   let vpnOnPromise = BrowserTestUtils.waitForEvent(
-    lazy.IPProtectionService,
-    "IPProtectionService:StateChanged",
+    lazy.IPPProxyManager,
+    "IPPProxyManager:StateChanged",
     false,
-    () => !!IPProtectionService.activatedAt
+    () => !!IPPProxyManager.activatedAt
   );
   // Toggle the VPN on
   toggle.click();
@@ -238,4 +246,30 @@ add_task(async function click_upgrade_button() {
   Services.fog.testResetFOG();
 
   BrowserTestUtils.removeTab(newTab);
+});
+
+/**
+ * Tests that the error event is recorded when an error is triggered
+ */
+add_task(async function test_error_state() {
+  Services.fog.testResetFOG();
+  let button = document.getElementById(IPProtectionWidget.WIDGET_ID);
+  Assert.ok(
+    BrowserTestUtils.isVisible(button),
+    "IP Protection widget should be added to the navbar"
+  );
+
+  let panelShownPromise = waitForPanelEvent(document, "popupshown");
+  let panelInitPromise = BrowserTestUtils.waitForEvent(
+    document,
+    "IPProtection:Init"
+  );
+  button.click();
+  await Promise.all([panelShownPromise, panelInitPromise]);
+
+  lazy.IPPProxyManager.setErrorState(ERRORS.GENERIC, ERRORS.GENERIC);
+  let errorEvent = Glean.ipprotection.error.testGetValue();
+  Assert.equal(errorEvent.length, 1, "should have recorded an error");
+  Services.fog.testResetFOG();
+  await closePanel();
 });

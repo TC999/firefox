@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import { DSEmptyState } from "../DSEmptyState/DSEmptyState";
 import { DSCard, PlaceholderDSCard } from "../DSCard/DSCard";
 import { useSelector } from "react-redux";
@@ -10,6 +10,7 @@ import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 import {
   selectWeatherPlacement,
   useIntersectionObserver,
+  getActiveColumnLayout,
 } from "../../../lib/utils";
 import { SectionContextMenu } from "../SectionContextMenu/SectionContextMenu";
 import { InterestPicker } from "../InterestPicker/InterestPicker";
@@ -17,7 +18,6 @@ import { AdBanner } from "../AdBanner/AdBanner.jsx";
 import { PersonalizedCard } from "../PersonalizedCard/PersonalizedCard";
 import { FollowSectionButtonHighlight } from "../FeatureHighlight/FollowSectionButtonHighlight";
 import { MessageWrapper } from "content-src/components/MessageWrapper/MessageWrapper";
-import { TrendingSearches } from "../TrendingSearches/TrendingSearches.jsx";
 import { Weather } from "../../Weather/Weather.jsx";
 
 // Prefs
@@ -41,20 +41,11 @@ const PREF_LEADERBOARD_POSITION = "newtabAdSize.leaderboard.position";
 const PREF_REFINED_CARDS_ENABLED = "discoverystream.refinedCardsLayout.enabled";
 const PREF_INFERRED_PERSONALIZATION_USER =
   "discoverystream.sections.personalization.inferred.user.enabled";
-const PREF_TRENDING_SEARCH = "trendingSearch.enabled";
-const PREF_TRENDING_SEARCH_SYSTEM = "system.trendingSearch.enabled";
-const PREF_SEARCH_ENGINE = "trendingSearch.defaultSearchEngine";
-const PREF_TRENDING_SEARCH_VARIANT = "trendingSearch.variant";
 const PREF_DAILY_BRIEF_SECTIONID = "discoverystream.dailyBrief.sectionId";
 const PREF_SPOCS_STARTUPCACHE_ENABLED =
   "discoverystream.spocs.startupCache.enabled";
 
-function getLayoutData(
-  responsiveLayouts,
-  index,
-  refinedCardsLayout,
-  sectionKey
-) {
+function getLayoutData(responsiveLayouts, index, refinedCardsLayout) {
   let layoutData = {
     classNames: [],
     imageSizes: {},
@@ -63,23 +54,11 @@ function getLayoutData(
   responsiveLayouts.forEach(layout => {
     layout.tiles.forEach((tile, tileIndex) => {
       if (tile.position === index) {
-        // When trending searches should be placed in the `top_stories_section`,
-        // we update the layout so that the first item is always a medium card to make
-        // room for the trending search widget
-        if (sectionKey === "top_stories_section" && tileIndex === 0) {
-          layoutData.classNames.push(`col-${layout.columnCount}-medium`);
-          layoutData.classNames.push(
-            `col-${layout.columnCount}-position-${tileIndex}`
-          );
-          layoutData.imageSizes[layout.columnCount] = "medium";
-          layoutData.classNames.push(`col-${layout.columnCount}-hide-excerpt`);
-        } else {
-          layoutData.classNames.push(`col-${layout.columnCount}-${tile.size}`);
-          layoutData.classNames.push(
-            `col-${layout.columnCount}-position-${tileIndex}`
-          );
-          layoutData.imageSizes[layout.columnCount] = tile.size;
-        }
+        layoutData.classNames.push(`col-${layout.columnCount}-${tile.size}`);
+        layoutData.classNames.push(
+          `col-${layout.columnCount}-position-${tileIndex}`
+        );
+        layoutData.imageSizes[layout.columnCount] = tile.size;
 
         // The API tells us whether the tile should show the excerpt or not.
         // Apply extra styles accordingly.
@@ -161,6 +140,66 @@ function CardSection({
   );
   const { isForStartupCache } = useSelector(state => state.App);
 
+  const [focusedIndex, setFocusedIndex] = useState(0);
+
+  const onCardFocus = index => {
+    setFocusedIndex(index);
+  };
+
+  const handleCardKeyDown = e => {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+
+      const currentCardEl = e.target.closest("article.ds-card");
+      if (!currentCardEl) {
+        return;
+      }
+
+      const activeColumn = getActiveColumnLayout(window.innerWidth);
+
+      // Arrow direction should match visual navigation direction in RTL
+      const isRTL = document.dir === "rtl";
+      const navigateToPrevious = isRTL
+        ? e.key === "ArrowRight"
+        : e.key === "ArrowLeft";
+
+      // Extract current position from classList
+      let currentPosition = null;
+      const positionPrefix = `${activeColumn}-position-`;
+      for (let className of currentCardEl.classList) {
+        if (className.startsWith(positionPrefix)) {
+          currentPosition = parseInt(
+            className.substring(positionPrefix.length),
+            10
+          );
+          break;
+        }
+      }
+
+      if (currentPosition === null) {
+        return;
+      }
+
+      const targetPosition = navigateToPrevious
+        ? currentPosition - 1
+        : currentPosition + 1;
+
+      // Find card with target position
+      const parentEl = currentCardEl.parentElement;
+      if (parentEl) {
+        const targetSelector = `article.ds-card.${activeColumn}-position-${targetPosition}`;
+        const targetCardEl = parentEl.querySelector(targetSelector);
+
+        if (targetCardEl) {
+          const link = targetCardEl.querySelector("a.ds-card-link");
+          if (link) {
+            link.focus();
+          }
+        }
+      }
+    }
+  };
+
   const showTopics = prefs[PREF_TOPICS_ENABLED];
   const mayHaveSectionsCards = prefs[PREF_SECTIONS_CARDS_ENABLED];
   const mayHaveSectionsCardsThumbsUpDown =
@@ -170,14 +209,6 @@ function CardSection({
   const availableTopics = prefs[PREF_TOPICS_AVAILABLE];
   const refinedCardsLayout = prefs[PREF_REFINED_CARDS_ENABLED];
   const spocsStartupCacheEnabled = prefs[PREF_SPOCS_STARTUPCACHE_ENABLED];
-
-  const trendingEnabled =
-    prefs[PREF_TRENDING_SEARCH] &&
-    prefs[PREF_TRENDING_SEARCH_SYSTEM] &&
-    prefs[PREF_SEARCH_ENGINE]?.toLowerCase() === "google";
-  const trendingVariant = prefs[PREF_TRENDING_SEARCH_VARIANT];
-
-  const shouldShowTrendingSearch = trendingEnabled && trendingVariant === "b";
 
   const mayHaveSectionsPersonalization =
     prefs[PREF_SECTIONS_PERSONALIZATION_ENABLED];
@@ -359,13 +390,15 @@ function CardSection({
         </div>
         {mayHaveSectionsPersonalization ? sectionContextWrapper : null}
       </div>
-      <div className={`ds-section-grid ds-card-grid`}>
+      <div
+        className={`ds-section-grid ds-card-grid`}
+        onKeyDown={handleCardKeyDown}
+      >
         {section.data.slice(0, maxTile).map((rec, index) => {
           const layoutData = getLayoutData(
             responsiveLayouts,
             index,
-            refinedCardsLayout,
-            shouldShowTrendingSearch && sectionKey
+            refinedCardsLayout
           );
 
           const { classNames, imageSizes } = layoutData;
@@ -434,13 +467,11 @@ function CardSection({
               sectionFollowed={following}
               sectionLayoutName={layoutName}
               isTimeSensitive={rec.isTimeSensitive}
+              tabIndex={index === focusedIndex ? 0 : -1}
+              onFocus={() => onCardFocus(index)}
             />
           );
-          return index === 0 &&
-            shouldShowTrendingSearch &&
-            sectionKey === "top_stories_section"
-            ? [card, <TrendingSearches key="trending" />]
-            : [card];
+          return [card];
         })}
       </div>
     </section>

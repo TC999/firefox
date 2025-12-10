@@ -246,7 +246,7 @@ class GeckoEngineSessionTest {
             object : EngineSession.Observer {
                 override fun onLoadingStateChange(loading: Boolean) { observedLoadingState = loading }
                 override fun onProgress(progress: Int) { observedProgress = progress }
-                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?) {
+                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?, certificate: X509Certificate?) {
                     // We cannot assert on actual parameters as SecurityInfo's fields can't be set
                     // from the outside and its constructor isn't accessible either.
                     observedSecurityChange = true
@@ -864,7 +864,7 @@ class GeckoEngineSessionTest {
         var loadingStateChangeObserved = false
         engineSession.register(
             object : EngineSession.Observer {
-                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?) {
+                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?, certificate: X509Certificate?) {
                     observedSecurityChange = true
                 }
 
@@ -1593,7 +1593,7 @@ class GeckoEngineSessionTest {
             TrackingCategory.TEST,
         )
 
-        assertTrue(trackerBlocked!!.trackingCategories.containsAll(expectedBlockedCategories))
+        assertTrue(trackerBlocked.trackingCategories.containsAll(expectedBlockedCategories))
 
         var trackerLoaded: Tracker? = null
         engineSession.register(
@@ -1624,7 +1624,7 @@ class GeckoEngineSessionTest {
         )
 
         assertEquals("tracker1", trackerLoaded!!.url)
-        assertTrue(trackerLoaded!!.cookiePolicies.containsAll(expectedCookieCategories))
+        assertTrue(trackerLoaded.cookiePolicies.containsAll(expectedCookieCategories))
 
         contentBlockingDelegate.value.onContentLoaded(
             geckoSession,
@@ -1632,7 +1632,7 @@ class GeckoEngineSessionTest {
         )
 
         assertTrue(
-            trackerLoaded!!.cookiePolicies.containsAll(
+            trackerLoaded.cookiePolicies.containsAll(
                 listOf(
                     CookiePolicy.ACCEPT_ALL,
                 ),
@@ -1816,6 +1816,7 @@ class GeckoEngineSessionTest {
         assertEquals(GeckoSafeBrowsing.UNWANTED, SafeBrowsingPolicy.UNWANTED.id)
         assertEquals(GeckoSafeBrowsing.HARMFUL, SafeBrowsingPolicy.HARMFUL.id)
         assertEquals(GeckoSafeBrowsing.PHISHING, SafeBrowsingPolicy.PHISHING.id)
+        assertEquals(GeckoSafeBrowsing.HARMFULADDON, SafeBrowsingPolicy.HARMFULADDON.id)
         assertEquals(GeckoSafeBrowsing.DEFAULT, SafeBrowsingPolicy.RECOMMENDED.id)
     }
 
@@ -1840,7 +1841,6 @@ class GeckoEngineSessionTest {
         assertEquals(
             GeckoCookieBehavior.ACCEPT_FIRST_PARTY,
             CookiePolicy.ACCEPT_ONLY_FIRST_PARTY.id,
-
         )
         assertEquals(GeckoCookieBehavior.ACCEPT_VISITED, CookiePolicy.ACCEPT_VISITED.id)
     }
@@ -2335,6 +2335,10 @@ class GeckoEngineSessionTest {
         assertEquals(
             ErrorType.ERROR_SAFEBROWSING_UNWANTED_URI,
             GeckoEngineSession.geckoErrorToErrorType(WebRequestError.ERROR_SAFEBROWSING_UNWANTED_URI),
+        )
+        assertEquals(
+            ErrorType.ERROR_HARMFULADDON_URI,
+            GeckoEngineSession.geckoErrorToErrorType(WebRequestError.ERROR_HARMFULADDON_URI),
         )
         assertEquals(
             ErrorType.UNKNOWN,
@@ -4140,9 +4144,9 @@ class GeckoEngineSessionTest {
         assertNull(observedFallbackUrl)
         assertNull(observedAppName)
         assertNotNull(observedTriggeredByRedirect)
-        assertFalse(observedTriggeredByRedirect!!)
+        assertFalse(observedTriggeredByRedirect)
         assertNotNull(observedTriggeredByWebContent)
-        assertFalse(observedTriggeredByWebContent!!)
+        assertFalse(observedTriggeredByWebContent)
         assertEquals("sample:about", observedOnLoadRequestUrl)
     }
 
@@ -4339,7 +4343,7 @@ class GeckoEngineSessionTest {
 
         assertNotNull(receivedWindowRequest)
         assertEquals("mozilla.org", receivedWindowRequest!!.url)
-        assertEquals(WindowRequest.Type.OPEN, receivedWindowRequest!!.type)
+        assertEquals(WindowRequest.Type.OPEN, receivedWindowRequest.type)
     }
 
     @Test
@@ -4362,7 +4366,7 @@ class GeckoEngineSessionTest {
 
         assertNotNull(receivedWindowRequest)
         assertSame(engineSession, receivedWindowRequest!!.prepare())
-        assertEquals(WindowRequest.Type.CLOSE, receivedWindowRequest!!.type)
+        assertEquals(WindowRequest.Type.CLOSE, receivedWindowRequest.type)
     }
 
     class MockSecurityInformation(
@@ -4384,10 +4388,12 @@ class GeckoEngineSessionTest {
         val engineSession = GeckoEngineSession(mock(), geckoSessionProvider = geckoSessionProvider)
 
         var observedIssuer: String? = null
+        var observedCertificate: X509Certificate? = null
         engineSession.register(
             object : EngineSession.Observer {
-                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?) {
+                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?, certificate: X509Certificate?) {
                     observedIssuer = issuer
+                    observedCertificate = certificate
                 }
             },
         )
@@ -4404,6 +4410,7 @@ class GeckoEngineSessionTest {
         val securityInformation = MockSecurityInformation(certificate = certificate)
         progressDelegate.value.onSecurityChange(mock(), securityInformation)
         assertEquals(parsedIssuerName, observedIssuer)
+        assertEquals(certificate, observedCertificate)
     }
 
     @Test
@@ -4411,10 +4418,12 @@ class GeckoEngineSessionTest {
         val engineSession = GeckoEngineSession(mock(), geckoSessionProvider = geckoSessionProvider)
 
         var observedIssuer: String? = null
+        var observedCertificate: X509Certificate? = null
         engineSession.register(
             object : EngineSession.Observer {
-                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?) {
+                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?, certificate: X509Certificate?) {
                     observedIssuer = issuer
+                    observedCertificate = certificate
                 }
             },
         )
@@ -4431,6 +4440,7 @@ class GeckoEngineSessionTest {
         val securityInformation = MockSecurityInformation(certificate = certificate)
         progressDelegate.value.onSecurityChange(mock(), securityInformation)
         assertEquals(parsedIssuerName, observedIssuer)
+        assertEquals(certificate, observedCertificate)
     }
 
     @Test
@@ -4438,10 +4448,12 @@ class GeckoEngineSessionTest {
         val engineSession = GeckoEngineSession(mock(), geckoSessionProvider = geckoSessionProvider)
 
         var observedIssuer: String? = null
+        var observedCertificate: X509Certificate? = null
         engineSession.register(
             object : EngineSession.Observer {
-                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?) {
+                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?, certificate: X509Certificate?) {
                     observedIssuer = issuer
+                    observedCertificate = certificate
                 }
             },
         )
@@ -4458,6 +4470,7 @@ class GeckoEngineSessionTest {
         val securityInformation = MockSecurityInformation(certificate = certificate)
         progressDelegate.value.onSecurityChange(mock(), securityInformation)
         assertEquals(parsedIssuerName, observedIssuer)
+        assertEquals(certificate, observedCertificate)
     }
 
     @Test

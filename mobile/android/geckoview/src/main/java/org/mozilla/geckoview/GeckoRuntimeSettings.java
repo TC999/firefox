@@ -6,10 +6,9 @@
 
 package org.mozilla.geckoview;
 
-import static android.os.Build.VERSION;
-
 import android.app.Service;
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.LocaleList;
 import android.os.Parcel;
@@ -76,9 +75,6 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     /**
      * Path to configuration file from which GeckoView will read configuration options such as Gecko
      * process arguments, environment variables, and preferences.
-     *
-     * <p>Note: this feature is only available for <code>{@link VERSION#SDK_INT} &gt; 21</code>, on
-     * older devices this will be silently ignored.
      *
      * @param configFilePath Configuration file path to read from, or <code>null</code> to use
      *     default location <code>/data/local/tmp/$PACKAGE-geckoview-config.yaml</code>.
@@ -574,13 +570,40 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     }
 
     /**
-     * Sets whether or not local network access (LNA) blocking is enabled
+     * Sets whether or not the request blocking feature for Local Network / Device Access blocking
+     * is enabled
      *
-     * @param enabled flag indicating whether or not local network access (LNA) blocking is enabled
+     * @param enabled flag indicating whether or not the request blocking feature for Local Network
+     *     / Device Access blocking is enabled
      * @return The builder instance
      */
-    public @NonNull Builder setLnaBlockingEnabled(@NonNull final Boolean enabled) {
-      getSettings().setLnaBlockingEnabled(enabled);
+    public @NonNull Builder setLnaBlocking(@NonNull final Boolean enabled) {
+      getSettings().setLnaBlocking(enabled);
+      return this;
+    }
+
+    /**
+     * Sets whether or not the tracker blocking feature on Local Network / Device Access blocking
+     * feature is enabled
+     *
+     * @param enabled flag indicating whether or not the tracker blocking feature for Local Network
+     *     / Device Access blocking is enabled
+     * @return The builder instance
+     */
+    public @NonNull Builder setLnaBlockTrackers(@NonNull final Boolean enabled) {
+      getSettings().setLnaBlockTrackers(enabled);
+      return this;
+    }
+
+    /**
+     * Sets whether or not the overall Local Network / Device Access blocking feature is enabled
+     *
+     * @param enabled flag indicating whether or not the overall Local Network / Device Access
+     *     blocking feature is enabled
+     * @return The builder instance
+     */
+    public @NonNull Builder setLnaEnabled(@NonNull final Boolean enabled) {
+      getSettings().setLnaEnabled(enabled);
       return this;
     }
 
@@ -681,6 +704,27 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
       getSettings().mIsolatedProcess = enabled;
       return this;
     }
+
+    /**
+     * Set whether App Zygote preloading should be enabled or not. This must be set before startup.
+     *
+     * <p>Will take precedence over{@link #isolatedProcessEnabled(boolean) } if both are enabled.
+     *
+     * <p>Only settable on SDK 29 or higher.
+     *
+     * @param enabled A flag determining whether or not to enable App Zygote preloading.
+     * @return The builder instance.
+     */
+    public @NonNull Builder appZygoteProcessEnabled(final boolean enabled) {
+      if (enabled && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        Log.w(LOGTAG, "Cannot set app Zygote preloading to true below SDK 29 (Android 10)!");
+        getSettings().mAppZygoteProcess = false;
+        return this;
+      }
+      getSettings().mAppZygoteProcess = enabled;
+
+      return this;
+    }
   }
 
   private GeckoRuntime mRuntime;
@@ -738,7 +782,12 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
   /* package */ final Pref<Boolean> mHttpsOnlyPrivateMode =
       new Pref<Boolean>("dom.security.https_only_mode_pbm", false);
 
-  /* package */ final Pref<Boolean> mLnaBlockingEnabled = new Pref<>("network.lna.blocking", false);
+  /* package */ final PrefWithoutDefault<Boolean> mLnaBlocking =
+      new PrefWithoutDefault<>("network.lna.blocking");
+  /* package */ final PrefWithoutDefault<Boolean> mLnaBlockTrackers =
+      new PrefWithoutDefault<>("network.lna.block_trackers");
+  /* package */ final PrefWithoutDefault<Boolean> mLnaEnabled =
+      new PrefWithoutDefault<>("network.lna.enabled");
   /* package */ final PrefWithoutDefault<Integer> mTrustedRecursiveResolverMode =
       new PrefWithoutDefault<>("network.trr.mode");
   /* package */ final PrefWithoutDefault<String> mTrustedRecursiveResolverUri =
@@ -815,6 +864,7 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
   /* package */ boolean mUseMaxScreenDepth;
   /* package */ boolean mLowMemoryDetection = true;
   /* package */ boolean mIsolatedProcess = false;
+  /* package */ boolean mAppZygoteProcess = false;
   /* package */ float mDisplayDensityOverride = -1.0f;
   /* package */ int mDisplayDpiOverride;
   /* package */ int mScreenWidthOverride;
@@ -867,6 +917,7 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     mUseMaxScreenDepth = settings.mUseMaxScreenDepth;
     mLowMemoryDetection = settings.mLowMemoryDetection;
     mIsolatedProcess = settings.mIsolatedProcess;
+    mAppZygoteProcess = settings.mAppZygoteProcess;
     mDisplayDensityOverride = settings.mDisplayDensityOverride;
     mDisplayDpiOverride = settings.mDisplayDpiOverride;
     mScreenWidthOverride = settings.mScreenWidthOverride;
@@ -903,8 +954,6 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
   /**
    * Path to configuration file from which GeckoView will read configuration options such as Gecko
    * process arguments, environment variables, and preferences.
-   *
-   * <p>Note: this feature is only available for <code>{@link VERSION#SDK_INT} &gt; 21</code>.
    *
    * @return Path to configuration file from which GeckoView will read configuration options, or
    *     <code>null</code> for default location <code>/data/local/tmp/$PACKAGE-geckoview-config.yaml
@@ -1458,7 +1507,18 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
 
   private void commitLocales() {
     final GeckoBundle data = new GeckoBundle(1);
-    data.putStringArray("requestedLocales", mRequestedLocales);
+    if (mRequestedLocales != null) {
+      // Requested locales should be in language or language-region format
+      final String[] normalizedRequestedLocales =
+          Arrays.stream(mRequestedLocales)
+              .map(Locale::forLanguageTag)
+              .map(LocaleUtils::getLanguageRegionLocale)
+              .toArray(String[]::new);
+      data.putStringArray("requestedLocales", normalizedRequestedLocales);
+    } else {
+      data.putStringArray("requestedLocales", (String[]) null);
+    }
+
     data.putString("acceptLanguages", computeAcceptLanguages());
     EventDispatcher.getInstance().dispatch("GeckoView:SetLocale", data);
   }
@@ -1469,7 +1529,10 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     // Explicitly-set app prefs come first:
     if (mRequestedLocales != null) {
       for (final String locale : mRequestedLocales) {
-        locales.put(locale.toLowerCase(Locale.ROOT), locale);
+        // Requested locales should be in language or language-region format
+        final String normalizedLocale =
+            LocaleUtils.getLanguageRegionLocale(Locale.forLanguageTag(locale));
+        locales.put(normalizedLocale.toLowerCase(Locale.ROOT), normalizedLocale);
       }
     }
     // OS prefs come second:
@@ -1484,18 +1547,12 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
   }
 
   private static String[] getSystemLocalesForAcceptLanguage() {
-    if (VERSION.SDK_INT >= 24) {
-      final LocaleList localeList = LocaleList.getDefault();
-      final String[] locales = new String[localeList.size()];
-      for (int i = 0; i < localeList.size(); i++) {
-        // accept-language should be language or language-region format.
-        locales[i] = LocaleUtils.getLanguageTagForAcceptLanguage(localeList.get(i));
-      }
-      return locales;
+    final LocaleList localeList = LocaleList.getDefault();
+    final String[] locales = new String[localeList.size()];
+    for (int i = 0; i < localeList.size(); i++) {
+      // accept-language should be language or language-region format.
+      locales[i] = LocaleUtils.getLanguageRegionLocale(localeList.get(i));
     }
-    final String[] locales = new String[1];
-    final Locale locale = Locale.getDefault();
-    locales[0] = LocaleUtils.getLanguageTagForAcceptLanguage(locale);
     return locales;
   }
 
@@ -1972,6 +2029,72 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     return this;
   }
 
+  /**
+   * Sets whether or not the request blocking feature of Local Network / Device Access is enabled
+   *
+   * @param enabled flag indicating whether or not the request blocking feature of Local Network /
+   *     Device Access is enabled
+   * @return The updated instance of {@link GeckoRuntimeSettings}
+   */
+  public @NonNull GeckoRuntimeSettings setLnaBlocking(final boolean enabled) {
+    mLnaBlocking.commit(enabled);
+    return this;
+  }
+
+  /**
+   * Gets whether or not the request blocking feature for Local Network / Device Access is enabled
+   *
+   * @return Boolean indicating whether or not the request blocking feature of Local Network /
+   *     Device Access blocking is enabled or not.
+   */
+  public @Nullable Boolean getLnaBlocking() {
+    return mLnaBlocking.get();
+  }
+
+  /**
+   * Sets whether or not the overall Local Network / Device Access blocking feature is enabled
+   *
+   * @param enabled flag indicating whether or not the overall local network / device access
+   *     blocking feature is enabled
+   * @return The updated instance of {@link GeckoRuntimeSettings}
+   */
+  public @NonNull GeckoRuntimeSettings setLnaEnabled(final boolean enabled) {
+    mLnaEnabled.commit(enabled);
+    return this;
+  }
+
+  /**
+   * Gets whether or not the overall Local Network / Device Access blocking feature is enabled
+   *
+   * @return Boolean indicating whether the overall Local Network / Device Access blocking feature
+   *     is enabled or not.
+   */
+  public @Nullable Boolean getLnaEnabled() {
+    return mLnaEnabled.get();
+  }
+
+  /**
+   * Sets whether or not the tracker blocking feature of Local Network / Device Access is enabled
+   *
+   * @param enabled flag indicating whether or not the Local Network / Device Access blocking for
+   *     trackers is enabled
+   * @return The updated instance of {@link GeckoRuntimeSettings}
+   */
+  public @NonNull GeckoRuntimeSettings setLnaBlockTrackers(final boolean enabled) {
+    mLnaBlockTrackers.commit(enabled);
+    return this;
+  }
+
+  /**
+   * Gets whether or not the tracker blocking feature of Local Network / Device Access is enabled
+   *
+   * @return Boolean indicating whether the tracker blocking feature Local Network / Device Access
+   *     is enabled or not.
+   */
+  public @Nullable Boolean getLnaBlockTrackers() {
+    return mLnaBlockTrackers.get();
+  }
+
   /** HTTPS-only mode type definitions for secure browsing. */
   @Retention(RetentionPolicy.SOURCE)
   @IntDef({ALLOW_ALL, HTTPS_ONLY_PRIVATE, HTTPS_ONLY})
@@ -2000,26 +2123,6 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
       return HTTPS_ONLY_PRIVATE;
     }
     return ALLOW_ALL;
-  }
-
-  /**
-   * Sets whether or not local network access (LNA) blocking is enabled
-   *
-   * @param enabled flag indicating whether or not local network access blocking is enabled
-   * @return The updated instance of {@link GeckoRuntimeSettings}
-   */
-  public @NonNull GeckoRuntimeSettings setLnaBlockingEnabled(final boolean enabled) {
-    mLnaBlockingEnabled.commit(enabled);
-    return this;
-  }
-
-  /**
-   * Gets whether or not local network access (LNA) blocking is enabled
-   *
-   * @return Boolean indicating whether LNA blocking is enabled or not.
-   */
-  public boolean getLnaBlockingEnabled() {
-    return mLnaBlockingEnabled.get();
   }
 
   /**
@@ -2381,6 +2484,15 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     return mIsolatedProcess;
   }
 
+  /**
+   * Gets whether the App Zygote process is enabled or not for preloading.
+   *
+   * @return True if App Zygote preloading is enabled.
+   */
+  public boolean getAppZygoteProcessEnabled() {
+    return mAppZygoteProcess;
+  }
+
   @Override // Parcelable
   public void writeToParcel(final Parcel out, final int flags) {
     super.writeToParcel(out, flags);
@@ -2392,6 +2504,7 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     ParcelableUtils.writeBoolean(out, mUseMaxScreenDepth);
     ParcelableUtils.writeBoolean(out, mLowMemoryDetection);
     ParcelableUtils.writeBoolean(out, mIsolatedProcess);
+    ParcelableUtils.writeBoolean(out, mAppZygoteProcess);
     out.writeFloat(mDisplayDensityOverride);
     out.writeInt(mDisplayDpiOverride);
     out.writeInt(mScreenWidthOverride);
@@ -2412,6 +2525,7 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     mUseMaxScreenDepth = ParcelableUtils.readBoolean(source);
     mLowMemoryDetection = ParcelableUtils.readBoolean(source);
     mIsolatedProcess = ParcelableUtils.readBoolean(source);
+    mAppZygoteProcess = ParcelableUtils.readBoolean(source);
     mDisplayDensityOverride = source.readFloat();
     mDisplayDpiOverride = source.readInt();
     mScreenWidthOverride = source.readInt();

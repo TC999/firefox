@@ -10,6 +10,7 @@ import mozilla.telemetry.glean.private.NoExtras
 import org.mozilla.fenix.GleanMetrics.Webcompatreporting
 import org.mozilla.fenix.webcompat.store.WebCompatReporterAction
 import org.mozilla.fenix.webcompat.store.WebCompatReporterState
+import org.mozilla.fenix.webcompat.store.WebCompatReporterStore
 
 /**
  * A [Middleware] for recording telemetry based on [WebCompatReporterAction]s that are dispatch to the
@@ -30,8 +31,8 @@ class WebCompatReporterTelemetryMiddleware :
                 Webcompatreporting.reasonDropdown.set(action.newReason.name)
             }
 
-            WebCompatReporterAction.SendMoreInfoClicked -> {
-                Webcompatreporting.sendMoreInfo.record(NoExtras())
+            WebCompatReporterAction.AddMoreInfoClicked -> {
+                Webcompatreporting.addMoreInfo.record(NoExtras())
             }
 
             WebCompatReporterAction.SendReportClicked -> {

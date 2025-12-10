@@ -32,19 +32,19 @@ XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "gDownloadPlatform",
   "@mozilla.org/toolkit/download-platform;1",
-  "mozIDownloadPlatform"
+  Ci.mozIDownloadPlatform
 );
 XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "gMIMEService",
   "@mozilla.org/mime;1",
-  "nsIMIMEService"
+  Ci.nsIMIMEService
 );
 XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "gExternalProtocolService",
   "@mozilla.org/uriloader/external-protocol-service;1",
-  "nsIExternalProtocolService"
+  Ci.nsIExternalProtocolService
 );
 
 ChromeUtils.defineLazyGetter(lazy, "gParentalControlsService", function () {
@@ -1035,6 +1035,7 @@ export var DownloadIntegration = {
 
   /**
    * Launches the specified file, unless overridden by regression tests.
+   *
    * @note Always use launchDownload() from the outside of this module, it is
    *       both more powerful and safer.
    */

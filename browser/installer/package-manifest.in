@@ -42,6 +42,7 @@
 @APPNAME@/Contents/PkgInfo
 @RESPATH@/firefox.icns
 @RESPATH@/document.icns
+@RESPATH@/Assets.car
 @RESPATH@/@LPROJ_ROOT@.lproj/*
 #endif
 
@@ -97,6 +98,7 @@
 @BINPATH@/@MSVC_C_RUNTIME_1_DLL@
 #endif
 @BINPATH@/@MSVC_CXX_RUNTIME_DLL@
+@BINPATH@/@MSVC_CXX_RUNTIME_ATOMIC_WAIT_DLL@
 #endif
 ; Windows App SDK DLLs
 @BINPATH@/@DLL_PREFIX@CoreMessagingXP@DLL_SUFFIX@

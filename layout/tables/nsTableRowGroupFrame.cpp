@@ -432,7 +432,6 @@ void nsTableRowGroupFrame::ReflowChildren(
         const LogicalPoint offset(wm, 0,
                                   aReflowInput.mBCoord - oldPosition.B(wm));
         kidFrame->MovePositionBy(wm, offset);
-        nsTableFrame::RePositionViews(kidFrame);
         kidFrame->InvalidateFrameSubtree();
       }
 
@@ -828,7 +827,6 @@ void nsTableRowGroupFrame::CalculateRowBSizes(nsPresContext* aPresContext,
                                          false);
 
       if (deltaB != 0) {
-        nsTableFrame::RePositionViews(rowFrame);
         // XXXbz we don't need to update our overflow area?
       }
     }
@@ -891,7 +889,6 @@ nscoord nsTableRowGroupFrame::CollapseRowGroupIfNecessary(nscoord aBTotalOffset,
   overflow.UnionAllWith(
       nsRect(0, 0, groupRect.Width(aWM), groupRect.Height(aWM)));
   FinishAndStoreOverflow(overflow, groupRect.Size(aWM).GetPhysicalSize(aWM));
-  nsTableFrame::RePositionViews(this);
   nsTableFrame::InvalidateTableFrame(this, oldGroupRect, oldGroupInkOverflow,
                                      false);
 
@@ -1671,11 +1668,11 @@ Result<nsILineIterator::LineInfo, nsresult> nsTableRowGroupFrame::GetLine(
   return Err(NS_ERROR_FAILURE);
 }
 
-int32_t nsTableRowGroupFrame::FindLineContaining(nsIFrame* aFrame,
+int32_t nsTableRowGroupFrame::FindLineContaining(const nsIFrame* aFrame,
                                                  int32_t aStartLine) {
   NS_ENSURE_TRUE(aFrame, -1);
 
-  nsTableRowFrame* rowFrame = do_QueryFrame(aFrame);
+  const nsTableRowFrame* rowFrame = do_QueryFrame(aFrame);
   if (MOZ_UNLIKELY(!rowFrame)) {
     // When we do not have valid table structure in the DOM tree, somebody wants
     // to check the line number with an out-of-flow child of this frame because

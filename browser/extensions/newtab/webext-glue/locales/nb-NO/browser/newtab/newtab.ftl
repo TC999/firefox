@@ -406,7 +406,7 @@ newtab-wallpaper-abstract-purple-green = Fargeovergang med lilla og grønt lys
 newtab-wallpaper-abstract-blue-purple-waves = Blå og lilla bølgete former
 newtab-wallpaper-abstract-black-waves = Svarte bølgeformer
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Fotografier
 newtab-wallpaper-beach-at-sunrise = Strand ved soloppgang
@@ -435,6 +435,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -663,6 +667,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Ny liste
+newtab-widget-section-title = Widgeter
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Skjul widgeter
+    .aria-label = Skjul alle widgeter
+newtab-widget-section-maximize =
+    .title = Utvid widgeter
+    .aria-label = Utvid alle widgeter til full størrelse
+newtab-widget-section-minimize =
+    .title = Minimer widgeter
+    .aria-label = Slå sammen alle widgeter til kompakt størrelse
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -675,10 +690,6 @@ newtab-widget-timer-mode-focus =
     .label = Fokus
 newtab-widget-timer-mode-break =
     .label = Pause
-newtab-widget-timer-play =
-    .title = Spill av
-newtab-widget-timer-pause =
-    .title = Pause
 newtab-widget-timer-label-play =
     .label = Spill av
 newtab-widget-timer-label-pause =
@@ -689,8 +700,6 @@ newtab-widget-timer-menu-notifications = Slå av varsler
 newtab-widget-timer-menu-notifications-on = Slå på varsler
 newtab-widget-timer-menu-hide = Skjul nedteller
 newtab-widget-timer-menu-learn-more = Les mer
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Rull for mer
 newtab-widget-message-title = Hold fokus med lister og en innebygd nedteller
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Fra kjappe påminnelser til daglige gjøremål, fokuserte arbeidsøkter til strekkpauser — hold deg til oppgaven og tidsplanen.

@@ -323,7 +323,8 @@ void PeerConnectionE2EQualityTest::Run(RunParams run_params) {
       std::make_unique<VideoQualityMetricsReporter>(time_controller_.GetClock(),
                                                     metrics_logger_));
   quality_metrics_reporters_.push_back(
-      std::make_unique<CrossMediaMetricsReporter>(metrics_logger_));
+      std::make_unique<CrossMediaMetricsReporter>(*time_controller_.GetClock(),
+                                                  metrics_logger_));
 
   video_quality_analyzer_injection_helper_->Start(
       test_case_name_,
@@ -468,7 +469,7 @@ void PeerConnectionE2EQualityTest::OnTrackCallback(
   auto* video_track = static_cast<VideoTrackInterface*>(track.get());
   std::unique_ptr<VideoSinkInterface<VideoFrame>> video_sink =
       video_quality_analyzer_injection_helper_->CreateVideoSink(
-          peer_name, peer_subscription, /*report_infra_stats=*/false);
+          peer_name, peer_subscription, /*report_infra_metrics=*/false);
   video_track->AddOrUpdateSink(video_sink.get(), VideoSinkWants());
   output_video_sinks_.push_back(std::move(video_sink));
 }
@@ -643,7 +644,7 @@ void PeerConnectionE2EQualityTest::ExchangeOfferAnswer(
     SignalingInterceptor* signaling_interceptor) {
   std::string log_output;
 
-  auto offer = alice_->CreateOffer();
+  std::unique_ptr<SessionDescriptionInterface> offer = alice_->CreateOffer();
   RTC_CHECK(offer);
   offer->ToString(&log_output);
   RTC_LOG(LS_INFO) << "Original offer: " << log_output;
@@ -660,7 +661,7 @@ void PeerConnectionE2EQualityTest::ExchangeOfferAnswer(
   bool set_remote_offer =
       bob_->SetRemoteDescription(std::move(patch_result.remote_sdp));
   RTC_CHECK(set_remote_offer);
-  auto answer = bob_->CreateAnswer();
+  std::unique_ptr<SessionDescriptionInterface> answer = bob_->CreateAnswer();
   RTC_CHECK(answer);
   answer->ToString(&log_output);
   RTC_LOG(LS_INFO) << "Original answer: " << log_output;

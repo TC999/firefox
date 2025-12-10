@@ -103,7 +103,8 @@ RTCDataChannel::RTCDataChannel(const nsACString& aLabel,
       mNegotiated(aNegotiated),
       mDataChannel(aDataChannel),
       mEventTarget(GetCurrentSerialEventTarget()) {
-  DC_INFO(("%p: RTCDataChannel created on main", this));
+  DC_INFO(("%p: RTCDataChannel created on main (necko channel %p)", this,
+           mDataChannel.get()));
   mDataChannel->SetMainthreadDomDataChannel(this);
 }
 
@@ -384,13 +385,10 @@ void RTCDataChannel::Send(const nsAString& aData, ErrorResult& aRv) {
   }
 
   size_t length = msgString.Length();
-  if (!mDataChannel->SendMsg(std::move(msgString))) {
-    ++mMessagesSent;
-    mBytesSent += length;
-    IncrementBufferedAmount(length);
-  } else {
-    aRv.ThrowOperationError("Failed to queue message");
-  }
+  mDataChannel->SendMsg(std::move(msgString));
+  ++mMessagesSent;
+  mBytesSent += length;
+  IncrementBufferedAmount(length);
 }
 
 void RTCDataChannel::Send(Blob& aData, ErrorResult& aRv) {
@@ -422,13 +420,10 @@ void RTCDataChannel::Send(Blob& aData, ErrorResult& aRv) {
     return;
   }
 
-  if (!mDataChannel->SendBinaryBlob(msgStream)) {
-    ++mMessagesSent;
-    mBytesSent += msgLength;
-    IncrementBufferedAmount(msgLength);
-  } else {
-    aRv.ThrowOperationError("Failed to queue message");
-  }
+  mDataChannel->SendBinaryBlob(msgStream);
+  ++mMessagesSent;
+  mBytesSent += msgLength;
+  IncrementBufferedAmount(msgLength);
 }
 
 void RTCDataChannel::Send(const ArrayBuffer& aData, ErrorResult& aRv) {
@@ -450,13 +445,10 @@ void RTCDataChannel::Send(const ArrayBuffer& aData, ErrorResult& aRv) {
   }
 
   size_t length = msgString.Length();
-  if (!mDataChannel->SendBinaryMsg(std::move(msgString))) {
-    ++mMessagesSent;
-    mBytesSent += length;
-    IncrementBufferedAmount(length);
-  } else {
-    aRv.ThrowOperationError("Failed to queue message");
-  }
+  mDataChannel->SendBinaryMsg(std::move(msgString));
+  ++mMessagesSent;
+  mBytesSent += length;
+  IncrementBufferedAmount(length);
 }
 
 void RTCDataChannel::Send(const ArrayBufferView& aData, ErrorResult& aRv) {
@@ -478,13 +470,10 @@ void RTCDataChannel::Send(const ArrayBufferView& aData, ErrorResult& aRv) {
   }
 
   size_t length = msgString.Length();
-  if (!mDataChannel->SendBinaryMsg(std::move(msgString))) {
-    ++mMessagesSent;
-    mBytesSent += length;
-    IncrementBufferedAmount(length);
-  } else {
-    aRv.ThrowOperationError("Failed to queue message");
-  }
+  mDataChannel->SendBinaryMsg(std::move(msgString));
+  ++mMessagesSent;
+  mBytesSent += length;
+  IncrementBufferedAmount(length);
 }
 
 void RTCDataChannel::GracefulClose() {
@@ -529,7 +518,7 @@ void RTCDataChannel::GracefulClose() {
         // closed.
         if (!mBufferedAmount && mReadyState != RTCDataChannelState::Closed &&
             mDataChannel) {
-          mDataChannel->FinishClose();
+          mDataChannel->EndOfStream();
         }
       }));
 }
@@ -643,7 +632,7 @@ void RTCDataChannel::DecrementBufferedAmount(size_t aSize) {
     if (mReadyState == RTCDataChannelState::Closing) {
       if (mDataChannel) {
         // We're done sending
-        mDataChannel->FinishClose();
+        mDataChannel->EndOfStream();
       }
     }
   }

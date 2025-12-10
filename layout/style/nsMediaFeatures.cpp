@@ -30,9 +30,6 @@
 #include "nsIWidget.h"
 #include "nsPresContext.h"
 #include "nsStyleConsts.h"
-#ifdef XP_WIN
-#  include "mozilla/WindowsVersion.h"
-#endif
 
 using namespace mozilla;
 using mozilla::dom::DisplayMode;
@@ -73,6 +70,15 @@ static nsSize GetDeviceSize(const Document& aDocument) {
       nsGlobalWindowOuter::GetRDMDeviceSize(aDocument);
   if (deviceSize.isSome()) {
     return CSSPixel::ToAppUnits(deviceSize.value());
+  }
+
+  // Media queries in documents should use an override set with WebDriver BiDi
+  // if it exists.
+  if (dom::BrowsingContext* bc = aDocument.GetBrowsingContext()) {
+    Maybe<CSSIntSize> screenSize = bc->GetScreenAreaOverride();
+    if (screenSize.isSome()) {
+      return CSSPixel::ToAppUnits(screenSize.value());
+    }
   }
 
   nsPresContext* pc = aDocument.GetPresContext();

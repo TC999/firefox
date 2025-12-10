@@ -208,8 +208,6 @@ var didRst = false;
 var rstConnection = null;
 var illegalheader_conn = null;
 
-var gDoHPortsLog = [];
-var gDoHNewConnLog = {};
 var gDoHRequestCount = 0;
 
 // eslint-disable-next-line complexity
@@ -839,13 +837,6 @@ function handleRequest(req, res) {
       emitResponse(res, payload);
     });
     return;
-  } else if (u.pathname == "/get-doh-req-port-log") {
-    let rContent = JSON.stringify(gDoHPortsLog);
-    res.setHeader("Content-Type", "text/plain");
-    res.setHeader("Content-Length", rContent.length);
-    res.writeHead(400);
-    res.end(rContent);
-    return;
   } else if (u.pathname == "/reset-doh-request-count") {
     gDoHRequestCount = 0;
     res.setHeader("Content-Type", "text/plain");
@@ -964,29 +955,7 @@ function handleRequest(req, res) {
       // parload is empty when we send redirect response.
       if (payload.length) {
         let packet = dnsPacket.decode(payload);
-        let delay;
-        if (u.query.conncycle) {
-          let name = packet.questions[0].name;
-          if (name.startsWith("newconn")) {
-            // If we haven't seen a req for this newconn name before,
-            // or if we've seen one for the same name on the same port,
-            // synthesize a timeout.
-            if (
-              !gDoHNewConnLog[name] ||
-              gDoHNewConnLog[name] == req.remotePort
-            ) {
-              delay = 1000;
-            }
-            if (!gDoHNewConnLog[name]) {
-              gDoHNewConnLog[name] = req.remotePort;
-            }
-          }
-          gDoHPortsLog.push([packet.questions[0].name, req.remotePort]);
-        } else {
-          gDoHPortsLog = [];
-          gDoHNewConnLog = {};
-        }
-        emitResponse(res, payload, packet, delay);
+        emitResponse(res, payload, packet);
       }
     });
     return;
@@ -1486,10 +1455,10 @@ let httpServer = http.createServer((req, res) => {
         return;
       }
 
+      let messageId = makeid(6);
       new Promise((resolve, reject) => {
-        forked.resolve = resolve;
-        forked.reject = reject;
-        forked.send({ code });
+        forked.messageHandlers[messageId] = { resolve, reject };
+        forked.send({ code, messageId });
       })
         .then(x => sendBackResponse(x))
         .catch(e => computeAndSendBackResponse(undefined, e));
@@ -1538,11 +1507,13 @@ function forkProcess() {
 function forkProcessInternal(forked) {
   let id = makeid(6);
   forked.errors = "";
+  forked.messageHandlers = {};
   globalObjects[id] = forked;
   forked.on("message", msg => {
-    if (forked.resolve) {
-      forked.resolve(msg);
-      forked.resolve = null;
+    if (msg.messageId && forked.messageHandlers[msg.messageId]) {
+      let handler = forked.messageHandlers[msg.messageId];
+      delete forked.messageHandlers[msg.messageId];
+      handler.resolve(msg);
     } else {
       console.log(
         `forked process without handler sent: ${JSON.stringify(msg)}`
@@ -1561,22 +1532,27 @@ function forkProcessInternal(forked) {
       return;
     }
 
-    if (!forked.reject) {
-      console.log(
-        `child process ${id} closing code: ${code} signal: ${signal}`
-      );
-      return;
-    }
-
+    let errorMsg = `child process exit closing code: ${code} signal: ${signal}`;
     if (forked.errors != "") {
-      forked.reject(forked.errors);
+      errorMsg = forked.errors;
       forked.errors = "";
+    }
+
+    // Handle /kill/ case where forked.reject is set
+    if (forked.reject) {
+      forked.reject(errorMsg);
       forked.reject = null;
+      forked.resolve = null;
+    }
+
+    if (Object.keys(forked.messageHandlers).length === 0) {
       return;
     }
 
-    forked.reject(`child process exit closing code: ${code} signal: ${signal}`);
-    forked.reject = null;
+    for (let messageId in forked.messageHandlers) {
+      forked.messageHandlers[messageId].reject(errorMsg);
+    }
+    forked.messageHandlers = {};
   };
 
   forked.on("error", exitFunction);

@@ -8,7 +8,6 @@
 #include "nsNetUtil.h"
 #include "nsAboutProtocolUtils.h"
 #include "nsBaseChannel.h"
-#include "mozilla/ArrayUtils.h"
 #include "nsIProtocolHandler.h"
 #include "nsXULAppAPI.h"
 #include "mozilla/Preferences.h"
@@ -175,6 +174,11 @@ static const RedirEntry kRedirMap[] = {
          nsIAboutModule::HIDE_FROM_ABOUTABOUT},
     {"processes", "chrome://global/content/aboutProcesses.html",
      nsIAboutModule::ALLOW_SCRIPT | nsIAboutModule::IS_SECURE_CHROME_UI},
+    {"restricted",
+     "chrome://global/content/aboutRestricted/aboutRestricted.html",
+     nsIAboutModule::URI_SAFE_FOR_UNTRUSTED_CONTENT |
+         nsIAboutModule::URI_CAN_LOAD_IN_CHILD | nsIAboutModule::ALLOW_SCRIPT |
+         nsIAboutModule::HIDE_FROM_ABOUTABOUT},
     // about:serviceworkers always wants to load in the parent process because
     // the only place nsIServiceWorkerManager has any data is in the parent
     // process.
@@ -219,8 +223,7 @@ static const RedirEntry kRedirMap[] = {
      nsIAboutModule::ALLOW_SCRIPT |
          nsIAboutModule::URI_SAFE_FOR_UNTRUSTED_CONTENT |
          nsIAboutModule::URI_MUST_LOAD_IN_CHILD |
-         nsIAboutModule::URI_CAN_LOAD_IN_PRIVILEGEDABOUT_PROCESS |
-         nsIAboutModule::HIDE_FROM_ABOUTABOUT},
+         nsIAboutModule::URI_CAN_LOAD_IN_PRIVILEGEDABOUT_PROCESS},
 #endif
     {"url-classifier", "chrome://global/content/aboutUrlClassifier.xhtml",
      nsIAboutModule::ALLOW_SCRIPT},

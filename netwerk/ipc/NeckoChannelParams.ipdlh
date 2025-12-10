@@ -435,7 +435,7 @@ struct ProxyInfoCloneArgs
   nsCString type;
   nsCString host;
   int32_t port;
-  nsCString pathTemplate;
+  nsCString masqueTemplate;
   nsCString alpn;
   nsCString username;
   nsCString password;
@@ -496,9 +496,10 @@ struct CookieStruct
   nsCString value;
   nsCString host;
   nsCString path;
-  int64_t   expiry;
-  int64_t   lastAccessed;
-  int64_t   creationTime;
+  int64_t   expiryInMSec;
+  int64_t   lastAccessedInUSec;
+  int64_t   creationTimeInUSec;
+  int64_t   updateTimeInUSec;
   bool      isHttpOnly;
   bool      isSession;
   bool      isSecure;
@@ -602,6 +603,7 @@ struct ResourceTimingStructArgs {
   TimeStamp redirectEnd;
   uint64_t transferSize;
   uint64_t encodedBodySize;
+  uint64_t decodedBodySize;
 
   // Not actually part of resource timing, but not part of the transaction
   // timings either. These need to be passed to HttpChannelChild along with

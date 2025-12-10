@@ -80,6 +80,19 @@ class Emulation(BidiModule):
         }
 
     @command
+    def set_screen_settings_override(
+            self,
+            screen_area: Nullable[Dict[str, Any]],
+            contexts: Maybe[List[str]] = UNDEFINED,
+            user_contexts: Maybe[List[str]] = UNDEFINED,
+    ) -> Mapping[str, Any]:
+        return {
+            "screenArea": screen_area,
+            "contexts": contexts,
+            "userContexts": user_contexts
+        }
+
+    @command
     def set_timezone_override(
             self,
             timezone: Nullable[str],
@@ -101,6 +114,19 @@ class Emulation(BidiModule):
     ) -> Mapping[str, Any]:
         return {
             "userAgent": user_agent,
+            "contexts": contexts,
+            "userContexts": user_contexts,
+        }
+
+    @command
+    def set_network_conditions(
+            self,
+            network_conditions: Nullable[Dict[str, Any]],
+            contexts: Maybe[List[str]] = UNDEFINED,
+            user_contexts: Maybe[List[str]] = UNDEFINED,
+    ) -> Mapping[str, Any]:
+        return {
+            "networkConditions": network_conditions,
             "contexts": contexts,
             "userContexts": user_contexts,
         }

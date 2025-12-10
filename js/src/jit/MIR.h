@@ -26,7 +26,6 @@
 #endif
 
 #include <algorithm>
-#include <initializer_list>
 
 #include "NamespaceImports.h"
 
@@ -75,6 +74,7 @@ bool CurrentThreadIsIonCompiling();
 namespace jit {
 
 class CallInfo;
+class ShapeListSnapshot;
 
 #ifdef JS_JITSPEW
 // Helper for debug printing.  Avoids creating a MIR.h <--> MIRGraph.h cycle.
@@ -7624,6 +7624,48 @@ class MTypedArrayFill : public MQuaternaryInstruction,
   ALLOW_CLONE(MTypedArrayFill)
 };
 
+// Inlined TypedArray.prototype.subarray
+class MTypedArraySubarray : public MTernaryInstruction,
+                            public MixPolicy<ObjectPolicy<0>, IntPtrPolicy<1>,
+                                             IntPtrPolicy<2>>::Data {
+  CompilerGCPointer<JSObject*> templateObject_;
+  gc::Heap initialHeap_;
+  bool scalarReplaced_ = false;
+
+  MTypedArraySubarray(MDefinition* object, MDefinition* start,
+                      MDefinition* length, JSObject* templateObject,
+                      gc::Heap initialHeap)
+      : MTernaryInstruction(classOpcode, object, start, length),
+        templateObject_(templateObject),
+        initialHeap_(initialHeap) {
+    setResultType(MIRType::Object);
+  }
+
+ public:
+  INSTRUCTION_HEADER(TypedArraySubarray)
+  TRIVIAL_NEW_WRAPPERS
+  NAMED_OPERANDS((0, object), (1, start), (2, length))
+
+  JSObject* templateObject() const { return templateObject_; }
+  gc::Heap initialHeap() const { return initialHeap_; }
+
+  bool isScalarReplaced() const { return scalarReplaced_; }
+  void setScalarReplaced() { scalarReplaced_ = true; }
+
+  AliasSet getAliasSet() const override {
+    if (scalarReplaced_) {
+      return AliasSet::None();
+    }
+    return AliasSet::Store(AliasSet::ObjectFields);
+  }
+
+  bool possiblyCalls() const override { return true; }
+
+  [[nodiscard]] bool writeRecoverData(
+      CompactBufferWriter& writer) const override;
+  bool canRecoverOnBailout() const override { return scalarReplaced_; }
+};
+
 // Compute a 3-component "effective address":
 //   base + index * scale + displacement
 class MEffectiveAddress3 : public MBinaryInstruction,
@@ -9668,6 +9710,7 @@ class MObjectToIterator : public MUnaryInstruction,
                           public ObjectPolicy<0>::Data {
   NativeIteratorListHead* enumeratorsAddr_;
   bool wantsIndices_ = false;
+  bool skipRegistration_ = false;
 
   explicit MObjectToIterator(MDefinition* object,
                              NativeIteratorListHead* enumeratorsAddr)
@@ -9682,8 +9725,17 @@ class MObjectToIterator : public MUnaryInstruction,
   TRIVIAL_NEW_WRAPPERS
   NAMED_OPERANDS((0, object))
 
+  AliasSet getAliasSet() const override {
+    return skipRegistration_
+               ? AliasSet::Load(AliasSet::ObjectFields | AliasSet::Element)
+               : AliasSet::Store(AliasSet::Any);
+  }
+
   bool wantsIndices() const { return wantsIndices_; }
   void setWantsIndices(bool value) { wantsIndices_ = value; }
+
+  bool skipRegistration() const { return skipRegistration_; }
+  void setSkipRegistration(bool value) { skipRegistration_ = value; }
 };
 
 class MPostIntPtrConversion : public MUnaryInstruction,

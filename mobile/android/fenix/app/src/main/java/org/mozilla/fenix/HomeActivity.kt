@@ -9,13 +9,11 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.Intent.ACTION_MAIN
-import android.content.Intent.FLAG_ACTIVITY_NEW_TASK
 import android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
-import android.os.Process
 import android.os.StrictMode
 import android.text.format.DateUtils
 import android.util.AttributeSet
@@ -105,7 +103,6 @@ import org.mozilla.fenix.components.metrics.GrowthDataWorker
 import org.mozilla.fenix.components.metrics.MarketingAttributionService
 import org.mozilla.fenix.components.metrics.fonts.FontEnumerationWorker
 import org.mozilla.fenix.crashes.CrashReporterBinding
-import org.mozilla.fenix.crashes.StartupCrashCanary
 import org.mozilla.fenix.crashes.UnsubmittedCrashDialog
 import org.mozilla.fenix.customtabs.ExternalAppBrowserActivity
 import org.mozilla.fenix.databinding.ActivityHomeBinding
@@ -139,6 +136,7 @@ import org.mozilla.fenix.home.intent.OpenSpecificTabIntentProcessor
 import org.mozilla.fenix.home.intent.ReEngagementIntentProcessor
 import org.mozilla.fenix.home.intent.SpeechProcessingIntentProcessor
 import org.mozilla.fenix.home.intent.StartSearchIntentProcessor
+import org.mozilla.fenix.home.topsites.DefaultTopSitesBinding
 import org.mozilla.fenix.messaging.FenixMessageSurfaceId
 import org.mozilla.fenix.messaging.MessageNotificationWorker
 import org.mozilla.fenix.nimbus.FxNimbus
@@ -162,7 +160,6 @@ import org.mozilla.fenix.splashscreen.DefaultExperimentsOperationStorage
 import org.mozilla.fenix.splashscreen.DefaultSplashScreenStorage
 import org.mozilla.fenix.splashscreen.FetchExperimentsOperation
 import org.mozilla.fenix.splashscreen.SplashScreenManager
-import org.mozilla.fenix.startupCrash.StartupCrashActivity
 import org.mozilla.fenix.tabhistory.TabHistoryDialogFragment
 import org.mozilla.fenix.tabstray.TabsTrayFragment
 import org.mozilla.fenix.theme.DefaultThemeManager
@@ -172,6 +169,7 @@ import org.mozilla.fenix.utils.AccessibilityUtils.announcePrivateModeForAccessib
 import org.mozilla.fenix.utils.Settings
 import org.mozilla.fenix.utils.changeAppLauncherIcon
 import java.util.Locale
+import mozilla.components.ui.icons.R as iconsR
 
 /**
  * The main activity of the application. The application is primarily a single Activity (this one)
@@ -221,6 +219,16 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
                     )
                 }
             },
+        )
+    }
+
+    private val defaultTopSitesBinding by lazy {
+        DefaultTopSitesBinding(
+            browserStore = components.core.store,
+            topSitesStorage = components.core.topSitesStorage,
+            settings = settings(),
+            resources = resources,
+            crashReporter = components.analytics.crashReporter,
         )
     }
 
@@ -350,29 +358,8 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
         }
     }
 
+    @Suppress("CognitiveComplexMethod", "CyclomaticComplexMethod")
     final override fun onCreate(savedInstanceState: Bundle?) {
-        if (StartupCrashCanary.build(applicationContext).startupCrashDetected) {
-            super.onCreate(savedInstanceState)
-            val startupCrashIntent =
-                Intent(
-                    applicationContext,
-                    StartupCrashActivity::class.java,
-                )
-            startupCrashIntent.flags = FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
-            startActivity(startupCrashIntent)
-            // We kill the process, because `finish` will cause `onDestroy` to run which would end up
-            // causing several components to be initialized and potentially cause the startup crash.
-            Process.killProcess(Process.myPid())
-        } else {
-            initialize(savedInstanceState)
-        }
-    }
-
-    /**
-     * Initializes [HomeActivity] and all required subsystems.
-     */
-    @Suppress("ComplexMethod")
-    fun initialize(savedInstanceState: Bundle?) {
         // DO NOT MOVE ANYTHING ABOVE THIS getProfilerTime CALL.
         val startTimeProfiler = components.core.engine.profiler?.getProfilerTime()
 
@@ -411,10 +398,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
         window.setupPersistentInsets()
 
         binding = ActivityHomeBinding.inflate(layoutInflater)
+        val isLauncherIntent = intent.toSafeIntent().isLauncherIntent
 
         val shouldShowOnboarding = settings().shouldShowOnboarding(
             hasUserBeenOnboarded = components.fenixOnboarding.userHasBeenOnboarded(),
-            isLauncherIntent = intent.toSafeIntent().isLauncherIntent,
+            isLauncherIntent = isLauncherIntent,
         )
 
         // This is a temporary solution to determine if we should show the marketing onboarding card.
@@ -551,6 +539,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
             serviceWorkerSupport,
             aboutHomeBinding,
             crashReporterBinding,
+            defaultTopSitesBinding,
             TopSitesRefresher(
                 settings = settings(),
                 topSitesProvider = components.core.marsTopSitesProvider,
@@ -630,7 +619,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
 
     @VisibleForTesting
     internal fun maybeShowSetAsDefaultBrowserPrompt(
-        shouldShowSetAsDefaultPrompt: Boolean = settings().shouldShowSetAsDefaultPrompt,
+        shouldShowSetAsDefaultPrompt: Boolean = settings().shouldShowSetAsDefaultPrompt(),
         isDefaultBrowser: Boolean = BrowsersCache.all(applicationContext).isDefaultBrowser,
         isTheCorrectBuildVersion: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q,
     ) {
@@ -786,6 +775,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
                     appAlias = ComponentName(this, "$packageName.App"),
                     alternativeAppAlias = ComponentName(this, "$packageName.AlternativeApp"),
                     resetToDefault = FxNimbus.features.alternativeAppLauncherIcon.value().resetToDefault,
+                    crashReporter = components.analytics.crashReporter,
                 )
             }
         }
@@ -1204,7 +1194,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
             setSupportActionBar(navigationToolbar)
             // Add ids to this that we don't want to have a toolbar back button
             setupNavigationToolbar()
-            setNavigationIcon(R.drawable.ic_back_button)
+            setNavigationIcon(iconsR.drawable.mozac_ic_back_24)
 
             isToolbarInflated = true
         }
@@ -1334,7 +1324,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
     }
 
     private fun updateSecureWindowFlags(mode: BrowsingMode = browsingModeManager.mode) {
-        if (mode == BrowsingMode.Private && !settings().allowScreenshotsInPrivateMode) {
+        if (mode == BrowsingMode.Private && !settings().shouldSecureModeBeOverridden) {
             window.addFlags(FLAG_SECURE)
         } else {
             window.clearFlags(FLAG_SECURE)

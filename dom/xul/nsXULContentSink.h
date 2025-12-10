@@ -6,9 +6,7 @@
 #ifndef nsXULContentSink_h__
 #define nsXULContentSink_h__
 
-#include "mozilla/Attributes.h"
 #include "mozilla/WeakPtr.h"
-#include "nsIDTD.h"
 #include "nsIExpatSink.h"
 #include "nsIWeakReferenceUtils.h"
 #include "nsIXMLContentSink.h"

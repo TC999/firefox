@@ -111,8 +111,6 @@
 #include "nsStyleConsts.h"
 #include "nsTextNode.h"
 #include "nsUnicharUtils.h"
-#include "nsView.h"
-#include "nsViewManager.h"
 #include "nsWindowSizes.h"
 #include "nsWrapperCacheInlines.h"
 #include "xpcprivate.h"
@@ -2555,12 +2553,13 @@ static void EnsureAllowedAsChild(nsINode* aNewChild, nsINode* aParent,
              "can't be parents!");
 
   // Step 2.
-  // A common case is that aNewChild has no kids, in which case
+  // A common case is that aNewChild has no element kids, in which case
   // aParent can't be a descendant of aNewChild unless they're
   // actually equal to each other.  Fast-path that case, since aParent
   // could be pretty deep in the DOM tree.
   if (aNewChild == aParent ||
-      ((aNewChild->GetFirstChild() ||
+      (((aNewChild->HasFlag(NODE_MAY_HAVE_ELEMENT_CHILDREN) &&
+         aNewChild->GetFirstChild()) ||
         // HTML template elements and ShadowRoot hosts need
         // to be checked to ensure that they are not inserted into
         // the hosted content.
@@ -3784,7 +3783,7 @@ already_AddRefed<nsINode> nsINode::CloneAndAdopt(
       //
       // When this fails, it removes all properties for the node anyway, so no
       // extra error handling needed.
-      Unused << oldDoc->PropertyTable().TransferOrRemoveAllPropertiesFor(
+      (void)oldDoc->PropertyTable().TransferOrRemoveAllPropertiesFor(
           aNode, newDoc->PropertyTable());
     }
 
@@ -3886,7 +3885,7 @@ already_AddRefed<nsINode> nsINode::CloneAndAdopt(
           if (hadProperties) {
             // NOTE: When it fails it removes all properties for the node
             // anyway, so no extra error handling needed.
-            Unused << newDoc->PropertyTable().TransferOrRemoveAllPropertiesFor(
+            (void)newDoc->PropertyTable().TransferOrRemoveAllPropertiesFor(
                 aNode, oldDoc->PropertyTable());
           }
           aNode->mNodeInfo.swap(newNodeInfo);
@@ -4179,6 +4178,14 @@ ShadowRoot* nsINode::GetShadowRootForSelection() const {
   }
 
   return shadowRoot;
+}
+
+void nsINode::QueueAncestorRevealingAlgorithm() {
+  NS_DispatchToMainThread(NS_NewRunnableFunction(
+      "RevealAncestors",
+      [self = RefPtr{this}]() MOZ_CAN_RUN_SCRIPT_BOUNDARY_LAMBDA {
+        self->AncestorRevealingAlgorithm(IgnoreErrors());
+      }));
 }
 
 enum class RevealType : uint8_t {

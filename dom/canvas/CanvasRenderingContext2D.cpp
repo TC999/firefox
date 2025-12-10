@@ -51,7 +51,6 @@
 #include "mozilla/StaticPrefs_gfx.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/UniquePtr.h"
-#include "mozilla/Unused.h"
 #include "mozilla/dom/CanvasGradient.h"
 #include "mozilla/dom/CanvasPath.h"
 #include "mozilla/dom/CanvasPattern.h"
@@ -72,6 +71,7 @@
 #include "mozilla/dom/ToJSValue.h"
 #include "mozilla/dom/TypedArray.h"
 #include "mozilla/dom/VideoFrame.h"
+#include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/gfx/CanvasShutdownManager.h"
 #include "mozilla/gfx/DataSurfaceHelpers.h"
@@ -135,6 +135,8 @@ using namespace mozilla::gfx;
 using namespace mozilla::image;
 using namespace mozilla::ipc;
 using namespace mozilla::layers;
+
+static mozilla::LazyLogModule gFingerprinterDetection("FingerprinterDetection");
 
 namespace mozilla::dom {
 
@@ -1292,7 +1294,7 @@ CanvasRenderingContext2D::ColorStyleCacheEntry
 CanvasRenderingContext2D::ParseColorSlow(const nsACString& aString) {
   ColorStyleCacheEntry result{nsCString(aString)};
   Document* document = mCanvasElement ? mCanvasElement->OwnerDoc() : nullptr;
-  css::Loader* loader = document ? document->CSSLoader() : nullptr;
+  css::Loader* loader = document ? document->GetExistingCSSLoader() : nullptr;
 
   PresShell* presShell = GetPresShell();
   ServoStyleSet* set = presShell ? presShell->StyleSet() : nullptr;
@@ -2277,12 +2279,18 @@ UniquePtr<uint8_t[]> CanvasRenderingContext2D::GetImageBuffer(
 
   mBufferProvider->ReturnSnapshot(snapshot.forget());
 
-  if (ret && aExtractionBehavior == CanvasUtils::ImageExtraction::Randomize) {
-    nsRFPService::RandomizePixels(
-        GetCookieJarSettings(), PrincipalOrNull(), ret.get(),
-        out_imageSize->width, out_imageSize->height,
-        out_imageSize->width * out_imageSize->height * 4,
-        SurfaceFormat::A8R8G8B8_UINT32);
+  if (ret) {
+    nsRFPService::PotentiallyDumpImage(
+        PrincipalOrNull(), ret.get(), out_imageSize->width,
+        out_imageSize->height,
+        out_imageSize->width * out_imageSize->height * 4);
+    if (aExtractionBehavior == CanvasUtils::ImageExtraction::Randomize) {
+      nsRFPService::RandomizePixels(
+          GetCookieJarSettings(), PrincipalOrNull(), ret.get(),
+          out_imageSize->width, out_imageSize->height,
+          out_imageSize->width * out_imageSize->height * 4,
+          SurfaceFormat::A8R8G8B8_UINT32);
+    }
   }
 
   return ret;
@@ -2788,11 +2796,12 @@ void CanvasRenderingContext2D::SetShadowColor(const nsACString& aShadowColor) {
 //
 
 static already_AddRefed<StyleLockedDeclarationBlock> CreateDeclarationForServo(
-    nsCSSPropertyID aProperty, const nsACString& aPropertyValue,
+    NonCustomCSSPropertyId aProperty, const nsACString& aPropertyValue,
     Document* aDocument) {
   ServoCSSParser::ParsingEnvironment env{aDocument->DefaultStyleAttrURLData(),
                                          aDocument->GetCompatibilityMode(),
-                                         aDocument->CSSLoader()};
+                                         // Loader only for error reporting
+                                         aDocument->GetExistingCSSLoader()};
   RefPtr<StyleLockedDeclarationBlock> servoDeclarations =
       ServoCSSParser::ParseProperty(aProperty, aPropertyValue, env,
                                     StyleParsingMode::DEFAULT);
@@ -2973,7 +2982,7 @@ void CanvasRenderingContext2D::SetFilter(const nsACString& aFilter,
 }
 
 static already_AddRefed<const ComputedStyle> ResolveStyleForServo(
-    nsCSSPropertyID aProperty, const nsACString& aString,
+    NonCustomCSSPropertyId aProperty, const nsACString& aString,
     const ComputedStyle* aParentStyle, PresShell* aPresShell,
     ErrorResult& aError) {
   RefPtr<StyleLockedDeclarationBlock> declarations =
@@ -2992,8 +3001,8 @@ static already_AddRefed<const ComputedStyle> ResolveStyleForServo(
 }
 
 already_AddRefed<const ComputedStyle>
-CanvasRenderingContext2D::ResolveStyleForProperty(nsCSSPropertyID aProperty,
-                                                  const nsACString& aValue) {
+CanvasRenderingContext2D::ResolveStyleForProperty(
+    NonCustomCSSPropertyId aProperty, const nsACString& aValue) {
   RefPtr<PresShell> presShell = GetPresShell();
   if (NS_WARN_IF(!presShell)) {
     return nullptr;
@@ -4566,25 +4575,65 @@ void CanvasRenderingContext2D::FillText(const nsAString& aText, double aX,
                                         const Optional<double>& aMaxWidth,
                                         ErrorResult& aError) {
   // We try to match the most commonly observed strings used by canvas
-  // fingerprinting scripts. We do a prefix match, because that means having to
-  // match fewer bytes and sometimes the strings is followed by a few random
-  // characters.
-  // - Cwm fjordbank gly
-  //   Used by FingerprintJS
-  //   (https://github.com/fingerprintjs/fingerprintjs/blob/4c4b2c8455e701b8341b2b766d1939cf5de4b615/src/sources/canvas.ts#L119)
-  //   and others
-  // - Hel$&?6%){mZ+#@
-  // - <@nv45. F1n63r,Pr1n71n6!
-  // Usually there are at most a handful (usually ~1/2) fillText calls by
-  // fingerprinters
+  // fingerprinting scripts.
+  MOZ_LOG(gFingerprinterDetection, LogLevel::Verbose,
+          ("mFillTextCalls %i FillText: "
+           "\"%s\"\n",
+           mFillTextCalls, NS_ConvertUTF16toUTF8(aText).get()));
   if (mFillTextCalls <= 5) {
-    if (StringBeginsWith(aText, u"Cwm fjord"_ns) ||
-        StringBeginsWith(aText, u"Hel$&?6%"_ns) ||
-        StringBeginsWith(aText, u"<@nv45. "_ns)) {
-      mFeatureUsage |= CanvasFeatureUsage::KnownFingerprintText;
+    if (aText == u"Cwm fjordbank glyphs vext quiz, 😃"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_1;
+    } else if (aText == u"Cwm fjordbank gly 😃"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_1;
+    } else if (StringBeginsWith(aText, u"Hel$&?6%"_ns)) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_2;
+    } else if (StringBeginsWith(aText, u"<@nv45. "_ns)) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_3;
+    } else if (aText == u"Cañvas FP 😎 12345"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_4;
+    } else if (StringBeginsWith(aText, u"❤️🤪🎉👋"_ns)) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_5;
+    } else if (aText == u"SomeCanvasFingerPrint.65@345876"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_6;
+    } else if (aText == u"Browser,Signal <canvas> 2.0"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_7;
+    } else if (aText == u"@Browsers~%fingGPRint$&,<canvas>"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_8;
+    } else if (aText == u"M"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_9;
+    } else if (aText == u"E"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_10;
+    } else if (aText == u"g"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_11;
+    } else if (aText == u"Soft Ruddy Foothold 2"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_12;
+    } else if (aText == u"!H71JCaj)]# 1@#"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_13;
+    } else if (aText == u"oubrg5h56e@!$3t4"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_14;
+    } else if (aText == u"Cwm fjordbank glyphs vext quiz,"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_15;
+    } else if (aText == u"ClientJS,org <canvas> 1.0"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_16;
+    } else if (aText == u"IaID,org <canvas> 1.0"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_17;
+    } else if (aText == u"conviva"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_18;
+    } else if (aText == u"Random Text WMwmil10Oo"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_19;
+    } else if (aText == u"-0.5753861119575491"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_20;
+    } else if (aText == u"0.8178819121159085"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_21;
+    } else if (StringBeginsWith(aText, u"Cwm fjordbank"_ns)) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_22;
+    } else if (StringBeginsWith(aText, u"iO0A"_ns)) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_23;
+    } else if (aText == u"<@nv45. F1n63r,Pr1n71n6!"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_24;
     }
-    mFillTextCalls++;
   }
+  mFillTextCalls++;
 
   DebugOnly<UniquePtr<TextMetrics>> metrics = DrawOrMeasureText(
       aText, aX, aY, aMaxWidth, TextDrawOperation::FILL, aError);
@@ -4635,7 +4684,7 @@ struct MOZ_STACK_CLASS CanvasBidiProcessor final
     explicit PropertyProvider(const CanvasBidiProcessor& aProcessor)
         : mProcessor(aProcessor) {}
 
-    void GetSpacing(gfxTextRun::Range aRange,
+    bool GetSpacing(gfxTextRun::Range aRange,
                     gfxFont::Spacing* aSpacing) const {
       for (auto i = aRange.start; i < aRange.end; ++i) {
         auto* charGlyphs = mProcessor.mTextRun->GetCharacterGlyphs();
@@ -4647,10 +4696,10 @@ struct MOZ_STACK_CLASS CanvasBidiProcessor final
           // asymmetry seems unfortunate.
           if (mProcessor.mTextRun->IsRightToLeft()) {
             aSpacing->mAfter = 0;
-            aSpacing->mBefore = mProcessor.mLetterSpacing;
+            aSpacing->mBefore = NSToCoordRound(mProcessor.mLetterSpacing);
           } else {
             aSpacing->mBefore = 0;
-            aSpacing->mAfter = mProcessor.mLetterSpacing;
+            aSpacing->mAfter = NSToCoordRound(mProcessor.mLetterSpacing);
           }
         } else {
           aSpacing->mBefore = 0;
@@ -4658,13 +4707,14 @@ struct MOZ_STACK_CLASS CanvasBidiProcessor final
         }
         if (charGlyphs[i].CharIsSpace()) {
           if (mProcessor.mTextRun->IsRightToLeft()) {
-            aSpacing->mBefore += mProcessor.mWordSpacing;
+            aSpacing->mBefore += NSToCoordRound(mProcessor.mWordSpacing);
           } else {
-            aSpacing->mAfter += mProcessor.mWordSpacing;
+            aSpacing->mAfter += NSToCoordRound(mProcessor.mWordSpacing);
           }
         }
         aSpacing++;
       }
+      return mProcessor.mLetterSpacing != 0.0 || mProcessor.mWordSpacing != 0.0;
     }
 
     mozilla::StyleHyphens GetHyphensOption() const {
@@ -5300,11 +5350,18 @@ gfxFontGroup* CanvasRenderingContext2D::GetCurrentFontStyle() {
   nsPresContext* presContext =
       presShell ? presShell->GetPresContext() : nullptr;
 
+  FontVisibilityProvider* visProvider = nullptr;
+  if (presContext) {
+    visProvider = presContext;
+  } else {
+    visProvider = mOffscreenCanvas;
+  }
+
   // If we have a cached fontGroup, check that it is valid for the current
-  // prescontext; if not, we need to discard and re-create it.
+  // prescontext or canvas; if not, we need to discard and re-create it.
   RefPtr<gfxFontGroup>& fontGroup = CurrentState().fontGroup;
   if (fontGroup) {
-    if (fontGroup->GetFontVisibilityProvider() != presContext) {
+    if (fontGroup->GetFontVisibilityProvider() != visProvider) {
       fontGroup = nullptr;
     }
   }
@@ -5332,7 +5389,7 @@ gfxFontGroup* CanvasRenderingContext2D::GetCurrentFontStyle() {
       const auto* sans =
           Servo_FontFamily_Generic(StyleGenericFontFamily::SansSerif);
       fontGroup = new gfxFontGroup(
-          presContext, sans->families, &style, language, explicitLanguage,
+          visProvider, sans->families, &style, language, explicitLanguage,
           presContext ? presContext->GetTextPerfMetrics() : nullptr, nullptr,
           devToCssSize, StyleFontVariantEmoji::Normal);
       if (fontGroup) {
@@ -6372,8 +6429,8 @@ void CanvasRenderingContext2D::DrawWindow(nsGlobalWindowInner& aWindow,
 
   RefPtr<PresShell> presShell = presContext->PresShell();
 
-  Unused << presShell->RenderDocument(r, renderDocFlags, *backgroundColor,
-                                      &thebes.ref());
+  (void)presShell->RenderDocument(r, renderDocFlags, *backgroundColor,
+                                  &thebes.ref());
   // If this canvas was contained in the drawn window, the pre-transaction
   // callback may have returned its DT. If so, we must reacquire it here.
   if (!EnsureTarget(aError, discardContent ? &drawRect : nullptr)) {
@@ -6460,6 +6517,8 @@ already_AddRefed<ImageData> CanvasRenderingContext2D::GetImageData(
   if (h == 0) {
     h = 1;
   }
+
+  RecordCanvasUsage(CanvasExtractionAPI::GetImageData, CSSIntSize(w, h));
 
   JS::Rooted<JSObject*> array(aCx);
   aError = GetImageDataArray(aCx, aSx, aSy, w, h, aSubjectPrincipal,
@@ -6559,6 +6618,10 @@ nsresult CanvasRenderingContext2D::GetImageDataArray(
 
   do {
     uint8_t* randomData;
+    const IntSize size = readback->GetSize();
+    nsRFPService::PotentiallyDumpImage(PrincipalOrNull(), rawData.mData,
+                                       size.width, size.height,
+                                       size.height * size.width * 4);
     if (extractionBehavior == CanvasUtils::ImageExtraction::Placeholder) {
       // Since we cannot call any GC-able functions (like requesting the RNG
       // service) after we call JS_GetUint8ClampedArrayData, we will
@@ -6569,7 +6632,6 @@ nsresult CanvasRenderingContext2D::GetImageDataArray(
       // need to calculate random noises if we are going to use the place
       // holder.
 
-      const IntSize size = readback->GetSize();
       nsRFPService::RandomizePixels(GetCookieJarSettings(), PrincipalOrNull(),
                                     rawData.mData, size.width, size.height,
                                     size.height * size.width * 4,

@@ -273,10 +273,8 @@ class RuntimeSettingsTest : BaseSessionTest() {
 
         val sanitizedDefaultLargeKeepaliveFactor = 1
 
-        /**
-         * Setting an invalid factor will cause an exception to be throw in debug build.
-         * otherwise, the factor will be reset to default when an invalid factor is given.
-         */
+        // Setting an invalid factor will cause an exception to be throw in debug build.
+        // otherwise, the factor will be reset to default when an invalid factor is given.
         try {
             settings.setLargeKeepaliveFactor(128)
             prefValue = (sessionRule.getPrefs(largeKeepaliveFactorPref)[0] as Int)
@@ -1033,6 +1031,43 @@ class RuntimeSettingsTest : BaseSessionTest() {
             "The security.pki.crlite_channel preference should be set to the correct string",
             crlitePreference,
             equalTo(crliteChannel),
+        )
+    }
+
+    @Test
+    fun safeBrowsingV5Enabled() {
+        val geckoRuntimeSettings = sessionRule.runtime.settings
+
+        // Read the default pref value.
+        var defaultPrefValue =
+            (sessionRule.getPrefs("browser.safebrowsing.provider.google5.enabled").get(0)) as Boolean
+
+        // Verify the Safe Browsing V5 enabled setting matches the default
+        // pref value.
+        assertThat(
+            "Safe Browsing V5 enabled pref should match setting",
+            geckoRuntimeSettings.contentBlocking.safeBrowsingV5Enabled,
+            equalTo(defaultPrefValue),
+        )
+
+        // Set the Safe Browsing V5 setting.
+        geckoRuntimeSettings.contentBlocking.setSafeBrowsingV5Enabled(!defaultPrefValue)
+
+        // Verify the Safe Browsing V5 enabled setting does change.
+        assertThat(
+            "Safe Browsing V5 enabled pref should match setting",
+            geckoRuntimeSettings.contentBlocking.safeBrowsingV5Enabled,
+            equalTo(!defaultPrefValue),
+        )
+
+        // Verify the Safe Browsing V5 enabled pref does change.
+        var enabled =
+            (sessionRule.getPrefs("browser.safebrowsing.provider.google5.enabled").get(0)) as Boolean
+
+        assertThat(
+            "Safe Browsing V5 enabled pref should match setting",
+            enabled,
+            equalTo(!defaultPrefValue),
         )
     }
 }

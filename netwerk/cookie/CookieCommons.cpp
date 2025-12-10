@@ -9,7 +9,6 @@
 #include "CookieParser.h"
 #include "CookieService.h"
 #include "mozilla/ContentBlockingNotifier.h"
-#include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/StorageAccess.h"
 #include "mozilla/dom/nsMixedContentBlocker.h"
@@ -19,7 +18,6 @@
 #include "mozilla/dom/WorkerCommon.h"
 #include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/net/CookieJarSettings.h"
-#include "mozilla/Unused.h"
 #include "mozIThirdPartyUtil.h"
 #include "nsContentUtils.h"
 #include "nsICookiePermission.h"
@@ -425,9 +423,10 @@ already_AddRefed<Cookie> CookieCommons::CreateCookieFromDocument(
       aCookieParser.CookieData(), cookiePrincipal->OriginAttributesRef());
   MOZ_ASSERT(cookie);
 
-  cookie->SetLastAccessed(currentTimeInUsec);
-  cookie->SetCreationTime(
-      Cookie::GenerateUniqueCreationTime(currentTimeInUsec));
+  cookie->SetLastAccessedInUSec(currentTimeInUsec);
+  cookie->SetCreationTimeInUSec(
+      Cookie::GenerateUniqueCreationTimeInUSec(currentTimeInUsec));
+  cookie->SetUpdateTimeInUSec(cookie->CreationTimeInUSec());
 
   aBaseDomain = baseDomain;
   aAttrs = cookiePrincipal->OriginAttributesRef();
@@ -995,7 +994,7 @@ void CookieCommons::GetServerDateHeader(nsIChannel* aChannel,
     return;
   }
 
-  Unused << channel->GetResponseHeader("Date"_ns, aServerDateHeader);
+  (void)channel->GetResponseHeader("Date"_ns, aServerDateHeader);
 }
 
 // static

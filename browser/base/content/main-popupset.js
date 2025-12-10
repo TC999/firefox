@@ -24,6 +24,18 @@ document.addEventListener(
         case "context_ungroupTab":
           TabContextMenu.ungroupTabs();
           break;
+        case "context_moveSplitViewToNewGroup":
+          TabContextMenu.moveSplitViewToNewGroup();
+          break;
+        case "context_ungroupSplitView":
+          TabContextMenu.ungroupSplitViews();
+          break;
+        case "context_moveTabToSplitView":
+          TabContextMenu.moveTabsToSplitView();
+          break;
+        case "context_separateSplitView":
+          TabContextMenu.unsplitTabs();
+          break;
         case "context_reloadTab":
           gBrowser.reloadTab(TabContextMenu.contextTab);
           break;
@@ -71,6 +83,10 @@ document.addEventListener(
           break;
         case "context_bookmarkTab":
           PlacesCommandHook.bookmarkTabs([TabContextMenu.contextTab]);
+          break;
+        case "context_addNote":
+        case "context_editNote":
+          gBrowser.tabNoteMenu.openPanel(TabContextMenu.contextTab);
           break;
         case "context_moveToStart":
           gBrowser.moveTabsToStart(TabContextMenu.contextTab);
@@ -495,8 +511,10 @@ document.addEventListener(
           ToolbarContextMenu.updateDownloadsAlwaysOpenPanel(event.target);
           ToolbarContextMenu.updateExtensionsButtonContextMenu(event.target);
           ToolbarContextMenu.updateExtension(event.target);
-          // hideLeadingSeparatorIfNeeded must be called last after updating the menu items above,
+
+          // The following methods must be called last after updating the menu items above,
           // as they may change which items are visible.
+          ToolbarContextMenu.updateCustomizationItemsVisibility(event.target);
           ToolbarContextMenu.hideLeadingSeparatorIfNeeded(event.target);
           break;
         case "pageActionContextMenu":
@@ -520,6 +538,12 @@ document.addEventListener(
           break;
         case "bhTooltip":
           BookmarksEventHandler.fillInBHTooltip(event.target, event);
+          break;
+        case "tabContextMenu":
+          TabContextMenu.addNewBadge();
+          break;
+        case "moveTabOptionsMenu":
+          gProfiles.populateMoveTabMenu(event.target);
           break;
       }
     });

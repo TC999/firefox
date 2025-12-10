@@ -100,6 +100,12 @@ using namespace js::wasm;
 #      define RLR_sig(p) ((p)->sc_lr)
 #      define R31_sig(p) ((p)->sc_sp)
 #    endif
+#    if defined(__riscv)
+#      define RPC_sig(p) ((p)->sc_sepc)
+#      define RRA_sig(p) ((p)->sc_ra)
+#      define RFP_sig(p) ((p)->sc_s[0])
+#      define R02_sig(p) ((p)->sc_sp)
+#    endif
 #    if defined(__mips__)
 #      define EPC_sig(p) ((p)->sc_pc)
 #      define RFP_sig(p) ((p)->sc_regs[30])
@@ -993,6 +999,7 @@ bool wasm::MemoryAccessTraps(const RegisterState& regs, uint8_t* addr,
     case Trap::OutOfBounds:
       break;
     case Trap::NullPointerDereference:
+    case Trap::BadCast:
       break;
 #  ifdef WASM_HAS_HEAPREG
     case Trap::IndirectCallToNull:
@@ -1015,6 +1022,7 @@ bool wasm::MemoryAccessTraps(const RegisterState& regs, uint8_t* addr,
       }
       break;
     case Trap::NullPointerDereference:
+    case Trap::BadCast:
       if ((uintptr_t)addr >= NullPtrGuardSize) {
         return false;
       }

@@ -11,7 +11,6 @@
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/TimeStamp.h"
-#include "mozilla/Variant.h"
 #include "mozilla/XorShift128PlusRNG.h"
 
 #include <stddef.h>
@@ -216,13 +215,18 @@ class PropertyIteratorObject;
 
 struct IteratorHashPolicy {
   struct Lookup {
-    Shape** shapes;
-    size_t numShapes;
+    Shape* objShape;
+    Shape** protoShapes;
+    size_t numProtoShapes;
     HashNumber shapesHash;
 
-    Lookup(Shape** shapes, size_t numShapes, HashNumber shapesHash)
-        : shapes(shapes), numShapes(numShapes), shapesHash(shapesHash) {
-      MOZ_ASSERT(numShapes > 0);
+    Lookup(Shape* objShape, Shape** protoShapes, size_t numProtoShapes,
+           HashNumber shapesHash)
+        : objShape(objShape),
+          protoShapes(protoShapes),
+          numProtoShapes(numProtoShapes),
+          shapesHash(shapesHash) {
+      MOZ_ASSERT(objShape);
     }
   };
   static HashNumber hash(const Lookup& lookup) { return lookup.shapesHash; }
@@ -912,9 +916,9 @@ class MOZ_RAII AssertRealmUnchanged {
   JS::Realm* const oldRealm;
 };
 
-// AutoRealm can be used to enter the realm of a JSObject, JSScript or
-// ObjectGroup. It must not be used with cross-compartment wrappers, because
-// CCWs are not associated with a single realm.
+// AutoRealm can be used to enter the realm of a JSObject or JSScript. It must
+// not be used with cross-compartment wrappers, because CCWs are not associated
+// with a single realm.
 class AutoRealm {
   JSContext* const cx_;
   JS::Realm* const origin_;
@@ -947,8 +951,7 @@ class MOZ_RAII AutoAllocInAtomsZone {
 };
 
 // During GC we sometimes need to enter a realm when we may have been allocating
-// in the the atoms zone. This leaves the atoms zone temporarily. This happens
-// in embedding callbacks and when we need to mark object groups as pretenured.
+// in the the atoms zone. This leaves the atoms zone temporarily.
 class MOZ_RAII AutoMaybeLeaveAtomsZone {
   JSContext* const cx_;
   bool wasInAtomsZone_;

@@ -6,7 +6,6 @@
 
 #include "gc/BufferAllocator-inl.h"
 
-#include "mozilla/PodOperations.h"
 #include "mozilla/ScopeExit.h"
 
 #ifdef XP_DARWIN
@@ -805,6 +804,11 @@ void BufferAllocator::markSmallNurseryOwnedBuffer(void* alloc,
   MOZ_ASSERT(region->hasNurseryOwnedAllocs());
   MOZ_ASSERT(region->isNurseryOwned(alloc));
 
+  if (region->isMarked(alloc)) {
+    MOZ_ASSERT(nurseryOwned);
+    return;
+  }
+
   if (!nurseryOwned) {
     region->setNurseryOwned(alloc, false);
     // If all nursery owned allocations in the region were tenured then
@@ -823,7 +827,11 @@ void BufferAllocator::markMediumNurseryOwnedBuffer(void* alloc,
   MOZ_ASSERT(chunk->hasNurseryOwnedAllocs);
   MOZ_ASSERT(chunk->isAllocated(alloc));
   MOZ_ASSERT(chunk->isNurseryOwned(alloc));
-  MOZ_ASSERT(!chunk->isMarked(alloc));
+
+  if (chunk->isMarked(alloc)) {
+    MOZ_ASSERT(nurseryOwned);
+    return;
+  }
 
   size_t size = chunk->allocBytes(alloc);
   increaseHeapSize(size, nurseryOwned, false, false);
@@ -846,6 +854,7 @@ void BufferAllocator::markLargeNurseryOwnedBuffer(LargeBuffer* buffer,
   // been marked.
   auto* region = SmallBufferRegion::from(buffer);
   MOZ_ASSERT(region->isNurseryOwned(buffer));
+
   if (region->isMarked(buffer)) {
     MOZ_ASSERT(nurseryOwned);
     return;
@@ -2131,6 +2140,10 @@ void* BufferAllocator::bumpAlloc(size_t bytes, size_t sizeClass,
 
   void* ptr = allocFromRegion(region, bytes, sizeClass);
   updateFreeListsAfterAlloc(&freeLists.ref(), region, sizeClass);
+
+  DebugOnlyPoison(ptr, JS_ALLOCATED_BUFFER_PATTERN, bytes,
+                  MemCheckKind::MakeUndefined);
+
   return ptr;
 }
 

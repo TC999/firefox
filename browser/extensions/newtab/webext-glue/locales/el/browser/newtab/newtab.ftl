@@ -407,7 +407,7 @@ newtab-wallpaper-abstract-purple-green = Διαβάθμιση μοβ και πρ
 newtab-wallpaper-abstract-blue-purple-waves = Μπλε και μοβ κυματιστές μορφές
 newtab-wallpaper-abstract-black-waves = Μαύρες κυματιστές μορφές
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Φωτογραφίες
 newtab-wallpaper-beach-at-sunrise = Παραλία στην ανατολή του ήλιου
@@ -436,6 +436,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -481,6 +485,7 @@ newtab-weather-menu-learn-more = Μάθετε περισσότερα
 newtab-weather-menu-detect-my-location = Εντοπισμός τοποθεσίας
 # This message is shown if user is working offline
 newtab-weather-error-not-available = Τα δεδομένα καιρού δεν είναι διαθέσιμα αυτήν τη στιγμή.
+newtab-weather-opt-in-see-weather = Θέλετε να δείτε τον καιρό για την τοποθεσία σας;
 newtab-weather-opt-in-not-now =
     .label = Όχι τώρα
 newtab-weather-opt-in-yes =
@@ -663,24 +668,31 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Νέα λίστα
+newtab-widget-section-title = Γραφικά στοιχεία
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Απόκρυψη widgets
+    .aria-label = Απόκρυψη όλων των widgets
+newtab-widget-section-maximize =
+    .title = Ανάπτυξη λίστας widgets
+    .aria-label = Ανάπτυξη όλων των widgets σε πλήρη μέγεθος
+newtab-widget-section-minimize =
+    .title = Ελαχιστοποίηση γραφικών στοιχείων
+    .aria-label = Σύμπτυξη όλων των γραφικών στοιχείων σε μικρό μέγεθος
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
 
 newtab-widget-timer-notification-title = Αντίστροφη μέτρηση
-newtab-widget-timer-notification-focus = Ο χρόνος συγκέντρωσης τελείωσε. Καλή δουλειά. Χρειάζεστε διάλειμμα;
+newtab-widget-timer-notification-focus = Ο χρόνος συγκέντρωσης τελείωσε. Πολύ καλή δουλειά! Χρειάζεστε ένα διάλειμμα;
 newtab-widget-timer-notification-break = Το διάλειμμά σας τελείωσε. Έτοιμοι για συγκέντρωση;
 newtab-widget-timer-notification-warning = Οι ειδοποιήσεις είναι ανενεργές
 newtab-widget-timer-mode-focus =
     .label = Συγκέντρωση
 newtab-widget-timer-mode-break =
     .label = Διάλειμμα
-newtab-widget-timer-play =
-    .title = Αναπαραγωγή
-newtab-widget-timer-pause =
-    .title = Παύση
 newtab-widget-timer-label-play =
-    .label = Αναπαραγωγή
+    .label = Έναρξη
 newtab-widget-timer-label-pause =
     .label = Παύση
 newtab-widget-timer-reset =
@@ -689,8 +701,6 @@ newtab-widget-timer-menu-notifications = Απενεργοποίηση ειδοπ
 newtab-widget-timer-menu-notifications-on = Ενεργοποίηση ειδοποιήσεων
 newtab-widget-timer-menu-hide = Απόκρυψη αντίστροφης μέτρησης
 newtab-widget-timer-menu-learn-more = Μάθετε περισσότερα
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Κάντε κύλιση για περισσότερα
 newtab-widget-message-title = Παραμείνετε συγκεντρωμένοι με τις λίστες και την ενσωματωμένη αντίστροφη μέτρηση
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Από γρήγορες υπενθυμίσεις έως καθημερινές υποχρεώσεις, συνεδρίες συγκέντρωσης έως διαλείμματα: επικεντρωθείτε και ολοκληρώστε τις εργασίες σας εγκαίρως.

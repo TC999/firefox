@@ -56,7 +56,7 @@ class GitRepository(Repository):
     """An implementation of `Repository` for Git repositories."""
 
     def __init__(self, path: Path, git="git"):
-        super(GitRepository, self).__init__(path, tool=git)
+        super().__init__(path, tool=git)
 
     @property
     def name(self):
@@ -187,6 +187,12 @@ class GitRepository(Repository):
             return None
         return email.strip()
 
+    def get_user_name(self):
+        name = self._run("config", "user.name", return_codes=[0, 1])
+        if not name:
+            return None
+        return name.strip()
+
     def get_changed_files(self, diff_filter="ADM", mode="unstaged", rev=None):
         assert all(f.lower() in self._valid_diff_filter for f in diff_filter)
 
@@ -267,7 +273,7 @@ class GitRepository(Repository):
         if pattern.startswith("^"):
             magics += ["top"]
             pattern = pattern[1:]
-        return ":({0}){1}".format(",".join(magics), pattern)
+        return ":({}){}".format(",".join(magics), pattern)
 
     def diff_stream(self, rev=None, extensions=(), exclude_file=None, context=8):
         commit_range = "HEAD"  # All uncommitted changes.
@@ -684,3 +690,39 @@ class GitRepository(Repository):
             print(f"Copying {watchman_sample} to {watchman_config}")
             subprocess.check_call(copy_cmd, cwd=str(self.path))
         self.set_config_key_value(key="core.fsmonitor", value=str(watchman_config))
+
+    def get_patches_after_ref(self, base_ref) -> str:
+        """
+        Retrieve git format-patch style patches of all commits that occurred
+        after `base_ref`.
+        """
+        return self._run("format-patch", f"{base_ref}..HEAD", "--stdout")
+
+    def get_patch_for_uncommitted_changes(
+        self, message: str = "[PATCH] Uncommitted changes", date: datetime = None
+    ) -> str:
+        """
+        Generate a git format-patch style patch of all uncommitted changes in
+        the working directory.
+        """
+        diff = self._run("diff", "--no-color", "HEAD")
+        if not diff.strip():
+            return ""
+
+        if not date:
+            date = datetime.now()
+
+        name = self.get_user_name()
+        email = self.get_user_email()
+        formatted_date = date.strftime("%a %b %d %H:%M:%S %Y %z")
+
+        patch = [
+            "From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001",
+            f"From: {name} <{email}>",
+            f"Date: {formatted_date}",
+            f"Subject: {message}",
+            "\n---\n",
+            diff,
+        ]
+
+        return "\n".join(patch)

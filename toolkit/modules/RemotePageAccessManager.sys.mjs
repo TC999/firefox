@@ -56,7 +56,7 @@ export let RemotePageAccessManager = {
         "services.settings.last_update_seconds",
       ],
       RPMGetAppBuildID: ["*"],
-      RPMGetInnerMostURI: ["*"],
+      RPMGetHostForDisplay: ["*"],
       RPMIsWindowPrivate: ["*"],
     },
     "about:home": {
@@ -73,6 +73,18 @@ export let RemotePageAccessManager = {
     },
     "about:certificate": {
       RPMSendQuery: ["getCertificates"],
+    },
+    "about:keyboard": {
+      RPMAddMessageListener: ["CustomKeys:CapturedKey"],
+      RPMSendAsyncMessage: ["CustomKeys:CaptureKey"],
+      RPMSendQuery: [
+        "CustomKeys:ChangeKey",
+        "CustomKeys:ClearKey",
+        "CustomKeys:GetDefaultKey",
+        "CustomKeys:GetKeys",
+        "CustomKeys:ResetAll",
+        "CustomKeys:ResetKey",
+      ],
     },
     "about:neterror": {
       RPMSendAsyncMessage: [
@@ -98,7 +110,7 @@ export let RemotePageAccessManager = {
         "security.certerror.hideAddException",
         "security.certerrors.felt-privacy-v1",
       ],
-      RPMGetInnerMostURI: ["*"],
+      RPMGetHostForDisplay: ["*"],
       RPMGetHttpResponseHeader: ["*"],
       RPMIsTRROnlyFailure: ["*"],
       RPMIsFirefox: ["*"],
@@ -143,6 +155,7 @@ export let RemotePageAccessManager = {
         "Profiles:GetEditProfileContent",
         "Profiles:UpdateProfileTheme",
         "Profiles:UpdateProfileAvatar",
+        "Profiles:SetDesktopShortcut",
       ],
       RPMSendAsyncMessage: [
         "Profiles:UpdateProfileName",
@@ -200,6 +213,7 @@ export let RemotePageAccessManager = {
         "browser.contentblocking.report.proxy.enabled",
         "privacy.trackingprotection.cryptomining.enabled",
         "privacy.trackingprotection.fingerprinting.enabled",
+        "privacy.trackingprotection.harmfuladdon.enabled",
         "privacy.trackingprotection.enabled",
         "privacy.trackingprotection.socialtracking.enabled",
         "browser.contentblocking.report.show_mobile_app",
@@ -234,6 +248,10 @@ export let RemotePageAccessManager = {
         "browser.contentblocking.report.cryptominer.url",
       ],
       RPMRecordGleanEvent: ["securityUiProtections"],
+    },
+    "about:restricted": {
+      RPMSendAsyncMessage: ["goBack"],
+      RPMGetBoolPref: ["security.restrict_to_adults.always"],
     },
     "about:tabcrashed": {
       RPMSendAsyncMessage: ["Load", "closeTab", "restoreTab", "restoreAll"],

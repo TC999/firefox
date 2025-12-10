@@ -4,9 +4,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/DebugOnly.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/ProfilerLabels.h"
 #include "mozilla/TextUtils.h"
 #include "mozilla/UniquePtrExtensions.h"
@@ -207,7 +207,22 @@ bool nsLocalFile::CheckForReservedFileName(const nsString& aFileName) {
 bool nsLocalFile::ChildAclMatchesAclInheritedFromParent(
     const NotNull<ACL*> aChildDacl, bool aIsChildDir,
     const AutoFreeSecurityDescriptor& aChildSecDesc, nsIFile* aParentDir) {
-  // If we fail at any point return false.
+  // If the child inherits no ACEs or we fail at any point return false.
+  auto getInheritedAceCount = [](const ACL* aAcl) {
+    AclAceRange aclAceRange(WrapNotNull(aAcl));
+    return std::count_if(
+        aclAceRange.begin(), aclAceRange.end(),
+        [](const auto& hdr) { return hdr.AceFlags & INHERITED_ACE; });
+  };
+
+  auto childInheritedCount = getInheritedAceCount(aChildDacl);
+  if (childInheritedCount == 0) {
+    // This could happen if aParentDir has no inheritable ACEs, but that should
+    // be rare and returning false here ensures that the file will get its ACL
+    // reset to inherit in case the parent gets inheritable ACEs added later.
+    return false;
+  }
+
   ACL* parentDacl = nullptr;
   AutoFreeSecurityDescriptor parentSecDesc;
   nsAutoString parentPath;
@@ -260,14 +275,7 @@ bool nsLocalFile::ChildAclMatchesAclInheritedFromParent(
     return false;
   }
 
-  auto getInheritedAceCount = [](const ACL* aAcl) {
-    AclAceRange aclAceRange(WrapNotNull(aAcl));
-    return std::count_if(
-        aclAceRange.begin(), aclAceRange.end(),
-        [](const auto& hdr) { return hdr.AceFlags & INHERITED_ACE; });
-  };
-
-  return getInheritedAceCount(aChildDacl) == getInheritedAceCount(newDacl);
+  return childInheritedCount == getInheritedAceCount(newDacl);
 }
 
 class nsDriveEnumerator : public nsSimpleEnumerator,
@@ -1867,9 +1875,11 @@ nsresult nsLocalFile::MoveOrCopyAsSingleFileOrDir(nsIFile* aDestParent,
     return NS_ERROR_FILE_ACCESS_DENIED;
   }
 
-  // Determine if we are a directory before any move/copy.
-  bool isDir = false;
-  MOZ_ALWAYS_SUCCEEDS(IsDirectory(&isDir));
+  // Attempt to determine if we are a directory before any move/copy.
+  auto isDir = Some(false);
+  if (NS_FAILED(IsDirectory(isDir.ptr()))) {
+    isDir.reset();
+  }
 
   int copyOK = 0;
   if (move) {
@@ -1936,15 +1946,14 @@ nsresult nsLocalFile::MoveOrCopyAsSingleFileOrDir(nsIFile* aDestParent,
       // within the same volume. We check this to prevent unnecessary calls to
       // SetNamedSecurityInfoW, this avoids a request for SeTcbPrivilege, which
       // can cause a lot of audit events if enabled (Bug 1816694).
-      if (!ChildAclMatchesAclInheritedFromParent(WrapNotNull(childDacl), isDir,
+      if (isDir.isNothing() ||
+          !ChildAclMatchesAclInheritedFromParent(WrapNotNull(childDacl), *isDir,
                                                  childSecDesc, aDestParent)) {
-        // We don't expect this to fail, but it shouldn't crash in release.
-        MOZ_ALWAYS_TRUE(
-            ERROR_SUCCESS ==
-            ::SetNamedSecurityInfoW(destPath.get(), SE_FILE_OBJECT,
-                                    DACL_SECURITY_INFORMATION |
-                                        UNPROTECTED_DACL_SECURITY_INFORMATION,
-                                    nullptr, nullptr, childDacl, nullptr));
+        // This may fail if the destination file is not available.
+        ::SetNamedSecurityInfoW(
+            destPath.get(), SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | UNPROTECTED_DACL_SECURITY_INFORMATION,
+            nullptr, nullptr, childDacl, nullptr);
       }
     }
   }

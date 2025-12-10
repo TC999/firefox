@@ -10,13 +10,13 @@
 
 #include "rtc_base/openssl_adapter.h"
 
-#include <errno.h>
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <openssl/ssl3.h>
 #include <openssl/x509.h>
 
+#include <cerrno>
 #include <cstdint>
 #include <cstring>
 #include <ctime>
@@ -1002,7 +1002,7 @@ std::string TransformAlpnProtocols(
   // each protocol.
   std::string transformed_alpn;
   for (const std::string& proto : alpn_protocols) {
-    if (proto.size() == 0 || proto.size() > 0xFF) {
+    if (proto.empty() || proto.size() > 0xFF) {
       RTC_LOG(LS_ERROR) << "OpenSSLAdapter::Error("
                            "TransformAlpnProtocols received proto with size "
                         << proto.size() << ")";

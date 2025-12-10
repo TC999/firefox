@@ -13,8 +13,10 @@
 
 #include "mozilla/dom/ScriptLoadContext.h"  // ScriptLoadContext
 #include "jsfriendapi.h"
-#include "js/Modules.h"       // JS::{Get,Set}ModulePrivate
-#include "LoadContextBase.h"  // LoadContextBase
+#include "js/Modules.h"                 // JS::{Get,Set}ModulePrivate
+#include "js/experimental/JSStencil.h"  // JS::SizeOfStencil
+#include "LoadContextBase.h"            // LoadContextBase
+#include "nsIChannel.h"                 // nsIChannel
 
 namespace JS::loader {
 
@@ -28,8 +30,19 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(LoadedScript)
   NS_INTERFACE_MAP_ENTRY(nsISupports)
 NS_INTERFACE_MAP_END
 
-NS_IMPL_CYCLE_COLLECTION(LoadedScript, mFetchOptions, mURI, mBaseURL,
-                         mCacheInfo)
+// LoadedScript can be accessed from multiple threads.
+//
+// For instance, worker script loader passes the ScriptLoadRequest and
+// the associated LoadedScript to the main thread to perform the actual load.
+// Even while it's handled by the main thread, the LoadedScript is
+// the target of the worker thread's cycle collector.
+//
+// Fields that can be modified by other threads shouldn't be touched by
+// the cycle collection.
+//
+// NOTE: nsIURI doesn't have to be touched here because it cannot be a part
+//       of cycle.
+NS_IMPL_CYCLE_COLLECTION(LoadedScript, mFetchOptions, mCacheInfo)
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(LoadedScript)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(LoadedScript)
@@ -40,7 +53,9 @@ LoadedScript::LoadedScript(ScriptKind aKind,
     : mDataType(DataType::eUnknown),
       mKind(aKind),
       mReferrerPolicy(aReferrerPolicy),
-      mBytecodeOffset(0),
+      mSerializedStencilOffset(0),
+      mCacheEntryId(InvalidCacheEntryId),
+      mIsDirty(false),
       mFetchOptions(aFetchOptions),
       mURI(aURI),
       mReceivedScriptTextLength(0) {
@@ -49,10 +64,12 @@ LoadedScript::LoadedScript(ScriptKind aKind,
 }
 
 LoadedScript::LoadedScript(const LoadedScript& aOther)
-    : mDataType(DataType::eStencil),
+    : mDataType(DataType::eCachedStencil),
       mKind(aOther.mKind),
       mReferrerPolicy(aOther.mReferrerPolicy),
-      mBytecodeOffset(0),
+      mSerializedStencilOffset(0),
+      mCacheEntryId(aOther.mCacheEntryId),
+      mIsDirty(aOther.mIsDirty),
       mFetchOptions(aOther.mFetchOptions),
       mURI(aOther.mURI),
       mBaseURL(aOther.mBaseURL),
@@ -60,12 +77,12 @@ LoadedScript::LoadedScript(const LoadedScript& aOther)
       mStencil(aOther.mStencil) {
   MOZ_ASSERT(mFetchOptions);
   MOZ_ASSERT(mURI);
-  // NOTE: This is only for the stencil case.
-  //       The script text and the bytecode are not reflected.
-  MOZ_DIAGNOSTIC_ASSERT(aOther.mDataType == DataType::eStencil);
+  // NOTE: This is only for the cached stencil case.
+  //       The script text and the serialized stencil are not reflected.
+  MOZ_DIAGNOSTIC_ASSERT(aOther.mDataType == DataType::eCachedStencil);
   MOZ_DIAGNOSTIC_ASSERT(mStencil);
   MOZ_ASSERT(!mScriptData);
-  MOZ_ASSERT(mScriptBytecode.empty());
+  MOZ_ASSERT(mSRIAndSerializedStencil.empty());
 }
 
 LoadedScript::~LoadedScript() {
@@ -118,9 +135,12 @@ size_t LoadedScript::SizeOfIncludingThis(
     }
   }
 
-  bytes += mScriptBytecode.sizeOfExcludingThis(aMallocSizeOf);
+  bytes += mSRIAndSerializedStencil.sizeOfExcludingThis(aMallocSizeOf);
 
-  // NOTE: Stencil is reported by SpiderMonkey.
+  if (mStencil) {
+    bytes += JS::SizeOfStencil(mStencil, aMallocSizeOf);
+  }
+
   return bytes;
 }
 
@@ -199,6 +219,22 @@ nsresult LoadedScript::GetScriptSource(JSContext* aCx,
   return NS_OK;
 }
 
+static bool IsInternalURIScheme(nsIURI* uri) {
+  return uri->SchemeIs("moz-extension") || uri->SchemeIs("resource") ||
+         uri->SchemeIs("moz-src") || uri->SchemeIs("chrome");
+}
+
+void LoadedScript::SetBaseURLFromChannelAndOriginalURI(nsIChannel* aChannel,
+                                                       nsIURI* aOriginalURI) {
+  // Fixup moz-extension: and resource: URIs, because the channel URI will
+  // point to file:, which won't be allowed to load.
+  if (aOriginalURI && IsInternalURIScheme(aOriginalURI)) {
+    mBaseURL = aOriginalURI;
+  } else {
+    aChannel->GetURI(getter_AddRefs(mBaseURL));
+  }
+}
+
 inline void CheckModuleScriptPrivate(LoadedScript* script,
                                      const Value& aPrivate) {
 #ifdef DEBUG
@@ -251,6 +287,16 @@ ClassicScript::ClassicScript(mozilla::dom::ReferrerPolicy aReferrerPolicy,
 }
 
 //////////////////////////////////////////////////////////////
+// ImportMapScript
+//////////////////////////////////////////////////////////////
+
+ImportMapScript::ImportMapScript(mozilla::dom::ReferrerPolicy aReferrerPolicy,
+                                 ScriptFetchOptions* aFetchOptions,
+                                 nsIURI* aURI)
+    : LoadedScript(ScriptKind::eImportMap, aReferrerPolicy, aFetchOptions,
+                   aURI) {}
+
+//////////////////////////////////////////////////////////////
 // ModuleScript
 //////////////////////////////////////////////////////////////
 
@@ -262,6 +308,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(ModuleScript, LoadedScript)
   tmp->UnlinkModuleRecord();
   tmp->mParseError.setUndefined();
   tmp->mErrorToRethrow.setUndefined();
+  tmp->DropDiskCacheReference();
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(ModuleScript, LoadedScript)
@@ -291,13 +338,13 @@ ModuleScript::ModuleScript(const LoadedScript& aOther) : LoadedScript(aOther) {
 already_AddRefed<ModuleScript> ModuleScript::FromCache(
     const LoadedScript& aScript) {
   MOZ_DIAGNOSTIC_ASSERT(aScript.IsModuleScript());
-  MOZ_DIAGNOSTIC_ASSERT(aScript.IsStencil());
+  MOZ_DIAGNOSTIC_ASSERT(aScript.IsCachedStencil());
 
   return mozilla::MakeRefPtr<ModuleScript>(aScript).forget();
 }
 
 already_AddRefed<LoadedScript> ModuleScript::ToCache() {
-  MOZ_DIAGNOSTIC_ASSERT(IsStencil());
+  MOZ_DIAGNOSTIC_ASSERT(IsCachedStencil());
   MOZ_DIAGNOSTIC_ASSERT(!HasParseError());
   MOZ_DIAGNOSTIC_ASSERT(!HasErrorToRethrow());
 

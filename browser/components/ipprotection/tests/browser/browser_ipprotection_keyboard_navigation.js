@@ -22,9 +22,11 @@ async function expectFocusAfterKey(aKey, aFocus) {
 }
 
 /**
- * Tests that the panel can be navigated with Tab and Arrow keys.
+ * Tests that the panel can be navigated with Tab and Arrow keys
+ * and that the help button responds to the Enter key
  */
 add_task(async function test_keyboard_navigation_in_panel() {
+  const openLinkStub = sinon.stub(window, "openWebLinkIn");
   let content = await openPanel({
     isSignedOut: false,
   });
@@ -34,27 +36,57 @@ add_task(async function test_keyboard_navigation_in_panel() {
     "ipprotection-content component should be present"
   );
 
-  await expectFocusAfterKey("Tab", content.connectionToggleEl);
+  await expectFocusAfterKey(
+    "Tab",
+    content.ownerDocument.querySelector(
+      `#${IPProtectionPanel.HEADER_BUTTON_ID}`
+    )
+  );
+  let statusCard = content.statusCardEl;
+
+  await expectFocusAfterKey("Tab", statusCard.connectionToggleEl);
   await expectFocusAfterKey("Tab", content.upgradeEl.querySelector("a"));
   await expectFocusAfterKey(
     "Tab",
     content.upgradeEl.querySelector("#upgrade-vpn-button")
   );
-  await expectFocusAfterKey("Tab", content.headerEl.helpButtonEl);
+
   // Loop back around
-  await expectFocusAfterKey("Tab", content.connectionToggleEl);
+  await expectFocusAfterKey(
+    "Tab",
+    content.ownerDocument.querySelector(
+      `#${IPProtectionPanel.HEADER_BUTTON_ID}`
+    )
+  );
+  await expectFocusAfterKey("Tab", statusCard.connectionToggleEl);
 
   await expectFocusAfterKey("ArrowDown", content.upgradeEl.querySelector("a"));
   await expectFocusAfterKey(
     "ArrowDown",
     content.upgradeEl.querySelector("#upgrade-vpn-button")
   );
-  await expectFocusAfterKey("ArrowDown", content.headerEl.helpButtonEl);
+
   // Loop back around
-  await expectFocusAfterKey("ArrowDown", content.connectionToggleEl);
+  await expectFocusAfterKey(
+    "ArrowDown",
+    content.ownerDocument.querySelector(
+      `#${IPProtectionPanel.HEADER_BUTTON_ID}`
+    )
+  );
+  await expectFocusAfterKey("ArrowDown", statusCard.connectionToggleEl);
 
   // Loop backwards
-  await expectFocusAfterKey("Shift+Tab", content.headerEl.helpButtonEl);
+  await expectFocusAfterKey(
+    "Shift+Tab",
+    content.ownerDocument.querySelector(
+      `#${IPProtectionPanel.HEADER_BUTTON_ID}`
+    )
+  );
 
-  await closePanel();
+  // Check that header button responds to enter key
+  let panelHiddenPromise = waitForPanelEvent(document, "popuphidden");
+  EventUtils.synthesizeKey("KEY_Enter", {}, window);
+  await panelHiddenPromise;
+  Assert.ok(openLinkStub.calledOnce, "help button should open a link");
+  openLinkStub.restore();
 });

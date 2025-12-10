@@ -24,6 +24,7 @@
 #include "api/candidate.h"
 #include "api/environment/environment.h"
 #include "api/field_trials_view.h"
+#include "api/local_network_access_permission.h"
 #include "api/packet_socket_factory.h"
 #include "api/task_queue/pending_task_safety_flag.h"
 #include "api/transport/enums.h"
@@ -55,7 +56,9 @@ class RTC_EXPORT BasicPortAllocator : public PortAllocator {
       NetworkManager* absl_nonnull network_manager,
       PacketSocketFactory* absl_nonnull socket_factory,
       TurnCustomizer* absl_nullable turn_customizer = nullptr,
-      RelayPortFactoryInterface* absl_nullable relay_port_factory = nullptr);
+      RelayPortFactoryInterface* absl_nullable relay_port_factory = nullptr,
+      std::unique_ptr<LocalNetworkAccessPermissionFactoryInterface>
+          absl_nullable lna_permission_factory = nullptr);
 
   BasicPortAllocator(const BasicPortAllocator&) = delete;
   BasicPortAllocator& operator=(const BasicPortAllocator&) = delete;
@@ -76,6 +79,11 @@ class RTC_EXPORT BasicPortAllocator : public PortAllocator {
   PacketSocketFactory* socket_factory() {
     CheckRunOnValidThreadIfInitialized();
     return socket_factory_;
+  }
+
+  LocalNetworkAccessPermissionFactoryInterface* lna_permission_factory() {
+    CheckRunOnValidThreadIfInitialized();
+    return lna_permission_factory_.get();
   }
 
   PortAllocatorSession* CreateSessionInternal(
@@ -107,6 +115,9 @@ class RTC_EXPORT BasicPortAllocator : public PortAllocator {
 
   AlwaysValidPointer<RelayPortFactoryInterface, TurnPortFactory>
       relay_port_factory_;
+
+  std::unique_ptr<LocalNetworkAccessPermissionFactoryInterface>
+      lna_permission_factory_;
 };
 
 struct PortConfiguration;
@@ -159,7 +170,7 @@ class RTC_EXPORT BasicPortAllocatorSession : public PortAllocatorSession {
   void GetCandidateStatsFromReadyPorts(
       CandidateStatsList* candidate_stats_list) const override;
   void SetStunKeepaliveIntervalForReadyPorts(
-      const std::optional<int>& stun_keepalive_interval) override;
+      const std::optional<TimeDelta>& stun_keepalive_interval) override;
   void PruneAllPorts() override;
   static std::vector<const Network*> SelectIPv6Networks(
       std::vector<const Network*>& all_ipv6_networks,
@@ -190,9 +201,12 @@ class RTC_EXPORT BasicPortAllocatorSession : public PortAllocatorSession {
                          // interface. Only TURN ports may be pruned.
     };
 
-    PortData() {}
+    PortData() = delete;
+    PortData(PortData&&) = default;
     PortData(Port* port, AllocationSequence* seq)
         : port_(port), sequence_(seq) {}
+
+    PortData& operator=(PortData&&) = default;
 
     Port* port() const { return port_; }
     AllocationSequence* sequence() const { return sequence_; }
@@ -236,7 +250,7 @@ class RTC_EXPORT BasicPortAllocatorSession : public PortAllocatorSession {
   void OnConfigStop();
   void AllocatePorts();
   void OnAllocate(int allocation_epoch);
-  void DoAllocate(bool disable_equivalent_phases);
+  void DoAllocate();
   void OnNetworksChanged();
   void OnAllocationSequenceObjectsCreated();
   void DisableEquivalentPhases(const Network* network,
@@ -255,7 +269,6 @@ class RTC_EXPORT BasicPortAllocatorSession : public PortAllocatorSession {
   std::vector<const Network*> GetNetworks();
   std::vector<const Network*> GetFailedNetworks();
   void Regather(const std::vector<const Network*>& networks,
-                bool disable_equivalent_phases,
                 IceRegatheringReason reason);
 
   bool CheckCandidateFilter(const Candidate& c) const;
@@ -416,16 +429,5 @@ class AllocationSequence {
 
 }  //  namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace cricket {
-using ::webrtc::AllocationSequence;
-using ::webrtc::BasicPortAllocator;
-using ::webrtc::BasicPortAllocatorSession;
-using ::webrtc::PortConfiguration;
-using ::webrtc::SessionState;
-}  // namespace cricket
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // P2P_CLIENT_BASIC_PORT_ALLOCATOR_H_

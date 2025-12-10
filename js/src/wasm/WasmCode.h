@@ -27,10 +27,8 @@
 #include "mozilla/EnumeratedArray.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryReporting.h"
-#include "mozilla/PodOperations.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/ScopeExit.h"
-#include "mozilla/Span.h"
 #include "mozilla/UniquePtr.h"
 
 #include <stddef.h>

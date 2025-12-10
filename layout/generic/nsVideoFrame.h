@@ -9,7 +9,6 @@
 #ifndef nsVideoFrame_h___
 #define nsVideoFrame_h___
 
-#include "mozilla/Attributes.h"
 #include "nsContainerFrame.h"
 #include "nsIAnonymousContentCreator.h"
 #include "nsIReflowCallback.h"
@@ -52,7 +51,7 @@ class nsVideoFrame : public nsContainerFrame,
   mozilla::IntrinsicSize GetIntrinsicSize() final;
   mozilla::AspectRatio GetIntrinsicRatio() const final;
   SizeComputationResult ComputeSize(
-      gfxContext* aRenderingContext, mozilla::WritingMode aWM,
+      const SizeComputationInput& aSizingInput, mozilla::WritingMode aWM,
       const mozilla::LogicalSize& aCBSize, nscoord aAvailableISize,
       const mozilla::LogicalSize& aMargin,
       const mozilla::LogicalSize& aBorderPadding,

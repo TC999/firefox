@@ -223,8 +223,7 @@
     },
 
     async function checkDtlsKEA() {
-      // "media.webrtc.enable_pq_hybrid_kex" is enabled by default
-      // "send_mlkem_keyshare" enabled in Nightly and Early Beta
+      // "media.webrtc.enable_pq_hybrid_kex" and "send_mlkem_keyshare" are enabled by default
       // By default we send 2 key shares, PQ and X25519
       // PQ Key share (ECDH Hybrid) has a higher preference, so it will be chosen as KEA
           const pc1 = new RTCPeerConnection();

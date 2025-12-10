@@ -11,7 +11,6 @@
 #include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <limits>
@@ -58,9 +57,11 @@ struct UmaRampUpMetric {
 };
 
 const UmaRampUpMetric kUmaRampupMetrics[] = {
-    {"WebRTC.BWE.RampUpTimeTo500kbpsInMs", 500},
-    {"WebRTC.BWE.RampUpTimeTo1000kbpsInMs", 1000},
-    {"WebRTC.BWE.RampUpTimeTo2000kbpsInMs", 2000}};
+    {.metric_name = "WebRTC.BWE.RampUpTimeTo500kbpsInMs", .bitrate_kbps = 500},
+    {.metric_name = "WebRTC.BWE.RampUpTimeTo1000kbpsInMs",
+     .bitrate_kbps = 1000},
+    {.metric_name = "WebRTC.BWE.RampUpTimeTo2000kbpsInMs",
+     .bitrate_kbps = 2000}};
 const size_t kNumUmaRampupMetrics =
     sizeof(kUmaRampupMetrics) / sizeof(kUmaRampupMetrics[0]);
 
@@ -108,49 +109,6 @@ bool ReadBweLossExperimentParameters(const FieldTrialsView& field_trials,
   return false;
 }
 }  // namespace
-
-void LinkCapacityTracker::UpdateDelayBasedEstimate(
-    Timestamp at_time,
-    DataRate delay_based_bitrate) {
-  if (delay_based_bitrate < last_delay_based_estimate_) {
-    capacity_estimate_bps_ =
-        std::min(capacity_estimate_bps_, delay_based_bitrate.bps<double>());
-    last_link_capacity_update_ = at_time;
-  }
-  last_delay_based_estimate_ = delay_based_bitrate;
-}
-
-void LinkCapacityTracker::OnStartingRate(DataRate start_rate) {
-  if (last_link_capacity_update_.IsInfinite())
-    capacity_estimate_bps_ = start_rate.bps<double>();
-}
-
-void LinkCapacityTracker::OnRateUpdate(std::optional<DataRate> acknowledged,
-                                       DataRate target,
-                                       Timestamp at_time) {
-  if (!acknowledged)
-    return;
-  DataRate acknowledged_target = std::min(*acknowledged, target);
-  if (acknowledged_target.bps() > capacity_estimate_bps_) {
-    TimeDelta delta = at_time - last_link_capacity_update_;
-    double alpha =
-        delta.IsFinite() ? exp(-(delta / TimeDelta::Seconds(10))) : 0;
-    capacity_estimate_bps_ = alpha * capacity_estimate_bps_ +
-                             (1 - alpha) * acknowledged_target.bps<double>();
-  }
-  last_link_capacity_update_ = at_time;
-}
-
-void LinkCapacityTracker::OnRttBackoff(DataRate backoff_rate,
-                                       Timestamp at_time) {
-  capacity_estimate_bps_ =
-      std::min(capacity_estimate_bps_, backoff_rate.bps<double>());
-  last_link_capacity_update_ = at_time;
-}
-
-DataRate LinkCapacityTracker::estimate() const {
-  return DataRate::BitsPerSec(capacity_estimate_bps_);
-}
 
 RttBasedBackoff::RttBasedBackoff(const FieldTrialsView& key_value_config)
     : disabled_("Disabled"),
@@ -284,7 +242,6 @@ void SendSideBandwidthEstimation::SetBitrates(
     Timestamp at_time) {
   SetMinMaxBitrate(min_bitrate, max_bitrate);
   if (send_bitrate) {
-    link_capacity_.OnStartingRate(*send_bitrate);
     SetSendBitrate(*send_bitrate, at_time);
   }
 }
@@ -332,10 +289,6 @@ bool SendSideBandwidthEstimation::IsRttAboveLimit() const {
   return rtt_backoff_.IsRttAboveLimit();
 }
 
-DataRate SendSideBandwidthEstimation::GetEstimatedLinkCapacity() const {
-  return link_capacity_.estimate();
-}
-
 void SendSideBandwidthEstimation::UpdateReceiverEstimate(Timestamp at_time,
                                                          DataRate bandwidth) {
   // TODO(srte): Ensure caller passes PlusInfinity, not zero, to represent no
@@ -346,7 +299,6 @@ void SendSideBandwidthEstimation::UpdateReceiverEstimate(Timestamp at_time,
 
 void SendSideBandwidthEstimation::UpdateDelayBasedEstimate(Timestamp at_time,
                                                            DataRate bitrate) {
-  link_capacity_.UpdateDelayBasedEstimate(at_time, bitrate);
   // TODO(srte): Ensure caller passes PlusInfinity, not zero, to represent no
   // limitation.
   delay_based_limit_ = bitrate.IsZero() ? DataRate::PlusInfinity() : bitrate;
@@ -466,7 +418,6 @@ void SendSideBandwidthEstimation::UpdateEstimate(Timestamp at_time) {
       DataRate new_bitrate =
           std::max(current_target_ * rtt_backoff_.drop_fraction_,
                    rtt_backoff_.bandwidth_floor_.Get());
-      link_capacity_.OnRttBackoff(new_bitrate, at_time);
       UpdateTargetBitrate(new_bitrate, at_time);
       return;
     }
@@ -641,7 +592,6 @@ void SendSideBandwidthEstimation::UpdateTargetBitrate(DataRate new_bitrate,
   }
   current_target_ = new_bitrate;
   MaybeLogLossBasedEvent(at_time);
-  link_capacity_.OnRateUpdate(acknowledged_rate_, current_target_, at_time);
 }
 
 void SendSideBandwidthEstimation::ApplyTargetLimits(Timestamp at_time) {

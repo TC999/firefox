@@ -407,7 +407,7 @@ newtab-wallpaper-abstract-purple-green = Lilafarbener und grüner Lichtverlauf
 newtab-wallpaper-abstract-blue-purple-waves = Blaue und lila gewellte Formen
 newtab-wallpaper-abstract-black-waves = Schwarze gewellte Formen
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Fotos
 newtab-wallpaper-beach-at-sunrise = Strand bei Sonnenaufgang
@@ -436,6 +436,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -638,7 +642,7 @@ newtab-widget-lists-label-beta =
 # When tasks have been previous marked as complete, they will appear in their own separate list beneath incomplete items
 # Variables:
 #   $number (number) - Amount of list items marked complete
-newtab-widget-lists-completed-list = Abgeschlosse ({ $number })
+newtab-widget-lists-completed-list = Abgeschlossen ({ $number })
 newtab-widget-task-list-menu-copy = Kopieren
 newtab-widget-lists-menu-edit = Listenname bearbeiten
 newtab-widget-lists-menu-create = Neue Liste erstellen
@@ -664,6 +668,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Neue Liste
+newtab-widget-section-title = Widgets
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Widgets ausblenden
+    .aria-label = alle Widgets ausblenden
+newtab-widget-section-maximize =
+    .title = Widgets ausklappen
+    .aria-label = alle Widgets zur vollen Größe ausklappen
+newtab-widget-section-minimize =
+    .title = Widgets minimieren
+    .aria-label = Alle Widgets auf kompakte Größe reduzieren
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -676,10 +691,6 @@ newtab-widget-timer-mode-focus =
     .label = Fokussieren
 newtab-widget-timer-mode-break =
     .label = Pause
-newtab-widget-timer-play =
-    .title = Starten
-newtab-widget-timer-pause =
-    .title = Pausieren
 newtab-widget-timer-label-play =
     .label = Starten
 newtab-widget-timer-label-pause =
@@ -690,8 +701,6 @@ newtab-widget-timer-menu-notifications = Benachrichtigungen deaktivieren
 newtab-widget-timer-menu-notifications-on = Benachrichtigungen aktivieren
 newtab-widget-timer-menu-hide = Timer ausblenden
 newtab-widget-timer-menu-learn-more = Weitere Informationen
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Für weitere Informationen scrollen
 newtab-widget-message-title = Bleiben Sie konzentriert mit Listen und einem integrierten Timer
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Von kurzen Erinnerungen über tägliche Aufgaben bis hin zu Fokussitzungen und Dehnungspausen – bleiben Sie bei der Sache und im Zeitplan.

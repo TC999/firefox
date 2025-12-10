@@ -8,11 +8,8 @@
 #define jit_MacroAssembler_h
 
 #include "mozilla/MacroForEach.h"
-#include "mozilla/MathAlgorithms.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/Variant.h"
-
-#include <utility>
 
 #if defined(JS_CODEGEN_X86)
 #  include "jit/x86/MacroAssembler-x86.h"
@@ -221,8 +218,6 @@ namespace js {
 
 class StaticStrings;
 class FixedLengthTypedArrayObject;
-
-enum class NativeIteratorIndices : uint32_t;
 
 namespace wasm {
 class CalleeDesc;
@@ -599,8 +594,8 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // immediately following the call; that is, for the return point.
   CodeOffset call(Register reg) PER_SHARED_ARCH;
   CodeOffset call(Label* label) PER_SHARED_ARCH;
+  CodeOffset call(const Address& addr) PER_SHARED_ARCH;
 
-  void call(const Address& addr) PER_SHARED_ARCH;
   void call(ImmWord imm) PER_SHARED_ARCH;
   // Call a target native function, which is neither traceable nor movable.
   void call(ImmPtr imm) PER_SHARED_ARCH;
@@ -1088,12 +1083,9 @@ class MacroAssembler : public MacroAssemblerSpecific {
   inline void xorPtr(Imm32 imm, Register dest) PER_ARCH;
   inline void xorPtr(Imm32 imm, Register src, Register dest) PER_ARCH;
 
-  inline void and64(const Operand& src, Register64 dest)
-      DEFINED_ON(x64, mips64, loong64, riscv64);
-  inline void or64(const Operand& src, Register64 dest)
-      DEFINED_ON(x64, mips64, loong64, riscv64);
-  inline void xor64(const Operand& src, Register64 dest)
-      DEFINED_ON(x64, mips64, loong64, riscv64);
+  inline void and64(const Operand& src, Register64 dest) DEFINED_ON(x64);
+  inline void or64(const Operand& src, Register64 dest) DEFINED_ON(x64);
+  inline void xor64(const Operand& src, Register64 dest) DEFINED_ON(x64);
 
   // ===============================================================
   // Swap instructions
@@ -1118,6 +1110,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // explicitly requested. Instead use branch(Add|Sub|Mul|Neg) to test for
   // condition flags after performing arithmetic operations.
 
+  inline void add32(const Address& src, Register dest) PER_SHARED_ARCH;
   inline void add32(Register src, Register dest) PER_SHARED_ARCH;
   inline void add32(Imm32 imm, Register dest) PER_SHARED_ARCH;
   inline void add32(Imm32 imm, Register src, Register dest) PER_SHARED_ARCH;
@@ -1140,8 +1133,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
   inline void add64(Register64 src, Register64 dest) PER_ARCH;
   inline void add64(Imm32 imm, Register64 dest) PER_ARCH;
   inline void add64(Imm64 imm, Register64 dest) PER_ARCH;
-  inline void add64(const Operand& src, Register64 dest)
-      DEFINED_ON(x64, mips64, loong64, riscv64);
+  inline void add64(const Operand& src, Register64 dest) DEFINED_ON(x64);
 
   inline void addFloat32(FloatRegister src, FloatRegister dest) PER_SHARED_ARCH;
 
@@ -1166,8 +1158,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
 
   inline void sub64(Register64 src, Register64 dest) PER_ARCH;
   inline void sub64(Imm64 imm, Register64 dest) PER_ARCH;
-  inline void sub64(const Operand& src, Register64 dest)
-      DEFINED_ON(x64, mips64, loong64, riscv64);
+  inline void sub64(const Operand& src, Register64 dest) DEFINED_ON(x64);
 
   inline void subFloat32(FloatRegister src, FloatRegister dest) PER_SHARED_ARCH;
 
@@ -1188,8 +1179,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
 
   inline void mul64(const Operand& src, const Register64& dest) DEFINED_ON(x64);
   inline void mul64(const Operand& src, const Register64& dest,
-                    const Register temp)
-      DEFINED_ON(x64, mips64, loong64, riscv64);
+                    const Register temp) DEFINED_ON(x64);
   inline void mul64(Imm64 imm, const Register64& dest) PER_ARCH;
   inline void mul64(Imm64 imm, const Register64& dest, const Register temp)
       DEFINED_ON(x86, x64, arm, mips64, loong64, riscv64);
@@ -1212,41 +1202,46 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // zero. rhs must not be zero, and the division must not overflow.
   //
   // On ARM, the chip must have hardware division instructions.
-  inline void quotient32(Register rhs, Register srcDest, bool isUnsigned)
+  inline void quotient32(Register lhs, Register rhs, Register dest,
+                         bool isUnsigned)
       DEFINED_ON(mips64, arm, arm64, loong64, riscv64, wasm32);
 
-  inline void quotient64(Register rhs, Register srcDest, bool isUnsigned)
+  inline void quotient64(Register lhs, Register rhs, Register dest,
+                         bool isUnsigned)
       DEFINED_ON(arm64, loong64, mips64, riscv64);
 
-  // As above, but srcDest must be eax and tempEdx must be edx.
-  inline void quotient32(Register rhs, Register srcDest, Register tempEdx,
-                         bool isUnsigned) DEFINED_ON(x86_shared);
+  // As above, but lhs and dest must be eax and tempEdx must be edx.
+  inline void quotient32(Register lhs, Register rhs, Register dest,
+                         Register tempEdx, bool isUnsigned)
+      DEFINED_ON(x86_shared);
 
   // Perform an integer division, returning the remainder part.
   // rhs must not be zero, and the division must not overflow.
   //
   // On ARM, the chip must have hardware division instructions.
-  inline void remainder32(Register rhs, Register srcDest, bool isUnsigned)
+  inline void remainder32(Register lhs, Register rhs, Register dest,
+                          bool isUnsigned)
       DEFINED_ON(mips64, arm, arm64, loong64, riscv64, wasm32);
 
-  inline void remainder64(Register rhs, Register srcDest, bool isUnsigned)
+  inline void remainder64(Register lhs, Register rhs, Register dest,
+                          bool isUnsigned)
       DEFINED_ON(arm64, loong64, mips64, riscv64);
 
-  // As above, but srcDest must be eax and tempEdx must be edx.
-  inline void remainder32(Register rhs, Register srcDest, Register tempEdx,
-                          bool isUnsigned) DEFINED_ON(x86_shared);
+  // As above, but lhs and dest must be eax and tempEdx must be edx.
+  inline void remainder32(Register lhs, Register rhs, Register dest,
+                          Register tempEdx, bool isUnsigned)
+      DEFINED_ON(x86_shared);
 
   // Perform an integer division, returning the integer part rounded toward
   // zero. rhs must not be zero, and the division must not overflow.
   //
   // This variant preserves registers, and doesn't require hardware division
   // instructions on ARM (will call out to a runtime routine).
-  //
-  // rhs is preserved, srdDest is clobbered.
-  void flexibleRemainder32(Register rhs, Register srcDest, bool isUnsigned,
-                           const LiveRegisterSet& volatileLiveRegs)
-      PER_SHARED_ARCH;
-  void flexibleRemainderPtr(Register rhs, Register srcDest, bool isUnsigned,
+  void flexibleRemainder32(
+      Register lhs, Register rhs, Register dest, bool isUnsigned,
+      const LiveRegisterSet& volatileLiveRegs) PER_SHARED_ARCH;
+  void flexibleRemainderPtr(Register lhs, Register rhs, Register dest,
+                            bool isUnsigned,
                             const LiveRegisterSet& volatileLiveRegs) PER_ARCH;
 
   // Perform an integer division, returning the integer part rounded toward
@@ -1254,25 +1249,25 @@ class MacroAssembler : public MacroAssemblerSpecific {
   //
   // This variant preserves registers, and doesn't require hardware division
   // instructions on ARM (will call out to a runtime routine).
-  //
-  // rhs is preserved, srdDest is clobbered.
-  void flexibleQuotient32(Register rhs, Register srcDest, bool isUnsigned,
-                          const LiveRegisterSet& volatileLiveRegs)
-      PER_SHARED_ARCH;
-  void flexibleQuotientPtr(Register rhs, Register srcDest, bool isUnsigned,
+  void flexibleQuotient32(
+      Register lhs, Register rhs, Register dest, bool isUnsigned,
+      const LiveRegisterSet& volatileLiveRegs) PER_SHARED_ARCH;
+  void flexibleQuotientPtr(Register lhs, Register rhs, Register dest,
+                           bool isUnsigned,
                            const LiveRegisterSet& volatileLiveRegs) PER_ARCH;
 
   // Perform an integer division, returning the integer part rounded toward
-  // zero. rhs must not be zero, and the division must not overflow. The
-  // remainder is stored into the third argument register here.
+  // zero in the third argument register. rhs must not be zero, and the division
+  // must not overflow. The remainder is stored into the fourth argument
+  // register here.
   //
   // This variant preserves registers, and doesn't require hardware division
   // instructions on ARM (will call out to a runtime routine).
   //
-  // rhs is preserved, srdDest and remOutput are clobbered.
+  // lhs and rhs are preserved, divOutput and remOutput are clobbered.
   void flexibleDivMod32(
-      Register rhs, Register srcDest, Register remOutput, bool isUnsigned,
-      const LiveRegisterSet& volatileLiveRegs) PER_SHARED_ARCH;
+      Register lhs, Register rhs, Register divOutput, Register remOutput,
+      bool isUnsigned, const LiveRegisterSet& volatileLiveRegs) PER_SHARED_ARCH;
 
   inline void divFloat32(FloatRegister src, FloatRegister dest) PER_SHARED_ARCH;
   inline void divDouble(FloatRegister src, FloatRegister dest) PER_SHARED_ARCH;
@@ -1328,7 +1323,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void copySignDouble(FloatRegister lhs, FloatRegister rhs,
                       FloatRegister output) PER_SHARED_ARCH;
   void copySignFloat32(FloatRegister lhs, FloatRegister rhs,
-                       FloatRegister output) DEFINED_ON(x86_shared, arm64);
+                       FloatRegister output) PER_SHARED_ARCH;
 
   // Returns a random double in range [0, 1) in |dest|. The |rng| register must
   // hold a pointer to a mozilla::non_crypto::XorShift128PlusRNG.
@@ -2066,9 +2061,9 @@ class MacroAssembler : public MacroAssemblerSpecific {
                                             Imm32 imm) PER_SHARED_ARCH;
 
  private:
-  template <typename T, typename S, typename L>
-  inline void branchPtrImpl(Condition cond, const T& lhs, const S& rhs, L label)
-      DEFINED_ON(x86_shared);
+  template <typename T, typename S>
+  inline void branchPtrImpl(Condition cond, const T& lhs, const S& rhs,
+                            Label* label) DEFINED_ON(x86_shared);
 
   void branchPtrInNurseryChunkImpl(Condition cond, Register ptr, Label* label)
       DEFINED_ON(x86);
@@ -2113,8 +2108,8 @@ class MacroAssembler : public MacroAssemblerSpecific {
   template <typename T>
   inline void branchTestPrimitiveImpl(Condition cond, const T& t, Label* label)
       DEFINED_ON(arm, arm64, x86_shared);
-  template <typename T, class L>
-  inline void branchTestMagicImpl(Condition cond, const T& t, L label)
+  template <typename T>
+  inline void branchTestMagicImpl(Condition cond, const T& t, Label* label)
       DEFINED_ON(arm, arm64, x86_shared);
 
  public:
@@ -3709,11 +3704,10 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void loadWasmPinnedRegsFromInstance(
       const wasm::MaybeTrapSiteDesc& trapSiteDesc);
 
-  // Returns a pair: the offset of the undefined (trapping) instruction, and
-  // the number of extra bytes of stack allocated prior to the trap
-  // instruction proper.
-  std::pair<CodeOffset, uint32_t> wasmReserveStackChecked(
-      uint32_t amount, const wasm::TrapSiteDesc& trapSiteDesc);
+  // Branches to the fail label if the stack would overflow the current stack
+  // limit. Returns the number of extra bytes of stack allocated prior to
+  // branching to the fail label.
+  uint32_t wasmReserveStackChecked(uint32_t amount, Label* fail);
 
   // Emit a bounds check against the wasm heap limit, jumping to 'ok' if 'cond'
   // holds; this can be the label either of the access or of the trap.  The
@@ -3989,10 +3983,14 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // Will select one of the other branchWasmRefIsSubtype* functions depending on
   // destType. See each function for the register allocation requirements, as
   // well as which registers will be preserved.
-  void branchWasmRefIsSubtype(Register ref, wasm::MaybeRefType sourceType,
-                              wasm::RefType destType, Label* label,
-                              bool onSuccess, Register superSTV,
-                              Register scratch1, Register scratch2);
+  //
+  // If this function returns a valid FaultingCodeOffset, then you must emit a
+  // trap site to catch the bad cast. It will never return a valid
+  // FaultingCodeOffset when signalNullChecks is false.
+  FaultingCodeOffset branchWasmRefIsSubtype(
+      Register ref, wasm::MaybeRefType sourceType, wasm::RefType destType,
+      Label* label, bool onSuccess, bool signalNullChecks, Register superSTV,
+      Register scratch1, Register scratch2);
 
   // Perform a subtype check that `ref` is a subtype of `type`, branching to
   // `label` depending on `onSuccess`. `type` must be in the `any` hierarchy.
@@ -4005,10 +4003,14 @@ class MacroAssembler : public MacroAssemblerSpecific {
   //
   // `ref` and `superSTV` are preserved. Scratch registers are
   // clobbered.
-  void branchWasmRefIsSubtypeAny(Register ref, wasm::RefType sourceType,
-                                 wasm::RefType destType, Label* label,
-                                 bool onSuccess, Register superSTV,
-                                 Register scratch1, Register scratch2);
+  //
+  // If this function returns a valid FaultingCodeOffset, then you must emit a
+  // trap site to catch the bad cast. It will never return a valid
+  // FaultingCodeOffset when signalNullChecks is false.
+  FaultingCodeOffset branchWasmRefIsSubtypeAny(
+      Register ref, wasm::RefType sourceType, wasm::RefType destType,
+      Label* label, bool onSuccess, bool signalNullChecks, Register superSTV,
+      Register scratch1, Register scratch2);
 
   // Perform a subtype check that `ref` is a subtype of `type`, branching to
   // `label` depending on `onSuccess`. `type` must be in the `func` hierarchy.
@@ -4113,8 +4115,8 @@ class MacroAssembler : public MacroAssemblerSpecific {
                                 const Address& dst, Register scratch);
 
   // Branch if the object `src` is or is not a WasmGcObject.
-  void branchObjectIsWasmGcObject(bool isGcObject, Register src,
-                                  Register scratch, Label* label);
+  FaultingCodeOffset branchObjectIsWasmGcObject(bool isGcObject, Register src,
+                                                Register scratch, Label* label);
 
   // `typeDefData` will be preserved. `instance` and `result` may be the same
   // register, in which case `instance` will be clobbered.
@@ -4187,8 +4189,16 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // ========================================================================
   // Barrier functions.
 
-  void emitPreBarrierFastPath(JSRuntime* rt, MIRType type, Register temp1,
-                              Register temp2, Register temp3, Label* noBarrier);
+  void emitPreBarrierFastPath(MIRType type, Register temp1, Register temp2,
+                              Register temp3, Label* noBarrier);
+  void emitValueReadBarrierFastPath(ValueOperand value, Register cell,
+                                    Register temp1, Register temp2,
+                                    Register temp3, Register temp4,
+                                    Label* barrier);
+
+ private:
+  void loadMarkBits(Register cell, Register chunk, Register markWord,
+                    Register bitIndex, Register temp, gc::ColorBit color);
 
  public:
   // ========================================================================
@@ -5398,16 +5408,17 @@ class MacroAssembler : public MacroAssemblerSpecific {
                                                 Label* label);
 
   void branchIfNativeIteratorNotReusable(Register ni, Label* notReusable);
-  void branchNativeIteratorIndices(Condition cond, Register ni, Register temp,
-                                   NativeIteratorIndices kind, Label* label);
 
   void maybeLoadIteratorFromShape(Register obj, Register dest, Register temp,
                                   Register temp2, Register temp3,
-                                  Label* failure);
+                                  Label* failure, bool exclusive);
 
   void iteratorMore(Register obj, ValueOperand output, Register temp);
   void iteratorClose(Register obj, Register temp1, Register temp2,
                      Register temp3);
+  void iteratorLength(Register obj, Register output);
+  void iteratorLoadElement(Register obj, Register index, Register output);
+  void iteratorLoadElement(Register obj, int32_t index, Register output);
   void registerIterator(Register enumeratorsList, Register iter, Register temp);
 
   void prepareOOBStoreElement(Register object, Register index,
@@ -5425,6 +5436,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void scrambleHashCode(Register result);
 
  public:
+  void hashAndScrambleValue(ValueOperand value, Register result, Register temp);
   void prepareHashNonGCThing(ValueOperand value, Register result,
                              Register temp);
   void prepareHashString(Register str, Register result, Register temp);
@@ -5437,6 +5449,45 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void prepareHashValue(Register setObj, ValueOperand value, Register result,
                         Register temp1, Register temp2, Register temp3,
                         Register temp4);
+
+  // Helper functions used to implement mozilla::HashTable lookup inline
+  // in jitcode.
+  void prepareHashMFBT(Register hashCode, bool alreadyScrambled);
+  template <typename Table>
+  void computeHash1MFBT(Register hashTable, Register hashCode, Register hash1,
+                        Register scratch);
+  template <typename Table>
+  void computeHash2MFBT(Register hashTable, Register hashCode, Register hash2,
+                        Register sizeMask, Register scratch);
+  void applyDoubleHashMFBT(Register hash1, Register hash2, Register sizeMask);
+  template <typename Table>
+  void checkForMatchMFBT(Register hashTable, Register hashIndex,
+                         Register hashCode, Register scratch, Register scratch2,
+                         Label* missing, Label* collision);
+
+ public:
+  // This generates an inlined version of mozilla::detail::HashTable::lookup
+  // (ForNonAdd).
+  // Inputs/requirements:
+  // - hashTable: A register containing a pointer to a Table. The Table type
+  //              must define:
+  //              - Table::Entry
+  //              - Table::offsetOfHashShift()
+  //              - Table::offsetOfTable()
+  // - hashCode:  The 32-bit hash of the key to look up. This should already
+  //              have been scrambled using prepareHashMFBT.
+  // - match:     A lambda to generate code to compare keys. The code that it
+  //              generates can assume that `scratch` contains the address of
+  //              a Table::Entry with a matching hash value. `scratch2` can be
+  //              safely used without clobbering anything. If the keys don't
+  //              match, the generated code should fall through. If the keys
+  //              match, the generated code is responsible for jumping to the
+  //              correct continuation.
+  // - missing:   A label to jump to if the key does not exist in the table.
+  template <typename Table, typename Match>
+  void lookupMFBT(Register hashTable, Register hashCode, Register scratch,
+                  Register scratch2, Register scratch3, Register scratch4,
+                  Register scratch5, Label* missing, Match match);
 
  private:
   enum class IsBigInt { No, Yes, Maybe };
@@ -5623,8 +5674,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
                    const TemplateObject& templateObj, bool initContents = true);
 
   void initTypedArraySlots(Register obj, Register length, Register temp1,
-                           Register temp2, LiveRegisterSet liveRegs,
-                           Label* fail,
+                           Register temp2, Label* fail,
                            const FixedLengthTypedArrayObject* templateObj);
 
   void initTypedArraySlotsInline(
@@ -5727,6 +5777,10 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void extractCurrentIndexAndKindFromIterator(Register iterator,
                                               Register outIndex,
                                               Register outKind);
+  void extractIndexAndKindFromIteratorByIterIndex(Register iterator,
+                                                  Register inOutIndex,
+                                                  Register outKind,
+                                                  Register scratch);
 
   template <typename IdType>
 #ifdef JS_CODEGEN_X86

@@ -1720,32 +1720,6 @@
     "keyed": true,
     "description": "HTTP channel (keys: uses_http3_page, uses_http3_sub, supports_http3_page, supports_http3_sub): Overall load time - network (ms)"
   },
-  "HTTP3_PERF_PAGE_LOAD_TIME_MS": {
-    "record_in_processes": ["content"],
-    "products": ["firefox"],
-    "alert_emails": ["necko@mozilla.com", "ddamjanovic@mozilla.com"],
-    "expires_in_version": "never",
-    "releaseChannelCollection": "opt-out",
-    "kind": "exponential",
-    "high": 50000,
-    "n_buckets": 100,
-    "bug_numbers": [1675503],
-    "keyed": true,
-    "description": "Time in milliseconds from navigationStart to loadEventStart for the foreground http or https root content document. This is collected only on page load where the main document uses or suppports HTTP3"
-  },
-  "HTTP3_PERF_FIRST_CONTENTFUL_PAINT_MS": {
-    "record_in_processes": ["content"],
-    "products": ["firefox"],
-    "alert_emails": ["necko@mozilla.com", "ddamjanovic@mozilla.com"],
-    "expires_in_version": "never",
-    "releaseChannelCollection": "opt-out",
-    "kind": "exponential",
-    "high": 50000,
-    "n_buckets": 100,
-    "bug_numbers": [1675503],
-    "keyed": true,
-    "description": "The time between navigationStart and the first contentful paint of a foreground http or https root content document, in milliseconds. The contentful paint timestamp is taken during display list building and does not include rasterization or compositing of that paint. This is collected only on page load where the main document uses or suppports HTTP3"
-  },
   "H3P_PERF_PAGE_LOAD_TIME_MS": {
     "record_in_processes": ["content"],
     "products": ["firefox"],
@@ -1818,19 +1792,6 @@
     "high": 60000,
     "n_buckets": 100,
     "description": "Time in milliseconds that http channel spent suspended between AsyncOpen and OnStartRequest."
-  },
-  "HTTP_UPLOAD_BANDWIDTH_MBPS": {
-    "record_in_processes": ["main"],
-    "products": ["firefox"],
-    "alert_emails": ["necko@mozilla.com", "acreskey@mozilla.com"],
-    "expires_in_version": "never",
-    "releaseChannelCollection": "opt-out",
-    "kind": "exponential",
-    "high": 10000,
-    "n_buckets": 100,
-    "bug_numbers": [1830087],
-    "keyed": true,
-    "description": "The upload bandwidth for requests larger than 10MB. Measured in megabits per second, Mbps. Keyed by HTTP protocol version."
   },
   "NETWORKING_DOWNLOAD_THROUGHPUT_HTTP_1": {
     "record_in_processes": ["main"],
@@ -2058,18 +2019,6 @@
     "alert_emails": ["necko@mozilla.com", "mnovotny@mozilla.com"],
     "bug_numbers": [1354405]
   },
-  "NETWORK_RACE_CACHE_BANDWIDTH_NOT_RACE": {
-    "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec"],
-    "expires_in_version": "never",
-    "kind": "exponential",
-    "low": 32,
-    "high": 16777216,
-    "n_buckets": 100,
-    "description": "Amount of bytes received when we decide not to race cache with network.",
-    "alert_emails": ["necko@mozilla.com", "mnovotny@mozilla.com"],
-    "bug_numbers": [1354405]
-  },
   "NETWORK_RACE_CACHE_VALIDATION": {
     "record_in_processes": ["main"],
     "products": ["firefox", "fennec"],
@@ -2115,58 +2064,6 @@
     "high": 60000,
     "n_buckets": 100,
     "description": "The delay caused by the e10s back pressure suspension(ms)"
-  },
-  "NETWORK_ASYNC_OPEN_CHILD_TO_TRANSACTION_PENDING_EXP_MS": {
-    "record_in_processes": ["content"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com", "acreskey@mozilla.com"],
-    "bug_numbers": [1789468],
-    "expires_in_version": "never",
-    "releaseChannelCollection": "opt-out",
-    "keyed": true,
-    "kind": "exponential",
-    "high": 2000,
-    "n_buckets": 50,
-    "description": "The time spent from HttpChannelChild::AsyncOpen to adding the transactionto the nsHttpConnectionMgr, in milliseconds, keyed by the classOfService flags"
-  },
-  "NETWORK_RESPONSE_START_PARENT_TO_CONTENT_EXP_MS": {
-    "record_in_processes": ["content"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com", "acreskey@mozilla.com"],
-    "bug_numbers": [1793975],
-    "expires_in_version": "never",
-    "releaseChannelCollection": "opt-out",
-    "keyed": true,
-    "kind": "exponential",
-    "high": 2000,
-    "n_buckets": 50,
-    "description": "The time spent relaying response start from the socket thread of the parent process to the content process, in milliseconds, keyed by the classOfService flags"
-  },
-  "NETWORK_DNS_END_TO_CONNECT_START_EXP_MS": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com", "acreskey@mozilla.com"],
-    "bug_numbers": [1791077],
-    "expires_in_version": "never",
-    "releaseChannelCollection": "opt-out",
-    "keyed": true,
-    "kind": "exponential",
-    "high": 2000,
-    "n_buckets": 50,
-    "description": "The time spent from dns resolution to connect start, in milliseconds, keyed by protocol version and the classOfService flags"
-  },
-  "NETWORK_RESPONSE_END_PARENT_TO_CONTENT_MS": {
-    "record_in_processes": ["content"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com", "acreskey@mozilla.com"],
-    "bug_numbers": [1795775],
-    "expires_in_version": "never",
-    "releaseChannelCollection": "opt-out",
-    "keyed": true,
-    "kind": "exponential",
-    "high": 2000,
-    "n_buckets": 50,
-    "description": "The time spent relaying response completion from the socket thread of the parent process to the content process, in milliseconds, keyed by the classOfService flags"
   },
   "TLS_EARLY_DATA_NEGOTIATED": {
     "record_in_processes": ["main", "socket"],
@@ -3374,19 +3271,6 @@
     "alert_emails": ["necko@mozilla.com", "kershaw@mozilla.com"],
     "kind": "enumerated",
     "description": "The reason why we failed to connect with an HTTPSSVC record"
-  },
-  "DNS_PERF_FIRST_CONTENTFUL_PAINT_MS": {
-    "record_in_processes": ["content"],
-    "products": ["firefox"],
-    "alert_emails": ["necko@mozilla.com", "acreskey@mozilla.com"],
-    "expires_in_version": "never",
-    "releaseChannelCollection": "opt-out",
-    "kind": "exponential",
-    "high": 50000,
-    "n_buckets": 100,
-    "bug_numbers": [1796639],
-    "keyed": true,
-    "description": "The time between navigationStart and the first contentful paint of a foreground http or https root content document, in milliseconds. The contentful paint timestamp is taken during display list building and does not include rasterization or compositing of that paint. Keyed by TRR domain for DoH or 'Native' otherwise"
   },
   "DNS_PERF_FIRST_BYTE_MS": {
     "record_in_processes": ["content"],
@@ -7172,7 +7056,7 @@
   "MS_MESSAGE_REQUEST_TIME_MS": {
     "record_in_processes": ["main"],
     "products": ["firefox"],
-    "alert_emails": ["user-journey@mozilla.com", "aoprea@mozilla.com"],
+    "alert_emails": ["omc-core@mozilla.com"],
     "expires_in_version": "never",
     "releaseChannelCollection": "opt-out",
     "kind": "exponential",
@@ -8669,7 +8553,7 @@
     "description": "Count for the number of errors encountered trying to determine attribution data: on Windows, from the installers (stub and full); on macOS, from an extended attributed on the .app bundle.",
     "releaseChannelCollection": "opt-out",
     "bug_numbers": [1621402, 1525076, 1874944],
-    "alert_emails": ["aoprea@mozilla.com"]
+    "alert_emails": ["omc-core@mozilla.com"]
   },
   "MIXED_CONTENT_PAGE_LOAD": {
     "record_in_processes": ["main", "content"],
@@ -10951,9 +10835,9 @@
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
     "bug_numbers": [
       1483002, 1513556, 1578225, 1623315, 1666980, 1706839, 1745271, 1777402,
-      1811155, 1861303, 1912170, 1958154
+      1811155, 1861303, 1912170, 1958154, 1994581
     ],
-    "expires_in_version": "147",
+    "expires_in_version": "154",
     "kind": "exponential",
     "releaseChannelCollection": "opt-out",
     "high": 60000,
@@ -10967,9 +10851,9 @@
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
     "bug_numbers": [
       1297167, 1513556, 1578225, 1623315, 1666980, 1706839, 1745271, 1777402,
-      1811155, 1861303, 1912170, 1958168
+      1811155, 1861303, 1912170, 1958168, 1994581
     ],
-    "expires_in_version": "147",
+    "expires_in_version": "154",
     "kind": "exponential",
     "releaseChannelCollection": "opt-out",
     "high": 50000,
@@ -10982,9 +10866,9 @@
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
     "bug_numbers": [
       1483002, 1513556, 1578225, 1623315, 1666980, 1706839, 1745271, 1777402,
-      1811155, 1861303, 1912170, 1958154
+      1811155, 1861303, 1912170, 1958154, 1994581
     ],
-    "expires_in_version": "147",
+    "expires_in_version": "154",
     "kind": "exponential",
     "releaseChannelCollection": "opt-out",
     "high": 50000,
@@ -10998,9 +10882,9 @@
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
     "bug_numbers": [
       1297167, 1513556, 1578225, 1623315, 1666980, 1706839, 1745271, 1777402,
-      1811155, 1861303, 1912170, 1958168
+      1811155, 1861303, 1912170, 1958168, 1994581
     ],
-    "expires_in_version": "147",
+    "expires_in_version": "154",
     "kind": "categorical",
     "labels": ["popupShown", "clearAfterHover", "clearAfterMousedown"],
     "releaseChannelCollection": "opt-out",
@@ -11012,9 +10896,9 @@
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
     "bug_numbers": [
       1483002, 1513556, 1578225, 1623315, 1666980, 1706839, 1745271, 1777402,
-      1811155, 1861303, 1912170, 1958168
+      1811155, 1861303, 1912170, 1958168, 1994581
     ],
-    "expires_in_version": "147",
+    "expires_in_version": "154",
     "kind": "categorical",
     "labels": ["popupShown", "clearAfterHover", "clearAfterMousedown"],
     "releaseChannelCollection": "opt-out",
@@ -11107,8 +10991,8 @@
     "record_in_processes": ["main"],
     "products": ["firefox"],
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
-    "bug_numbers": [1787940, 1817103, 1861303, 1912170, 1958154],
-    "expires_in_version": "147",
+    "bug_numbers": [1787940, 1817103, 1861303, 1912170, 1958154, 1994581],
+    "expires_in_version": "154",
     "kind": "exponential",
     "keyed": true,
     "releaseChannelCollection": "opt-out",
@@ -11120,8 +11004,8 @@
     "record_in_processes": ["main"],
     "products": ["firefox"],
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
-    "bug_numbers": [1787940, 1817103, 1861303, 1912170, 1958168],
-    "expires_in_version": "147",
+    "bug_numbers": [1787940, 1817103, 1861303, 1912170, 1958168, 1994581],
+    "expires_in_version": "154",
     "kind": "categorical",
     "labels": [
       "suspend",
@@ -11141,8 +11025,8 @@
     "record_in_processes": ["main"],
     "products": ["firefox"],
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
-    "bug_numbers": [1787940, 1817103, 1861303, 1912170, 1958168],
-    "expires_in_version": "147",
+    "bug_numbers": [1787940, 1817103, 1861303, 1912170, 1958168, 1994581],
+    "expires_in_version": "154",
     "kind": "categorical",
     "labels": [
       "suspend",
@@ -11177,9 +11061,9 @@
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
     "bug_numbers": [
       1483002, 1513556, 1578225, 1623315, 1666980, 1706839, 1745271, 1777402,
-      1811155, 1861303, 1912170, 1958154
+      1811155, 1861303, 1912170, 1958154, 1994581
     ],
-    "expires_in_version": "147",
+    "expires_in_version": "154",
     "kind": "exponential",
     "releaseChannelCollection": "opt-out",
     "high": 50000,
@@ -11205,9 +11089,9 @@
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
     "bug_numbers": [
       1483002, 1513556, 1578225, 1623315, 1666980, 1706839, 1745271, 1777402,
-      1811155, 1861303, 1912170, 1958154
+      1811155, 1861303, 1912170, 1958154, 1994581
     ],
-    "expires_in_version": "147",
+    "expires_in_version": "154",
     "kind": "exponential",
     "releaseChannelCollection": "opt-out",
     "high": 50000,
@@ -11221,9 +11105,9 @@
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
     "bug_numbers": [
       1297167, 1513556, 1578225, 1623315, 1666980, 1706839, 1745271, 1777402,
-      1811155, 1861303, 1912170, 1958168
+      1811155, 1861303, 1912170, 1958168, 1994581
     ],
-    "expires_in_version": "147",
+    "expires_in_version": "154",
     "kind": "exponential",
     "releaseChannelCollection": "opt-out",
     "high": 50000,
@@ -11236,9 +11120,9 @@
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
     "bug_numbers": [
       1483002, 1513556, 1578225, 1623315, 1666980, 1706839, 1745271, 1777402,
-      1811155, 1861303, 1912170, 1958154
+      1811155, 1861303, 1912170, 1958154, 1994581
     ],
-    "expires_in_version": "147",
+    "expires_in_version": "154",
     "kind": "exponential",
     "releaseChannelCollection": "opt-out",
     "high": 50000,
@@ -11252,9 +11136,9 @@
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
     "bug_numbers": [
       1465120, 1513556, 1578225, 1623315, 1666980, 1706839, 1745271, 1777402,
-      1811155, 1861303, 1912170, 1958168
+      1811155, 1861303, 1912170, 1958168, 1994581
     ],
-    "expires_in_version": "147",
+    "expires_in_version": "154",
     "kind": "exponential",
     "releaseChannelCollection": "opt-out",
     "high": 50000,
@@ -11267,9 +11151,9 @@
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
     "bug_numbers": [
       1483002, 1513556, 1578225, 1623315, 1666980, 1706839, 1745271, 1777402,
-      1811155, 1861303, 1912170, 1958154
+      1811155, 1861303, 1912170, 1958154, 1994581
     ],
-    "expires_in_version": "147",
+    "expires_in_version": "154",
     "kind": "exponential",
     "releaseChannelCollection": "opt-out",
     "high": 50000,
@@ -11283,9 +11167,9 @@
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
     "bug_numbers": [
       1465120, 1513556, 1578225, 1623315, 1666980, 1706839, 1745271, 1777402,
-      1811155, 1861303, 1912170, 1958168
+      1811155, 1861303, 1912170, 1958168, 1994581
     ],
-    "expires_in_version": "147",
+    "expires_in_version": "154",
     "kind": "exponential",
     "releaseChannelCollection": "opt-out",
     "high": 50000,
@@ -11298,9 +11182,9 @@
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
     "bug_numbers": [
       1483002, 1513556, 1578225, 1623315, 1666980, 1706839, 1745271, 1777402,
-      1811155, 1861303, 1912170, 1958154
+      1811155, 1861303, 1912170, 1958154, 1994581
     ],
-    "expires_in_version": "147",
+    "expires_in_version": "154",
     "kind": "exponential",
     "releaseChannelCollection": "opt-out",
     "high": 50000,
@@ -11313,10 +11197,10 @@
     "products": ["firefox", "fennec"],
     "bug_numbers": [
       1465129, 1513556, 1578225, 1623315, 1666980, 1706839, 1745271, 1777402,
-      1811155, 1861303, 1912170, 1958154
+      1811155, 1861303, 1912170, 1958154, 1994581
     ],
     "alert_emails": ["addons-dev-internal@mozilla.com", "lgreco@mozilla.com"],
-    "expires_in_version": "147",
+    "expires_in_version": "154",
     "kind": "categorical",
     "labels": ["success", "failure"],
     "releaseChannelCollection": "opt-out",

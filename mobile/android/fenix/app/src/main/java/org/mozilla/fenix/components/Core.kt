@@ -6,7 +6,6 @@ package org.mozilla.fenix.components
 
 import android.content.Context
 import android.content.res.Configuration
-import android.os.StrictMode
 import androidx.core.content.ContextCompat
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.CoroutineScope
@@ -127,7 +126,6 @@ import org.mozilla.fenix.media.MediaSessionService
 import org.mozilla.fenix.nimbus.FxNimbus
 import org.mozilla.fenix.perf.StrictModeManager
 import org.mozilla.fenix.perf.lazyMonitored
-import org.mozilla.fenix.settings.SupportUtils
 import org.mozilla.fenix.settings.advanced.getSelectedLocale
 import org.mozilla.fenix.share.DefaultSentFromFirefoxManager
 import org.mozilla.fenix.share.DefaultSentFromStorage
@@ -169,7 +167,7 @@ class Core(
             enterpriseRootsEnabled = context.settings().allowThirdPartyRootCerts,
             clearColor = ContextCompat.getColor(
                 context,
-                R.color.fx_mobile_layer_color_1,
+                R.color.fx_mobile_surface,
             ),
             httpsOnlyMode = context.settings().getHttpsOnlyMode(),
             dohSettingsMode = context.settings().getDohSettingsMode(),
@@ -188,14 +186,17 @@ class Core(
             getDesktopMode = {
                 store.state.desktopMode
             },
-            webContentIsolationStrategy = WebContentIsolationStrategy.ISOLATE_HIGH_VALUE,
-            fetchPriorityEnabled = FxNimbus.features.networking.value().fetchPriorityEnabled,
+            webContentIsolationStrategy =
+                WebContentIsolationStrategy.fromValue(FxNimbus.features.fission.value().isolationStrategy),
+            fetchPriorityEnabled = true,
             parallelMarkingEnabled = FxNimbus.features.javascript.value().parallelMarkingEnabled,
             certificateTransparencyMode = FxNimbus.features.pki.value().certificateTransparencyMode,
             postQuantumKeyExchangeEnabled = FxNimbus.features.pqcrypto.value().postQuantumKeyExchangeEnabled,
             dohAutoselectEnabled = FxNimbus.features.doh.value().autoselectEnabled,
             bannedPorts = FxNimbus.features.networkingBannedPorts.value().bannedPortList,
             lnaBlockingEnabled = context.settings().isLnaBlockingEnabled,
+            lnaFeatureEnabled = context.settings().isLnaFeatureEnabled,
+            lnaTrackerBlockingEnabled = context.settings().isLnaTrackerBlockingEnabled,
             crliteChannel = FxNimbus.features.pki.value().crliteChannel,
         )
 
@@ -223,6 +224,12 @@ class Core(
                 FxNimbus.features.thirdPartyCookieBlocking.value().enabledNormal
             defaultSettings.cookieBehaviorOptInPartitioningPBM =
                 FxNimbus.features.thirdPartyCookieBlocking.value().enabledPrivate
+        }
+
+        // Apply Safe Browsing V5 settings if the Nimbus feature is enabled.
+        if (FxNimbus.features.safeBrowsingV5.value().featureEnabled) {
+            defaultSettings.safeBrowsingV5Enabled =
+                FxNimbus.features.safeBrowsingV5.value().enableV5
         }
 
         GeckoEngine(
@@ -614,33 +621,10 @@ class Core(
     }
 
     val topSitesStorage by lazyMonitored {
-        val defaultTopSites = mutableListOf<Pair<String, String>>()
-
-        strictMode.allowViolation(StrictMode::allowThreadDiskReads) {
-            if (!context.settings().defaultTopSitesAdded) {
-                defaultTopSites.add(
-                    Pair(
-                        context.getString(R.string.default_top_site_google),
-                        SupportUtils.GOOGLE_URL,
-                    ),
-                )
-
-                defaultTopSites.add(
-                    Pair(
-                        context.getString(R.string.default_top_site_wikipedia),
-                        SupportUtils.WIKIPEDIA_URL,
-                    ),
-                )
-
-                context.settings().defaultTopSitesAdded = true
-            }
-        }
-
         DefaultTopSitesStorage(
             pinnedSitesStorage = pinnedSiteStorage,
             historyStorage = historyStorage,
             topSitesProvider = marsTopSitesProvider,
-            defaultTopSites = defaultTopSites,
         )
     }
 

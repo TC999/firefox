@@ -373,11 +373,21 @@ class WindowGlobalTargetActor extends BaseTargetActor {
       writable: true,
     });
 
-    // When this target tracks only one WindowGlobal, set a fixed innerWindowId,
+    // When this target tracks only one WindowGlobal, set a fixed innerWindowId and window,
     // so that it can easily be read safely while the related WindowGlobal is being destroyed.
     if (this.followWindowGlobalLifeCycle) {
       Object.defineProperty(this, "innerWindowId", {
         value: this.innerWindowId,
+        configurable: false,
+        writable: false,
+      });
+      Object.defineProperty(this, "window", {
+        value: this.window,
+        configurable: false,
+        writable: false,
+      });
+      Object.defineProperty(this, "chromeEventHandler", {
+        value: this.chromeEventHandler,
         configurable: false,
         writable: false,
       });
@@ -461,27 +471,15 @@ class WindowGlobalTargetActor extends BaseTargetActor {
   _targetScopedActorPool = null;
 
   /**
-   * An object on which listen for DOMWindowCreated and pageshow events.
+   * A EventTarget object on which to listen for 'DOMWindowCreated' and 'pageshow' events.
    */
   get chromeEventHandler() {
     return getDocShellChromeEventHandler(this.docShell);
   }
 
   /**
-   * Getter for the nsIMessageManager associated to the window global.
-   */
-  get messageManager() {
-    try {
-      return this.docShell.messageManager;
-    } catch (e) {
-      // In some cases we can't get a docshell.  We just have no message manager
-      // then,
-      return null;
-    }
-  }
-
-  /**
    * Getter for the list of all `docShell`s in the window global.
+   *
    * @return {Array}
    */
   get docShells() {
@@ -538,6 +536,7 @@ class WindowGlobalTargetActor extends BaseTargetActor {
 
   /**
    * Getter for the list of all content DOM windows in the window global.
+   *
    * @return {Array}
    */
   get windows() {
@@ -762,10 +761,10 @@ class WindowGlobalTargetActor extends BaseTargetActor {
   /**
    * Called when the actor is removed from the connection.
    *
-   * @params {Object} options
-   * @params {Boolean} options.isTargetSwitching: Set to true when this is called during
+   * @params {object} options
+   * @params {boolean} options.isTargetSwitching: Set to true when this is called during
    *         a target switch.
-   * @params {Boolean} options.isModeSwitching: Set to true true when this is called as the
+   * @params {boolean} options.isModeSwitching: Set to true true when this is called as the
    *         result of a change to the devtools.browsertoolbox.scope pref.
    */
   destroy({ isTargetSwitching = false, isModeSwitching = false } = {}) {
@@ -1177,7 +1176,7 @@ class WindowGlobalTargetActor extends BaseTargetActor {
         docShell.QueryInterface(Ci.nsIWebNavigation);
 
         // don't include transient about:blank documents
-        if (docShell.document.isInitialDocument) {
+        if (docShell.document.isUncommittedInitialDocument) {
           return false;
         }
 

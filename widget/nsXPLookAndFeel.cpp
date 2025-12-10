@@ -3,8 +3,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/ArrayUtils.h"
-
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/RWLock.h"
 #include "nscore.h"
@@ -780,7 +778,7 @@ Maybe<nscolor> nsXPLookAndFeel::GenericDarkColor(ColorID aID) {
       color = kWindowText;
       break;
     case ColorID::MozSidebarborder:
-    case ColorID::Windowframe:  // --in-content-box-border-color computed
+    case ColorID::Windowframe:  // --border-color computed
                                 // with kWindowText above
                                 // kWindowBackground.
     case ColorID::Graytext:     // opacity: 0.4 of kWindowText blended over the
@@ -802,8 +800,7 @@ Maybe<nscolor> nsXPLookAndFeel::GenericDarkColor(ColorID aID) {
       color = NS_RGB(0xb1, 0xb1, 0xb1);
       break;
     case ColorID::MozCellhighlight:
-    case ColorID::Selecteditem:  // --button-background-color-primary /
-                                 // --in-content-item-selected
+    case ColorID::Selecteditem:  // --color-accent-primary-selected
       color = NS_RGB(0, 221, 255);
       break;
     case ColorID::MozSidebar:
@@ -815,8 +812,7 @@ Maybe<nscolor> nsXPLookAndFeel::GenericDarkColor(ColorID aID) {
     case ColorID::Threedface:
     case ColorID::MozCombobox:
     case ColorID::MozCellhighlighttext:
-    case ColorID::Selecteditemtext:  // --button-text-color-primary /
-                                     // --in-content-item-selected-text
+    case ColorID::Selecteditemtext:  // --text-color-accent-primary-selected
       color = NS_RGB(43, 42, 51);
       break;
     case ColorID::Threeddarkshadow:  // Same as Threedlightshadow but with the
@@ -1494,7 +1490,7 @@ Modifiers LookAndFeel::GetMenuAccessKeyModifiers() {
   }
 }
 
-void LookAndFeel::EnsureInit() { Unused << nsXPLookAndFeel::GetInstance(); }
+void LookAndFeel::EnsureInit() { (void)nsXPLookAndFeel::GetInstance(); }
 
 // static
 void LookAndFeel::Refresh() {

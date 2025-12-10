@@ -62,7 +62,6 @@
 #include "nsPIDOMWindow.h"
 #include "nsPIWindowRoot.h"
 #include "nsPresContextInlines.h"
-#include "nsViewManager.h"
 #include "nsXULElement.h"
 
 using namespace mozilla;
@@ -225,12 +224,12 @@ UniquePtr<nsMenuChainItem> nsMenuChainItem::Detach() {
 }
 
 void nsXULPopupManager::AddMenuChainItem(UniquePtr<nsMenuChainItem> aItem) {
-  PopupType popupType = aItem->Frame()->GetPopupType();
+  auto* frame = aItem->Frame();
+  PopupType popupType = frame->GetPopupType();
   if (StaticPrefs::layout_cursor_disable_for_popups() &&
       popupType != PopupType::Tooltip) {
-    if (nsPresContext* rootPC =
-            aItem->Frame()->PresContext()->GetRootPresContext()) {
-      if (nsCOMPtr<nsIWidget> rootWidget = rootPC->GetRootWidget()) {
+    if (auto* rootPc = frame->PresContext()->GetRootPresContext()) {
+      if (nsCOMPtr<nsIWidget> rootWidget = rootPc->GetRootWidget()) {
         rootWidget->SetCustomCursorAllowed(false);
       }
     }
@@ -357,7 +356,7 @@ nsXULPopupManager* nsXULPopupManager::GetInstance() {
 }
 
 bool nsXULPopupManager::RollupTooltips() {
-  const RollupOptions options{0, FlushViews::Yes, nullptr, AllowAnimations::No};
+  const RollupOptions options{0, nullptr, AllowAnimations::No};
   return RollupInternal(RollupKind::Tooltip, options, nullptr);
 }
 
@@ -517,10 +516,6 @@ bool nsXULPopupManager::RollupInternal(RollupKind aKind,
     }
   }
 
-  nsPresContext* presContext = item->Frame()->PresContext();
-  RefPtr<nsViewManager> viewManager =
-      presContext->PresShell()->GetViewManager();
-
   HidePopupOptions options{HidePopupOption::HideChain,
                            HidePopupOption::DeselectMenu,
                            HidePopupOption::IsRollup};
@@ -529,12 +524,6 @@ bool nsXULPopupManager::RollupInternal(RollupKind aKind,
   }
 
   HidePopup(item->Element(), options, lastPopup);
-
-  if (aOptions.mFlush == FlushViews::Yes) {
-    // The popup's visibility doesn't update until the minimize animation
-    // has finished, so call UpdateWidgetGeometry to update it right away.
-    viewManager->UpdateWidgetGeometry();
-  }
 
   return consume;
 }
@@ -1751,8 +1740,7 @@ nsEventStatus nsXULPopupManager::FirePopupShowingEvent(
   // coordinates are relative to the root widget
   nsPresContext* rootPresContext = aPresContext->GetRootPresContext();
   if (rootPresContext) {
-    event.mWidget =
-        rootPresContext->PresShell()->GetViewManager()->GetRootWidget();
+    event.mWidget = rootPresContext->GetRootWidget();
   } else {
     event.mWidget = nullptr;
   }
@@ -1853,8 +1841,8 @@ void nsXULPopupManager::FirePopupHidingEvent(Element* aPopup,
                                              HidePopupOptions aOptions) {
   nsCOMPtr<nsIContent> popup = aPopup;
   RefPtr<PresShell> presShell = aPresContext->PresShell();
-  Unused << presShell;  // This presShell may be keeping things alive
-                        // on non GTK platforms
+  (void)presShell;  // This presShell may be keeping things alive
+                    // on non GTK platforms
 
   nsEventStatus status = nsEventStatus_eIgnore;
   WidgetMouseEvent event(true, eXULPopupHiding, nullptr,
@@ -1958,7 +1946,7 @@ bool nsXULPopupManager::IsPopupOpen(Element* aPopup) {
                      item->Frame()->PopupState() == ePopupHiding ||
                      item->Frame()->PopupState() == ePopupInvisible,
                  "popup in open list not actually open");
-    Unused << item;
+    (void)item;
     return true;
   }
   return false;
@@ -3078,17 +3066,9 @@ nsXULMenuCommandEvent::Run() {
     }
   }
 
-  // The order of the nsViewManager and PresShell COM pointers is
-  // important below.  We want the pres shell to get released before the
-  // associated view manager on exit from this function.
-  // See bug 54233.
-  // XXXndeakin is this still needed?
   RefPtr<nsPresContext> presContext = menu->OwnerDoc()->GetPresContext();
   RefPtr<PresShell> presShell =
       presContext ? presContext->PresShell() : nullptr;
-  RefPtr<nsViewManager> kungFuDeathGrip =
-      presShell ? presShell->GetViewManager() : nullptr;
-  Unused << kungFuDeathGrip;  // Not referred to directly within this function
 
   // Deselect ourselves.
   if (mCloseMenuMode != CloseMenuMode_None) {

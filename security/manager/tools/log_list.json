@@ -1,6 +1,6 @@
 {
-  "version": "72.3",
-  "log_list_timestamp": "2025-10-12T12:54:04Z",
+  "version": "77.6",
+  "log_list_timestamp": "2025-12-07T12:52:59Z",
   "operators": [
     {
       "name": "Google",
@@ -57,6 +57,22 @@
           }
         },
         {
+          "description": "Google 'Argon2027h1'",
+          "log_id": "1tWNqdAXU/NqSqDHV0kCr+vH3CzTjNn3ZMgMiRkenwI=",
+          "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKHRm0H/zUaFA6Idz5cGvGO3tCPQyfGMgJmVBOPyKAP6mGM1IiNXi4CLomOUyYj0YN74p+eGVApFMsM4h/jzCsA==",
+          "url": "https://ct.googleapis.com/logs/us1/argon2027h1/",
+          "mmd": 86400,
+          "state": {
+            "qualified": {
+              "timestamp": "2025-10-18T00:30:00Z"
+            }
+          },
+          "temporal_interval": {
+            "start_inclusive": "2027-01-01T00:00:00Z",
+            "end_exclusive": "2027-07-01T00:00:00Z"
+          }
+        },
+        {
           "description": "Google 'Xenon2025h2' log",
           "log_id": "3dzKNJXX4RYF55Uy+sef+D0cUN/bADoUEnYKLKy7yCo=",
           "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEa+Cv7QZ8Pe/ZDuRYSwTYKkeZkIl6uTaldcgEuMviqiu1aJ2IKaKlz84rmhWboD6dlByyt0ryUexA7WJHpANJhg==",
@@ -102,6 +118,22 @@
           "temporal_interval": {
             "start_inclusive": "2026-07-01T00:00:00Z",
             "end_exclusive": "2027-01-01T00:00:00Z"
+          }
+        },
+        {
+          "description": "Google 'Xenon2027h1'",
+          "log_id": "RMK9DOkUDmSlyUoBkwpaobs1lw4A7hEWiWgqHETXtWY=",
+          "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/6WcA4VRSljIfTdY48+pFRLLtLrmTb88cGDdl8Gv3E2LduG4jgJ3AK5iNMFGhpbRRLi5B3rPlBaXVywuR5IFDg==",
+          "url": "https://ct.googleapis.com/logs/eu1/xenon2027h1/",
+          "mmd": 86400,
+          "state": {
+            "qualified": {
+              "timestamp": "2025-10-18T00:30:00Z"
+            }
+          },
+          "temporal_interval": {
+            "start_inclusive": "2027-01-01T00:00:00Z",
+            "end_exclusive": "2027-07-01T00:00:00Z"
           }
         }
       ],
@@ -152,8 +184,8 @@
           "url": "https://ct.cloudflare.com/logs/nimbus2027/",
           "mmd": 86400,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-05T00:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-15T00:00:00Z"
             }
           },
           "temporal_interval": {
@@ -718,8 +750,8 @@
           "monitoring_url": "https://mon.sycamore.ct.letsencrypt.org/2025h2d/",
           "mmd": 60,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-17T03:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-27T03:00:00Z"
             }
           },
           "temporal_interval": {
@@ -735,8 +767,8 @@
           "monitoring_url": "https://mon.sycamore.ct.letsencrypt.org/2026h1/",
           "mmd": 60,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-17T03:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-27T03:00:00Z"
             }
           },
           "temporal_interval": {
@@ -752,8 +784,8 @@
           "monitoring_url": "https://mon.sycamore.ct.letsencrypt.org/2026h2/",
           "mmd": 60,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-17T03:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-27T03:00:00Z"
             }
           },
           "temporal_interval": {
@@ -769,8 +801,8 @@
           "monitoring_url": "https://mon.sycamore.ct.letsencrypt.org/2027h1/",
           "mmd": 60,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-17T03:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-27T03:00:00Z"
             }
           },
           "temporal_interval": {
@@ -786,8 +818,8 @@
           "monitoring_url": "https://mon.sycamore.ct.letsencrypt.org/2027h2/",
           "mmd": 60,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-17T03:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-27T03:00:00Z"
             }
           },
           "temporal_interval": {
@@ -803,8 +835,8 @@
           "monitoring_url": "https://mon.willow.ct.letsencrypt.org/2025h2d/",
           "mmd": 60,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-17T03:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-27T03:00:00Z"
             }
           },
           "temporal_interval": {
@@ -820,8 +852,8 @@
           "monitoring_url": "https://mon.willow.ct.letsencrypt.org/2026h1/",
           "mmd": 60,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-17T03:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-27T03:00:00Z"
             }
           },
           "temporal_interval": {
@@ -837,8 +869,8 @@
           "monitoring_url": "https://mon.willow.ct.letsencrypt.org/2026h2/",
           "mmd": 60,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-17T03:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-27T03:00:00Z"
             }
           },
           "temporal_interval": {
@@ -854,8 +886,8 @@
           "monitoring_url": "https://mon.willow.ct.letsencrypt.org/2027h1/",
           "mmd": 60,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-17T03:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-27T03:00:00Z"
             }
           },
           "temporal_interval": {
@@ -871,8 +903,8 @@
           "monitoring_url": "https://mon.willow.ct.letsencrypt.org/2027h2/",
           "mmd": 60,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-17T03:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-27T03:00:00Z"
             }
           },
           "temporal_interval": {
@@ -951,9 +983,43 @@
             "start_inclusive": "2025-12-24T00:00:00Z",
             "end_exclusive": "2027-01-08T00:00:00Z"
           }
+        },
+        {
+          "description": "TrustAsia 'HETU2027'",
+          "log_id": "7drrgVxjITRJtHvlB3kFq9DZMUfCesUUazvFjkPptsc=",
+          "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE14jG8D9suqIVWPtTNOL33uXKZ4mUnnOMrIwOWeZU7GtoDRCWIXfy/9/SC8lTAbtP2NOP4wjIufAk6f64sY4DWg==",
+          "url": "https://hetu2027.trustasia.com/hetu2027/",
+          "mmd": 86400,
+          "state": {
+            "qualified": {
+              "timestamp": "2025-10-18T00:30:00Z"
+            }
+          },
+          "temporal_interval": {
+            "start_inclusive": "2026-12-25T00:00:00Z",
+            "end_exclusive": "2028-01-08T00:00:00Z"
+          }
         }
       ],
-      "tiled_logs": []
+      "tiled_logs": [
+        {
+          "description": "TrustAsia Luoshu2027",
+          "log_id": "VzRIzG4dLA3JS2nyh9Hv5IPHolxQxTILuzrep29usEE=",
+          "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEumSYzy6dUQlwTckPzKMKApMRinqxHIBlLfmrvx1SdMH1RTACi1wb1V18ss8YjlaC7Pch2OQa8OfRevub4Y9BDQ==",
+          "submission_url": "https://luoshu2027.trustasia.com/luoshu2027/",
+          "monitoring_url": "https://luoshu2027.trustasia.com/luoshu2027/",
+          "mmd": 60,
+          "state": {
+            "qualified": {
+              "timestamp": "2025-12-02T18:30:00Z"
+            }
+          },
+          "temporal_interval": {
+            "start_inclusive": "2026-12-24T00:00:00Z",
+            "end_exclusive": "2028-01-08T00:00:00Z"
+          }
+        }
+      ]
     },
     {
       "name": "Geomys",
@@ -1125,6 +1191,23 @@
           }
         },
         {
+          "description": "IPng Networks 'Halloumi2026h2a'",
+          "log_id": "JuNkblhpISO8ND9HJDWbN5LNJFqI2BXTkzP9mRirRyM=",
+          "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEiGh4zMsdukTgrdk9iPIwz9OfU9TQVi4Mxufpmnlrzv3ivJcxVhrST4XQSeQoF5LlFVIU6PL4IzrYl12BUWn9rQ==",
+          "submission_url": "https://halloumi2026h2a.log.ct.ipng.ch/",
+          "monitoring_url": "https://halloumi2026h2a.mon.ct.ipng.ch/",
+          "mmd": 60,
+          "state": {
+            "qualified": {
+              "timestamp": "2025-10-22T07:30:00Z"
+            }
+          },
+          "temporal_interval": {
+            "start_inclusive": "2026-07-01T00:00:00Z",
+            "end_exclusive": "2027-01-01T00:00:00Z"
+          }
+        },
+        {
           "description": "IPng Networks 'Halloumi2027h1'",
           "log_id": "ROgi/CurDpLu0On61pZkYCd20Bdg4IkFCckjobA/w38=",
           "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEw5SUl2yfd5TFSqUGv7A+I5+TpLe+zEccmtWVQakQQtOHYKqH8TbycalFx5xaqE5PU4NEwwnAJ9FWeT/6QaovZw==",
@@ -1166,8 +1249,8 @@
           "monitoring_url": "https://gouda2025h2.mon.ct.ipng.ch/",
           "mmd": 60,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-17T03:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-27T03:00:00Z"
             }
           },
           "temporal_interval": {
@@ -1183,8 +1266,8 @@
           "monitoring_url": "https://gouda2026h1.mon.ct.ipng.ch/",
           "mmd": 60,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-17T03:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-27T03:00:00Z"
             }
           },
           "temporal_interval": {
@@ -1200,8 +1283,8 @@
           "monitoring_url": "https://gouda2026h2.mon.ct.ipng.ch/",
           "mmd": 60,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-17T03:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-27T03:00:00Z"
             }
           },
           "temporal_interval": {
@@ -1217,8 +1300,8 @@
           "monitoring_url": "https://gouda2027h1.mon.ct.ipng.ch/",
           "mmd": 60,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-17T03:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-27T03:00:00Z"
             }
           },
           "temporal_interval": {
@@ -1234,8 +1317,8 @@
           "monitoring_url": "https://gouda2027h2.mon.ct.ipng.ch/",
           "mmd": 60,
           "state": {
-            "qualified": {
-              "timestamp": "2025-09-17T03:00:00Z"
+            "usable": {
+              "timestamp": "2025-11-27T03:00:00Z"
             }
           },
           "temporal_interval": {

@@ -349,7 +349,7 @@ newtab-custom-settings = 管理更多設定
 newtab-wallpaper-title = 背景圖
 newtab-wallpaper-reset = 還原為預設值
 newtab-wallpaper-upload-image = 上傳圖片
-newtab-wallpaper-custom-color = 選擇一種色彩
+newtab-wallpaper-custom-color = 選擇色彩
 # Variables
 #   $file_size (number) - The number of the maximum image file size (in MB) that may be uploaded
 newtab-wallpaper-error-max-file-size = 圖片超過 { $file_size }MB 的檔案大小限制。請嘗試上傳小一點的檔案。
@@ -403,7 +403,7 @@ newtab-wallpaper-abstract-purple-green = 紫色與綠色漸層
 newtab-wallpaper-abstract-blue-purple-waves = 藍色與紫色波浪圖
 newtab-wallpaper-abstract-black-waves = 黑色波浪圖
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = 相片
 newtab-wallpaper-beach-at-sunrise = 海邊日出
@@ -432,6 +432,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -660,6 +664,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = 新增清單
+newtab-widget-section-title = 小工具
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = 隱藏小工具
+    .aria-label = 隱藏所有小工具
+newtab-widget-section-maximize =
+    .title = 展開小工具
+    .aria-label = 將所有小工具展開成完整大小
+newtab-widget-section-minimize =
+    .title = 最小化小工具
+    .aria-label = 將所有小工具摺疊成精簡大小
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -672,10 +687,6 @@ newtab-widget-timer-mode-focus =
     .label = 專注
 newtab-widget-timer-mode-break =
     .label = 休息
-newtab-widget-timer-play =
-    .title = 播放
-newtab-widget-timer-pause =
-    .title = 暫停
 newtab-widget-timer-label-play =
     .label = 播放
 newtab-widget-timer-label-pause =
@@ -686,8 +697,6 @@ newtab-widget-timer-menu-notifications = 關閉通知
 newtab-widget-timer-menu-notifications-on = 開啟通知
 newtab-widget-timer-menu-hide = 隱藏計時器
 newtab-widget-timer-menu-learn-more = 更多資訊
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = 滾動顯示更多
 newtab-widget-message-title = 使用清單與內建的計時器，讓您保持專注
 # to-dos stands for "things to do".
 newtab-widget-message-copy = 從快速提醒到每日待辦事項，或是在專注時間之後休息一下伸伸懶腰，讓您及時完成工作。

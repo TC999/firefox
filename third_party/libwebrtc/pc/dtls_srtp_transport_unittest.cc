@@ -10,9 +10,8 @@
 
 #include "pc/dtls_srtp_transport.h"
 
-#include <string.h>
-
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <vector>
 
@@ -33,7 +32,6 @@
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/rtc_certificate.h"
 #include "rtc_base/ssl_identity.h"
-#include "rtc_base/third_party/sigslot/sigslot.h"
 #include "rtc_base/thread.h"
 #include "test/create_test_field_trials.h"
 #include "test/gtest.h"
@@ -46,10 +44,9 @@ using ::webrtc::FieldTrials;
 using ::webrtc::RtpTransport;
 using ::webrtc::SrtpTransport;
 
-const int kRtpAuthTagLen = 10;
+constexpr int kRtpAuthTagLen = 10;
 
-class DtlsSrtpTransportTest : public ::testing::Test,
-                              public sigslot::has_slots<> {
+class DtlsSrtpTransportTest : public ::testing::Test {
  protected:
   DtlsSrtpTransportTest() {}
 

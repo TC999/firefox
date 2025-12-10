@@ -179,9 +179,9 @@ fun BrowserMenuBuilder.addCustomMenuItems(
         }
     }
 
-    val safeCustomMenuInsertIndex = customTabMenuInsertIndex.coerceIn(0, this?.items?.size ?: 0)
-    val defaultMenuItems = this?.items ?: emptyList()
-    val defaultMenuExtras = this?.extras ?: emptyMap()
+    val safeCustomMenuInsertIndex = customTabMenuInsertIndex.coerceIn(0, this.items.size)
+    val defaultMenuItems = this.items
+    val defaultMenuExtras = this.extras
 
     return BrowserMenuBuilder(
         items = defaultMenuItems.toMutableList().apply {
@@ -279,7 +279,10 @@ private fun getDarkColorSchemeParams(safeIntent: SafeIntent) =
  *
  * @see [CustomTabsIntent.Builder.setColorSchemeParams].
  */
-private fun getColorSchemeParams(safeIntent: SafeIntent, @ColorScheme colorScheme: Int): ColorSchemeParams? {
+private fun getColorSchemeParams(
+    safeIntent: SafeIntent,
+    @ColorScheme colorScheme: Int,
+): ColorSchemeParams? {
     val bundle = safeIntent.getColorSchemeParamsBundle()?.get(colorScheme)
 
     val toolbarColor = bundle?.getNullableSafeValue(EXTRA_TOOLBAR_COLOR)

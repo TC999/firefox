@@ -201,7 +201,7 @@ nsresult FetchUtil::SetRequestReferrer(nsIPrincipal* aPrincipal, Document* aDoc,
   nsAutoCString computedReferrerSpec;
   referrerInfo = aChannel->GetReferrerInfo();
   if (referrerInfo) {
-    Unused << referrerInfo->GetComputedReferrerSpec(computedReferrerSpec);
+    (void)referrerInfo->GetComputedReferrerSpec(computedReferrerSpec);
   }
 
   // Step 8 https://fetch.spec.whatwg.org/#main-fetch
@@ -653,7 +653,7 @@ class JSStreamConsumer final : public nsIInputStreamCallback,
 NS_IMPL_ISUPPORTS(JSStreamConsumer, nsIInputStreamCallback)
 
 // static
-MOZ_CONSTINIT nsCString FetchUtil::WasmAltDataType;
+constinit nsCString FetchUtil::WasmAltDataType;
 
 // static
 void FetchUtil::InitWasmAltDataType() {

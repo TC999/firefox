@@ -10,7 +10,6 @@
 #include "mozilla/dom/MimeType.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/TextUtils.h"
-#include "mozilla/Unused.h"
 #include "nsHttpResponseHead.h"
 #include "nsIHttpHeaderVisitor.h"
 #include "nsPrintfCString.h"
@@ -326,8 +325,8 @@ nsresult nsHttpResponseHead::ParseCachedHead(const char* block) {
     p = strstr(block, "\r\n");
     if (!p) return NS_ERROR_UNEXPECTED;
 
-    Unused << ParseHeaderLine_locked(nsDependentCSubstring(block, p - block),
-                                     false);
+    (void)ParseHeaderLine_locked(nsDependentCSubstring(block, p - block),
+                                 false);
 
   } while (true);
 
@@ -615,12 +614,13 @@ nsresult nsHttpResponseHead::ComputeFreshnessLifetime(uint32_t* result) {
     return NS_OK;
   }
 
-  // From RFC 7234 Section 4.2.2, heuristics can only be used on responses
-  // without explicit freshness whose status codes are defined as cacheable
-  // by default, and those responses without explicit freshness that have been
-  // marked as explicitly cacheable.
+  // From RFC 9111 Section 4.2.2
+  // (https://www.rfc-editor.org/rfc/rfc9111.html#name-calculating-heuristic-fresh),
+  // heuristics can only be used on responses without explicit freshness whose
+  // status codes are defined as cacheable by default, and those responses
+  // without explicit freshness that have been marked as explicitly cacheable.
   // Note that |MustValidate| handled most of non-cacheable status codes.
-  if ((mStatus == 302 || mStatus == 304 || mStatus == 307) &&
+  if ((mStatus == 302 || mStatus == 303 || mStatus == 304 || mStatus == 307) &&
       !mCacheControlPublic && !mCacheControlPrivate) {
     LOG((
         "nsHttpResponseHead::ComputeFreshnessLifetime [this = %p] "
@@ -667,6 +667,7 @@ bool nsHttpResponseHead::MustValidate() {
     case 300:
     case 301:
     case 302:
+    case 303:
     case 304:
     case 307:
     case 308:
@@ -674,7 +675,6 @@ bool nsHttpResponseHead::MustValidate() {
     case 410:
       break;
       // Uncacheable redirects
-    case 303:
     case 305:
       // Other known errors
     case 401:
@@ -1216,7 +1216,7 @@ bool nsHttpResponseHead::GetContentTypeOptionsHeader(nsACString& aOutput) {
   // We need to fetch original headers and manually merge them because empty
   // header values are not retrieved with GetHeader. Ref - Bug 1819642
   RefPtr<ContentTypeOptionsVisitor> visitor = new ContentTypeOptionsVisitor();
-  Unused << GetOriginalHeader(nsHttp::X_Content_Type_Options, visitor);
+  (void)GetOriginalHeader(nsHttp::X_Content_Type_Options, visitor);
   visitor->GetMergedHeader(contentTypeOptionsHeader);
   if (contentTypeOptionsHeader.IsEmpty()) {
     // if there is no XCTO header, then there is nothing to do.

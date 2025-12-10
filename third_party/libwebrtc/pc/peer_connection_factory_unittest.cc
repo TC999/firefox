@@ -20,10 +20,12 @@
 #include "api/audio/audio_device.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
+#include "api/create_modular_peer_connection_factory.h"
 #include "api/create_peerconnection_factory.h"
 #include "api/data_channel_interface.h"
 #include "api/enable_media.h"
 #include "api/enable_media_with_defaults.h"
+#include "api/environment/environment.h"
 #include "api/environment/environment_factory.h"
 #include "api/field_trials.h"
 #include "api/field_trials_view.h"
@@ -87,23 +89,25 @@ using ::testing::NotNull;
 using ::testing::Return;
 using ::testing::UnorderedElementsAre;
 
-const char kStunIceServer[] = "stun:stun.l.google.com:19302";
-const char kTurnIceServer[] = "turn:test.com:1234";
-const char kTurnIceServerWithTransport[] = "turn:hello.com?transport=tcp";
-const char kSecureTurnIceServer[] = "turns:hello.com?transport=tcp";
-const char kSecureTurnIceServerWithoutTransportParam[] = "turns:hello.com:443";
-const char kSecureTurnIceServerWithoutTransportAndPortParam[] =
+constexpr char kStunIceServer[] = "stun:stun.l.google.com:19302";
+constexpr char kTurnIceServer[] = "turn:test.com:1234";
+constexpr char kTurnIceServerWithTransport[] = "turn:hello.com?transport=tcp";
+constexpr char kSecureTurnIceServer[] = "turns:hello.com?transport=tcp";
+constexpr char kSecureTurnIceServerWithoutTransportParam[] =
+    "turns:hello.com:443";
+constexpr char kSecureTurnIceServerWithoutTransportAndPortParam[] =
     "turns:hello.com";
-const char kTurnIceServerWithNoUsernameInUri[] = "turn:test.com:1234";
-const char kTurnPassword[] = "turnpassword";
-const int kDefaultStunPort = 3478;
-const int kDefaultStunTlsPort = 5349;
-const char kTurnUsername[] = "test";
-const char kStunIceServerWithIPv4Address[] = "stun:1.2.3.4:1234";
-const char kStunIceServerWithIPv4AddressWithoutPort[] = "stun:1.2.3.4";
-const char kStunIceServerWithIPv6Address[] = "stun:[2401:fa00:4::]:1234";
-const char kStunIceServerWithIPv6AddressWithoutPort[] = "stun:[2401:fa00:4::]";
-const char kTurnIceServerWithIPv6Address[] = "turn:[2401:fa00:4::]:1234";
+constexpr char kTurnIceServerWithNoUsernameInUri[] = "turn:test.com:1234";
+constexpr char kTurnPassword[] = "turnpassword";
+constexpr int kDefaultStunPort = 3478;
+constexpr int kDefaultStunTlsPort = 5349;
+constexpr char kTurnUsername[] = "test";
+constexpr char kStunIceServerWithIPv4Address[] = "stun:1.2.3.4:1234";
+constexpr char kStunIceServerWithIPv4AddressWithoutPort[] = "stun:1.2.3.4";
+constexpr char kStunIceServerWithIPv6Address[] = "stun:[2401:fa00:4::]:1234";
+constexpr char kStunIceServerWithIPv6AddressWithoutPort[] =
+    "stun:[2401:fa00:4::]";
+constexpr char kTurnIceServerWithIPv6Address[] = "turn:[2401:fa00:4::]:1234";
 
 class NullPeerConnectionObserver : public PeerConnectionObserver {
  public:
@@ -120,6 +124,7 @@ class NullPeerConnectionObserver : public PeerConnectionObserver {
   void OnIceGatheringChange(
       PeerConnectionInterface::IceGatheringState new_state) override {}
   void OnIceCandidate(const IceCandidate* candidate) override {}
+  void OnIceCandidateRemoved(const IceCandidate* candidate) override {}
 };
 
 class MockNetworkManager : public NetworkManager {
@@ -288,10 +293,12 @@ CreatePeerConnectionFactoryWithRtxDisabled() {
           OpenH264DecoderTemplateAdapter, Dav1dDecoderTemplateAdapter>>(),
   EnableMedia(pcf_dependencies);
 
+  Environment env = CreateEnvironment();
   scoped_refptr<ConnectionContext> context =
-      ConnectionContext::Create(CreateEnvironment(), &pcf_dependencies);
+      ConnectionContext::Create(env, &pcf_dependencies);
   context->set_use_rtx(false);
-  return make_ref_counted<PeerConnectionFactory>(context, &pcf_dependencies);
+  return make_ref_counted<PeerConnectionFactory>(env, context,
+                                                 &pcf_dependencies);
 }
 
 // Verify creation of PeerConnection using internal ADM, video factory and
@@ -707,12 +714,12 @@ TEST(PeerConnectionFactoryDependenciesTest, UsesPacketSocketFactory) {
       std::make_unique<NiceMock<MockPacketSocketFactory>>();
 
   Event called;
-  EXPECT_CALL(*mock_socket_factory, CreateUdpSocket(_, _, _))
-      .WillOnce(InvokeWithoutArgs([&] {
+  EXPECT_CALL(*mock_socket_factory, CreateUdpSocket)
+      .WillOnce([&] {
         called.Set();
         return nullptr;
-      }))
-      .WillRepeatedly(Return(nullptr));
+      })
+      .WillRepeatedly([] { return nullptr; });
 
   PeerConnectionFactoryDependencies pcf_dependencies;
   pcf_dependencies.packet_socket_factory = std::move(mock_socket_factory);

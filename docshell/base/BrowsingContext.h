@@ -48,6 +48,8 @@ namespace IPC {
 class Message;
 class MessageReader;
 class MessageWriter;
+template <typename T>
+struct ParamTraits;
 }  // namespace IPC
 
 namespace mozilla {
@@ -58,9 +60,6 @@ class LogModule;
 namespace ipc {
 class IProtocol;
 class IPCResult;
-
-template <typename T>
-struct IPDLParamTraits;
 }  // namespace ipc
 
 namespace dom {
@@ -79,6 +78,7 @@ class Sequence;
 class SessionHistoryInfo;
 class SessionStorageManager;
 class StructuredCloneHolder;
+struct NavigationAPIMethodTracker;
 class WindowContext;
 class WindowGlobalChild;
 struct WindowPostMessageOptions;
@@ -149,6 +149,9 @@ struct EmbedderColorSchemes {
   /* Hold the pinned/app-tab state and should be used on top level browsing   \
    * contexts only */                                                         \
   FIELD(IsAppTab, bool)                                                       \
+  /* Whether this is a captive portal tab. Should be used on top level        \
+   * browsing contexts only */                                                \
+  FIELD(IsCaptivePortalTab, bool)                                             \
   /* Whether there's more than 1 tab / toplevel browsing context in this      \
    * parent window. Used to determine if a given BC is allowed to resize      \
    * and/or move the window or not. */                                        \
@@ -204,6 +207,9 @@ struct EmbedderColorSchemes {
    * context. */                                                              \
   FIELD(GVAudibleAutoplayRequestStatus, GVAutoplayRequestStatus)              \
   FIELD(GVInaudibleAutoplayRequestStatus, GVAutoplayRequestStatus)            \
+  FIELD(ScreenHeightOverride, uint64_t)                                       \
+  FIELD(ScreenWidthOverride, uint64_t)                                        \
+  FIELD(HasScreenAreaOverride, bool)                                          \
   /* ScreenOrientation-related APIs */                                        \
   FIELD(CurrentOrientationAngle, float)                                       \
   FIELD(CurrentOrientationType, mozilla::dom::OrientationType)                \
@@ -284,7 +290,10 @@ struct EmbedderColorSchemes {
    * protections */                                                           \
   FIELD(TopInnerSizeForRFP, CSSIntSize)                                       \
   /* Used to propagate document's IPAddressSpace  */                          \
-  FIELD(IPAddressSpace, nsILoadInfo::IPAddressSpace)
+  FIELD(IPAddressSpace, nsILoadInfo::IPAddressSpace)                          \
+  /* This is true if we should redirect to an error page when inserting *     \
+   * meta tags flagging adult content into our documents */                   \
+  FIELD(ParentalControlsEnabled, bool)
 
 // BrowsingContext, in this context, is the cross process replicated
 // environment in which information about documents is stored. In
@@ -456,11 +465,14 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
 
   nsresult InternalLoad(nsDocShellLoadState* aLoadState);
 
-  void Navigate(nsIURI* aURI, nsIPrincipal& aSubjectPrincipal, ErrorResult& aRv,
-                NavigationHistoryBehavior aHistoryHandling =
-                    NavigationHistoryBehavior::Auto,
-                bool aNeedsCompletelyLoadedDocument = false,
-                nsIStructuredCloneContainer* aNavigationAPIState = nullptr);
+  void Navigate(
+      nsIURI* aURI, Document* aSourceDocument, nsIPrincipal& aSubjectPrincipal,
+      ErrorResult& aRv,
+      NavigationHistoryBehavior aHistoryHandling =
+          NavigationHistoryBehavior::Auto,
+      bool aNeedsCompletelyLoadedDocument = false,
+      nsIStructuredCloneContainer* aNavigationAPIState = nullptr,
+      dom::NavigationAPIMethodTracker* aNavigationAPIMethodTracker = nullptr);
 
   // Removes the root document for this BrowsingContext tree from the BFCache,
   // if it is cached, and returns true if it was.
@@ -670,7 +682,7 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   }
 
   void SetCurrentIPAddressSpace(nsILoadInfo::IPAddressSpace aIPAddressSpace) {
-    Unused << SetIPAddressSpace(aIPAddressSpace);
+    (void)SetIPAddressSpace(aIPAddressSpace);
   }
 
   bool ForceDesktopViewport() const { return GetForceDesktopViewport(); }
@@ -701,6 +713,49 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
       return true;
     }
     return false;
+  }
+
+  [[nodiscard]] nsresult SetScreenAreaOverride(uint64_t aScreenWidth,
+                                               uint64_t aScreenHeight) {
+    if (GetHasScreenAreaOverride() &&
+        GetScreenWidthOverride() == aScreenWidth &&
+        GetScreenHeightOverride() == aScreenHeight) {
+      return NS_OK;
+    }
+
+    Transaction txn;
+    txn.SetScreenWidthOverride(aScreenWidth);
+    txn.SetScreenHeightOverride(aScreenHeight);
+    txn.SetHasScreenAreaOverride(true);
+    return txn.Commit(this);
+  }
+
+  void SetScreenAreaOverride(uint64_t aScreenWidth, uint64_t aScreenHeight,
+                             ErrorResult& aRv) {
+    MOZ_ASSERT(IsTop());
+
+    if (NS_FAILED(SetScreenAreaOverride(aScreenWidth, aScreenHeight))) {
+      aRv.ThrowInvalidStateError("Browsing context is discarded");
+    }
+  }
+
+  void ResetScreenAreaOverride() {
+    MOZ_ASSERT(IsTop());
+
+    (void)SetHasScreenAreaOverride(false);
+  }
+
+  bool HasScreenAreaOverride() const {
+    return Top()->GetHasScreenAreaOverride();
+  }
+
+  Maybe<CSSIntSize> GetScreenAreaOverride() {
+    if (!HasScreenAreaOverride()) {
+      return Nothing();
+    }
+    CSSIntSize screenSize(Top()->GetScreenWidthOverride(),
+                          Top()->GetScreenHeightOverride());
+    return Some(screenSize);
   }
 
   // ScreenOrientation related APIs
@@ -742,7 +797,7 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   void ResetOrientationOverride() {
     MOZ_ASSERT(IsTop());
 
-    Unused << SetHasOrientationOverride(false);
+    (void)SetHasOrientationOverride(false);
   }
 
   void SetRDMPaneMaxTouchPoints(uint8_t aMaxTouchPoints, ErrorResult& aRv) {
@@ -1070,6 +1125,7 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   void ClearCachedValuesOfLocations();
 
   void ConsumeHistoryActivation();
+  void SynchronizeNavigationAPIState(nsIStructuredCloneContainer* aState);
 
  protected:
   virtual ~BrowsingContext();
@@ -1092,7 +1148,8 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   // principal, and if so construct the right nsDocShellLoadInfo for the load
   // and return it.
   already_AddRefed<nsDocShellLoadState> CheckURLAndCreateLoadState(
-      nsIURI* aURI, nsIPrincipal& aSubjectPrincipal, ErrorResult& aRv);
+      nsIURI* aURI, nsIPrincipal& aSubjectPrincipal, Document* aSourceDocument,
+      ErrorResult& aRv);
 
   bool AddSHEntryWouldIncreaseLength(SessionHistoryInfo* aCurrentEntry) const;
 
@@ -1283,6 +1340,11 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   bool CanSet(FieldIndex<IDX_IsAppTab>, const bool& aValue,
               ContentParent* aSource);
 
+  bool CanSet(FieldIndex<IDX_IsCaptivePortalTab>, const bool& aValue,
+              ContentParent* aSource) {
+    return true;
+  }
+
   bool CanSet(FieldIndex<IDX_HasSiblings>, const bool& aValue,
               ContentParent* aSource);
 
@@ -1419,6 +1481,10 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
     return XRE_IsParentProcess();
   }
 
+  bool CanSet(FieldIndex<IDX_ParentalControlsEnabled>, bool, ContentParent*) {
+    return XRE_IsParentProcess();
+  }
+
   // Overload `DidSet` to get notifications for a particular field being set.
   //
   // You can also overload the variant that gets the old value if you need it.
@@ -1437,6 +1503,8 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   void DidSet(FieldIndex<IDX_IsSyntheticDocumentContainer>);
 
   void DidSet(FieldIndex<IDX_IsUnderHiddenEmbedderElement>, bool aOldValue);
+
+  void DidSet(FieldIndex<IDX_ForceOffline>, bool aOldValue);
 
   // Allow if the process attemping to set field is the same as the owning
   // process. Deprecated. New code that might use this should generally be moved
@@ -1618,26 +1686,24 @@ using MaybeDiscardedBrowsingContext = MaybeDiscarded<BrowsingContext>;
 extern template class syncedcontext::Transaction<BrowsingContext>;
 
 }  // namespace dom
+}  // namespace mozilla
 
 // Allow sending BrowsingContext objects over IPC.
-namespace ipc {
+namespace IPC {
 template <>
-struct IPDLParamTraits<dom::MaybeDiscarded<dom::BrowsingContext>> {
-  static void Write(IPC::MessageWriter* aWriter, IProtocol* aActor,
-                    const dom::MaybeDiscarded<dom::BrowsingContext>& aParam);
-  static bool Read(IPC::MessageReader* aReader, IProtocol* aActor,
-                   dom::MaybeDiscarded<dom::BrowsingContext>* aResult);
+struct ParamTraits<
+    mozilla::dom::MaybeDiscarded<mozilla::dom::BrowsingContext>> {
+  using paramType = mozilla::dom::MaybeDiscarded<mozilla::dom::BrowsingContext>;
+  static void Write(IPC::MessageWriter* aWriter, const paramType& aParam);
+  static bool Read(IPC::MessageReader* aReader, paramType* aResult);
 };
 
 template <>
-struct IPDLParamTraits<dom::BrowsingContext::IPCInitializer> {
-  static void Write(IPC::MessageWriter* aWriter, IProtocol* aActor,
-                    const dom::BrowsingContext::IPCInitializer& aInitializer);
-
-  static bool Read(IPC::MessageReader* aReader, IProtocol* aActor,
-                   dom::BrowsingContext::IPCInitializer* aInitializer);
+struct ParamTraits<mozilla::dom::BrowsingContext::IPCInitializer> {
+  using paramType = mozilla::dom::BrowsingContext::IPCInitializer;
+  static void Write(IPC::MessageWriter* aWriter, const paramType& aInitializer);
+  static bool Read(IPC::MessageReader* aReader, paramType* aInitializer);
 };
-}  // namespace ipc
-}  // namespace mozilla
+}  // namespace IPC
 
 #endif  // !defined(mozilla_dom_BrowsingContext_h)

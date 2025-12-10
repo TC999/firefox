@@ -32,7 +32,6 @@
 #include "api/local_network_access_permission.h"
 #include "api/peer_connection_interface.h"
 #include "api/rtc_error.h"
-#include "api/rtc_event_log/rtc_event_log.h"
 #include "api/scoped_refptr.h"
 #include "api/sequence_checker.h"
 #include "api/transport/data_channel_transport_interface.h"
@@ -42,7 +41,6 @@
 #include "media/base/codec.h"
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
 #include "p2p/base/ice_transport_internal.h"
-#include "p2p/base/p2p_transport_channel.h"
 #include "p2p/base/packet_transport_internal.h"
 #include "p2p/base/port.h"
 #include "p2p/base/port_allocator.h"
@@ -130,7 +128,6 @@ class JsepTransportController : public PayloadTypeSuggester,
     // Initial value for whether DtlsTransport reset causes a reset
     // of SRTP parameters.
     bool active_reset_srtp_params = false;
-    RtcEventLog* event_log = nullptr;
 
     // Factory for SCTP transports.
     SctpTransportFactoryInterface* sctp_factory = nullptr;
@@ -210,7 +207,7 @@ class JsepTransportController : public PayloadTypeSuggester,
   void MaybeStartGathering();
   RTCError AddRemoteCandidates(const std::string& mid,
                                const std::vector<Candidate>& candidates);
-  RTCError RemoveRemoteCandidates(const std::vector<Candidate>& candidates);
+  bool RemoveRemoteCandidate(const IceCandidate* candidate);
 
   /**********************
    * DTLS-related methods
@@ -334,8 +331,8 @@ class JsepTransportController : public PayloadTypeSuggester,
   CallbackList<const IceCandidateErrorEvent&> signal_ice_candidate_error_
       RTC_GUARDED_BY(network_thread_);
 
-  CallbackList<const std::vector<Candidate>&> signal_ice_candidates_removed_
-      RTC_GUARDED_BY(network_thread_);
+  CallbackList<IceTransportInternal*, const std::vector<Candidate>&>
+      signal_ice_candidates_removed_ RTC_GUARDED_BY(network_thread_);
 
   CallbackList<const CandidatePairChangeEvent&>
       signal_ice_candidate_pair_changed_ RTC_GUARDED_BY(network_thread_);

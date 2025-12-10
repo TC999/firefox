@@ -132,7 +132,7 @@ void MacroAssembler::byteSwap16ZeroExtend(Register reg) {
 
 void MacroAssembler::byteSwap32(Register reg) {
   ma_wsbh(reg, reg);
-  as_rotr(reg, reg, 16);
+  ma_ror(reg, reg, Imm32(16));
 }
 
 // ===============================================================
@@ -156,6 +156,13 @@ void MacroAssembler::add32(Imm32 imm, const Address& dest) {
   load32(dest, scratch2);
   ma_addu(scratch2, imm);
   store32(scratch2, dest);
+}
+
+void MacroAssembler::add32(const Address& src, Register dest) {
+  UseScratchRegisterScope temps(*this);
+  Register scratch2 = temps.Acquire();
+  load32(src, scratch2);
+  as_addu(dest, dest, scratch2);
 }
 
 void MacroAssembler::addPtr(Imm32 imm, const Address& dest) {
@@ -247,43 +254,39 @@ void MacroAssembler::mulDoublePtr(ImmPtr imm, Register temp,
   mulDouble(ScratchDoubleReg, dest);
 }
 
-void MacroAssembler::quotient32(Register rhs, Register srcDest,
+void MacroAssembler::quotient32(Register lhs, Register rhs, Register dest,
                                 bool isUnsigned) {
+#ifdef MIPSR6
   if (isUnsigned) {
-#ifdef MIPSR6
-    as_divu(srcDest, srcDest, rhs);
-#else
-    as_divu(srcDest, rhs);
-#endif
+    as_divu(dest, lhs, rhs);
   } else {
-#ifdef MIPSR6
-    as_div(srcDest, srcDest, rhs);
-#else
-    as_div(srcDest, rhs);
-#endif
+    as_div(dest, lhs, rhs);
   }
-#ifndef MIPSR6
-  as_mflo(srcDest);
+#else
+  if (isUnsigned) {
+    as_divu(lhs, rhs);
+  } else {
+    as_div(lhs, rhs);
+  }
+  as_mflo(dest);
 #endif
 }
 
-void MacroAssembler::remainder32(Register rhs, Register srcDest,
+void MacroAssembler::remainder32(Register lhs, Register rhs, Register dest,
                                  bool isUnsigned) {
+#ifdef MIPSR6
   if (isUnsigned) {
-#ifdef MIPSR6
-    as_modu(srcDest, srcDest, rhs);
-#else
-    as_divu(srcDest, rhs);
-#endif
+    as_modu(dest, lhs, rhs);
   } else {
-#ifdef MIPSR6
-    as_mod(srcDest, srcDest, rhs);
-#else
-    as_div(srcDest, rhs);
-#endif
+    as_mod(dest, lhs, rhs);
   }
-#ifndef MIPSR6
-  as_mfhi(srcDest);
+#else
+  if (isUnsigned) {
+    as_divu(lhs, rhs);
+  } else {
+    as_div(lhs, rhs);
+  }
+  as_mfhi(dest);
 #endif
 }
 

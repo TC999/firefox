@@ -9,7 +9,6 @@
 #ifndef nsHTMLCanvasFrame_h___
 #define nsHTMLCanvasFrame_h___
 
-#include "mozilla/Attributes.h"
 #include "nsContainerFrame.h"
 #include "nsStringFwd.h"
 
@@ -55,7 +54,7 @@ class nsHTMLCanvasFrame final : public nsContainerFrame {
   void UnionChildOverflow(mozilla::OverflowAreas&, bool aAsIfScrolled) override;
 
   SizeComputationResult ComputeSize(
-      gfxContext* aRenderingContext, mozilla::WritingMode aWM,
+      const SizeComputationInput& aSizingInput, mozilla::WritingMode aWM,
       const mozilla::LogicalSize& aCBSize, nscoord aAvailableISize,
       const mozilla::LogicalSize& aMargin,
       const mozilla::LogicalSize& aBorderPadding,

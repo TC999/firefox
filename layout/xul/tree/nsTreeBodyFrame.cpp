@@ -24,7 +24,6 @@
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/MouseEvents.h"
 #include "mozilla/PresShell.h"
-#include "mozilla/ResultExtensions.h"
 #include "mozilla/ScrollContainerFrame.h"
 #include "mozilla/Try.h"
 #include "mozilla/dom/CustomEvent.h"
@@ -59,8 +58,6 @@
 #include "nsTreeImageListener.h"
 #include "nsTreeSelection.h"
 #include "nsTreeUtils.h"
-#include "nsView.h"
-#include "nsViewManager.h"
 #include "nsWidgetsCID.h"
 
 #ifdef ACCESSIBILITY
@@ -2439,7 +2436,7 @@ class nsDisplayTreeBody final : public nsPaintedDisplayItem {
 
   void Paint(nsDisplayListBuilder* aBuilder, gfxContext* aCtx) override {
     MOZ_ASSERT(aBuilder);
-    Unused << static_cast<nsTreeBodyFrame*>(mFrame)->PaintTreeBody(
+    (void)static_cast<nsTreeBodyFrame*>(mFrame)->PaintTreeBody(
         *aCtx, GetPaintRect(aBuilder, aCtx), ToReferenceFrame(), aBuilder);
   }
 

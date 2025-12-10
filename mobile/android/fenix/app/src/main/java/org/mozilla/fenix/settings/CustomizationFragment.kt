@@ -4,10 +4,12 @@
 
 package org.mozilla.fenix.settings
 
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Build.VERSION.SDK_INT
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.navigation.fragment.navArgs
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceFragmentCompat
@@ -38,6 +40,7 @@ class CustomizationFragment : PreferenceFragmentCompat() {
     private lateinit var radioDarkTheme: RadioButtonPreference
     private lateinit var radioAutoBatteryTheme: RadioButtonPreference
     private lateinit var radioFollowDeviceTheme: RadioButtonPreference
+    private val args by navArgs<CustomizationFragmentArgs>()
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.customization_preferences, rootKey)
@@ -48,6 +51,9 @@ class CustomizationFragment : PreferenceFragmentCompat() {
     override fun onResume() {
         super.onResume()
         showToolbar(getString(R.string.preferences_customize))
+        args.preferenceToScrollTo?.let {
+            scrollToPreference(it)
+        }
     }
 
     private fun setupPreferences() {
@@ -60,6 +66,7 @@ class CustomizationFragment : PreferenceFragmentCompat() {
         updateToolbarCategoryBasedOnTabStrip(tabletAndTabStripEnabled)
         setupTabStripCategory()
         setupToolbarLayout()
+        updateToolbarShortcut()
 
         // if tab strip is enabled, swipe toolbar to switch tabs should not be enabled so the
         // preference is not shown
@@ -84,6 +91,31 @@ class CustomizationFragment : PreferenceFragmentCompat() {
         } else {
             setupToolbarCategory()
         }
+    }
+
+    private fun updateToolbarShortcut() {
+        val simpleCategory = requirePreference<PreferenceCategory>(
+            R.string.pref_key_customization_category_toolbar_simple_shortcut,
+        )
+        val expandedCategory = requirePreference<PreferenceCategory>(
+            R.string.pref_key_customization_category_toolbar_expanded_shortcut,
+        )
+        val settings = requireContext().settings()
+        val isExpandedToolbarEnabled = settings.shouldUseExpandedToolbar && isTallWindow() && !isWideWindow()
+
+        simpleCategory.isVisible =
+            settings.shouldShowToolbarCustomization &&
+                    Config.channel.isNightlyOrDebug &&
+                    settings.shouldUseComposableToolbar &&
+                    settings.toolbarRedesignEnabled &&
+                    !isExpandedToolbarEnabled
+
+        expandedCategory.isVisible =
+            settings.shouldShowToolbarCustomization &&
+                    Config.channel.isNightlyOrDebug &&
+                    settings.shouldUseComposableToolbar &&
+                    settings.toolbarRedesignEnabled &&
+                    isExpandedToolbarEnabled
     }
 
     private fun setupRadioGroups() {
@@ -191,8 +223,13 @@ class CustomizationFragment : PreferenceFragmentCompat() {
     private fun setupToolbarLayout() {
         val settings = requireContext().settings()
         (requirePreference(R.string.pref_key_customization_category_toolbar_layout) as PreferenceCategory).apply {
-            isVisible = Config.channel.isNightlyOrDebug && settings.shouldUseComposableToolbar &&
+            isVisible = settings.shouldUseComposableToolbar &&
                     settings.toolbarRedesignEnabled && isTallWindow() && !isWideWindow()
+        }
+
+        val layoutToggle = requirePreference<ToggleRadioButtonPreference>(R.string.pref_key_toolbar_expanded)
+        layoutToggle.setOnToggleChanged {
+            updateToolbarShortcut()
         }
         updateToolbarLayoutIcons()
     }
@@ -240,6 +277,12 @@ class CustomizationFragment : PreferenceFragmentCompat() {
             }
         }
         return super.onPreferenceTreeClick(preference)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        setupToolbarLayout()
+        updateToolbarShortcut()
     }
 
     companion object {

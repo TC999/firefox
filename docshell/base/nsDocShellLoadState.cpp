@@ -26,6 +26,7 @@
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/FormData.h"
 #include "mozilla/dom/LoadURIOptionsBinding.h"
+#include "mozilla/dom/Navigation.h"
 #include "mozilla/dom/NavigationUtils.h"
 #include "mozilla/dom/nsHTTPSOnlyUtils.h"
 #include "mozilla/StaticPrefs_browser.h"
@@ -65,6 +66,7 @@ nsDocShellLoadState::nsDocShellLoadState(
   mLoadReplace = aLoadState.LoadReplace();
   mInheritPrincipal = aLoadState.InheritPrincipal();
   mPrincipalIsExplicit = aLoadState.PrincipalIsExplicit();
+  mNotifiedBeforeUnloadListeners = aLoadState.NotifiedBeforeUnloadListeners();
   mForceAllowDataURI = aLoadState.ForceAllowDataURI();
   mIsExemptFromHTTPSFirstMode = aLoadState.IsExemptFromHTTPSFirstMode();
   mOriginalFrameSrc = aLoadState.OriginalFrameSrc();
@@ -115,6 +117,9 @@ nsDocShellLoadState::nsDocShellLoadState(
   }
   mUnstrippedURI = aLoadState.UnstrippedURI();
   mRemoteTypeOverride = aLoadState.RemoteTypeOverride();
+  mIsCaptivePortalTab = aLoadState.IsCaptivePortalTab();
+  mIsInitialAboutBlankHandlingProhibited =
+      aLoadState.IsInitialAboutBlankHandlingProhibited();
 
   if (aLoadState.NavigationAPIState()) {
     mNavigationAPIState = MakeRefPtr<nsStructuredCloneContainer>();
@@ -219,7 +224,9 @@ nsDocShellLoadState::nsDocShellLoadState(const nsDocShellLoadState& aOther)
       mSchemelessInput(aOther.mSchemelessInput),
       mForceMediaDocument(aOther.mForceMediaDocument),
       mHttpsUpgradeTelemetry(aOther.mHttpsUpgradeTelemetry),
-      mNavigationAPIState(aOther.mNavigationAPIState) {
+      mNavigationAPIState(aOther.mNavigationAPIState),
+      mIsInitialAboutBlankHandlingProhibited(
+          aOther.mIsInitialAboutBlankHandlingProhibited) {
   MOZ_DIAGNOSTIC_ASSERT(
       XRE_IsParentProcess(),
       "Cloning a nsDocShellLoadState with the same load identifier is only "
@@ -267,7 +274,8 @@ nsDocShellLoadState::nsDocShellLoadState(nsIURI* aURI, uint64_t aLoadIdentifier)
       mTriggeringRemoteType(XRE_IsContentProcess()
                                 ? ContentChild::GetSingleton()->GetRemoteType()
                                 : NOT_REMOTE_TYPE),
-      mSchemelessInput(nsILoadInfo::SchemelessInputTypeUnset) {
+      mSchemelessInput(nsILoadInfo::SchemelessInputTypeUnset),
+      mIsInitialAboutBlankHandlingProhibited(false) {
   MOZ_ASSERT(aURI, "Cannot create a LoadState with a null URI!");
 
   // For https telemetry we set a flag indicating whether the load is https.
@@ -532,6 +540,7 @@ nsresult nsDocShellLoadState::CreateFromLoadURIOptions(
 
   loadState->SetForceMediaDocument(aLoadURIOptions.mForceMediaDocument);
   loadState->SetAppLinkLaunchType(aLoadURIOptions.mAppLinkLaunchType);
+  loadState->SetIsCaptivePortalTab(aLoadURIOptions.mIsCaptivePortalTab);
 
   loadState.forget(aResult);
   return NS_OK;
@@ -885,11 +894,10 @@ void nsDocShellLoadState::MaybeStripTrackerQueryStrings(
   // string could be different.
   if (mUnstrippedURI) {
     nsCOMPtr<nsIURI> uri;
-    Unused << queryStripper->Strip(mUnstrippedURI,
-                                   aContext->UsePrivateBrowsing(),
-                                   getter_AddRefs(uri), &numStripped);
+    (void)queryStripper->Strip(mUnstrippedURI, aContext->UsePrivateBrowsing(),
+                               getter_AddRefs(uri), &numStripped);
     bool equals = false;
-    Unused << URI()->Equals(uri, &equals);
+    (void)URI()->Equals(uri, &equals);
     MOZ_ASSERT(equals);
   }
 #endif
@@ -1395,6 +1403,7 @@ DocShellLoadStateInit nsDocShellLoadState::Serialize(
   loadState.LoadReplace() = mLoadReplace;
   loadState.InheritPrincipal() = mInheritPrincipal;
   loadState.PrincipalIsExplicit() = mPrincipalIsExplicit;
+  loadState.NotifiedBeforeUnloadListeners() = mNotifiedBeforeUnloadListeners;
   loadState.ForceAllowDataURI() = mForceAllowDataURI;
   loadState.IsExemptFromHTTPSFirstMode() = mIsExemptFromHTTPSFirstMode;
   loadState.OriginalFrameSrc() = mOriginalFrameSrc;
@@ -1447,6 +1456,9 @@ DocShellLoadStateInit nsDocShellLoadState::Serialize(
   }
   loadState.UnstrippedURI() = mUnstrippedURI;
   loadState.RemoteTypeOverride() = mRemoteTypeOverride;
+  loadState.IsCaptivePortalTab() = mIsCaptivePortalTab;
+  loadState.IsInitialAboutBlankHandlingProhibited() =
+      mIsInitialAboutBlankHandlingProhibited;
 
   if (mNavigationAPIState) {
     loadState.NavigationAPIState().emplace();
@@ -1494,6 +1506,16 @@ void nsDocShellLoadState::SetNavigationAPIState(
       static_cast<nsStructuredCloneContainer*>(aNavigationAPIState);
 }
 
+NavigationAPIMethodTracker* nsDocShellLoadState::GetNavigationAPIMethodTracker()
+    const {
+  return mNavigationAPIMethodTracker;
+}
+
+void nsDocShellLoadState::SetNavigationAPIMethodTracker(
+    NavigationAPIMethodTracker* aTracker) {
+  mNavigationAPIMethodTracker = aTracker;
+}
+
 NavigationType nsDocShellLoadState::GetNavigationType() const {
   return NavigationUtils::NavigationTypeFromLoadType(LoadType())
       .valueOr(NavigationType::Push);
@@ -1514,4 +1536,12 @@ uint32_t nsDocShellLoadState::GetAppLinkLaunchType() const {
 
 void nsDocShellLoadState::SetAppLinkLaunchType(uint32_t aAppLinkLaunchType) {
   mAppLinkLaunchType = aAppLinkLaunchType;
+}
+
+bool nsDocShellLoadState::GetIsCaptivePortalTab() const {
+  return mIsCaptivePortalTab;
+}
+
+void nsDocShellLoadState::SetIsCaptivePortalTab(bool aIsCaptivePortalTab) {
+  mIsCaptivePortalTab = aIsCaptivePortalTab;
 }

@@ -77,7 +77,7 @@ NS_IMPL_ISUPPORTS(FreetypeReporter, nsIMemoryReporter)
 static FT_MemoryRec_ sFreetypeMemoryRecord;
 
 PRThread* gfxAndroidPlatform::sFontAPIInitializeThread = nullptr;
-MOZ_CONSTINIT nsCString gfxAndroidPlatform::sManufacturer;
+constinit nsCString gfxAndroidPlatform::sManufacturer;
 
 // static
 bool gfxAndroidPlatform::IsFontAPIDisabled(bool aDontCheckPref) {
@@ -158,10 +158,6 @@ gfxAndroidPlatform::gfxAndroidPlatform() {
   int32_t screenDepth = 0;
   mOffscreenFormat = screenDepth == 16 ? SurfaceFormat::R5G6B5_UINT16
                                        : SurfaceFormat::X8R8G8B8_UINT32;
-
-  if (StaticPrefs::gfx_android_rgb16_force_AtStartup()) {
-    mOffscreenFormat = SurfaceFormat::R5G6B5_UINT16;
-  }
 }
 
 gfxAndroidPlatform::~gfxAndroidPlatform() {
@@ -352,13 +348,6 @@ bool gfxAndroidPlatform::RequiresLinearZoom() {
 
   MOZ_ASSERT_UNREACHABLE("oops, what platform is this?");
   return gfxPlatform::RequiresLinearZoom();
-}
-
-bool gfxAndroidPlatform::CheckVariationFontSupport() {
-  // Don't attempt to use variations on Android API versions up to Marshmallow,
-  // because the system freetype version is too old and the parent process may
-  // access it during printing (bug 1845174).
-  return jni::GetAPIVersion() > 23;
 }
 
 class AndroidVsyncSource final : public VsyncSource,

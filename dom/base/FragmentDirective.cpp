@@ -141,7 +141,7 @@ void FragmentDirective::ParseAndRemoveFragmentDirectiveFromFragment(
   if (!hasRemovedFragmentDirective) {
     return;
   }
-  Unused << NS_MutateURI(aURI).SetRef(hash).Finalize(aURI);
+  (void)NS_MutateURI(aURI).SetRef(hash).Finalize(aURI);
   TEXT_FRAGMENT_LOG("Updated hash of the URL. New URL: {}",
                     aURI->GetSpecOrDefault());
 }
@@ -436,8 +436,7 @@ already_AddRefed<Promise> FragmentDirective::CreateTextDirectiveForRanges(
   if (!resultPromise) {
     return nullptr;
   }
-  if (!StaticPrefs::dom_text_fragments_create_text_fragment_enabled() ||
-      !StaticPrefs::dom_text_fragments_enabled()) {
+  if (!StaticPrefs::dom_text_fragments_enabled()) {
     TEXT_FRAGMENT_LOG("Creating text fragments is disabled.");
     resultPromise->MaybeResolve(JS::NullHandleValue);
     return resultPromise.forget();

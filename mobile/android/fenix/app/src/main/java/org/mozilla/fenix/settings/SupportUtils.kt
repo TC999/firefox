@@ -13,16 +13,15 @@ import mozilla.components.support.ktx.android.content.appVersionName
 import mozilla.components.support.ktx.android.content.getColorFromAttr
 import org.mozilla.fenix.BuildConfig
 import org.mozilla.fenix.IntentReceiverActivity
-import org.mozilla.fenix.R
 import org.mozilla.fenix.customtabs.EXTRA_IS_SANDBOX_CUSTOM_TAB
 import org.mozilla.fenix.settings.account.AuthIntentReceiverActivity
 import java.io.UnsupportedEncodingException
 import java.net.URLEncoder
 import java.util.Locale
+import com.google.android.material.R as materialR
 
 object SupportUtils {
     const val RATE_APP_URL = "market://details?id=" + BuildConfig.APPLICATION_ID
-    const val WIKIPEDIA_URL = "https://www.wikipedia.org/"
     const val FENIX_PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=${BuildConfig.APPLICATION_ID}"
     const val GOOGLE_URL = "https://www.google.com/"
     const val GOOGLE_US_URL = "https://www.google.com/webhp?client=firefox-b-1-m&channel=ts"
@@ -124,7 +123,8 @@ object SupportUtils {
     fun createCustomTabIntent(context: Context, url: String): Intent = CustomTabsIntent.Builder()
         .setInstantAppsEnabled(false)
         .setDefaultColorSchemeParams(
-            CustomTabColorSchemeParams.Builder().setToolbarColor(context.getColorFromAttr(R.attr.layer1)).build(),
+            CustomTabColorSchemeParams.Builder()
+                .setToolbarColor(context.getColorFromAttr(materialR.attr.colorSurface)).build(),
         )
         .build()
         .intent

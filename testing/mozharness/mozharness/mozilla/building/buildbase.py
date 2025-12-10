@@ -73,7 +73,7 @@ class MakeUploadOutputParser(OutputParser):
     tbpl_error_list = TBPL_UPLOAD_ERRORS
 
     def __init__(self, **kwargs):
-        super(MakeUploadOutputParser, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.tbpl_status = TBPL_SUCCESS
 
     def parse_single_line(self, line):
@@ -211,7 +211,7 @@ class BuildingConfig(BaseConfig):
         # importance
         for i, cf in enumerate(all_config_files):
             if cf == options.build_variant:
-                variant_cfg_file = all_config_files[i]
+                variant_cfg_file = cf
 
         # now remove it from the list
         if variant_cfg_file:
@@ -219,9 +219,7 @@ class BuildingConfig(BaseConfig):
 
         # now let's update config with the remaining config files.
         # this functionality is the same as the base class
-        all_config_dicts.extend(
-            super(BuildingConfig, self).get_cfgs_from_files(all_config_files, options)
-        )
+        all_config_dicts.extend(super().get_cfgs_from_files(all_config_files, options))
 
         # stack variant cfg file on top of that, if it is present
         if variant_cfg_file:
@@ -254,6 +252,7 @@ class BuildOptionParser:
         "fuzzing-tsan-tc": path_base + "%s_fuzzing_tsan_tc.py",
         "cross-debug": path_base + "%s_cross_debug.py",
         "cross-debug-searchfox": path_base + "%s_cross_debug_searchfox.py",
+        "cross-opt-searchfox": path_base + "%s_cross_opt_searchfox.py",
         "cross-noopt-debug": path_base + "%s_cross_noopt_debug.py",
         "cross-fuzzing-asan": path_base + "%s_cross_fuzzing_asan.py",
         "cross-fuzzing-debug": path_base + "%s_cross_fuzzing_debug.py",
@@ -515,7 +514,7 @@ class BuildScript(
         # objdir is referenced in _query_abs_dirs() so let's make sure we
         # have that attribute before calling BaseScript.__init__
         self.objdir = None
-        super(BuildScript, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         # epoch is only here to represent the start of the build
         # that this mozharn script came from. until I can grab bbot's
         # status.build.gettime()[0] this will have to do as a rough estimate
@@ -602,7 +601,7 @@ items from that key's value."
 
         # let's evoke the base query_env and make a copy of it
         # as we don't always want every key below added to the same dict
-        env = copy.deepcopy(super(BuildScript, self).query_env(**kwargs))
+        env = copy.deepcopy(super().query_env(**kwargs))
 
         if self.query_is_nightly() or self.query_is_nightly_promotion():
             # taskcluster sets the update channel for shipping builds

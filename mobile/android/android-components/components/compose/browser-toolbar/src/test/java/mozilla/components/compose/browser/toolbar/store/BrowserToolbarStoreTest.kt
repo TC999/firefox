@@ -17,6 +17,7 @@ import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction.Too
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarInteraction.BrowserToolbarEvent
 import mozilla.components.compose.browser.toolbar.store.ToolbarGravity.Bottom
 import mozilla.components.compose.browser.toolbar.store.ToolbarGravity.Top
+import mozilla.components.compose.browser.toolbar.ui.BrowserToolbarQuery
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -31,11 +32,26 @@ class BrowserToolbarStoreTest {
         val store = BrowserToolbarStore()
 
         assertEquals(Mode.DISPLAY, store.state.mode)
+        assertFalse(store.state.editState.isQueryPrivate)
 
-        store.dispatch(BrowserToolbarAction.EnterEditMode)
+        store.dispatch(BrowserToolbarAction.EnterEditMode(false))
 
         assertEquals(Mode.EDIT, store.state.mode)
-        assertEquals("", store.state.editState.query)
+        assertEquals("", store.state.editState.query.current)
+        assertEquals(false, store.state.editState.isQueryPrivate)
+    }
+
+    @Test
+    fun `WHEN enter edit mode action in private mode is dispatched THEN replace the old details with the new one`() {
+        val store = BrowserToolbarStore()
+        assertEquals(Mode.DISPLAY, store.state.mode)
+        assertFalse(store.state.editState.isQueryPrivate)
+
+        store.dispatch(BrowserToolbarAction.EnterEditMode(true))
+
+        assertEquals(Mode.EDIT, store.state.mode)
+        assertEquals("", store.state.editState.query.current)
+        assertEquals(true, store.state.editState.isQueryPrivate)
     }
 
     @Test
@@ -44,7 +60,7 @@ class BrowserToolbarStoreTest {
             initialState = BrowserToolbarState(
                 mode = Mode.EDIT,
                 editState = EditState(
-                    query = "Mozilla",
+                query = BrowserToolbarQuery("Mozilla"),
                 ),
             ),
         )
@@ -54,7 +70,7 @@ class BrowserToolbarStoreTest {
         store.dispatch(BrowserToolbarAction.ExitEditMode)
 
         assertEquals(Mode.DISPLAY, store.state.mode)
-        assertEquals("", store.state.editState.query)
+        assertEquals("", store.state.editState.query.current)
     }
 
     @Test
@@ -62,11 +78,11 @@ class BrowserToolbarStoreTest {
         val store = BrowserToolbarStore()
         val text = "Mozilla"
 
-        assertEquals("", store.state.editState.query)
+        assertEquals("", store.state.editState.query.current)
 
-        store.dispatch(BrowserEditToolbarAction.SearchQueryUpdated(query = text))
+        store.dispatch(BrowserEditToolbarAction.SearchQueryUpdated(query = BrowserToolbarQuery(text)))
 
-        assertEquals(text, store.state.editState.query)
+        assertEquals(text, store.state.editState.query.current)
     }
 
     @Test
@@ -206,16 +222,6 @@ class BrowserToolbarStoreTest {
         store.dispatch(ToolbarGravityUpdated(Bottom))
 
         assertEquals(Bottom, store.state.gravity)
-    }
-
-    @Test
-    fun `WHEN the private mode is updated THEN replace the old details with the new one`() {
-        val store = BrowserToolbarStore()
-        assertFalse(store.state.editState.isQueryPrivate)
-
-        store.dispatch(BrowserEditToolbarAction.PrivateModeUpdated(true))
-
-        assertEquals(true, store.state.editState.isQueryPrivate)
     }
 
     private fun fakeActionButton() = ActionButtonRes(

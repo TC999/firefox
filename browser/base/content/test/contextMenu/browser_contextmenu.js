@@ -80,7 +80,6 @@ add_setup(async function () {
     set: [
       ["test.wait300msAfterTabSwitch", true],
       ["browser.search.separatePrivateDefault.ui.enabled", true],
-      ["dom.text_fragments.create_text_fragment.enabled", true],
     ],
   });
 });
@@ -108,6 +107,8 @@ add_task(async function test_xul_text_link_label() {
       "context-openlink",
       true,
       "context-openlinkprivate",
+      true,
+      "context-previewlink",
       true,
       "---",
       null,
@@ -190,6 +191,9 @@ add_task(async function test_plaintext() {
     true,
     "---",
     null,
+    ...askChatMenu,
+    "---",
+    null,
     "context-viewsource",
     true,
   ]);
@@ -205,6 +209,8 @@ const kLinkItems = [
   "context-openlink",
   true,
   "context-openlinkprivate",
+  true,
+  "context-previewlink",
   true,
   "---",
   null,
@@ -376,6 +382,8 @@ add_task(async function test_linkpreviewcommand_not_on_text() {
       "---",
       null,
       ...askChatMenu,
+      "---",
+      null,
       "context-viewsource",
       true,
     ],
@@ -1610,6 +1618,8 @@ add_task(async function test_dom_full_screen() {
     "---",
     null,
     ...askChatMenu,
+    "---",
+    null,
     "context-viewsource",
     true,
   ]);
@@ -1705,6 +1715,8 @@ add_task(async function test_pagemenu2() {
       "---",
       null,
       ...askChatMenu,
+      "---",
+      null,
       "context-viewsource",
       true,
     ],
@@ -1827,6 +1839,8 @@ add_task(async function test_select_text_link() {
       true,
       "context-openlinkprivate",
       true,
+      "context-previewlink",
+      true,
       "---",
       null,
       "context-bookmarklink",
@@ -1897,6 +1911,8 @@ add_task(async function test_imagelink() {
       "context-openlink",
       true,
       "context-openlinkprivate",
+      true,
+      "context-previewlink",
       true,
       "---",
       null,
@@ -2143,6 +2159,8 @@ add_task(async function test_svg_link() {
       true,
       "context-openlinkprivate",
       true,
+      "context-previewlink",
+      true,
       "---",
       null,
       "context-bookmarklink",
@@ -2180,6 +2198,8 @@ add_task(async function test_svg_link() {
       true,
       "context-openlinkprivate",
       true,
+      "context-previewlink",
+      true,
       "---",
       null,
       "context-bookmarklink",
@@ -2216,6 +2236,8 @@ add_task(async function test_svg_link() {
       "context-openlink",
       true,
       "context-openlinkprivate",
+      true,
+      "context-previewlink",
       true,
       "---",
       null,
@@ -2256,6 +2278,8 @@ add_task(async function test_svg_relative_link() {
       true,
       "context-openlinkprivate",
       true,
+      "context-previewlink",
+      true,
       "---",
       null,
       "context-bookmarklink",
@@ -2293,6 +2317,8 @@ add_task(async function test_svg_relative_link() {
       true,
       "context-openlinkprivate",
       true,
+      "context-previewlink",
+      true,
       "---",
       null,
       "context-bookmarklink",
@@ -2329,6 +2355,8 @@ add_task(async function test_svg_relative_link() {
       "context-openlink",
       true,
       "context-openlinkprivate",
+      true,
+      "context-previewlink",
       true,
       "---",
       null,
@@ -2376,6 +2404,8 @@ add_task(async function test_background_image() {
     "---",
     null,
     ...askChatMenu,
+    "---",
+    null,
     "context-viewsource",
     true,
   ];
@@ -2411,6 +2441,8 @@ add_task(async function test_background_image() {
       "context-openlink",
       true,
       "context-openlinkprivate",
+      true,
+      "context-previewlink",
       true,
       "---",
       null,
@@ -2524,6 +2556,8 @@ add_task(async function test_strip_on_share_on_secure_about_page() {
       true,
       "context-openlinkprivate",
       true,
+      "context-previewlink",
+      true,
       "---",
       null,
       "context-bookmarklink",
@@ -2556,7 +2590,7 @@ add_task(async function test_strip_on_share_on_secure_about_page() {
 /**
  * Selects the text of the element that matches the provided `selector`
  *
- * @param {String} selector
+ * @param {string} selector
  *        A selector passed to querySelector to find
  *        the element that will be referenced.
  */
@@ -2581,6 +2615,7 @@ async function selectText(selector) {
 
 /**
  * Not all platforms support text recognition.
+ *
  * @returns {string[]}
  */
 function getTextRecognitionItems() {

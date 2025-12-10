@@ -34,9 +34,15 @@ class NeckoChild : public PNeckoChild {
   PWebrtcTCPSocketChild* AllocPWebrtcTCPSocketChild(const Maybe<TabId>& tabId);
   bool DeallocPWebrtcTCPSocketChild(PWebrtcTCPSocketChild* aActor);
 
+  PCacheEntryWriteHandleChild* AllocPCacheEntryWriteHandleChild(
+      PHttpChannelChild* channel);
+  bool DeallocPCacheEntryWriteHandleChild(PCacheEntryWriteHandleChild* aActor);
+
   PAltDataOutputStreamChild* AllocPAltDataOutputStreamChild(
       const nsACString& type, const int64_t& predictedSize,
-      PHttpChannelChild* channel);
+      const mozilla::Maybe<mozilla::NotNull<PHttpChannelChild*>>& channel,
+      const mozilla::Maybe<mozilla::NotNull<PCacheEntryWriteHandleChild*>>&
+          handle);
   bool DeallocPAltDataOutputStreamChild(PAltDataOutputStreamChild* aActor);
 
   PCookieServiceChild* AllocPCookieServiceChild();
@@ -61,8 +67,6 @@ class NeckoChild : public PNeckoChild {
   PUDPSocketChild* AllocPUDPSocketChild(nsIPrincipal* aPrincipal,
                                         const nsACString& aFilter);
   bool DeallocPUDPSocketChild(PUDPSocketChild*);
-  PSimpleChannelChild* AllocPSimpleChannelChild(const uint32_t& channelId);
-  bool DeallocPSimpleChannelChild(PSimpleChannelChild* child);
   PTransportProviderChild* AllocPTransportProviderChild();
   bool DeallocPTransportProviderChild(PTransportProviderChild* aActor);
   PWebSocketEventListenerChild* AllocPWebSocketEventListenerChild(

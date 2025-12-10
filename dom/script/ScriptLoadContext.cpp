@@ -13,7 +13,6 @@
 #include "js/loader/ModuleLoadRequest.h"
 #include "mozilla/HoldDropJSObjects.h"
 #include "mozilla/StaticPrefs_dom.h"
-#include "mozilla/Unused.h"
 #include "mozilla/Utf8.h"  // mozilla::Utf8Unit
 #include "mozilla/dom/Document.h"
 #include "nsContentUtils.h"
@@ -151,6 +150,7 @@ bool ScriptLoadContext::HasScriptElement() const { return !!mScriptElement; }
 void ScriptLoadContext::GetInlineScriptText(nsAString& aText) const {
   MOZ_ASSERT(mIsInline);
   if (mSourceText.IsVoid()) {
+    // Lazily retrieve the text of inline script, see bug 1376651.
     mScriptElement->GetScriptText(aText);
   } else {
     aText.Append(mSourceText);
@@ -226,8 +226,8 @@ void ScriptLoadContext::GetProfilerLabel(nsACString& aOutString) {
   }
 
   nsAutoCString url;
-  if (mRequest->mURI) {
-    mRequest->mURI->GetAsciiSpec(url);
+  if (mRequest->URI()) {
+    mRequest->URI()->GetAsciiSpec(url);
   } else {
     url = "<unknown>";
   }

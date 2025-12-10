@@ -503,6 +503,12 @@ nsresult nsTypeAheadFind::FindItNow(uint32_t aMode, bool aIsLinksOnly,
       }
       mSelectionController = do_GetWeakReference(selectionController);
 
+      // Reveal hidden-until-found and closed details elements for the match.
+      // https://html.spec.whatwg.org/#interaction-with-details-and-hidden=until-found
+      if (RefPtr startNode = returnRange->GetStartContainer()) {
+        startNode->QueueAncestorRevealingAlgorithm();
+      }
+
       // Select the found text
       if (selection) {
         selection->RemoveAllRanges(IgnoreErrors());
@@ -580,7 +586,7 @@ nsresult nsTypeAheadFind::FindItNow(uint32_t aMode, bool aIsLinksOnly,
     }
 
     if (continueLoop) {
-      Unused << GetSearchContainers(
+      (void)GetSearchContainers(
           currentContainer, nullptr, aIsFirstVisiblePreferred, findPrev,
           getter_AddRefs(presShell), getter_AddRefs(presContext));
       continue;
@@ -647,22 +653,10 @@ nsresult nsTypeAheadFind::GetSearchContainers(
 
   if (!doc) return NS_ERROR_FAILURE;
 
-  nsCOMPtr<nsIContent> rootContent;
-  if (doc->IsHTMLOrXHTML()) {
-    rootContent = doc->GetBody();
-  }
-
-  if (!rootContent) {
-    rootContent = doc->GetRootElement();
-    if (!rootContent) {
-      return NS_ERROR_FAILURE;
-    }
-  }
-
   if (!mSearchRange) {
     mSearchRange = nsRange::Create(doc);
   }
-  nsCOMPtr<nsINode> searchRootNode(rootContent);
+  nsCOMPtr<nsINode> searchRootNode(doc);
 
   mSearchRange->SelectNodeContents(*searchRootNode, IgnoreErrors());
 
@@ -699,11 +693,11 @@ nsresult nsTypeAheadFind::GetSearchContainers(
     mEndPointRange->Collapse(false);
   } else {
     if (aFindPrev) {
-      Unused << mEndPointRange->SetStartAndEnd(
-          currentSelectionRange->StartRef(), currentSelectionRange->StartRef());
+      (void)mEndPointRange->SetStartAndEnd(currentSelectionRange->StartRef(),
+                                           currentSelectionRange->StartRef());
     } else {
-      Unused << mStartPointRange->SetStartAndEnd(
-          currentSelectionRange->EndRef(), currentSelectionRange->EndRef());
+      (void)mStartPointRange->SetStartAndEnd(currentSelectionRange->EndRef(),
+                                             currentSelectionRange->EndRef());
     }
   }
 
@@ -960,23 +954,30 @@ nsresult nsTypeAheadFind::FindInternal(uint32_t aMode,
 void nsTypeAheadFind::GetSelection(PresShell* aPresShell,
                                    nsISelectionController** aSelCon,
                                    Selection** aDOMSel) {
-  if (!aPresShell) return;
-
-  // if aCurrentNode is nullptr, get selection for document
+  *aSelCon = nullptr;
   *aDOMSel = nullptr;
 
-  nsPresContext* presContext = aPresShell->GetPresContext();
-
-  nsIFrame* frame = aPresShell->GetRootFrame();
-
-  if (presContext && frame) {
-    frame->GetSelectionController(presContext, aSelCon);
-    if (*aSelCon) {
-      RefPtr<Selection> sel =
-          (*aSelCon)->GetSelection(nsISelectionController::SELECTION_NORMAL);
-      sel.forget(aDOMSel);
-    }
+  if (MOZ_UNLIKELY(!aPresShell)) {
+    return;
   }
+
+  nsPresContext* const presContext = aPresShell->GetPresContext();
+  if (MOZ_UNLIKELY(!presContext)) {
+    return;
+  }
+
+  nsIFrame* const frame = aPresShell->GetRootFrame();
+  if (MOZ_UNLIKELY(!frame)) {
+    return;
+  }
+
+  nsCOMPtr<nsISelectionController> selCon = frame->GetSelectionController();
+  RefPtr<Selection> sel;
+  if (selCon) {
+    sel = selCon->GetSelection(nsISelectionController::SELECTION_NORMAL);
+  }
+  selCon.forget(aSelCon);
+  sel.forget(aDOMSel);
 }
 
 NS_IMETHODIMP

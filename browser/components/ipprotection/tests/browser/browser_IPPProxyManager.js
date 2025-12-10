@@ -4,8 +4,8 @@
 
 "use strict";
 
-const { IPPProxyManager } = ChromeUtils.importESModule(
-  "resource:///modules/ipprotection/IPPProxyManager.sys.mjs"
+const { IPProtectionServerlist } = ChromeUtils.importESModule(
+  "resource:///modules/ipprotection/IPProtectionServerlist.sys.mjs"
 );
 
 // Don't add an experiment so we can test adding and removing it.
@@ -18,9 +18,9 @@ add_task(async function test_IPPProxyManager_handleProxyErrorEvent() {
   });
   let cleanupAlpha = await setupExperiment({ enabled: true, variant: "alpha" });
 
-  let proxyManager = new IPPProxyManager(IPProtectionService.guardian);
+  await IPProtectionServerlist.maybeFetchList();
 
-  await proxyManager.start();
+  await IPPProxyManager.start();
 
   const cases = [
     {
@@ -51,7 +51,7 @@ add_task(async function test_IPPProxyManager_handleProxyErrorEvent() {
   ];
 
   for (const testCase of cases) {
-    const originalIsolationKey = proxyManager.isolationKey;
+    const originalIsolationKey = IPPProxyManager.isolationKey;
     // Create the error event
     const errorEvent = new CustomEvent("proxy-http-error", {
       detail: {
@@ -63,7 +63,7 @@ add_task(async function test_IPPProxyManager_handleProxyErrorEvent() {
 
     console.log(`Testing: ${testCase.name}`);
 
-    const result = proxyManager.handleProxyErrorEvent(errorEvent);
+    const result = IPPProxyManager.handleProxyErrorEvent(errorEvent);
 
     if (testCase.shouldRotate) {
       Assert.ok(
@@ -73,7 +73,7 @@ add_task(async function test_IPPProxyManager_handleProxyErrorEvent() {
 
       await result;
 
-      const newIsolationKey = proxyManager.isolationKey;
+      const newIsolationKey = IPPProxyManager.isolationKey;
       Assert.notEqual(
         originalIsolationKey,
         newIsolationKey,
@@ -86,7 +86,7 @@ add_task(async function test_IPPProxyManager_handleProxyErrorEvent() {
         `${testCase.name}: Should not return a promise when rotation is not triggered`
       );
 
-      const unchangedIsolationKey = proxyManager.isolationKey;
+      const unchangedIsolationKey = IPPProxyManager.isolationKey;
       Assert.equal(
         originalIsolationKey,
         unchangedIsolationKey,
@@ -96,8 +96,8 @@ add_task(async function test_IPPProxyManager_handleProxyErrorEvent() {
   }
 
   // Test inactive connection
-  const isolationKeyBeforeStop = proxyManager.isolationKey;
-  proxyManager.stop();
+  const isolationKeyBeforeStop = IPPProxyManager.isolationKey;
+  await IPPProxyManager.stop();
 
   const inactiveErrorEvent = new CustomEvent("proxy-http-error", {
     detail: {
@@ -107,7 +107,8 @@ add_task(async function test_IPPProxyManager_handleProxyErrorEvent() {
     },
   });
 
-  const inactiveResult = proxyManager.handleProxyErrorEvent(inactiveErrorEvent);
+  const inactiveResult =
+    IPPProxyManager.handleProxyErrorEvent(inactiveErrorEvent);
   Assert.equal(
     inactiveResult,
     undefined,

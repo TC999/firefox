@@ -7,6 +7,10 @@
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
+/**
+ * @import {SearchEngine} from "moz-src:///toolkit/components/search/SearchEngine.sys.mjs"
+ */
+
 const lazy = XPCOMUtils.declareLazy({
   logConsole: () =>
     console.createInstance({
@@ -403,18 +407,19 @@ export var SearchUtils = {
    * This is implemented here as it is used in searchengine-devtools as well as
    * the search service.
    *
+   * @template {SearchEngine} T
    * @param {object} options
    *   The options for this function.
-   * @param {object[]} options.engines
+   * @param {T[]} options.engines
    *   An array of engine objects to sort. These should have the `name` and
    *   `orderHint` fields as top-level properties.
-   * @param {object} options.appDefaultEngine
+   * @param {SearchEngine} options.appDefaultEngine
    *   The application default engine.
-   * @param {object} [options.appPrivateDefaultEngine]
+   * @param {SearchEngine} [options.appPrivateDefaultEngine]
    *   The application private default engine, if any.
    * @param {string} [options.locale]
    *   The current application locale, or the locale to use for the sorting.
-   * @returns {object[]}
+   * @returns {T[]}
    *   The sorted array of engine objects.
    */
   sortEnginesByDefaults({
@@ -423,7 +428,9 @@ export var SearchUtils = {
     appPrivateDefaultEngine,
     locale = Services.locale.appLocaleAsBCP47,
   }) {
+    /** @type {T[]} */
     const sortedEngines = [];
+    /** @type {Set<string>} */
     const addedEngines = new Set();
 
     function maybeAddEngineToSort(engine) {
@@ -447,15 +454,14 @@ export var SearchUtils = {
       maybeAddEngineToSort(appPrivateDefault);
     }
 
-    let remainingEngines;
     const collator = new Intl.Collator(locale);
 
-    remainingEngines = engines.filter(e => !addedEngines.has(e.name));
+    let remainingEngines = engines.filter(e => !addedEngines.has(e.name));
 
     // We sort by highest orderHint first, then alphabetically by name.
     remainingEngines.sort((a, b) => {
-      if (a._orderHint && b.orderHint) {
-        if (a._orderHint == b.orderHint) {
+      if (a.orderHint && b.orderHint) {
+        if (a.orderHint == b.orderHint) {
           return collator.compare(a.name, b.name);
         }
         return b.orderHint - a.orderHint;

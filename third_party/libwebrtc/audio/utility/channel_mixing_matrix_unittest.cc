@@ -10,8 +10,7 @@
 
 #include "audio/utility/channel_mixing_matrix.h"
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <vector>
 
 #include "api/audio/channel_layout.h"
@@ -354,9 +353,9 @@ TEST(ChannelMixingMatrixTest, DiscreteToDiscrete) {
     int input_channels;
     int output_channels;
   } test_case[] = {
-      {2, 2},
-      {2, 5},
-      {5, 2},
+      {.input_channels = 2, .output_channels = 2},
+      {.input_channels = 2, .output_channels = 5},
+      {.input_channels = 5, .output_channels = 2},
   };
 
   for (auto [input_channels, output_channels] : test_case) {

@@ -7,7 +7,6 @@
 #ifndef _MOZJEMALLOC_PROFILING_H
 #define _MOZJEMALLOC_PROFILING_H
 
-#include "mozilla/Atomics.h"
 #include "mozilla/RefCounted.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/TimeStamp.h"
@@ -26,6 +25,10 @@ struct PurgeStats {
 
   // The total number of pages that were cleaned (includes previously an pages).
   size_t pages_total = 0;
+
+  // The number of pages that can't be purged because of alignment because
+  // of logical/hardware page alignment.
+  size_t pages_unpurgable = 0;
 
   size_t system_calls = 0;
   size_t chunks = 0;

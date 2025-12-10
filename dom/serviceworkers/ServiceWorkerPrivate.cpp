@@ -25,13 +25,11 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/RemoteLazyInputStreamStorage.h"
 #include "mozilla/Result.h"
-#include "mozilla/ResultExtensions.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/Services.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_privacy.h"
 #include "mozilla/StoragePrincipalHelper.h"
-#include "mozilla/Unused.h"
 #include "mozilla/dom/Client.h"
 #include "mozilla/dom/ClientIPCTypes.h"
 #include "mozilla/dom/ClientManager.h"
@@ -354,7 +352,7 @@ Result<IPCInternalRequest, nsresult> GetIPCInternalRequest(
   nsCOMPtr<nsIReferrerInfo> referrerInfo = httpChannel->GetReferrerInfo();
   if (referrerInfo) {
     referrerPolicy = referrerInfo->ReferrerPolicy();
-    Unused << referrerInfo->GetComputedReferrerSpec(referrer);
+    (void)referrerInfo->GetComputedReferrerSpec(referrer);
   }
 
   uint32_t loadFlags;
@@ -645,8 +643,7 @@ nsresult ServiceWorkerPrivate::Initialize() {
       }
     }
   } else {
-    net::CookieJarSettings::Cast(cookieJarSettings)
-        ->SetPartitionKey(uri, false);
+    net::CookieJarSettings::Cast(cookieJarSettings)->SetPartitionKey(uri);
     firstPartyURI = uri;
 
     // The service worker is for a first-party context, we can use the uri of
@@ -745,9 +742,13 @@ nsresult ServiceWorkerPrivate::Initialize() {
   mClientInfo->SetURL(mInfo->ScriptSpec());
   mClientInfo->SetFrameType(FrameType::None);
 
+  WorkerOptions workerOptions;
+  workerOptions.mCredentials = RequestCredentials::Omit;
+  workerOptions.mType = mInfo->Type();
+
   mRemoteWorkerData = RemoteWorkerData(
       NS_ConvertUTF8toUTF16(mInfo->ScriptSpec()), baseScriptURL, baseScriptURL,
-      WorkerOptions(),
+      workerOptions,
       /* loading principal */ principalInfo, principalInfo,
       partitionedPrincipalInfo,
       /* useRegularPrincipal */ true,
@@ -1105,8 +1106,8 @@ nsresult ServiceWorkerPrivate::SendFetchEvent(
     nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
 
     // We'll check for a null registration below rather than an error code here.
-    Unused << swm->GetClientRegistration(loadInfo->GetClientInfo().ref(),
-                                         getter_AddRefs(registration));
+    (void)swm->GetClientRegistration(loadInfo->GetClientInfo().ref(),
+                                     getter_AddRefs(registration));
   }
 
   // Its possible the registration is removed between starting the interception
@@ -1213,7 +1214,7 @@ nsresult ServiceWorkerPrivate::SendFetchEventInternal(
       ->Then(GetCurrentSerialEventTarget(), __func__,
              [holder = std::move(holder)](
                  const GenericPromise::ResolveOrRejectValue& aResult) {
-               Unused << NS_WARN_IF(aResult.IsReject());
+               (void)NS_WARN_IF(aResult.IsReject());
              });
 
   return NS_OK;
@@ -1394,7 +1395,7 @@ void ServiceWorkerPrivate::UpdateState(ServiceWorkerState aState) {
   }
 
   for (auto& event : mPendingFunctionalEvents) {
-    Unused << NS_WARN_IF(NS_FAILED(event->Send()));
+    (void)NS_WARN_IF(NS_FAILED(event->Send()));
   }
 
   mPendingFunctionalEvents.Clear();
@@ -1960,7 +1961,7 @@ RefPtr<GenericNonExclusivePromise> ServiceWorkerPrivate::ShutdownInternal(
   RefPtr<GenericNonExclusivePromise::Private> promise =
       new GenericNonExclusivePromise::Private(__func__);
 
-  Unused << ExecServiceWorkerOp(
+  (void)ExecServiceWorkerOp(
       ServiceWorkerTerminateWorkerOpArgs(aShutdownStateId),
       // It doesn't make sense to extend the lifetime in this case.  This will
       // also ensure that we don't try and spawn the ServiceWorker, but as our

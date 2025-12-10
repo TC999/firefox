@@ -313,8 +313,7 @@ mozilla::ipc::IPCResult FetchChild::RecvOnCSPViolationEvent(
   MOZ_ALWAYS_SUCCEEDS(SchedulerGroup::Dispatch(r.forget()));
 
   if (mCSPEventListener) {
-    Unused << NS_WARN_IF(
-        NS_FAILED(mCSPEventListener->OnCSPViolationEvent(aJSON)));
+    (void)NS_WARN_IF(NS_FAILED(mCSPEventListener->OnCSPViolationEvent(aJSON)));
   }
   return IPC_OK();
 }
@@ -384,10 +383,41 @@ mozilla::ipc::IPCResult FetchChild::RecvOnNotifyNetworkMonitorAlternateStack(
         });
 
     MOZ_ALWAYS_SUCCEEDS(SchedulerGroup::Dispatch(r.forget()));
+  } else {
+    // Handle main-thread fetch requests
+    if (!mOriginStack) {
+      return IPC_OK();
+    }
+
+    if (!mWorkerChannelInfo) {
+      // Get browsing context from the promise's global object
+      uint64_t browsingContextID = 0;
+      if (mPromise && mPromise->GetGlobalObject()) {
+        if (auto* innerWindow =
+                mPromise->GetGlobalObject()->GetAsInnerWindow()) {
+          if (auto* browsingContext = innerWindow->GetBrowsingContext()) {
+            browsingContextID = browsingContext->Id();
+          }
+        }
+      }
+      if (browsingContextID == 0) {
+        FETCH_LOG(
+            ("FetchChild::RecvOnNotifyNetworkMonitorAlternateStack: unable to "
+             "get browsingContextID for main-thread fetch, channelID=%" PRIu64,
+             aChannelID));
+      }
+      mWorkerChannelInfo =
+          MakeRefPtr<WorkerChannelInfo>(aChannelID, browsingContextID);
+    }
+
+    nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
+        __func__, [channel = mWorkerChannelInfo,
+                   stack = std::move(mOriginStack)]() mutable {
+          NotifyNetworkMonitorAlternateStack(channel, std::move(stack));
+        });
+
+    MOZ_ALWAYS_SUCCEEDS(SchedulerGroup::Dispatch(r.forget()));
   }
-  // Currently we only support sending notifications for worker-thread initiated
-  // Fetch requests. We need to extend this to main-thread fetch requests as
-  // well. See Bug 1897424.
 
   return IPC_OK();
 }
@@ -413,7 +443,7 @@ void FetchChild::RunAbortAlgorithm() {
     return;
   }
   if (mWorkerRef || mIsKeepAliveRequest) {
-    Unused << SendAbortFetchOp(true);
+    (void)SendAbortFetchOp(true);
   }
 }
 
@@ -428,12 +458,12 @@ void FetchChild::DoFetchOp(const FetchOpArgs& aArgs) {
   }
   if (mSignalImpl) {
     if (mSignalImpl->Aborted()) {
-      Unused << SendAbortFetchOp(true);
+      (void)SendAbortFetchOp(true);
       return;
     }
     Follow(mSignalImpl);
   }
-  Unused << SendFetchOp(aArgs);
+  (void)SendFetchOp(aArgs);
 }
 
 void FetchChild::Shutdown() {

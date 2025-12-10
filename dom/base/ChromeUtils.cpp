@@ -58,6 +58,7 @@
 #include "mozilla/dom/WindowGlobalParent.h"
 #include "mozilla/dom/WorkerScope.h"
 #include "mozilla/dom/quota/QuotaManager.h"
+#include "mozilla/image/FetchDecodedImage.h"
 #include "mozilla/ipc/GeckoChildProcessHost.h"
 #include "mozilla/ipc/UtilityProcessHost.h"
 #include "mozilla/ipc/UtilityProcessManager.h"
@@ -1694,6 +1695,11 @@ void ChromeUtils::ClearResourceCache(
   }
 }
 
+void ChromeUtils::InvalidateResourceCache(GlobalObject& aGlobal,
+                                          ErrorResult& aRv) {
+  SharedScriptCache::Invalidate();
+}
+
 void ChromeUtils::ClearBfcacheByPrincipal(GlobalObject& aGlobal,
                                           nsIPrincipal* aPrincipal,
                                           ErrorResult& aRv) {
@@ -2051,6 +2057,28 @@ already_AddRefed<Promise> ChromeUtils::RequestProcInfo(GlobalObject& aGlobal,
 
   // sending back the promise instance
   return domPromise.forget();
+}
+
+/* static */
+uint64_t ChromeUtils::GetCurrentProcessMemoryUsage(GlobalObject& aGlobal,
+                                                   ErrorResult& aRv) {
+  uint64_t retVal = 0;
+  nsresult rv = mozilla::GetCurrentProcessMemoryUsage(&retVal);
+  if (NS_FAILED(rv)) {
+    aRv.Throw(rv);
+  }
+  return retVal;
+}
+
+/* static */
+uint64_t ChromeUtils::GetCpuTimeSinceProcessStart(GlobalObject& aGlobal,
+                                                  ErrorResult& aRv) {
+  uint64_t retVal = 0;
+  nsresult rv = mozilla::GetCpuTimeSinceProcessStartInMs(&retVal);
+  if (NS_FAILED(rv)) {
+    aRv.Throw(rv);
+  }
+  return retVal;
 }
 
 /* static */
@@ -2714,6 +2742,43 @@ Nullable<bool> ChromeUtils::GetGlobalWindowCommandEnabled(
     return nullptr;
   }
   return handler->IsCommandEnabled(aName, nullptr);
+}
+
+already_AddRefed<Promise> ChromeUtils::FetchDecodedImage(GlobalObject& aGlobal,
+                                                         nsIURI* aURI,
+                                                         nsIChannel* aChannel,
+                                                         ErrorResult& aRv) {
+  nsCOMPtr<nsIGlobalObject> global = do_QueryInterface(aGlobal.GetAsSupports());
+  MOZ_ASSERT(global);
+  RefPtr<Promise> domPromise = Promise::Create(global, aRv);
+  if (NS_WARN_IF(aRv.Failed())) {
+    return nullptr;
+  }
+
+  image::FetchDecodedImage(aURI, aChannel, gfx::IntSize{})
+      ->Then(
+          GetCurrentSerialEventTarget(), __func__,
+          [global, domPromise](already_AddRefed<imgIContainer> aImage) {
+            nsCOMPtr<imgIContainer> image(std::move(aImage));
+
+            AutoJSAPI jsapi;
+            if (!jsapi.Init(global)) {
+              domPromise->MaybeRejectWithUndefined();
+              return;
+            }
+
+            JS::Rooted<JS::Value> value(jsapi.cx());
+            if (!WrapObject(jsapi.cx(), image, &NS_GET_IID(imgIContainer),
+                            &value)) {
+              domPromise->MaybeRejectWithUndefined();
+              return;
+            }
+
+            domPromise->MaybeResolve(value);
+          },
+          [domPromise](nsresult aStatus) { domPromise->MaybeReject(aStatus); });
+
+  return domPromise.forget();
 }
 
 void ChromeUtils::EncodeURIForSrcset(GlobalObject&, const nsACString& aIn,

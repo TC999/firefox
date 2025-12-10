@@ -52,11 +52,11 @@
         }
 
         const FIRST_ITEM_STYLES = {
-          borderStartEndRadius: "8px",
-          borderStartStartRadius: "8px",
+          borderStartEndRadius: "7px",
+          borderStartStartRadius: "7px",
           borderEndEndRadius: "0px",
           borderEndStartRadius: "0px",
-          borderBottomWidth: "0px",
+          borderTopWidth: "0px",
         };
 
         const MIDDLE_ITEM_STYLES = {
@@ -64,15 +64,15 @@
           borderStartStartRadius: "0px",
           borderEndEndRadius: "0px",
           borderEndStartRadius: "0px",
-          borderBottomWidth: "0px",
+          borderTopWidth: "1px",
         };
 
         const LAST_ITEM_STYLES = {
           borderStartEndRadius: "0px",
           borderStartStartRadius: "0px",
-          borderEndEndRadius: "8px",
-          borderEndStartRadius: "8px",
-          borderBottomWidth: "1px",
+          borderEndEndRadius: "7px",
+          borderEndStartRadius: "7px",
+          borderTopWidth: "1px",
         };
 
         // Verify that two items use the first and last item styles.
@@ -540,6 +540,57 @@
         );
 
         await SpecialPowers.popPrefEnv();
+      });
+
+      add_task(async function testMozBoxGroupKeydownOnWhitespace() {
+        // Test bug 2001746 - ignore keypresses that fire on the ul if whitespace
+        // was clicked in moz-box-group
+        let listTemplate = html`<moz-box-group type="list">
+          <moz-box-item label="item 1"></moz-box-item>
+          <moz-box-item label="item 2"></moz-box-item>
+          <moz-box-item label="item 3"></moz-box-item>
+        </moz-box-group>`;
+        let {
+          children: [boxGroup],
+        } = await testHelpers.renderTemplate(listTemplate);
+
+        let list = boxGroup.shadowRoot.querySelector("ul");
+        ok(list, "Box group has a list element.");
+
+        // Simulate clicking on the list container (whitespace) by focusing it
+        list.focus();
+        is(
+          boxGroup.shadowRoot.activeElement,
+          list,
+          "The list container can be focused."
+        );
+        is(
+          document.activeElement,
+          boxGroup,
+          "The moz-box-group is the activeElement."
+        );
+
+        // Press arrow keys - this should not throw an error
+        let errorThrown = false;
+        try {
+          synthesizeKey("KEY_ArrowDown");
+          await boxGroup.updateComplete;
+          synthesizeKey("KEY_ArrowUp");
+          await boxGroup.updateComplete;
+        } catch (e) {
+          errorThrown = true;
+          ok(false, `Unexpected error: ${e.message}`);
+        }
+
+        ok(
+          !errorThrown,
+          "No error thrown when pressing keys on whitespace in moz-box-group."
+        );
+        is(
+          document.activeElement,
+          boxGroup,
+          "Focus did not move after arrow key press."
+        );
       });
 
       add_task(async function testMozBoxGroupReorderable() {

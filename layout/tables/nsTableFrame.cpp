@@ -212,12 +212,6 @@ void nsTableFrame::Destroy(DestroyContext& aContext) {
   nsContainerFrame::Destroy(aContext);
 }
 
-// Make sure any views are positioned properly
-void nsTableFrame::RePositionViews(nsIFrame* aFrame) {
-  nsContainerFrame::PositionFrameView(aFrame);
-  nsContainerFrame::PositionChildViews(aFrame);
-}
-
 static bool IsRepeatedFrame(nsIFrame* kidFrame) {
   return (kidFrame->IsTableRowFrame() || kidFrame->IsTableRowGroupFrame()) &&
          kidFrame->HasAnyStateBits(NS_REPEATED_ROW_OR_ROWGROUP);
@@ -247,7 +241,7 @@ bool nsTableFrame::PageBreakAfter(nsIFrame* aSourceFrame,
 }
 
 /* static */
-void nsTableFrame::PositionedTablePartMaybeChanged(nsIFrame* aFrame,
+void nsTableFrame::PositionedTablePartMaybeChanged(nsContainerFrame* aFrame,
                                                    ComputedStyle* aOldStyle) {
   const bool wasPositioned =
       aOldStyle && aOldStyle->IsAbsPosContainingBlock(aFrame);
@@ -262,13 +256,13 @@ void nsTableFrame::PositionedTablePartMaybeChanged(nsIFrame* aFrame,
   tableFrame = static_cast<nsTableFrame*>(tableFrame->FirstContinuation());
 
   // Retrieve the positioned parts array for this table.
-  FrameTArray* positionedParts =
-      tableFrame->GetProperty(PositionedTablePartArray());
+  TablePartsArray* positionedParts =
+      tableFrame->GetProperty(PositionedTablePartsProperty());
 
   // Lazily create the array if it doesn't exist yet.
   if (!positionedParts) {
-    positionedParts = new FrameTArray;
-    tableFrame->SetProperty(PositionedTablePartArray(), positionedParts);
+    positionedParts = new TablePartsArray;
+    tableFrame->SetProperty(PositionedTablePartsProperty(), positionedParts);
   }
 
   if (isPositioned) {
@@ -280,7 +274,8 @@ void nsTableFrame::PositionedTablePartMaybeChanged(nsIFrame* aFrame,
 }
 
 /* static */
-void nsTableFrame::MaybeUnregisterPositionedTablePart(nsIFrame* aFrame) {
+void nsTableFrame::MaybeUnregisterPositionedTablePart(
+    nsContainerFrame* aFrame) {
   if (!aFrame->IsAbsPosContainingBlock()) {
     return;
   }
@@ -292,8 +287,8 @@ void nsTableFrame::MaybeUnregisterPositionedTablePart(nsIFrame* aFrame) {
   }
 
   // Retrieve the positioned parts array for this table.
-  FrameTArray* positionedParts =
-      tableFrame->GetProperty(PositionedTablePartArray());
+  TablePartsArray* positionedParts =
+      tableFrame->GetProperty(PositionedTablePartsProperty());
 
   // Remove the frame.
   MOZ_ASSERT(
@@ -1382,16 +1377,16 @@ nsTableFrame::IntrinsicISizeOffsets(nscoord aPercentageBasis) {
 
 /* virtual */
 nsIFrame::SizeComputationResult nsTableFrame::ComputeSize(
-    gfxContext* aRenderingContext, WritingMode aWM, const LogicalSize& aCBSize,
-    nscoord aAvailableISize, const LogicalSize& aMargin,
-    const LogicalSize& aBorderPadding, const StyleSizeOverrides& aSizeOverrides,
-    ComputeSizeFlags aFlags) {
+    const SizeComputationInput& aSizingInput, WritingMode aWM,
+    const LogicalSize& aCBSize, nscoord aAvailableISize,
+    const LogicalSize& aMargin, const LogicalSize& aBorderPadding,
+    const StyleSizeOverrides& aSizeOverrides, ComputeSizeFlags aFlags) {
   // Only table wrapper calls this method, and it should use our writing mode.
   MOZ_ASSERT(aWM == GetWritingMode(),
              "aWM should be the same as our writing mode!");
 
   auto result = nsContainerFrame::ComputeSize(
-      aRenderingContext, aWM, aCBSize, aAvailableISize, aMargin, aBorderPadding,
+      aSizingInput, aWM, aCBSize, aAvailableISize, aMargin, aBorderPadding,
       aSizeOverrides, aFlags);
 
   // If our containing block wants to override inner table frame's inline-size
@@ -1407,7 +1402,8 @@ nsIFrame::SizeComputationResult nsTableFrame::ComputeSize(
   AutoMaybeDisableFontInflation an(this);
 
   // Tables never shrink below their min inline-size.
-  const IntrinsicSizeInput input(aRenderingContext, Some(aCBSize), Nothing());
+  const IntrinsicSizeInput input(aSizingInput.mRenderingContext, Some(aCBSize),
+                                 Nothing());
   nscoord minISize = GetMinISize(input);
   if (minISize > result.mLogicalSize.ISize(aWM)) {
     result.mLogicalSize.ISize(aWM) = minISize;
@@ -1447,15 +1443,16 @@ nscoord nsTableFrame::TableShrinkISizeToFit(gfxContext* aRenderingContext,
 
 /* virtual */
 LogicalSize nsTableFrame::ComputeAutoSize(
-    gfxContext* aRenderingContext, WritingMode aWM, const LogicalSize& aCBSize,
-    nscoord aAvailableISize, const LogicalSize& aMargin,
-    const LogicalSize& aBorderPadding, const StyleSizeOverrides& aSizeOverrides,
-    ComputeSizeFlags aFlags) {
+    const SizeComputationInput& aSizingInput, WritingMode aWM,
+    const LogicalSize& aCBSize, nscoord aAvailableISize,
+    const LogicalSize& aMargin, const LogicalSize& aBorderPadding,
+    const StyleSizeOverrides& aSizeOverrides, ComputeSizeFlags aFlags) {
   // Tables always shrink-wrap.
   nscoord cbBased =
       aAvailableISize - aMargin.ISize(aWM) - aBorderPadding.ISize(aWM);
-  return LogicalSize(aWM, TableShrinkISizeToFit(aRenderingContext, cbBased),
-                     NS_UNCONSTRAINEDSIZE);
+  return LogicalSize(
+      aWM, TableShrinkISizeToFit(aSizingInput.mRenderingContext, cbBased),
+      NS_UNCONSTRAINEDSIZE);
 }
 
 // Return true if aParentReflowInput.frame or any of its ancestors within
@@ -1786,7 +1783,6 @@ void nsTableFrame::Reflow(nsPresContext* aPresContext,
     if (0 != xAdjustmentForAllKids) {
       for (nsIFrame* kid : mFrames) {
         kid->MovePositionBy(nsPoint(xAdjustmentForAllKids, 0));
-        RePositionViews(kid);
       }
     }
   }
@@ -1826,7 +1822,8 @@ void nsTableFrame::Reflow(nsPresContext* aPresContext,
 void nsTableFrame::FixupPositionedTableParts(nsPresContext* aPresContext,
                                              ReflowOutput& aDesiredSize,
                                              const ReflowInput& aReflowInput) {
-  FrameTArray* positionedParts = GetProperty(PositionedTablePartArray());
+  TablePartsArray* positionedParts =
+      GetProperty(PositionedTablePartsProperty());
   if (!positionedParts) {
     return;
   }
@@ -1834,9 +1831,7 @@ void nsTableFrame::FixupPositionedTableParts(nsPresContext* aPresContext,
   OverflowChangedTracker overflowTracker;
   overflowTracker.SetSubtreeRoot(this);
 
-  for (size_t i = 0; i < positionedParts->Length(); ++i) {
-    nsIFrame* positionedPart = positionedParts->ElementAt(i);
-
+  for (nsContainerFrame* positionedPart : *positionedParts) {
     // As we've already finished reflow, positionedParts's size and overflow
     // areas have already been assigned, so we just pull them back out.
     const WritingMode wm = positionedPart->GetWritingMode();
@@ -2884,7 +2879,6 @@ void nsTableFrame::ReflowChildren(TableReflowInput& aReflowInput,
         // move to the new position
         kidFrame->MovePositionBy(
             wm, LogicalPoint(wm, 0, aReflowInput.mBCoord - kidRect.BStart(wm)));
-        RePositionViews(kidFrame);
         // invalidate the new position
         kidFrame->InvalidateFrameSubtree();
       }
@@ -3088,7 +3082,6 @@ void nsTableFrame::DistributeBSizeToRows(const ReflowInput& aReflowInput,
             amountUsed += amountForRow;
             amountUsedByRG += amountForRow;
             // rowFrame->DidResize();
-            nsTableFrame::RePositionViews(rowFrame);
 
             rgFrame->InvalidateFrameWithRect(origRowRect);
             rgFrame->InvalidateFrame();
@@ -3099,7 +3092,6 @@ void nsTableFrame::DistributeBSizeToRows(const ReflowInput& aReflowInput,
             rowFrame->InvalidateFrameSubtree();
             rowFrame->MovePositionBy(
                 wm, LogicalPoint(wm, 0, bOriginRow - rowNormalRect.BStart(wm)));
-            nsTableFrame::RePositionViews(rowFrame);
             rowFrame->InvalidateFrameSubtree();
           }
           bOriginRow += rowNormalRect.BSize(wm) + rowSpacing;
@@ -3129,7 +3121,6 @@ void nsTableFrame::DistributeBSizeToRows(const ReflowInput& aReflowInput,
       rgFrame->MovePositionBy(
           wm, LogicalPoint(wm, 0, bOriginRG - rgNormalRect.BStart(wm)));
       // Make sure child views are properly positioned
-      nsTableFrame::RePositionViews(rgFrame);
       rgFrame->InvalidateFrameSubtree();
     }
     bOriginRG = bEndRG;
@@ -3263,8 +3254,6 @@ void nsTableFrame::DistributeBSizeToRows(const ReflowInput& aReflowInput,
           amountUsedByRG += amountForRow;
           NS_ASSERTION((amountUsed <= aAmount), "invalid row allocation");
           // rowFrame->DidResize();
-          nsTableFrame::RePositionViews(rowFrame);
-
           nsTableFrame::InvalidateTableFrame(rowFrame, origRowRect,
                                              rowInkOverflow, false);
         } else {
@@ -3272,7 +3261,6 @@ void nsTableFrame::DistributeBSizeToRows(const ReflowInput& aReflowInput,
             rowFrame->InvalidateFrameSubtree();
             rowFrame->MovePositionBy(
                 wm, LogicalPoint(wm, 0, bOriginRow - rowNormalRect.BStart(wm)));
-            nsTableFrame::RePositionViews(rowFrame);
             rowFrame->InvalidateFrameSubtree();
           }
           bOriginRow += rowNormalRect.BSize(wm) + rowSpacing;
@@ -3308,7 +3296,6 @@ void nsTableFrame::DistributeBSizeToRows(const ReflowInput& aReflowInput,
              rowFrame = rowFrame->GetNextRow()) {
           rowFrame->InvalidateFrameSubtree();
           rowFrame->MovePositionBy(nsPoint(rgWidth, 0));
-          nsTableFrame::RePositionViews(rowFrame);
           rowFrame->InvalidateFrameSubtree();
         }
       }
@@ -3317,7 +3304,6 @@ void nsTableFrame::DistributeBSizeToRows(const ReflowInput& aReflowInput,
       rgFrame->MovePositionBy(
           wm, LogicalPoint(wm, 0, bOriginRG - rgNormalRect.BStart(wm)));
       // Make sure child views are properly positioned
-      nsTableFrame::RePositionViews(rgFrame);
       rgFrame->InvalidateFrameSubtree();
     }
     bOriginRG = bEndRG;

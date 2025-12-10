@@ -22,7 +22,7 @@ XPCOMUtils.defineLazyServiceGetter(
   this,
   "clipboardHelper",
   "@mozilla.org/widget/clipboardhelper;1",
-  "nsIClipboardHelper"
+  Ci.nsIClipboardHelper
 );
 
 // These should match the same consts in UrlbarProviderSearchTips.sys.mjs.
@@ -165,7 +165,7 @@ add_task(async function clickInInput_onboard() {
 
   // Click in the input.
   await UrlbarTestUtils.promisePopupClose(window, () => {
-    EventUtils.synthesizeMouseAtCenter(gURLBar.textbox.parentNode, {});
+    EventUtils.synthesizeMouseAtCenter(gURLBar.parentNode, {});
   });
   gURLBar.blur();
 
@@ -224,7 +224,7 @@ add_task(async function clickInInput_redirect() {
 
       // Click in the input.
       await UrlbarTestUtils.promisePopupClose(window, () => {
-        EventUtils.synthesizeMouseAtCenter(gURLBar.textbox.parentNode, {});
+        EventUtils.synthesizeMouseAtCenter(gURLBar.parentNode, {});
       });
       gURLBar.blur();
     });

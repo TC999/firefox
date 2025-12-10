@@ -13,9 +13,14 @@ ChromeUtils.defineESModuleGetters(lazy, {
   AboutNewTab: "resource:///modules/AboutNewTab.sys.mjs",
   SmartAssistEngine:
     "moz-src:///browser/components/genai/SmartAssistEngine.sys.mjs",
+  PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
+  SpecialMessageActions:
+    "resource://messaging-system/lib/SpecialMessageActions.sys.mjs",
 });
 
 const FULL_PAGE_URL = "chrome://browser/content/genai/smartAssistPage.html";
+const ACTION_CHAT = "chat";
+const ACTION_SEARCH = "search";
 
 /**
  * A custom element for managing the smart assistant sidebar.
@@ -46,15 +51,14 @@ export class SmartAssist extends MozLitElement {
     this.overrideNewTab = Services.prefs.getBoolPref(
       "browser.ml.smartAssist.overrideNewTab"
     );
-    this.actionKey = "chat";
-
+    this.actionKey = ACTION_CHAT;
     this._actions = {
-      chat: {
+      [ACTION_CHAT]: {
         label: "Submit",
         icon: "chrome://global/skin/icons/arrow-right.svg",
         run: this._actionChat,
       },
-      search: {
+      [ACTION_SEARCH]: {
         label: "Search",
         icon: "chrome://global/skin/icons/search-glass.svg",
         run: this._actionSearch,
@@ -86,11 +90,19 @@ export class SmartAssist extends MozLitElement {
   };
 
   _handlePromptInput = async e => {
-    const value = e.target.value;
-    this.userPrompt = value;
+    try {
+      const value = e.target.value;
+      this.userPrompt = value;
 
-    // Determine intent based on keywords in the prompt
-    this.actionKey = await lazy.SmartAssistEngine.getPromptIntent(value);
+      const intent = await lazy.SmartAssistEngine.getPromptIntent(value);
+      this.actionKey = [ACTION_CHAT, ACTION_SEARCH].includes(intent)
+        ? intent
+        : ACTION_CHAT;
+    } catch (error) {
+      // Default to chat on error
+      this.actionKey = ACTION_CHAT;
+      console.error("Error determining prompt intent:", error);
+    }
   };
 
   /**
@@ -101,8 +113,46 @@ export class SmartAssist extends MozLitElement {
     return this._actions[this.actionKey];
   }
 
-  _actionSearch = () => {
-    // TODO: Implement search functionality
+  _actionSearch = async () => {
+    const searchTerms = (this.userPrompt || "").trim();
+    if (!searchTerms) {
+      return;
+    }
+
+    const isPrivate = lazy.PrivateBrowsingUtils.isWindowPrivate(window);
+    const engine = isPrivate
+      ? await Services.search.getDefaultPrivate()
+      : await Services.search.getDefault();
+
+    const submission = engine.getSubmission(searchTerms); // default to SEARCH (text/html)
+
+    // getSubmission can return null if the engine doesn't have a URL
+    // with a text/html response type. This is unlikely (since
+    // SearchService._addEngineToStore() should fail for such an engine),
+    // but let's be on the safe side.
+    if (!submission) {
+      return;
+    }
+
+    const triggeringPrincipal =
+      Services.scriptSecurityManager.createNullPrincipal({});
+
+    window.browsingContext.topChromeWindow.openLinkIn(
+      submission.uri.spec,
+      "current",
+      {
+        private: isPrivate,
+        postData: submission.postData,
+        inBackground: false,
+        relatedToCurrent: true,
+        triggeringPrincipal,
+        policyContainer: null,
+        targetBrowser: null,
+        globalHistoryOptions: {
+          triggeringSearchEngine: engine.name,
+        },
+      }
+    );
   };
 
   _actionChat = async () => {
@@ -176,6 +226,106 @@ export class SmartAssist extends MozLitElement {
     );
     this.overrideNewTab = isChecked;
     this._applyNewTabOverride(isChecked);
+  }
+
+  /**
+   * Initiates the Firefox Account sign-in flow for MLPA authentication.
+   */
+
+  _signIn() {
+    lazy.SpecialMessageActions.handleAction(
+      {
+        type: "FXA_SIGNIN_FLOW",
+        data: {
+          entrypoint: "aiwindow",
+          extraParams: {
+            service: "aiwindow",
+          },
+        },
+      },
+      window.browsingContext.topChromeWindow.gBrowser.selectedBrowser
+    );
+  }
+
+  /**
+   * Helper method to get the chrome document
+   *
+   * @returns {Document} The top-level chrome window's document
+   */
+
+  _getChromeDocument() {
+    return window.browsingContext.topChromeWindow.document;
+  }
+
+  /**
+   * Helper method to find an element in the chrome document
+   *
+   * @param {string} id - The element ID to find
+   * @returns {Element|null} The found element or null
+   */
+
+  _getChromeElement(id) {
+    return this._getChromeDocument().getElementById(id);
+  }
+
+  /**
+   * Helper method to get or create the AI window browser element
+   *
+   * @param {Document} chromeDoc - The chrome document
+   * @param {Element} box - The AI window box element
+   * @returns {Element} The AI window browser element
+   */
+
+  _getOrCreateBrowser(chromeDoc, box) {
+    // Find existing browser, or create it the first time we open the sidebar.
+    let browser = chromeDoc.getElementById("ai-window-browser");
+
+    if (!browser) {
+      const stack =
+        box.querySelector(".ai-window-browser-stack") ||
+        chromeDoc.createXULElement("stack");
+
+      stack.className = "ai-window-browser-stack";
+      stack.setAttribute("flex", "1");
+      box.appendChild(stack);
+
+      browser = chromeDoc.createXULElement("browser");
+      browser.setAttribute("id", "ai-window-browser");
+      browser.setAttribute("flex", "1");
+      browser.setAttribute("disablehistory", "true");
+      browser.setAttribute("disablefullscreen", "true");
+      browser.setAttribute("tooltip", "aHTMLTooltip");
+
+      browser.setAttribute(
+        "src",
+        "chrome://browser/content/genai/smartAssist.html"
+      );
+
+      stack.appendChild(browser);
+    }
+  }
+
+  _toggleAIWindowSidebar() {
+    const chromeDoc = this._getChromeDocument();
+    const box = chromeDoc.getElementById("ai-window-box");
+    const splitter = chromeDoc.getElementById("ai-window-splitter");
+
+    if (!box || !splitter) {
+      return;
+    }
+
+    this._getOrCreateBrowser(chromeDoc, box);
+
+    // Toggle visibility
+    const opening = box.hidden;
+
+    box.hidden = !opening;
+    splitter.hidden = !opening;
+
+    // Make sure parent container is also visible
+    if (box.parentElement && box.parentElement.hidden) {
+      box.parentElement.hidden = false;
+    }
   }
 
   render() {
@@ -267,7 +417,17 @@ export class SmartAssist extends MozLitElement {
           >
             ${this.inputAction.label}
           </moz-button>
+          <hr/>
+          <h3>The following Elements are for testing purposes</h3>
 
+          <p>Sign in for MLPA authentication.</p>
+          <moz-button
+            type="primary"
+            size="small"
+            @click=${this._signIn}
+          >
+            Sign in
+          </moz-button>
           <!-- Footer - New Tab Override -->
           ${
             this.mode === "sidebar"
@@ -279,6 +439,22 @@ export class SmartAssist extends MozLitElement {
                     ?checked=${this.overrideNewTab}
                   ></moz-checkbox>
                 </div>`
+              : ""
+          }
+
+          ${
+            this.mode === "tab"
+              ? html`
+                  <div class="footer">
+                    <moz-button
+                      type="primary"
+                      size="small"
+                      @click=${this._toggleAIWindowSidebar}
+                    >
+                      Open AI Window Sidebar
+                    </moz-button>
+                  </div>
+                `
               : ""
           }
         </div>

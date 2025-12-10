@@ -33,12 +33,12 @@ class GPUChild final : public mozilla::ipc::CrashReporterHelper<GPUChild>,
 
   explicit GPUChild(GPUProcessHost* aHost);
 
-  void Init();
+  using InitPromiseType = MozPromise<Ok, Ok, true>;
+  RefPtr<InitPromiseType> Init();
 
-  bool IsGPUReady() const { return mGPUReady && !mWaitForVarUpdate; }
+  bool IsGPUReady() const { return mGPUReady; }
 
-  bool EnsureGPUReady();
-  void MarkWaitForVarUpdate() { mWaitForVarUpdate = true; }
+  bool EnsureGPUReady(bool aForceSync = false);
 
   // Notifies that an unexpected GPU process shutdown has been noticed by a
   // different IPDL actor, and the GPU process is being torn down as a result.
@@ -59,7 +59,6 @@ class GPUChild final : public mozilla::ipc::CrashReporterHelper<GPUChild>,
   void OnVarChanged(const nsTArray<GfxVarUpdate>& aVar) override;
 
   // PGPUChild overrides.
-  mozilla::ipc::IPCResult RecvInitComplete(const GPUDeviceData& aData);
   mozilla::ipc::IPCResult RecvDeclareStable();
   mozilla::ipc::IPCResult RecvReportCheckerboard(const uint32_t& aSeverity,
                                                  const nsCString& aLog);
@@ -109,10 +108,11 @@ class GPUChild final : public mozilla::ipc::CrashReporterHelper<GPUChild>,
  private:
   virtual ~GPUChild();
 
+  void OnInitComplete(const GPUDeviceData& aData);
+
   GPUProcessHost* mHost;
   UniquePtr<MemoryReportRequestHost> mMemoryReportRequest;
   bool mGPUReady;
-  bool mWaitForVarUpdate = false;
   bool mUnexpectedShutdown = false;
   // Whether a paired minidump has already been generated, meaning we do not
   // need to create a crash report in ActorDestroy().

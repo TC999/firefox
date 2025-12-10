@@ -41,7 +41,6 @@
 #include "mozilla/ChaosMode.h"
 #include "mozilla/glean/XpcomMetrics.h"
 #include "mozilla/TimeStamp.h"
-#include "mozilla/Unused.h"
 #include "mozilla/dom/DocGroup.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "nsThreadSyncDispatch.h"
@@ -50,8 +49,6 @@
 #include "ThreadEventQueue.h"
 #include "ThreadEventTarget.h"
 #include "ThreadDelay.h"
-
-#include <limits>
 
 #ifdef XP_LINUX
 #  ifdef __GLIBC__
@@ -86,6 +83,8 @@ using GetCurrentThreadStackLimitsFn = void(WINAPI*)(PULONG_PTR LowLimit,
 #  include <mach/mach.h>
 #  include <mach/thread_policy.h>
 #  include <sys/qos.h>
+
+#  include "nsCocoaFeatures.h"
 #endif
 
 #ifdef MOZ_CANARY
@@ -338,6 +337,14 @@ void nsThread::ThreadFunc(void* aArg) {
 
   self->InitCommon();
 
+#ifdef XP_MACOSX
+  if (nsCocoaFeatures::OnTahoeOrLater()) {
+    // On macOS 26+, use "User Initiated" as the default quality of service.
+    // It may make sense to do this on all versions of macOS.
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
+  }
+#endif
+
   // Inform the ThreadManager
   nsThreadManager::get().RegisterCurrentThread(*self);
 
@@ -546,7 +553,7 @@ nsThread::nsThread(NotNull<SynchronizedEventQueue*> aQueue,
       mIsMainThread(aMainThread == MAIN_THREAD),
       mUseHangMonitor(aMainThread == MAIN_THREAD),
       mIsUiThread(aOptions.isUiThread),
-      mIsAPoolThreadFree(nullptr),
+      mIsAPoolThreadFreePtr(nullptr),
       mCanInvokeJS(false),
       mPerformanceCounterState(mNestedEventLoopDepth, mIsMainThread,
                                aOptions.longTaskLength) {
@@ -619,7 +626,7 @@ nsresult nsThread::Init(const nsACString& aName) {
     }
 
     // The created thread now owns initData, so release our ownership of it.
-    Unused << initData.release();
+    (void)initData.release();
 
     // The thread has successfully started, so we can mark it as requiring
     // shutdown & add it to the thread list.
@@ -714,9 +721,9 @@ nsThread::UnregisterShutdownTask(nsITargetShutdownTask* aTask) {
 
 NS_IMETHODIMP
 nsThread::GetRunningEventDelay(TimeDuration* aDelay, TimeStamp* aStart) {
-  if (mIsAPoolThreadFree && *mIsAPoolThreadFree) {
-    // if there are unstarted threads in the pool, a new event to the
-    // pool would not be delayed at all (beyond thread start time)
+  if (mIsAPoolThreadFreePtr && *mIsAPoolThreadFreePtr) {
+    // If there are idle or unstarted threads in the pool, a new event to the
+    // pool would not be delayed at all (beyond thread wake / start time).
     *aDelay = TimeDuration();
     *aStart = TimeStamp();
   } else {

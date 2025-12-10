@@ -5,7 +5,6 @@
 
 #include "RootAccessible.h"
 
-#include "mozilla/ArrayUtils.h"
 #include "nsXULPopupManager.h"
 
 #define CreateEvent CreateEventA
@@ -65,11 +64,11 @@ RootAccessible::~RootAccessible() {}
 ////////////////////////////////////////////////////////////////////////////////
 // LocalAccessible
 
-ENameValueFlag RootAccessible::Name(nsString& aName) const {
+ENameValueFlag RootAccessible::DirectName(nsString& aName) const {
   aName.Truncate();
 
   if (ARIARoleMap()) {
-    LocalAccessible::Name(aName);
+    LocalAccessible::DirectName(aName);
     if (!aName.IsEmpty()) return eNameOK;
   }
 

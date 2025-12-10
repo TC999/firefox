@@ -33,13 +33,11 @@
 #include "mozilla/Maybe.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/Mutex.h"
-#include "mozilla/NotNull.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/Result.h"
 #include "mozilla/StaticAnalysisFunctions.h"
 #include "mozilla/StorageAccess.h"
 #include "mozilla/UniquePtr.h"
-#include "mozilla/Unused.h"
 #include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/BindingUtils.h"
@@ -272,7 +270,8 @@ WorkerGlobalScopeBase::WorkerGlobalScopeBase(
       mClientSource(std::move(aClientSource)),
       mSerialEventTarget(aWorkerPrivate->HybridEventTarget()) {
   mTimeoutManager = MakeUnique<dom::TimeoutManager>(
-      *this, /* not used on workers */ 0, mSerialEventTarget);
+      *this, /* not used on workers */ 0, mSerialEventTarget,
+      mWorkerPrivate->IsChromeWorker());
   LOG(("WorkerGlobalScopeBase::WorkerGlobalScopeBase [%p]", this));
   MOZ_ASSERT(mWorkerPrivate);
 #ifdef DEBUG

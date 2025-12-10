@@ -403,7 +403,7 @@ newtab-wallpaper-abstract-purple-green = Gradiente de luz púrpura y verde
 newtab-wallpaper-abstract-blue-purple-waves = Formas onduladas azules y púrpuras
 newtab-wallpaper-abstract-black-waves = Formas onduladas negras
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Fotografías
 newtab-wallpaper-beach-at-sunrise = Playa al amanecer
@@ -432,6 +432,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -474,8 +478,16 @@ newtab-weather-menu-change-temperature-units-fahrenheit = Cambiar a Fahrenheit
 newtab-weather-menu-change-temperature-units-celsius = Cambiar a Celsius
 newtab-weather-menu-hide-weather = Ocultar el tiempo en Nueva pestaña
 newtab-weather-menu-learn-more = Saber más
+newtab-weather-menu-detect-my-location = Detectar mi ubicación
 # This message is shown if user is working offline
 newtab-weather-error-not-available = Los datos meteorológicos no están disponibles en este momento.
+newtab-weather-opt-in-see-weather = ¿Quiere ver el tiempo de su ubicación?
+newtab-weather-opt-in-not-now =
+    .label = Ahora no
+newtab-weather-opt-in-yes =
+    .label = Sí
+# We'll be showing static (fake) weather data if the user has not opted in to using their location
+newtab-weather-static-city = Nueva York
 
 ## Topic Labels
 
@@ -652,6 +664,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Nueva lista
+newtab-widget-section-title = Widgets
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Ocultar widgets
+    .aria-label = Ocultar todos los widgets
+newtab-widget-section-maximize =
+    .title = Expandir widgets
+    .aria-label = Expandir todos los widgets a tamaño completo
+newtab-widget-section-minimize =
+    .title = Minimizar widgets
+    .aria-label = Colapsar todos los widget al tamaño compacto
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -664,10 +687,6 @@ newtab-widget-timer-mode-focus =
     .label = Concentración
 newtab-widget-timer-mode-break =
     .label = Descanso
-newtab-widget-timer-play =
-    .title = Comenzar
-newtab-widget-timer-pause =
-    .title = Pausar
 newtab-widget-timer-label-play =
     .label = Comenzar
 newtab-widget-timer-label-pause =
@@ -678,8 +697,6 @@ newtab-widget-timer-menu-notifications = Desactivar notificaciones
 newtab-widget-timer-menu-notifications-on = Activar notificaciones
 newtab-widget-timer-menu-hide = Ocultar temporizador
 newtab-widget-timer-menu-learn-more = Saber más
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Deslice para ver más
 newtab-widget-message-title = Manténgase concentrado con listas y un temporizador incorporado
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Desde recordatorios rápidos hasta tareas diarias, sesiones de concentración y descansos prolongados: manténgase concentrado en la tarea y a tiempo.

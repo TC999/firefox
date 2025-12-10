@@ -4,6 +4,7 @@
 
 package org.mozilla.fenix.utils
 
+import android.content.pm.PackageInfo
 import androidx.core.content.edit
 import io.mockk.every
 import io.mockk.spyk
@@ -25,8 +26,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.components.toolbar.ToolbarPosition
+import org.mozilla.fenix.nimbus.DefaultBrowserPrompt
 import org.mozilla.fenix.nimbus.FakeNimbusEventStore
 import org.mozilla.fenix.settings.PhoneFeature
+import org.mozilla.fenix.settings.ShortcutType
 import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType
 import org.robolectric.RobolectricTestRunner
 import java.util.Calendar
@@ -1114,45 +1117,12 @@ class SettingsTest {
     }
 
     @Test
-    fun `GIVEN recent search is enable THEN should show recent searches only if recent search is visible`() {
-        val settings = spyk(settings)
-        every { settings.recentSearchSuggestionsEnabled } returns true
-        every { settings.isRecentSearchesVisible } returns true
-
-        assertTrue(settings.shouldShowRecentSearchSuggestions)
-
-        every { settings.isRecentSearchesVisible } returns false
-        every { settings.recentSearchSuggestionsEnabled } returns true
-        assertFalse(settings.shouldShowRecentSearchSuggestions)
-
-        every { settings.isRecentSearchesVisible } returns true
-        every { settings.recentSearchSuggestionsEnabled } returns false
-        assertFalse(settings.shouldShowRecentSearchSuggestions)
-    }
-
-    @Test
-    fun `GIVEN shortcut suggestions is enable THEN should show shortcut suggestions only if shortcut suggestions is visible`() {
-        val settings = spyk(settings)
-        every { settings.shortcutSuggestionsEnabled } returns true
-        every { settings.isShortcutSuggestionsVisible } returns true
-        assertTrue(settings.shouldShowShortcutSuggestions)
-
-        every { settings.shortcutSuggestionsEnabled } returns true
-        every { settings.isShortcutSuggestionsVisible } returns false
-        assertFalse(settings.shouldShowShortcutSuggestions)
-
-        every { settings.shortcutSuggestionsEnabled } returns false
-        every { settings.isShortcutSuggestionsVisible } returns true
-        assertFalse(settings.shouldShowShortcutSuggestions)
-    }
-
-    @Test
     fun `GIVEN the conditions to show a prompt are not met WHEN checking prompt eligibility THEN shouldShowSetAsDefaultPrompt is false`() {
         settings.numberOfSetAsDefaultPromptShownTimes = 0
         settings.lastSetAsDefaultPromptShownTimeInMillis = System.currentTimeMillis()
         settings.coldStartsBetweenSetAsDefaultPrompts = 5
 
-        assertFalse(settings.shouldShowSetAsDefaultPrompt)
+        assertFalse(settings.shouldShowSetAsDefaultPrompt())
     }
 
     @Test
@@ -1161,7 +1131,7 @@ class SettingsTest {
         settings.lastSetAsDefaultPromptShownTimeInMillis = 0L
         settings.coldStartsBetweenSetAsDefaultPrompts = 5
 
-        assertFalse(settings.shouldShowSetAsDefaultPrompt)
+        assertFalse(settings.shouldShowSetAsDefaultPrompt())
     }
 
     @Test
@@ -1170,7 +1140,7 @@ class SettingsTest {
         settings.lastSetAsDefaultPromptShownTimeInMillis = System.currentTimeMillis() - 1000
         settings.coldStartsBetweenSetAsDefaultPrompts = 5
 
-        assertFalse(settings.shouldShowSetAsDefaultPrompt)
+        assertFalse(settings.shouldShowSetAsDefaultPrompt())
     }
 
     @Test
@@ -1179,7 +1149,7 @@ class SettingsTest {
         settings.lastSetAsDefaultPromptShownTimeInMillis = 0L
         settings.coldStartsBetweenSetAsDefaultPrompts = 1
 
-        assertFalse(settings.shouldShowSetAsDefaultPrompt)
+        assertFalse(settings.shouldShowSetAsDefaultPrompt())
     }
 
     @Test
@@ -1188,7 +1158,67 @@ class SettingsTest {
         settings.lastSetAsDefaultPromptShownTimeInMillis = 0L
         settings.coldStartsBetweenSetAsDefaultPrompts = 5 // More than required cold starts
 
-        assertTrue(settings.shouldShowSetAsDefaultPrompt)
+        assertTrue(settings.shouldShowSetAsDefaultPrompt())
+    }
+
+    @Test
+    fun `GIVEN other conditions are valid WHEN the default browser prompt is disabled THEN shouldShowSetAsDefaultPrompt is false`() {
+        settings.numberOfSetAsDefaultPromptShownTimes = 1
+        settings.lastSetAsDefaultPromptShownTimeInMillis = 0L
+        settings.coldStartsBetweenSetAsDefaultPrompts = 5 // More than required cold starts
+
+        assertFalse(
+            settings.shouldShowSetAsDefaultPrompt(
+                DefaultBrowserPrompt(
+                    enabled = false,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `GIVEN other conditions are valid WHEN the days between prompts is null THEN the value is ignored`() {
+        settings.numberOfSetAsDefaultPromptShownTimes = 1
+        settings.lastSetAsDefaultPromptShownTimeInMillis = System.currentTimeMillis()
+        settings.coldStartsBetweenSetAsDefaultPrompts = 5
+
+        assertTrue(
+            settings.shouldShowSetAsDefaultPrompt(
+                DefaultBrowserPrompt(
+                    daysBetweenPrompts = null,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `GIVEN other conditions are valid WHEN max prompts shown is null THEN the value is ignored`() {
+        settings.numberOfSetAsDefaultPromptShownTimes = 10
+        settings.lastSetAsDefaultPromptShownTimeInMillis = 0L
+        settings.coldStartsBetweenSetAsDefaultPrompts = 5
+
+        assertTrue(
+            settings.shouldShowSetAsDefaultPrompt(
+                DefaultBrowserPrompt(
+                    maxPromptsShown = null,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `GIVEN other conditions are valid WHEN cold starts between prompts is null THEN the value is ignored`() {
+        settings.numberOfSetAsDefaultPromptShownTimes = 1
+        settings.lastSetAsDefaultPromptShownTimeInMillis = 0L
+        settings.coldStartsBetweenSetAsDefaultPrompts = 0
+
+        assertTrue(
+            settings.shouldShowSetAsDefaultPrompt(
+                DefaultBrowserPrompt(
+                    coldStartsBetweenPrompts = null,
+                ),
+            ),
+        )
     }
 
     @Test
@@ -1245,20 +1275,34 @@ class SettingsTest {
     @Test
     fun `WHEN user has accepted the ToU THEN termsOfUseAcceptedTimeInMillis returns the app installed time`() {
         val installTime = 12345L
-        settings.applicationInstalledTime = installTime
+        val settings = Settings(
+            appContext = testContext,
+            packageName = "test",
+            packageManagerCompatHelper = FakePackageManagerCompatHelper(
+                packageInfo = PackageInfo().apply { firstInstallTime = installTime },
+            ),
+        )
         settings.hasAcceptedTermsOfService = true
 
         val result = settings.termsOfUseAcceptedTimeInMillis
+
         assertEquals(installTime, result)
     }
 
     @Test
     fun `WHEN user has not accepted the ToU THEN termsOfUseAcceptedTimeInMillis returns 0L`() {
         val installTime = 12345L
-        settings.applicationInstalledTime = installTime
+        val settings = Settings(
+            appContext = testContext,
+            packageName = "test",
+            packageManagerCompatHelper = FakePackageManagerCompatHelper(
+                packageInfo = PackageInfo().apply { firstInstallTime = installTime },
+            ),
+        )
         settings.hasAcceptedTermsOfService = false
 
         val result = settings.termsOfUseAcceptedTimeInMillis
+
         assertEquals(0L, result)
     }
 
@@ -1276,5 +1320,39 @@ class SettingsTest {
 
         val result = settings.termsOfUseAcceptedVersion
         assertEquals(0, result)
+    }
+
+    @Test
+    fun `GIVEN toolbar customization is disabled WHEN reading toolbarSimpleShortcut THEN NEW_TAB is returned regardless of stored key`() {
+        settings.toolbarSimpleShortcutKey = ShortcutType.SHARE.value
+
+        val result = settings.toolbarSimpleShortcut
+        assertEquals(ShortcutType.NEW_TAB.value, result)
+    }
+
+    @Test
+    fun `GIVEN toolbar customization is enabled WHEN reading toolbarSimpleShortcut THEN stored key is returned`() {
+        settings.shouldShowToolbarCustomization = true
+        settings.toolbarSimpleShortcutKey = ShortcutType.SHARE.value
+
+        val result = settings.toolbarSimpleShortcut
+        assertEquals(ShortcutType.SHARE.value, result)
+    }
+
+    @Test
+    fun `GIVEN toolbar customization is disabled WHEN reading toolbarExpandedShortcut THEN BOOKMARK is returned regardless of stored key`() {
+        settings.toolbarExpandedShortcutKey = ShortcutType.NEW_TAB.value
+
+        val result = settings.toolbarExpandedShortcut
+        assertEquals(ShortcutType.BOOKMARK.value, result)
+    }
+
+    @Test
+    fun `GIVEN toolbar customization is enabled WHEN reading toolbarExpandedShortcut THEN stored key is returned`() {
+        settings.shouldShowToolbarCustomization = true
+        settings.toolbarExpandedShortcutKey = ShortcutType.TRANSLATE.value
+
+        val result = settings.toolbarExpandedShortcut
+        assertEquals(ShortcutType.TRANSLATE.value, result)
     }
 }

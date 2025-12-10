@@ -9,10 +9,9 @@
  */
 #include "video/video_send_stream_impl.h"
 
-#include <stdio.h>
-
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <map>
 #include <memory>
 #include <optional>
@@ -628,9 +627,9 @@ void VideoSendStreamImpl::GenerateKeyFrame(
   }
 }
 
-void VideoSendStreamImpl::DeliverRtcp(const uint8_t* packet, size_t length) {
+void VideoSendStreamImpl::DeliverRtcp(ArrayView<const uint8_t> packet) {
   RTC_DCHECK_RUN_ON(&thread_checker_);
-  rtp_video_sender_->DeliverRtcp(packet, length);
+  rtp_video_sender_->DeliverRtcp(packet);
 }
 
 bool VideoSendStreamImpl::started() {
@@ -786,15 +785,17 @@ void VideoSendStreamImpl::SignalEncoderActive() {
 
 MediaStreamAllocationConfig VideoSendStreamImpl::GetAllocationConfig() const {
   return MediaStreamAllocationConfig{
-      static_cast<uint32_t>(encoder_min_bitrate_bps_),
-      encoder_max_bitrate_bps_,
-      static_cast<uint32_t>(disable_padding_ ? 0 : max_padding_bitrate_),
-      encoder_av1_priority_bitrate_override_bps_,
-      !config_.suspend_below_min_bitrate,
-      encoder_bitrate_priority_,
-      (content_type_ == VideoEncoderConfig::ContentType::kRealtimeVideo)
-          ? std::optional(TrackRateElasticity::kCanConsumeExtraRate)
-          : std::nullopt};
+      .min_bitrate_bps = static_cast<uint32_t>(encoder_min_bitrate_bps_),
+      .max_bitrate_bps = encoder_max_bitrate_bps_,
+      .pad_up_bitrate_bps =
+          static_cast<uint32_t>(disable_padding_ ? 0 : max_padding_bitrate_),
+      .priority_bitrate_bps = encoder_av1_priority_bitrate_override_bps_,
+      .enforce_min_bitrate = !config_.suspend_below_min_bitrate,
+      .bitrate_priority = encoder_bitrate_priority_,
+      .rate_elasticity =
+          (content_type_ == VideoEncoderConfig::ContentType::kRealtimeVideo)
+              ? std::optional(TrackRateElasticity::kCanConsumeExtraRate)
+              : std::nullopt};
 }
 
 void VideoSendStreamImpl::OnEncoderConfigurationChanged(

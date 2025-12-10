@@ -37,7 +37,6 @@
 #include "api/audio_codecs/audio_format.h"
 #include "api/crypto/frame_decryptor_interface.h"
 #include "api/environment/environment.h"
-#include "api/field_trials_view.h"
 #include "api/frame_transformer_interface.h"
 #include "api/media_types.h"
 #include "api/rtp_headers.h"
@@ -124,10 +123,10 @@ class FakeAudioReceiveStream final : public AudioReceiveStreamInterface {
   const AudioReceiveStreamInterface::Config& GetConfig() const;
   void SetStats(const AudioReceiveStreamInterface::Stats& stats);
   int received_packets() const { return received_packets_; }
-  bool VerifyLastPacket(const uint8_t* data, size_t length) const;
+  bool VerifyLastPacket(ArrayView<const uint8_t> data) const;
   const AudioSinkInterface* sink() const { return sink_; }
   float gain() const { return gain_; }
-  bool DeliverRtp(const uint8_t* packet, size_t length, int64_t packet_time_us);
+  bool DeliverRtp(ArrayView<const uint8_t> packet, int64_t packet_time_us);
   bool started() const { return started_; }
   int base_mininum_playout_delay_ms() const {
     return base_mininum_playout_delay_ms_;
@@ -432,10 +431,10 @@ class FakeCall final : public Call, public PacketReceiver {
 
   void SetClientBitratePreferences(
       const BitrateSettings& /* preferences */) override {}
-  const FieldTrialsView& trials() const override { return env_.field_trials(); }
-  void EnableSendCongestionControlFeedbackAccordingToRfc8888() override {}
-  int FeedbackAccordingToRfc8888Count() { return 0; }
-  int FeedbackAccordingToTransportCcCount() { return 0; }
+  void SetPreferredRtcpCcAckType(
+      RtcpFeedbackType preferred_rtcp_cc_ack_type) override {}
+  std::optional<int> FeedbackAccordingToRfc8888Count() { return 0; }
+  std::optional<int> FeedbackAccordingToTransportCcCount() { return 0; }
 
  private:
   AudioSendStream* CreateAudioSendStream(
@@ -529,16 +528,4 @@ class FakeCall final : public Call, public PacketReceiver {
 
 }  //  namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace cricket {
-using ::webrtc::FakeAudioReceiveStream;
-using ::webrtc::FakeAudioSendStream;
-using ::webrtc::FakeCall;
-using ::webrtc::FakeFlexfecReceiveStream;
-using ::webrtc::FakeVideoReceiveStream;
-using ::webrtc::FakeVideoSendStream;
-}  // namespace cricket
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 #endif  // MEDIA_ENGINE_FAKE_WEBRTC_CALL_H_

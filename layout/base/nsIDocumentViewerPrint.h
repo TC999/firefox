@@ -7,7 +7,6 @@
 #ifndef nsIDocumentViewerPrint_h___
 #define nsIDocumentViewerPrint_h___
 
-#include "mozilla/UniquePtr.h"
 #include "nsISupports.h"
 
 namespace mozilla {
@@ -47,8 +46,7 @@ class nsIDocumentViewerPrint : public nsISupports {
   /**
    * Replaces the current presentation with print preview presentation.
    */
-  virtual void SetPrintPreviewPresentation(nsViewManager* aViewManager,
-                                           nsPresContext* aPresContext,
+  virtual void SetPrintPreviewPresentation(nsPresContext* aPresContext,
                                            mozilla::PresShell* aPresShell) = 0;
 };
 
@@ -60,8 +58,7 @@ class nsIDocumentViewerPrint : public nsISupports {
   void IncrementDestroyBlockedCount() override;                 \
   void DecrementDestroyBlockedCount() override;                 \
   void OnDonePrinting() override;                               \
-  void SetPrintPreviewPresentation(nsViewManager* aViewManager, \
-                                   nsPresContext* aPresContext, \
+  void SetPrintPreviewPresentation(nsPresContext* aPresContext, \
                                    mozilla::PresShell* aPresShell) override;
 
 #endif /* nsIDocumentViewerPrint_h___ */

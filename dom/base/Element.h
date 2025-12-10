@@ -1044,6 +1044,10 @@ class Element : public FragmentOrElement {
                    const nsAString& aValue,
                    nsIPrincipal* aMaybeScriptedPrincipal, bool aNotify);
 
+  nsresult SetAttr(int32_t aNameSpaceID, nsAtom* aName, nsAtom* aPrefix,
+                   nsAtom* aValue, nsIPrincipal* aMaybeScriptedPrincipal,
+                   bool aNotify);
+
   /**
    * Remove an attribute so that it is no longer explicitly specified.
    *
@@ -1053,6 +1057,32 @@ class Element : public FragmentOrElement {
    * notified of the attribute change
    */
   nsresult UnsetAttr(int32_t aNameSpaceID, nsAtom* aName, bool aNotify);
+
+  /**
+   * Swap an attribute value. This is a public wrapper that ensures bloom
+   * filter updates are performed correctly. For kNameSpaceID_None attributes,
+   * this will automatically update the bloom filter and propagate changes to
+   * parent elements.
+   *
+   * @param aLocalName the local name of the attribute
+   * @param aValue the value to swap (will contain old value on return)
+   * @param aHadValue set to true if attribute existed, false otherwise
+   */
+  nsresult SetAndSwapAttr(nsAtom* aLocalName, nsAttrValue& aValue,
+                          bool* aHadValue);
+
+  /**
+   * Swap an attribute value. This is a public wrapper that ensures bloom
+   * filter updates are performed correctly. For kNameSpaceID_None attributes,
+   * this will automatically update the bloom filter and propagate changes to
+   * parent elements.
+   *
+   * @param aName the node info of the attribute
+   * @param aValue the value to swap (will contain old value on return)
+   * @param aHadValue set to true if attribute existed, false otherwise
+   */
+  nsresult SetAndSwapAttr(mozilla::dom::NodeInfo* aName, nsAttrValue& aValue,
+                          bool* aHadValue);
 
   /**
    * Get the namespace / name / prefix of a given attribute.
@@ -2033,6 +2063,16 @@ class Element : public FragmentOrElement {
   static const DOMTokenListSupportedToken sSupportedBlockingValues[];
 
   /**
+   * Common implementation for SetAttr overloads. Takes a callback to perform
+   * the type-specific parsing and value setting.
+   */
+  template <typename ParseFunc>
+  nsresult SetAttrInternal(int32_t aNamespaceID, nsAtom* aName, nsAtom* aPrefix,
+                           const nsAttrValueOrString& aValueForComparison,
+                           nsIPrincipal* aSubjectPrincipal, bool aNotify,
+                           ParseFunc&& aParseFn);
+
+  /**
    * Set attribute and (if needed) notify documentobservers.  This will send the
    * AttributeChanged notification. Callers of this method are responsible for
    * calling AttributeWillChange, since that needs to happen before the new attr
@@ -2306,6 +2346,16 @@ class Element : public FragmentOrElement {
 
   MOZ_CAN_RUN_SCRIPT
   void FireBeforematchEvent(ErrorResult& aRv);
+
+  void PropagateBloomFilterToParents();
+  void UpdateSubtreeBloomFilterForClass(const nsAttrValue* aClassValue);
+  void UpdateSubtreeBloomFilterForAttribute(nsAtom* aAttribute);
+  uint64_t GetSubtreeBloomFilter() const {
+    return mAttrs.GetSubtreeBloomFilter();
+  }
+#ifdef DEBUG
+  void VerifySubtreeBloomFilter() const;
+#endif
 
  protected:
   enum class ReparseAttributes { No, Yes };

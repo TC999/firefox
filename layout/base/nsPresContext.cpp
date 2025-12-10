@@ -8,7 +8,6 @@
 
 #include "nsPresContext.h"
 
-#include "mozilla/ArrayUtils.h"
 #include "nsPresContextInlines.h"
 #if defined(MOZ_WIDGET_ANDROID)
 #  include "mozilla/AsyncEventDispatcher.h"
@@ -73,6 +72,7 @@
 #include "nsCRT.h"
 #include "nsCSSFrameConstructor.h"
 #include "nsContentUtils.h"
+#include "nsDeviceContext.h"
 #include "nsDocShell.h"
 #include "nsFontCache.h"
 #include "nsFontFaceLoader.h"
@@ -92,9 +92,9 @@
 #include "nsPIDOMWindow.h"
 #include "nsPIWindowRoot.h"
 #include "nsRefreshDriver.h"
+#include "nsSubDocumentFrame.h"
 #include "nsThreadUtils.h"
 #include "nsTransitionManager.h"
-#include "nsViewManager.h"
 #include "prenv.h"
 #ifdef ACCESSIBILITY
 #  include "mozilla/a11y/DocAccessible.h"
@@ -112,6 +112,8 @@ using namespace mozilla;
 using namespace mozilla::dom;
 using namespace mozilla::gfx;
 using namespace mozilla::layers;
+
+static LazyLogModule gFingerprinterDetection("FingerprinterDetection");
 
 /**
  * Layer UserData for ContainerLayers that want to be notified
@@ -539,24 +541,17 @@ void nsPresContext::PreferenceChanged(const char* aPrefName) {
     // We need to assume the DPI changes, since `mDeviceContext` is shared with
     // other documents, and we'd need to save the return value of the first call
     // for all of them.
-    Unused << mDeviceContext->CheckDPIChange();
-    OwningNonNull<mozilla::PresShell> presShell(*mPresShell);
-    // Re-fetch the view manager's window dimensions in case there's a
-    // deferred resize which hasn't affected our mVisibleArea yet
-    nscoord oldWidthAppUnits, oldHeightAppUnits;
-    RefPtr<nsViewManager> vm = presShell->GetViewManager();
-    if (!vm) {
-      return;
-    }
-    vm->GetWindowDimensions(&oldWidthAppUnits, &oldHeightAppUnits);
-    float oldWidthDevPixels = oldWidthAppUnits / oldAppUnitsPerDevPixel;
-    float oldHeightDevPixels = oldHeightAppUnits / oldAppUnitsPerDevPixel;
+    (void)mDeviceContext->CheckDPIChange();
+    RefPtr ps = mPresShell;
+    // Use the maybe-pending size from presshell in case there's a
+    // deferred resize which hasn't affected our visible area yet.
+    auto oldSizeDevPixels = LayoutDeviceSize::FromAppUnits(
+        ps->MaybePendingLayoutViewportSize(), oldAppUnitsPerDevPixel);
 
     UIResolutionChangedInternal();
-
-    nscoord width = NSToCoordRound(oldWidthDevPixels * AppUnitsPerDevPixel());
-    nscoord height = NSToCoordRound(oldHeightDevPixels * AppUnitsPerDevPixel());
-    vm->SetWindowDimensions(width, height);
+    ps->SetLayoutViewportSize(
+        LayoutDeviceSize::ToAppUnits(oldSizeDevPixels, AppUnitsPerDevPixel()),
+        /* aDelay = */ false);
     return;
   }
 
@@ -711,6 +706,9 @@ nsresult nsPresContext::Init(nsDeviceContext* aDeviceContext) {
       mRefreshDriver = new nsRefreshDriver(this);
     }
   }
+
+  mFragmentainerAwarePositioningEnabled =
+      StaticPrefs::layout_abspos_fragmentainer_aware_positioning_enabled();
 
   // Register callbacks so we're notified when the preferences change
   Preferences::RegisterPrefixCallbacks(nsPresContext::PreferenceChanged,
@@ -1135,26 +1133,12 @@ void nsPresContext::UpdateCharSet(NotNull<const Encoding*> aCharSet) {
 }
 
 nsPresContext* nsPresContext::GetParentPresContext() const {
-  mozilla::PresShell* presShell = GetPresShell();
-  if (presShell) {
-    nsViewManager* viewManager = presShell->GetViewManager();
-    if (viewManager) {
-      nsView* view = viewManager->GetRootView();
-      if (view) {
-        view = view->GetParent();  // anonymous inner view
-        if (view) {
-          view = view->GetParent();  // subdocumentframe's view
-          if (view) {
-            nsIFrame* f = view->GetFrame();
-            if (f) {
-              return f->PresContext();
-            }
-          }
-        }
-      }
-    }
+  mozilla::PresShell* ps = GetPresShell();
+  if (!ps) {
+    return nullptr;
   }
-  return nullptr;
+  auto* embedder = ps->GetInProcessEmbedderFrame();
+  return embedder ? embedder->PresContext() : nullptr;
 }
 
 nsPresContext* nsPresContext::GetInProcessRootContentDocumentPresContext() {
@@ -1171,22 +1155,12 @@ nsPresContext* nsPresContext::GetInProcessRootContentDocumentPresContext() {
   }
 }
 
-nsIWidget* nsPresContext::GetNearestWidget(nsPoint* aOffset) {
-  NS_ENSURE_TRUE(mPresShell, nullptr);
-  nsViewManager* vm = mPresShell->GetViewManager();
-  NS_ENSURE_TRUE(vm, nullptr);
-  nsView* rootView = vm->GetRootView();
-  NS_ENSURE_TRUE(rootView, nullptr);
-  return rootView->GetNearestWidget(aOffset);
+nsIWidget* nsPresContext::GetNearestWidget() const {
+  return mPresShell ? mPresShell->GetNearestWidget() : nullptr;
 }
 
 nsIWidget* nsPresContext::GetRootWidget() const {
-  NS_ENSURE_TRUE(mPresShell, nullptr);
-  nsViewManager* vm = mPresShell->GetViewManager();
-  if (!vm) {
-    return nullptr;
-  }
-  return vm->GetRootWidget();
+  return mPresShell ? mPresShell->GetRootWidget() : nullptr;
 }
 
 // We may want to replace this with something faster, maybe caching the root
@@ -1349,7 +1323,7 @@ void nsPresContext::SetImageAnimationMode(uint16_t aMode) {
   if (mPresShell) {
     dom::Document* doc = mPresShell->GetDocument();
     if (doc) {
-      doc->StyleImageLoader()->SetAnimationMode(aMode);
+      doc->EnsureStyleImageLoader().SetAnimationMode(aMode);
 
       Element* rootElement = doc->GetRootElement();
       if (rootElement) {
@@ -1415,7 +1389,7 @@ void nsPresContext::SetFullZoom(float aZoom) {
   // handle that edge case by just falling back to 1.0f here, so we can render
   // something, and particularly so we don't do something invalid like trying
   // to allocate a zero-sized or infinite-sized surface.)
-  if (MOZ_UNLIKELY(!std::isfinite(aZoom) || aZoom <= 0.0f)) {
+  if (MOZ_UNLIKELY(!std::isfinite(aZoom) || aZoom < 1e-6f)) {
     aZoom = 1.0f;
   }
 
@@ -1423,22 +1397,20 @@ void nsPresContext::SetFullZoom(float aZoom) {
     return;
   }
 
-  // Re-fetch the view manager's window dimensions in case there's a deferred
-  // resize which hasn't affected our mVisibleArea yet
-  nscoord oldWidthAppUnits, oldHeightAppUnits;
-  mPresShell->GetViewManager()->GetWindowDimensions(&oldWidthAppUnits,
-                                                    &oldHeightAppUnits);
-  float oldWidthDevPixels = oldWidthAppUnits / float(mCurAppUnitsPerDevPixel);
-  float oldHeightDevPixels = oldHeightAppUnits / float(mCurAppUnitsPerDevPixel);
+  // Use the maybe-pending size from presshell in case there's a
+  // deferred resize which hasn't affected our visible area yet.
+  RefPtr ps = mPresShell;
+  const auto oldSizeDevPixels = LayoutDeviceSize::FromAppUnits(
+      ps->MaybePendingLayoutViewportSize(), mCurAppUnitsPerDevPixel);
   mDeviceContext->SetFullZoom(aZoom);
 
   mFullZoom = aZoom;
 
   AppUnitsPerDevPixelChanged();
 
-  mPresShell->GetViewManager()->SetWindowDimensions(
-      NSToCoordRound(oldWidthDevPixels * AppUnitsPerDevPixel()),
-      NSToCoordRound(oldHeightDevPixels * AppUnitsPerDevPixel()));
+  ps->SetLayoutViewportSize(
+      LayoutDeviceSize::ToAppUnits(oldSizeDevPixels, AppUnitsPerDevPixel()),
+      /* aDelay = */ false);
 }
 
 void nsPresContext::SetOverrideDPPX(float aDPPX) {
@@ -1476,7 +1448,7 @@ void nsPresContext::UpdateTopInnerSizeForRFP() {
       break;
   }
 
-  Unused << mDocument->GetBrowsingContext()->SetTopInnerSizeForRFP(
+  (void)mDocument->GetBrowsingContext()->SetTopInnerSizeForRFP(
       CSSIntSize{(int)size.width, (int)size.height});
 }
 
@@ -2179,8 +2151,10 @@ void nsPresContext::UserFontSetUpdated(gfxUserFontEntry* aUpdatedFont) {
   // TODO(emilio): We could be more granular if we knew which families have
   // potentially changed.
   if (!aUpdatedFont) {
-    auto hint = StyleSet()->UsesFontMetrics() ? RestyleHint::RecascadeSubtree()
-                                              : RestyleHint{0};
+    auto hint =
+        (StyleSet()->UsesFontMetrics() || StyleSet()->UsesRootFontMetrics())
+            ? RestyleHint::RecascadeSubtree()
+            : RestyleHint{0};
     PostRebuildAllStyleDataEvent(NS_STYLE_HINT_REFLOW, hint);
     return;
   }
@@ -2667,22 +2641,8 @@ bool nsPresContext::IsRootContentDocumentInProcess() const {
   if (IsChrome()) {
     return false;
   }
-  // We may not have a root frame, so use views.
-  nsView* view = PresShell()->GetViewManager()->GetRootView();
-  if (!view) {
-    return false;
-  }
-  view = view->GetParent();  // anonymous inner view
-  if (!view) {
-    return true;
-  }
-  view = view->GetParent();  // subdocumentframe's view
-  if (!view) {
-    return true;
-  }
-
-  nsIFrame* f = view->GetFrame();
-  return (f && f->PresContext()->IsChrome());
+  auto* embedder = PresShell()->GetInProcessEmbedderFrame();
+  return !embedder || embedder->PresContext()->IsChrome();
 }
 
 bool nsPresContext::IsRootContentDocumentCrossProcess() const {
@@ -2726,27 +2686,30 @@ bool nsPresContext::HasStoppedGeneratingLCP() const {
 
 void nsPresContext::NotifyContentfulPaint() {
   if (mHadFirstContentfulPaint && HasStoppedGeneratingLCP()) {
+    MOZ_ASSERT(mHadNonTickContentfulPaint);
     return;
   }
   nsRootPresContext* rootPresContext = GetRootPresContext();
   if (!rootPresContext) {
     return;
   }
+
   if (!mHadNonTickContentfulPaint) {
 #ifdef MOZ_WIDGET_ANDROID
     (new AsyncEventDispatcher(mDocument, u"MozFirstContentfulPaint"_ns,
                               CanBubble::eYes, ChromeOnlyDispatch::eYes))
         ->PostDOMEvent();
 #endif
+    mHadNonTickContentfulPaint = true;
   }
+
   if (!rootPresContext->RefreshDriver()->IsInRefresh()) {
-    if (!mHadNonTickContentfulPaint) {
-      rootPresContext->RefreshDriver()
-          ->AddForceNotifyContentfulPaintPresContext(this);
-      mHadNonTickContentfulPaint = true;
-    }
+    rootPresContext->RefreshDriver()->AddForceNotifyContentfulPaintPresContext(
+        this);
     return;
   }
+
+  // From here on we know that we are inside a refresh tick.
 
   if (!mHadFirstContentfulPaint) {
     mHadFirstContentfulPaint = true;
@@ -2989,7 +2952,7 @@ void nsPresContext::UpdateDynamicToolbarOffset(ScreenIntCoord aOffset) {
   // position:fixed or position:sticky element is painted at the correct
   // position on the main-thread.
   if (mDynamicToolbarHeight == 0 || aOffset == -mDynamicToolbarMaxHeight) {
-    mPresShell->MarkFixedFramesForReflow(IntrinsicDirty::None);
+    mPresShell->MarkFixedFramesForReflow();
     mPresShell->MarkStickyFramesForReflow();
     mPresShell->ScheduleResizeEventIfNeeded(
         PresShell::ResizeEventKind::Regular);
@@ -3120,6 +3083,7 @@ bool nsPresContext::ShouldResistFingerprinting(RFPTarget aTarget) const {
 }
 
 void nsPresContext::ReportBlockedFontFamily(const nsCString& aMsg) const {
+  MOZ_LOG(gFingerprinterDetection, LogLevel::Info, ("%s", aMsg.get()));
   nsContentUtils::ReportToConsoleNonLocalized(NS_ConvertUTF8toUTF16(aMsg),
                                               nsIScriptError::warningFlag,
                                               "Security"_ns, Document());

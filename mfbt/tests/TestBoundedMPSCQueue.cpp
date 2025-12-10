@@ -5,13 +5,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/BoundedMPSCQueue.h"
-#include "mozilla/PodOperations.h"
-#include <vector>
 #include <iostream>
 #include <thread>
 #include <chrono>
-#include <memory>
-#include <string>
 
 using namespace mozilla;
 

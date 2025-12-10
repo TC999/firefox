@@ -7,7 +7,6 @@
 
 #include "mozilla/gfx/2D.h"
 #include "mozilla/Logging.h"
-#include "mozilla/Unused.h"
 
 #include "gfxPlatform.h"
 #include "nsArrayUtils.h"
@@ -55,7 +54,7 @@ static NSData* GetNSDataFromPasteboard(NSPasteboard* aPasteboard,
                                "pasteboard: \"%s - %s\"",
                                [[e name] UTF8String], [[e reason] UTF8String])
                    .get());
-    mozilla::Unused << e;
+    (void)e;
   }
   return data;
 }
@@ -163,38 +162,6 @@ nsClipboard::SetNativeClipboardData(nsITransferable* aTransferable,
       } else {
         [cocoaPasteboard setData:currentValue forType:currentKey];
       }
-    }
-  }
-
-  return NS_OK;
-
-  NS_OBJC_END_TRY_BLOCK_RETURN(NS_ERROR_FAILURE);
-}
-
-nsresult nsClipboard::TransferableFromPasteboard(
-    nsITransferable* aTransferable, NSPasteboard* cocoaPasteboard) {
-  NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
-
-  // get flavor list that includes all acceptable flavors (including ones
-  // obtained through conversion)
-  nsTArray<nsCString> flavors;
-  nsresult rv = aTransferable->FlavorsTransferableCanImport(flavors);
-  if (NS_FAILED(rv)) {
-    return NS_ERROR_FAILURE;
-  }
-
-  for (uint32_t i = 0; i < flavors.Length(); i++) {
-    nsCString& flavorStr = flavors[i];
-
-    auto dataOrError = GetDataFromPasteboard(flavorStr, cocoaPasteboard);
-    if (dataOrError.isErr()) {
-      continue;
-    }
-
-    if (auto data = dataOrError.inspect()) {
-      aTransferable->SetTransferData(flavorStr.get(), data);
-      // XXX Maybe try to fill in more types? Is there a point?
-      break;
     }
   }
 

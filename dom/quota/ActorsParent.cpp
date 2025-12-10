@@ -14,6 +14,7 @@
 #include "Flatten.h"
 #include "GroupInfo.h"
 #include "GroupInfoPair.h"
+#include "GroupInfoPairImpl.h"
 #include "NormalOriginOperationBase.h"
 #include "OpenClientDirectoryUtils.h"
 #include "OriginInfo.h"
@@ -63,7 +64,6 @@
 #include "mozilla/GeckoTrace.h"
 #include "mozilla/InitializedOnce.h"
 #include "mozilla/Logging.h"
-#include "mozilla/MacroForEach.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/NotNull.h"
@@ -79,11 +79,7 @@
 #include "mozilla/StaticPtr.h"
 #include "mozilla/StorageOriginAttributes.h"
 #include "mozilla/SystemPrincipal.h"
-#include "mozilla/TextUtils.h"
 #include "mozilla/TimeStamp.h"
-#include "mozilla/UniquePtr.h"
-#include "mozilla/Unused.h"
-#include "mozilla/Variant.h"
 #include "mozilla/dom/FileSystemQuotaClientFactory.h"
 #include "mozilla/dom/FlippedOnce.h"
 #include "mozilla/dom/IndexedDatabaseManager.h"
@@ -2922,13 +2918,13 @@ nsresult QuotaManager::LoadQuota() {
           QM_TRY_INSPECT(const bool& groupUpdated,
                          MaybeUpdateGroupForOrigin(fullOriginMetadata));
 
-          Unused << groupUpdated;
+          (void)groupUpdated;
 
           QM_TRY_INSPECT(
               const bool& lastAccessTimeUpdated,
               MaybeUpdateLastAccessTimeForOrigin(fullOriginMetadata));
 
-          Unused << lastAccessTimeUpdated;
+          (void)lastAccessTimeUpdated;
 
           // We don't need to update the .metadata-v2 file on disk here,
           // EnsureTemporaryOriginIsInitializedInternal is responsible for
@@ -3665,7 +3661,7 @@ Result<FullOriginMetadata, nsresult> QuotaManager::LoadFullOriginMetadata(
   QM_TRY_INSPECT(
       const auto& unusedData1,
       MOZ_TO_RESULT_INVOKE_MEMBER_TYPED(nsCString, binaryStream, ReadCString));
-  Unused << unusedData1;
+  (void)unusedData1;
 
   // Legacy field, previously used for group. This value is no longer used, but
   // still read and discarded to preserve compatibility with older builds that
@@ -3673,7 +3669,7 @@ Result<FullOriginMetadata, nsresult> QuotaManager::LoadFullOriginMetadata(
   QM_TRY_INSPECT(
       const auto& unusedData2,
       MOZ_TO_RESULT_INVOKE_MEMBER_TYPED(nsCString, binaryStream, ReadCString));
-  Unused << unusedData2;
+  (void)unusedData2;
 
   QM_TRY_UNWRAP(
       fullOriginMetadata.mStorageOrigin,
@@ -3688,7 +3684,7 @@ Result<FullOriginMetadata, nsresult> QuotaManager::LoadFullOriginMetadata(
   // compatibility with older builds that may still expect it.
   QM_TRY_INSPECT(const bool& unusedData3,
                  MOZ_TO_RESULT_INVOKE_MEMBER(binaryStream, ReadBoolean));
-  Unused << unusedData3;
+  (void)unusedData3;
 
   QM_VERBOSEONLY_TRY_UNWRAP(const auto sentinel,
                             MOZ_TO_RESULT_INVOKE_MEMBER(binaryStream, Read32));
@@ -3904,7 +3900,7 @@ nsresult QuotaManager::InitializeRepository(PersistenceType aPersistenceType,
 
   QM_TRY_INSPECT(const bool& created, EnsureDirectory(*directory));
 
-  Unused << created;
+  (void)created;
 
   uint64_t iterations = 0;
 
@@ -4942,7 +4938,7 @@ Result<Ok, nsresult> QuotaManager::CopyLocalStorageArchiveFromWebAppsStore(
 
   QM_TRY_INSPECT(const bool& created, EnsureDirectory(*storageDirectory));
 
-  Unused << created;
+  (void)created;
 
   QM_TRY_UNWRAP(auto lsArchiveConnection,
                 MOZ_TO_RESULT_INVOKE_MEMBER_TYPED(
@@ -6504,7 +6500,33 @@ QuotaManager::EnsureTemporaryOriginIsInitializedInternal(
       return std::pair(std::move(directory), false);
     }
 
-    const int64_t timestamp = PR_Now();
+    // We apply the offset only here when setting the initial access time for
+    // a new origin. In theory PersistOp::DoDirectoryWork could also honor this
+    // pref, but since the pref is intended for testing only, we do it only
+    // here for now for simplicity.
+    const int64_t timestamp = []() {
+      const int64_t now = PR_Now();
+      const uint32_t offsetSec = StaticPrefs::
+          dom_quotaManager_temporaryStorage_initialOriginAccessTimeOffsetSec();
+
+      if (offsetSec > 0) {
+        CheckedInt<int64_t> ts(now);
+
+        ts -= CheckedInt<int64_t>(offsetSec) * PR_USEC_PER_SEC;
+        if (!ts.isValid()) {
+          // Offset too large (underflow), use current time as if there was no
+          // offset.
+
+          QM_WARNING("Initial origin access time offset too large!");
+
+          return now;
+        }
+
+        return ts.value();
+      }
+
+      return now;
+    }();
 
     FullOriginMetadata fullOriginMetadata{
         aOriginMetadata,
@@ -6888,7 +6910,7 @@ nsresult QuotaManager::InitializeTemporaryStorageInternal() {
   // The storage directory must exist before calling GetTemporaryStorageLimit.
   QM_TRY_INSPECT(const bool& created, EnsureDirectory(*storageDir));
 
-  Unused << created;
+  (void)created;
 
   QM_TRY_UNWRAP(mTemporaryStorageLimit, GetTemporaryStorageLimit(*storageDir));
 
@@ -7023,11 +7045,6 @@ RefPtr<BoolPromise> QuotaManager::SaveOriginAccessTime(
   AssertIsOnOwningThread();
   MOZ_ASSERT(aOriginMetadata.mPersistenceType != PERSISTENCE_TYPE_PERSISTENT);
 
-  if (!StaticPrefs::
-          dom_quotaManager_temporaryStorage_updateOriginAccessTime()) {
-    return BoolPromise::CreateAndResolve(true, __func__);
-  }
-
   RefPtr<UniversalDirectoryLock> directoryLock =
       CreateSaveOriginAccessTimeLock(*this, aOriginMetadata);
 
@@ -7051,11 +7068,6 @@ RefPtr<BoolPromise> QuotaManager::SaveOriginAccessTime(
   MOZ_ASSERT(aOriginMetadata.mPersistenceType != PERSISTENCE_TYPE_PERSISTENT);
   MOZ_ASSERT(aDirectoryLock);
   MOZ_ASSERT(aDirectoryLock->Acquired());
-
-  if (!StaticPrefs::
-          dom_quotaManager_temporaryStorage_updateOriginAccessTime()) {
-    return BoolPromise::CreateAndResolve(true, __func__);
-  }
 
   auto saveOriginAccessTimeOp =
       CreateSaveOriginAccessTimeOp(WrapMovingNotNullUnchecked(this),
@@ -7866,57 +7878,6 @@ already_AddRefed<OriginInfo> QuotaManager::LockedGetOriginInfo(
   return nullptr;
 }
 
-template <typename Iterator, typename Pred>
-void QuotaManager::MaybeInsertOriginInfos(
-    Iterator aDest, const RefPtr<GroupInfo>& aTemporaryGroupInfo,
-    const RefPtr<GroupInfo>& aDefaultGroupInfo,
-    const RefPtr<GroupInfo>& aPrivateGroupInfo, Pred aPred) {
-  const auto copy = [&aDest, &aPred](const GroupInfo& groupInfo) {
-    std::copy_if(groupInfo.mOriginInfos.cbegin(), groupInfo.mOriginInfos.cend(),
-                 aDest, aPred);
-  };
-
-  if (aTemporaryGroupInfo) {
-    MOZ_ASSERT(PERSISTENCE_TYPE_TEMPORARY ==
-               aTemporaryGroupInfo->GetPersistenceType());
-
-    copy(*aTemporaryGroupInfo);
-  }
-  if (aDefaultGroupInfo) {
-    MOZ_ASSERT(PERSISTENCE_TYPE_DEFAULT ==
-               aDefaultGroupInfo->GetPersistenceType());
-
-    copy(*aDefaultGroupInfo);
-  }
-  if (aPrivateGroupInfo) {
-    MOZ_ASSERT(PERSISTENCE_TYPE_PRIVATE ==
-               aPrivateGroupInfo->GetPersistenceType());
-    copy(*aPrivateGroupInfo);
-  }
-}
-
-template <typename Iterator>
-void QuotaManager::MaybeInsertNonPersistedOriginInfos(
-    Iterator aDest, const RefPtr<GroupInfo>& aTemporaryGroupInfo,
-    const RefPtr<GroupInfo>& aDefaultGroupInfo,
-    const RefPtr<GroupInfo>& aPrivateGroupInfo) {
-  return MaybeInsertOriginInfos(
-      aDest, aTemporaryGroupInfo, aDefaultGroupInfo, aPrivateGroupInfo,
-      [](const auto& originInfo) { return !originInfo->LockedPersisted(); });
-}
-
-template <typename Iterator>
-void QuotaManager::MaybeInsertNonPersistedZeroUsageOriginInfos(
-    Iterator aDest, const RefPtr<GroupInfo>& aTemporaryGroupInfo,
-    const RefPtr<GroupInfo>& aDefaultGroupInfo,
-    const RefPtr<GroupInfo>& aPrivateGroupInfo) {
-  return MaybeInsertOriginInfos(aDest, aTemporaryGroupInfo, aDefaultGroupInfo,
-                                aPrivateGroupInfo, [](const auto& originInfo) {
-                                  return !originInfo->LockedPersisted() &&
-                                         originInfo->LockedUsage() == 0;
-                                });
-}
-
 template <typename Collect, typename Pred>
 QuotaManager::OriginInfosFlatTraversable
 QuotaManager::CollectLRUOriginInfosUntil(Collect&& aCollect, Pred&& aPred) {
@@ -7972,11 +7933,8 @@ QuotaManager::GetOriginInfosExceedingGroupLimit() const {
 
       if (groupUsage > quotaManager->GetGroupLimit()) {
         originInfos.AppendElement(CollectLRUOriginInfosUntil(
-            [&temporaryGroupInfo, &defaultGroupInfo,
-             &privateGroupInfo](auto inserter) {
-              MaybeInsertNonPersistedOriginInfos(
-                  std::move(inserter), temporaryGroupInfo, defaultGroupInfo,
-                  privateGroupInfo);
+            [&pair](auto inserter) {
+              pair->MaybeInsertNonPersistedOriginInfos(std::move(inserter));
             },
             [&groupUsage, quotaManager](const auto& originInfo) {
               groupUsage -= originInfo->LockedUsage();
@@ -8007,10 +7965,7 @@ QuotaManager::GetOriginInfosExceedingGlobalLimit() const {
           MOZ_ASSERT(!entry.GetKey().IsEmpty());
           MOZ_ASSERT(pair);
 
-          MaybeInsertNonPersistedOriginInfos(
-              inserter, pair->LockedGetGroupInfo(PERSISTENCE_TYPE_TEMPORARY),
-              pair->LockedGetGroupInfo(PERSISTENCE_TYPE_DEFAULT),
-              pair->LockedGetGroupInfo(PERSISTENCE_TYPE_PRIVATE));
+          pair->MaybeInsertNonPersistedOriginInfos(inserter);
         }
       },
       [temporaryStorageUsage = mTemporaryStorageUsage,
@@ -8028,7 +7983,8 @@ QuotaManager::GetOriginInfosExceedingGlobalLimit() const {
 }
 
 QuotaManager::OriginInfosNestedTraversable
-QuotaManager::GetOriginInfosWithZeroUsage() const {
+QuotaManager::GetOriginInfosWithZeroUsage(
+    const Maybe<int64_t>& aCutoffAccessTime) const {
   MutexAutoLock lock(mQuotaMutex);
 
   QuotaManager::OriginInfosNestedTraversable res;
@@ -8043,10 +7999,8 @@ QuotaManager::GetOriginInfosWithZeroUsage() const {
     MOZ_ASSERT(!entry.GetKey().IsEmpty());
     MOZ_ASSERT(pair);
 
-    MaybeInsertNonPersistedZeroUsageOriginInfos(
-        inserter, pair->LockedGetGroupInfo(PERSISTENCE_TYPE_TEMPORARY),
-        pair->LockedGetGroupInfo(PERSISTENCE_TYPE_DEFAULT),
-        pair->LockedGetGroupInfo(PERSISTENCE_TYPE_PRIVATE));
+    pair->MaybeInsertNonPersistedZeroUsageOriginInfos(inserter,
+                                                      aCutoffAccessTime);
   }
 
   res.AppendElement(std::move(originInfos));
@@ -8054,10 +8008,38 @@ QuotaManager::GetOriginInfosWithZeroUsage() const {
   return res;
 }
 
+// Based on discussions in
+// https://stackoverflow.com/questions/41847525/should-templated-functions-take-lambda-arguments-by-value-or-by-rvalue-reference
+// and
+// https://stackoverflow.com/questions/56988299/should-i-pass-a-lambda-by-const-reference,
+// passing a callable by universal (forwarding) reference is considered a more
+// flexible choice from an interface point of view.
+//
+// In future, we should also ensure this pattern is compatible with clang-tidy
+// checks such as modernize-pass-by-value and consider enabling
+// cppcoreguidelines-missing-std-forward to catch potential oversights.
+template <typename Checker>
 void QuotaManager::ClearOrigins(
-    const OriginInfosNestedTraversable& aDoomedOriginInfos,
+    const OriginInfosNestedTraversable& aDoomedOriginInfos, Checker&& aChecker,
     const Maybe<size_t>& aMaxOriginsToClear) {
   AssertIsOnIOThread();
+
+  if (QuotaManager::IsShuttingDown()) {
+    // Don't block shutdown.
+    return;
+  }
+
+  auto doomedOriginInfos =
+      Flatten<OriginInfosFlatTraversable::value_type>(aDoomedOriginInfos);
+
+  // If there's nothing to do, exit early.
+  if (doomedOriginInfos.begin() == doomedOriginInfos.end()) {
+    return;
+  }
+
+  // It's safer to take ownership of the checker and keep it outside the loop
+  // (the checker can have side effects or use move).
+  std::decay_t<Checker> checker = std::forward<Checker>(aChecker);
 
   // If we are in shutdown, we could break off early from clearing origins.
   // In such cases, we would like to track the ones that were already cleared
@@ -8071,14 +8053,8 @@ void QuotaManager::ClearOrigins(
   nsTArray<OriginMetadata> clearedOrigins;
 
   // XXX Does this need to be done a) in order and/or b) sequentially?
-  for (const auto& doomedOriginInfo :
-       Flatten<OriginInfosFlatTraversable::value_type>(aDoomedOriginInfos)) {
-#ifdef DEBUG
-    {
-      MutexAutoLock lock(mQuotaMutex);
-      MOZ_ASSERT(!doomedOriginInfo->LockedPersisted());
-    }
-#endif
+  for (const auto& doomedOriginInfo : doomedOriginInfos) {
+    std::invoke(checker, doomedOriginInfo);
 
     //  TODO: We are currently only checking for this flag here which
     //  means that we cannot break off once we start cleaning an origin. It
@@ -8117,15 +8093,58 @@ void QuotaManager::ClearOrigins(
 void QuotaManager::CleanupTemporaryStorage() {
   AssertIsOnIOThread();
 
-  // XXX Maybe clear non-persistent zero usage origins here. Ideally the
-  // clearing would be done asynchronously by storage maintenance service once
-  // available.
+  if (StaticPrefs::
+          dom_quotaManager_temporaryStorage_clearNonPersistedZeroUsageOrigins()) {
+    // XXX Ideally the clearing would be done asynchronously by storage
+    // maintenance service once available.
+
+    // We hardcode a 7-day cutoff for "recently used" origins. Even if such
+    // origins have zero usage, skipping them avoids the performance penalty
+    // of repeatedly recreating origin directories and metadata files. The
+    // value is fixed for now to keep things simple, but could be made
+    // configurable in the future if needed.
+    static_assert(aDefaultCutoffAccessTime == kSecPerWeek * PR_USEC_PER_SEC);
+
+    // Calculate cutoff time (one week ago). PR_Now() returns microseconds
+    // since epoch, so this cannot realistically overflow.
+    const int64_t cutoffTime = PR_Now() - aDefaultCutoffAccessTime;
+
+#ifdef DEBUG
+    // Verify that origins being cleared meet our criteria:
+    // non-persisted, zero usage, and outside cutoff window
+    auto checker = [&self = *this, cutoffTime](const auto& doomedOriginInfo) {
+      MutexAutoLock lock(self.mQuotaMutex);
+      MOZ_ASSERT(!doomedOriginInfo->LockedPersisted());
+      MOZ_ASSERT(doomedOriginInfo->LockedUsage() == 0);
+      MOZ_ASSERT(doomedOriginInfo->LockedAccessTime() < cutoffTime);
+    };
+#else
+    auto checker = [](const auto&) {};
+#endif
+
+    const size_t maxOriginsToClear = StaticPrefs::
+        dom_quotaManager_temporaryStorage_maxOriginsToClearDuringCleanup();
+
+    ClearOrigins(GetOriginInfosWithZeroUsage(Some(cutoffTime)),
+                 std::move(checker), Some(maxOriginsToClear));
+  }
 
   // Evicting origins that exceed their group limit also affects the global
   // temporary storage usage, so these steps have to be taken sequentially.
   // Combining them doesn't seem worth the added complexity.
-  ClearOrigins(GetOriginInfosExceedingGroupLimit());
-  ClearOrigins(GetOriginInfosExceedingGlobalLimit());
+
+#ifdef DEBUG
+  auto nonPersistedChecker = [&self = *this](const auto& doomedOriginInfo) {
+    MutexAutoLock lock(self.mQuotaMutex);
+    MOZ_ASSERT(!doomedOriginInfo->LockedPersisted());
+  };
+#else
+  auto nonPersistedChecker = [](const auto&) {};
+#endif
+
+  ClearOrigins(GetOriginInfosExceedingGroupLimit(), nonPersistedChecker);
+  ClearOrigins(GetOriginInfosExceedingGlobalLimit(),
+               std::move(nonPersistedChecker));
 
   if (mTemporaryStorageUsage > mTemporaryStorageLimit) {
     // If disk space is still low after origin clear, notify storage pressure.
@@ -9096,15 +9115,15 @@ nsresult StorageOperationBase::GetDirectoryMetadata2(
 
   QM_TRY_INSPECT(const bool& persisted,
                  MOZ_TO_RESULT_INVOKE_MEMBER(binaryStream, ReadBoolean));
-  Unused << persisted;
+  (void)persisted;
 
   QM_TRY_INSPECT(const bool& reservedData1,
                  MOZ_TO_RESULT_INVOKE_MEMBER(binaryStream, Read32));
-  Unused << reservedData1;
+  (void)reservedData1;
 
   QM_TRY_INSPECT(const bool& reservedData2,
                  MOZ_TO_RESULT_INVOKE_MEMBER(binaryStream, Read32));
-  Unused << reservedData2;
+  (void)reservedData2;
 
   QM_TRY_INSPECT(const auto& suffix, MOZ_TO_RESULT_INVOKE_MEMBER_TYPED(
                                          nsCString, binaryStream, ReadCString));

@@ -960,66 +960,6 @@ newtab:
       - mconley@mozilla.com
     expires: never
 
-  trending_search_impression:
-    type: event
-    description: >
-      records an impression when a trending search widget is visible to the user
-    bugs:
-      - https://bugzil.la/1969595
-    data_reviews:
-      - https://bugzil.la/1969595
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - nbarrett@mozilla.com
-    expires: never
-    extra_keys:
-      variant: &variant
-        description: Variant of widget rendered ("a" || "b")
-        type: string
-      newtab_visit_id: *newtab_visit_id
-    send_in_pings:
-      - newtab
-
-  trending_search_dismiss:
-    type: event
-    description: >
-      recorded when a user either collapses or dismisses the
-      trending search widget
-    bugs:
-      - https://bugzil.la/1969595
-    data_reviews:
-      - https://bugzil.la/1969595
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - nbarrett@mozilla.com
-    expires: never
-    extra_keys:
-      variant: *variant
-      newtab_visit_id: *newtab_visit_id
-    send_in_pings:
-      - newtab
-
-  trending_search_suggestion_open:
-    type: event
-    description: >
-      recorded when a user opens a suggested search link
-    bugs:
-      - https://bugzil.la/1969595
-    data_reviews:
-      - https://bugzil.la/1969595
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - nbarrett@mozilla.com
-    expires: never
-    extra_keys:
-      variant: *variant
-      newtab_visit_id: *newtab_visit_id
-    send_in_pings:
-      - newtab
-
   feature_highlight_dismiss:
     type: event
     description: >
@@ -1257,6 +1197,26 @@ newtab:
       - mconley@mozilla.com
     expires: never
 
+  highlights_enabled:
+    lifetime: application
+    type: boolean
+    description: >
+      Whether "highlights" is enabled on the newtab.
+      AKA the "Recent Activity" section.
+      Corresponds to the value of the
+      `browser.newtabpage.activity-stream.feeds.section.highlights` pref.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1992486
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1992486
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - mconley@Mozilla.com
+    expires: never
+    send_in_pings:
+      - newtab
+
 newtab.search:
   enabled:
     lifetime: application
@@ -1377,6 +1337,7 @@ topsites:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1820707#c3
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821556#c3
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1824842#c7
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1996666#c7
     data_sensitivity:
       - interaction
     notification_emails:
@@ -1408,6 +1369,12 @@ topsites:
       visible_topsites: &visible_topsites
         description: The quantity of visible topsites when event occurred
         type: quantity
+      smart_scores: &smart_scores
+        description: stringified json storing scores for each feature during smart shortcut ranking
+        type: string
+      smart_weights: &smart_weights
+        description: stringified json storing weights for each feature during smart shortcut ranking
+        type: string
     send_in_pings:
       - newtab
 
@@ -1429,6 +1396,7 @@ topsites:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1820707#c3
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821556#c3
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1824842#c7
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1996666#c7
     data_sensitivity:
       - interaction
     notification_emails:
@@ -1446,6 +1414,8 @@ topsites:
       position: *topsite_position
       is_pinned: *is_pinned
       visible_topsites: *visible_topsites
+      smart_scores: *smart_scores
+      smart_weights: *smart_weights
     send_in_pings:
       - newtab
 
@@ -2777,6 +2747,109 @@ newtab_content:
         type: string
     send_in_pings:
       - newtab-content
+    no_lint:
+      - HIGHER_DATA_SENSITIVITY_REQUIRED
+
+  top_sites_click:
+    type: event
+    description: >
+      Recorded when a top sites tile is clicked.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2003048
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2003048
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - nbarrett@mozilla.com
+      - sdowne@mozilla.com
+    expires: never
+    extra_keys:
+      advertiser_name: *advertiser_name
+      tile_id: *tile_id
+      is_sponsored: *is_sponsored
+      position: *topsite_position
+      visible_topsites: *visible_topsites
+      frecency_boosted: &frecency_boosted
+        description: >
+          Whether the top site was frecency boosted
+        type: boolean
+      frecency_boosted_has_exposure: &frecency_boosted_has_exposure
+        description: >
+          Whether the user had the option to see frecency boosted shortcuts
+        type: boolean
+    send_in_pings:
+      - newtab-content
+
+  top_sites_impression:
+    type: event
+    description: >
+      Recorded when a top sites tile is visible to the user.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2003048
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2003048
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - nbarrett@mozilla.com
+      - sdowne@mozilla.com
+    expires: never
+    extra_keys:
+      advertiser_name: *advertiser_name
+      tile_id: *tile_id
+      is_sponsored: *is_sponsored
+      position: *topsite_position
+      visible_topsites: *visible_topsites
+      frecency_boosted: *frecency_boosted
+      frecency_boosted_has_exposure: *frecency_boosted_has_exposure
+    send_in_pings:
+      - newtab-content
+
+  top_sites_dismiss:
+    type: event
+    description: >
+      Recorded when the "Dismiss" menu item in the three-dots menu of a topsite
+      is clicked.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2003048
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2003048
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - nbarrett@mozilla.com
+      - sdowne@mozilla.com
+    expires: never
+    extra_keys:
+      advertiser_name: *advertiser_name
+      tile_id: *tile_id
+      is_sponsored: *is_sponsored
+      position: *topsite_position
+    send_in_pings:
+      - newtab-content
+
+  top_sites_show_privacy_click:
+    type: event
+    description: >
+      Recorded when the "Our sponsors & your privacy" menu item in the three-dots menu of a topsite
+      is clicked.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2003048
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2003048
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - nbarrett@mozilla.com
+      - sdowne@mozilla.com
+    expires: never
+    extra_keys:
+      advertiser_name: *advertiser_name
+      tile_id: *tile_id
+      position: *topsite_position
+    send_in_pings:
+      - newtab-content
 
 top_sites: # Replacement for PingCentre "topsites-impression|click" pings.
   ping_type:
@@ -3291,34 +3364,6 @@ activity_stream:
     expires: never
     extra_keys: *activity_stream_event_extra
     telemetry_mirror: Activity_stream_Event_PocketThumbsUp
-
-  event_fakespot_click:
-    type: event
-    description: >
-      This is recorded with every user interaction on Activity Stream
-      elements.
-      This event was generated to correspond to the Legacy Telemetry event
-      activity_stream.event#FAKESPOT_CLICK.
-    bugs: *activity_stream_event_bugs
-    data_reviews: *activity_stream_event_data_reviews
-    notification_emails: *activity_stream_event_emails
-    expires: never
-    extra_keys: *activity_stream_event_extra
-    telemetry_mirror: Activity_stream_Event_FakespotClick
-
-  event_fakespot_category:
-    type: event
-    description: >
-      This is recorded with every user interaction on Activity Stream
-      elements.
-      This event was generated to correspond to the Legacy Telemetry event
-      activity_stream.event#FAKESPOT_CATEGORY.
-    bugs: *activity_stream_event_bugs
-    data_reviews: *activity_stream_event_data_reviews
-    notification_emails: *activity_stream_event_emails
-    expires: never
-    extra_keys: *activity_stream_event_extra
-    telemetry_mirror: Activity_stream_Event_FakespotCategory
 
   event_pref_changed:
     type: event

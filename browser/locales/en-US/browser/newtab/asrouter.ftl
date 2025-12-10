@@ -79,6 +79,9 @@ fxa-adoption-addresses-backup-title = Let’s back up your saved addresses
 fxa-adoption-addresses-backup-subtitle = Protect your saved addresses by syncing them to your devices with encryption.
 fxa-adoption-credit-cards-backup-title = Let’s back up your payment methods
 fxa-adoption-credit-cards-backup-subtitle = Protect your payment methods by syncing them to your devices with encryption.
+fxa-adoption-bookmarks-treatment-backup-title = Let’s back up your bookmarks
+fxa-adoption-bookmarks-treatment-backup-subtitle = Protect your bookmarks by syncing them to your devices with encryption.
+
 fxa-adoption-primary-button-label = Sign up
 
 ## What's New toolbar button and panel
@@ -406,3 +409,20 @@ etp-strict-exceptions-infobar-button = Apply fixes
   .accesskey = A
 etp-strict-exceptions-infobar-not-now = Not now
   .accesskey = N
+
+## 'Set to default' messaging displayed within the App menu
+
+set-default-menu-message-simple-layout-title = { -brand-short-name } is not your default browser
+set-default-menu-message-simple-layout-title-variant = { -brand-short-name } is not your primary browser
+
+set-default-menu-message-row-layout-title = Make { -brand-short-name } your primary browser
+set-default-menu-message-row-layout-title-variant = Make { -brand-short-name } your default browser
+
+set-default-menu-message-row-layout-subtitle = Get speed, safety and privacy every time you browse.
+set-default-menu-message-row-layout-subtitle-variant = { PLATFORM() ->
+    [macos] Keep { -brand-short-name } at your fingertips — make it your default and keep it in your Dock.
+   *[other] Keep { -brand-short-name } at your fingertips — make it your default and keep it in your taskbar.
+}
+
+set-default-menu-message-primary-button = Set as default
+set-default-menu-message-primary-button-variant = Set as primary browser

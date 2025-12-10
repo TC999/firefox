@@ -16,6 +16,7 @@
 #include "mozilla/Encoding.h"
 #include "mozilla/LoadContext.h"
 #include "mozilla/LoadInfo.h"
+#include "mozilla/MathAlgorithms.h"
 #include "mozilla/Monitor.h"
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/StaticPrefs_network.h"
@@ -108,7 +109,6 @@
 #include "mozilla/net/ExtensionProtocolHandler.h"
 #include "mozilla/net/PageThumbProtocolHandler.h"
 #include "mozilla/net/SFVService.h"
-#include <limits>
 #include "nsICookieService.h"
 #include "nsIXPConnect.h"
 #include "nsParserConstants.h"
@@ -1399,7 +1399,11 @@ Result<nsCOMPtr<nsIInputStream>, nsresult> NS_NewBufferedInputStream(
 
 namespace {
 
-#define BUFFER_SIZE 8192
+// Returns the buffer size from the pref, floored to the nearest power of two.
+static uint32_t GetBufferSize() {
+  uint32_t prefValue = StaticPrefs::network_buffer_default_size();
+  return uint32_t(1) << FloorLog2(prefValue);
+}
 
 class BufferWriter final : public nsIInputStreamCallback {
  public:
@@ -1424,8 +1428,9 @@ class BufferWriter final : public nsIInputStreamCallback {
     // Let's make the inputStream buffered if it's not.
     if (!NS_InputStreamIsBuffered(mInputStream)) {
       nsCOMPtr<nsIInputStream> bufferedStream;
-      nsresult rv = NS_NewBufferedInputStream(
-          getter_AddRefs(bufferedStream), mInputStream.forget(), BUFFER_SIZE);
+      nsresult rv =
+          NS_NewBufferedInputStream(getter_AddRefs(bufferedStream),
+                                    mInputStream.forget(), GetBufferSize());
       NS_ENSURE_SUCCESS(rv, rv);
 
       mInputStream = bufferedStream;
@@ -1518,7 +1523,7 @@ class BufferWriter final : public nsIInputStreamCallback {
       }
 
       uint64_t offset = mWrittenData;
-      uint64_t length = mCount == -1 ? BUFFER_SIZE : mCount;
+      uint64_t length = mCount == -1 ? GetBufferSize() : mCount;
 
       // Let's try to read data directly.
       uint32_t writtenData;
@@ -1604,15 +1609,16 @@ class BufferWriter final : public nsIInputStreamCallback {
 
     MOZ_ASSERT(mCount == -1);
 
-    if (mBufferSize >= mWrittenData + BUFFER_SIZE) {
+    uint32_t bufSize = GetBufferSize();
+    if (mBufferSize >= mWrittenData + bufSize) {
       // The buffer is big enough.
       return true;
     }
 
     CheckedUint32 bufferSize =
-        std::max<uint32_t>(static_cast<uint32_t>(mWrittenData), BUFFER_SIZE);
+        std::max<uint32_t>(static_cast<uint32_t>(mWrittenData), bufSize);
     while (bufferSize.isValid() &&
-           bufferSize.value() < mWrittenData + BUFFER_SIZE) {
+           bufferSize.value() < mWrittenData + bufSize) {
       bufferSize *= 2;
     }
 
@@ -3106,7 +3112,7 @@ nsresult NS_ShouldSecureUpgrade(
   }
   // The loadInfo indicates no HTTPS upgrade.
   bool skipHTTPSUpgrade = false;
-  Unused << aLoadInfo->GetSkipHTTPSUpgrade(&skipHTTPSUpgrade);
+  (void)aLoadInfo->GetSkipHTTPSUpgrade(&skipHTTPSUpgrade);
   if (skipHTTPSUpgrade) {
     aLoadInfo->SetHttpsUpgradeTelemetry(nsILoadInfo::SKIP_HTTPS_UPGRADE);
     aShouldUpgrade = false;
@@ -3369,7 +3375,7 @@ bool NS_ShouldClassifyChannel(nsIChannel* aChannel, ClassifyType aType) {
   }
 
   nsLoadFlags loadFlags;
-  Unused << aChannel->GetLoadFlags(&loadFlags);
+  (void)aChannel->GetLoadFlags(&loadFlags);
   //  If our load flags dictate that we must let this channel through without
   //  URL classification, obey that here without performing more checks.
   if (loadFlags & nsIChannel::LOAD_BYPASS_URL_CLASSIFIER) {
@@ -3424,7 +3430,7 @@ nsresult GetParameterHTTP(const nsACString& aHeaderVal, const char* aParamName,
 bool ChannelIsPost(nsIChannel* aChannel) {
   if (nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(aChannel)) {
     nsAutoCString method;
-    Unused << httpChannel->GetRequestMethod(method);
+    (void)httpChannel->GetRequestMethod(method);
     return method.EqualsLiteral("POST");
   }
   return false;
@@ -3510,7 +3516,7 @@ already_AddRefed<nsIURI> TryChangeProtocol(nsIURI* aURI,
   rv = clone->GetScheme(newScheme);
   if (NS_FAILED(rv) || !net::IsSchemeChangePermitted(aURI, newScheme)) {
     nsAutoCString url;
-    Unused << clone->GetSpec(url);
+    (void)clone->GetSpec(url);
     AutoTArray<nsString, 2> params;
     params.AppendElement(NS_ConvertUTF8toUTF16(url));
     params.AppendElement(NS_ConvertUTF8toUTF16(newScheme));
@@ -4264,7 +4270,7 @@ void CheckForBrokenChromeURL(nsILoadInfo* aLoadInfo, nsIURI* aURI) {
 #ifdef DEBUG
     if (NS_IsMainThread()) {
       nsCOMPtr<nsIXPConnect> xpc = nsIXPConnect::XPConnect();
-      Unused << xpc->DebugDumpJSStack(false, false, false);
+      (void)xpc->DebugDumpJSStack(false, false, false);
     }
 #endif
     MOZ_CRASH_UNSAFE_PRINTF("Missing chrome or resource URLs: %s", spec.get());

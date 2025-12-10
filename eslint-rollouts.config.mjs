@@ -303,7 +303,16 @@ export default [
       "uriloader/**",
       "widget/tests/window_composition_text_querycontent.xhtml",
     ],
-    rules: mozilla.turnOff(mozilla.configs["flat/valid-jsdoc"].rules),
+    ignores: ["devtools/shared/css/parsing-utils.js", "devtools/startup/**"],
+    rules: {
+      "jsdoc/check-access": "off",
+      "jsdoc/check-param-names": "off",
+      "jsdoc/check-property-names": "off",
+      "jsdoc/check-tag-names": "off",
+      "jsdoc/require-param-type": "off",
+      "jsdoc/require-returns-type": "off",
+      "jsdoc/valid-types": "off",
+    },
   },
   {
     name: "rollout-require-jsdoc",
@@ -460,14 +469,27 @@ export default [
       "toolkit/profile/content/profileSelection.js",
       "toolkit/profile/test/xpcshell/head.js",
       "toolkit/profile/test/chrome/test_create_profile.xhtml",
-      "toolkit/themes/shared/design-system/tokens-config.js",
+      "toolkit/themes/shared/design-system/config/tokens-config.js",
       "tools/code-coverage/tests/mochitest/test_coverage_specialpowers.html",
       "tools/profiler/tests/**",
       "uriloader/**",
       "widget/tests/file*.js",
       "widget/tests/window_composition_text_querycontent.xhtml",
     ],
+    ignores: ["devtools/shared/css/parsing-utils.js", "devtools/startup/**"],
     rules: mozilla.turnOff(mozilla.configs["flat/require-jsdoc"].rules),
+  },
+  {
+    // TODO: Bug 1997306. Fix these instances after the jsdoc 60.8.0 upgrade.
+    name: "rollout-jsdoc-valid-types-updates",
+    files: [
+      "browser/components/ipprotection/IPPNetworkErrorObserver.sys.mjs",
+      "browser/components/ipprotection/IPProtectionService.sys.mjs",
+      "browser/components/uitour/UITour-lib.js",
+    ],
+    rules: {
+      "jsdoc/valid-types": "off",
+    },
   },
   {
     name: "rollout-layout",

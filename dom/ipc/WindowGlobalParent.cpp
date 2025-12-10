@@ -22,7 +22,6 @@
 #include "mozilla/ServoStyleSet.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_network.h"
-#include "mozilla/Variant.h"
 #include "mozilla/dom/BrowserBridgeParent.h"
 #include "mozilla/dom/BrowserHost.h"
 #include "mozilla/dom/BrowserParent.h"
@@ -41,6 +40,7 @@
 #include "mozilla/dom/JSWindowActorBinding.h"
 #include "mozilla/dom/JSWindowActorParent.h"
 #include "mozilla/dom/MediaController.h"
+#include "mozilla/dom/Navigation.h"
 #include "mozilla/dom/NavigatorLogin.h"
 #include "mozilla/dom/PBackgroundSessionStorageCache.h"
 #include "mozilla/dom/UseCounterMetrics.h"
@@ -100,6 +100,7 @@ WindowGlobalParent::WindowGlobalParent(
     uint64_t aOuterWindowId, FieldValues&& aInit)
     : WindowContext(aBrowsingContext, aInnerWindowId, aOuterWindowId,
                     std::move(aInit)),
+      mIsUncommittedInitialDocument(false),
       mSandboxFlags(0),
       mDocumentHasLoaded(false),
       mDocumentHasUserInteracted(false),
@@ -127,6 +128,7 @@ already_AddRefed<WindowGlobalParent> WindowGlobalParent::CreateDisconnected(
   wgp->mDocumentPrincipal = aInit.principal();
   wgp->mDocumentURI = aInit.documentURI();
   wgp->mIsInitialDocument = Some(aInit.isInitialDocument());
+  wgp->mIsUncommittedInitialDocument = aInit.isUncommittedInitialDocument();
   wgp->mBlockAllMixedContent = aInit.blockAllMixedContent();
   wgp->mUpgradeInsecureRequests = aInit.upgradeInsecureRequests();
   wgp->mSandboxFlags = aInit.sandboxFlags();
@@ -176,7 +178,7 @@ void WindowGlobalParent::Init() {
   // process in our group in that case.
   IPCInitializer ipcinit = GetIPCInitializer();
   Group()->EachOtherParent(cp, [&](ContentParent* otherContent) {
-    Unused << otherContent->SendCreateWindowContext(ipcinit);
+    (void)otherContent->SendCreateWindowContext(ipcinit);
   });
 
   if (!BrowsingContext()->IsDiscarded()) {
@@ -258,7 +260,7 @@ already_AddRefed<WindowGlobalChild> WindowGlobalParent::GetChildActor() {
   return do_AddRef(static_cast<WindowGlobalChild*>(otherSide));
 }
 
-BrowserParent* WindowGlobalParent::GetBrowserParent() {
+BrowserParent* WindowGlobalParent::GetBrowserParent() const {
   if (IsInProcess() || !CanSend()) {
     return nullptr;
   }
@@ -545,32 +547,25 @@ IPCResult WindowGlobalParent::RecvDestroy() {
   if (CanSend()) {
     RefPtr<BrowserParent> browserParent = GetBrowserParent();
     if (!browserParent || !browserParent->IsDestroyed()) {
-      Unused << Send__delete__(this);
+      (void)Send__delete__(this);
     }
   }
   return IPC_OK();
 }
 
 IPCResult WindowGlobalParent::RecvRawMessage(
-    const JSActorMessageMeta& aMeta, const UniquePtr<ClonedMessageData>& aData,
+    const JSActorMessageMeta& aMeta, JSIPCValue&& aData,
     const UniquePtr<ClonedMessageData>& aStack) {
-  UniquePtr<StructuredCloneData> data;
-  if (aData) {
-    data = MakeUnique<StructuredCloneData>();
-    data->BorrowFromClonedMessageData(*aData);
-  }
   UniquePtr<StructuredCloneData> stack;
   if (aStack) {
     stack = MakeUnique<StructuredCloneData>();
     stack->BorrowFromClonedMessageData(*aStack);
   }
-  MMPrinter::Print("WindowGlobalParent::RecvRawMessage", aMeta.actorName(),
-                   aMeta.messageName(), aData);
-  ReceiveRawMessage(aMeta, std::move(data), std::move(stack));
+  ReceiveRawMessage(aMeta, std::move(aData), std::move(stack));
   return IPC_OK();
 }
 
-const nsACString& WindowGlobalParent::GetRemoteType() {
+const nsACString& WindowGlobalParent::GetRemoteType() const {
   if (RefPtr<BrowserParent> browserParent = GetBrowserParent()) {
     return browserParent->Manager()->GetRemoteType();
   }
@@ -584,9 +579,7 @@ void WindowGlobalParent::NotifyContentBlockingEvent(
     const nsTArray<nsCString>& aTrackingFullHashes,
     const Maybe<ContentBlockingNotifier::StorageAccessPermissionGrantedReason>&
         aReason,
-    const Maybe<ContentBlockingNotifier::CanvasFingerprinter>&
-        aCanvasFingerprinter,
-    const Maybe<bool> aCanvasFingerprinterKnownText) {
+    const Maybe<CanvasFingerprintingEvent>& aCanvasFingerprintingEvent) {
   MOZ_ASSERT(NS_IsMainThread());
   DebugOnly<bool> isCookiesBlocked =
       aEvent == nsIWebProgressListener::STATE_COOKIES_BLOCKED_TRACKER ||
@@ -605,7 +598,7 @@ void WindowGlobalParent::NotifyContentBlockingEvent(
 
   Maybe<uint32_t> event = GetContentBlockingLog()->RecordLogParent(
       aTrackingOrigin, aEvent, aBlocked, aReason, aTrackingFullHashes,
-      aCanvasFingerprinter, aCanvasFingerprinterKnownText);
+      aCanvasFingerprintingEvent);
 
   // Notify the OnContentBlockingEvent if necessary.
   if (event) {
@@ -833,9 +826,17 @@ class CheckPermitUnloadRequest final : public PromiseNativeHandler,
     // If `aInfo` is passed, only dispatch to the content process of the top
     // level window.
     if (aInfo) {
+      MOZ_DIAGNOSTIC_ASSERT(Navigation::IsAPIEnabled());
       ContentParent* cp = mWGP->GetContentParent();
       mPendingRequests++;
-      cp->SendDispatchBeforeUnloadToSubtree(bc, aInfo, resolve, reject);
+      // Here eDontPromptAndUnload means that we ignore beforeunload handlers,
+      // but we still need to handle the traversable navigate handler.
+      if (mAction ==
+          nsIDocumentViewer::PermitUnloadAction::eDontPromptAndUnload) {
+        cp->SendDispatchNavigateToTraversable(bc, aInfo, resolve, reject);
+      } else {
+        cp->SendDispatchBeforeUnloadToSubtree(bc, aInfo, resolve, reject);
+      }
     } else {
       bc->PreOrderWalk([&](dom::BrowsingContext* aBC) {
         if (WindowGlobalParent* wgp =
@@ -864,8 +865,8 @@ class CheckPermitUnloadRequest final : public PromiseNativeHandler,
     }
 
     if (mPendingRequests && aTimeout) {
-      Unused << NS_NewTimerWithCallback(getter_AddRefs(mTimer), this, aTimeout,
-                                        nsITimer::TYPE_ONE_SHOT);
+      (void)NS_NewTimerWithCallback(getter_AddRefs(mTimer), this, aTimeout,
+                                    nsITimer::TYPE_ONE_SHOT);
     }
 
     CheckDoneWaiting();
@@ -1410,7 +1411,7 @@ WindowGlobalParent::RecvUpdateActivePeerConnectionStatus(bool aIsAdded) {
     }
 
     top->mNumOfProcessesWithActivePeerConnections = newValue.value();
-    Unused << top->SetHasActivePeerConnections(newValue.value() > 0);
+    (void)top->SetHasActivePeerConnections(newValue.value() > 0);
   }
 
   return IPC_OK();
@@ -1480,7 +1481,7 @@ mozilla::ipc::IPCResult WindowGlobalParent::RecvReloadWithHttpsOnlyException() {
   // We replace the scheme with http, because the user wants to unbreak the
   // whole page.
   nsCOMPtr<nsIURI> newURI;
-  Unused << NS_MutateURI(innerURI).SetScheme("http"_ns).Finalize(
+  (void)NS_MutateURI(innerURI).SetScheme("http"_ns).Finalize(
       getter_AddRefs(newURI));
 
   OriginAttributes originAttributes =
@@ -1655,12 +1656,8 @@ void WindowGlobalParent::ActorDestroy(ActorDestroyReason aWhy) {
         GetContentBlockingLog()->ReportLog();
 
         if (mDocumentURI && net::SchemeIsHttpOrHttps(mDocumentURI)) {
-          bool incrementedTopLevelContentDocumentsDestroyed =
-              pageUseCounterResult.contains(
-                  PageUseCounterResultBits::DATA_RECEIVED);
           GetContentBlockingLog()->ReportCanvasFingerprintingLog(
-              DocumentPrincipal(),
-              incrementedTopLevelContentDocumentsDestroyed);
+              DocumentPrincipal());
           GetContentBlockingLog()->ReportFontFingerprintingLog(
               DocumentPrincipal());
           GetContentBlockingLog()->ReportEmailTrackingLog(DocumentPrincipal());

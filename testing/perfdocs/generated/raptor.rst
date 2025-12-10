@@ -1075,12 +1075,13 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
    * **expose browser profiler**: true
    * **expose chrome trace**: true
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/benchmarks/jetstream3-desktop.toml#16>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/benchmarks/jetstream3-desktop.toml#17>`__
    * **lower is better**: false
    * **page cycles**: 1
    * **page timeout**: 2000000
    * **repository**: https://github.com/webkit/jetstream
-   * **repository revision**: b03c3933691122168a8fff49cf835200bf76696a
+   * **repository revision**: 0debbb0b94486d4c78162ad5a102279b96dc79d3
+   * **subtest alert threshold**: 5.0
    * **subtest lower is better**: true
    * **subtest unit**: ms
    * **suite name**: JetStream3.0
@@ -1381,13 +1382,14 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
    * **expected**: pass
    * **expose browser profiler**: true
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/benchmarks/jetstream3-mobile.toml#21>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/benchmarks/jetstream3-mobile.toml#22>`__
    * **lower is better**: false
    * **page cycles**: 1
    * **page timeout**: 2000000
    * **preferences**: dom.max_script_run_time=0
    * **repository**: https://github.com/webkit/jetstream
-   * **repository revision**: b03c3933691122168a8fff49cf835200bf76696a
+   * **repository revision**: 0debbb0b94486d4c78162ad5a102279b96dc79d3
+   * **subtest alert threshold**: 5.0
    * **subtest lower is better**: true
    * **subtest unit**: ms
    * **suite name**: JetStream3.0
@@ -3260,7 +3262,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-speedometer-mobile-cstm-car-m-nofis**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -3462,7 +3464,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-custom-car-speedometer**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -3598,7 +3600,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-custom-car-speedometer**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -3661,7 +3663,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-speedometer-mobile-cstm-car-m-nofis**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -3863,7 +3865,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-custom-car-speedometer**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -3999,7 +4001,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-custom-car-speedometer**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -4077,7 +4079,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-speedometer3-mobile-cstm-car-m-nofis**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -4149,7 +4151,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-speedometer3-mobile-cstm-car-m-nofis**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -4190,7 +4192,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-speedometer3-mobile-cstm-car-m-nofis**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -4279,7 +4281,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-custom-car-speedometer3**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -4399,7 +4401,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-custom-car-speedometer3**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -4457,7 +4459,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-custom-car-speedometer3**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -4525,7 +4527,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-speedometer3-mobile-cstm-car-m-nofis**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -4597,7 +4599,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-speedometer3-mobile-cstm-car-m-nofis**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -4638,7 +4640,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-speedometer3-mobile-cstm-car-m-nofis**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -4727,7 +4729,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-custom-car-speedometer3**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -4847,7 +4849,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-custom-car-speedometer3**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -4905,7 +4907,7 @@ Standard benchmarks are third-party tests (i.e. Speedometer) that we have integr
         - ❌
         - ❌
       * - **browsertime-benchmark-custom-car-speedometer3**
-        - ✅
+        - ❌
         - ❌
         - ❌
         - ❌
@@ -17812,6 +17814,258 @@ Browsertime tests that use a custom pageload test script. These use the pageload
         - mozilla-release
         - mozilla-beta
       * - **browsertime-trr-performance-firefox-trr-comcas**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+
+
+
+.. dropdown:: trr-multi
+   :class-container: anchor-id-trr-multi-c
+
+   * Command to Run Locally
+
+   .. code-block::
+
+      ./mach raptor -t trr-multi
+
+   **Owner**: Network Team
+
+   **Description**: Tests multi-domain DNS lookup and pageload performance on a Cloudflare TRR server.
+
+   * **alert threshold**: 2.0
+   * **apps**: firefox,fenix
+   * **browser cycles**: 3
+   * **browsertime args**: --browsertime.test_type=browser_idle --firefox.preference network.trr.mode:3 --firefox.preference network.trr.uri:https://mozilla.cloudflare-dns.com/dns-query
+   * **cold**: true
+   * **custom data**: true
+   * **expected**: pass
+   * **gecko profile interval**: 1
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#114>`__
+   * **lower is better**: true
+   * **page cycles**: 1
+   * **page timeout**: 60000
+   * **test script**: trr_multi_domain_performance.js
+   * **test url**: `<None>`__
+   * **type**: pageload
+   * **unit**: ms
+   * **use live sites**: true
+   * **Test Task**:
+
+   .. list-table:: **test-linux1804-64-nightlyasrelease-qr/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-trr-performance-firefox-trr-multi**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-linux1804-64-qr/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-trr-performance-firefox-trr-multi**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-linux1804-64-shippable-qr/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-trr-performance-firefox-trr-multi**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-macosx1470-64-nightlyasrelease/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-trr-performance-firefox-trr-multi**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-macosx1470-64-shippable/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-trr-performance-firefox-trr-multi**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-macosx1470-64/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-trr-performance-firefox-trr-multi**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-windows11-64-24h2-nightlyasrelease/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-trr-performance-firefox-trr-multi**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-windows11-64-24h2-shippable/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-trr-performance-firefox-trr-multi**
+        - ✅
+        - ❌
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-windows11-64-24h2/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-trr-performance-firefox-trr-multi**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+
+
+
+.. dropdown:: trr-multm
+   :class-container: anchor-id-trr-multm-c
+
+   * Command to Run Locally
+
+   .. code-block::
+
+      ./mach raptor -t trr-multm
+
+   **Owner**: Network Team
+
+   **Description**: Tests multi-domain DNS lookup and pageload performance on a Cloudflare TRR server, mobile.
+
+   * **alert threshold**: 2.0
+   * **apps**: firefox,fenix
+   * **browser cycles**: 3
+   * **browsertime args**: --browsertime.test_type=browser_idle --firefox.preference network.trr.mode:3 --firefox.preference network.trr.uri:https://mozilla.cloudflare-dns.com/dns-query
+   * **cold**: true
+   * **custom data**: true
+   * **expected**: pass
+   * **gecko profile interval**: 1
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#121>`__
+   * **lower is better**: true
+   * **page cycles**: 1
+   * **page timeout**: 60000
+   * **test script**: trr_multi_domain_performance.js
+   * **test url**: `<None>`__
+   * **type**: pageload
+   * **unit**: ms
+   * **use live sites**: true
+   * **Test Task**:
+
+   .. list-table:: **test-android-hw-a55-14-0-aarch64-shippable/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-trr-performance-m-fenix-trr-multm**
+        - ✅
+        - ❌
+        - ❌
+        - ❌
+      * - **browsertime-trr-performance-m-fenix-trr-multm-nofis**
+        - ✅
+        - ❌
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-android-hw-a55-14-0-aarch64/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-trr-performance-m-fenix-trr-multm**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+      * - **browsertime-trr-performance-m-fenix-trr-multm-nofis**
         - ❌
         - ❌
         - ❌

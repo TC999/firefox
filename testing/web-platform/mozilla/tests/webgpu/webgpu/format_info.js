@@ -1,6 +1,6 @@
 /**
 * AUTO-GENERATED - DO NOT EDIT. Source: https://github.com/gpuweb/cts
-**/import { isCompatibilityDevice } from '../common/framework/test_config.js';import { keysOf } from '../common/util/data_tables.js';import { assert, unreachable } from '../common/util/util.js';
+**/import { isCompatibilityDevice } from '../common/framework/test_config.js';import { keysOf } from '../common/util/data_tables.js';import { assert, unreachable, hasFeature } from '../common/util/util.js';
 
 import { align, roundDown } from './util/math.js';
 import { getTextureDimensionFromView } from './util/texture/base.js';
@@ -1829,63 +1829,25 @@ export const kOptionalTextureFormats = kAllTextureFormats.filter(
   (t) => kTextureFormatInfo[t].feature !== undefined
 );
 
-/** Formats added from 'texture-formats-tier1' to be usable with `copyExternalImageToTexture`.
- * DO NOT EXPORT. Use kPossibleValidTextureFormatsForCopyE2T and
- * filter with `isTextureFormatUsableWithCopyExternalImageToTexture`
- * or `GPUTest.skipIfTextureFormatNotUsableWithCopyExternalImageToTexture`
- */
-const kValidTextureFormatsForCopyE2TTier1 = [
-'r16unorm',
-'r16snorm',
-'rg16unorm',
-'rg16snorm',
-'rgba16unorm',
-'rgba16snorm',
-'r8snorm',
-'rg8snorm',
-'rgba8snorm',
-'rg11b10ufloat'];
-
-
-/** Possibly Valid GPUTextureFormats for `copyExternalImageToTexture`, by spec. */
-export const kPossibleValidTextureFormatsForCopyE2T = [
-'r8unorm',
-'r16float',
-'r32float',
-'rg8unorm',
-'rg16float',
-'rg32float',
-'rgba8unorm',
-'rgba8unorm-srgb',
-'bgra8unorm',
-'bgra8unorm-srgb',
-'rgb10a2unorm',
-'rgba16float',
-'rgba32float',
-...kValidTextureFormatsForCopyE2TTier1];
-
+function isSnormTextureFormat(format) {
+  return format.endsWith('snorm');
+}
 
 /**
- * Valid GPUTextureFormats for `copyExternalImageToTexture` for core and compat.
- * DO NOT EXPORT. Use kPossibleValidTextureFormatsForCopyE2T and
- * filter with `isTextureFormatUsableWithCopyExternalImageToTexture`
- * or `GPUTest.skipIfTextureFormatNotUsableWithCopyExternalImageToTexture`
+ * Returns true if a texture can be possibly used with copyExternalImageToTexture.
+ * The texture may require certain features to be enabled.
  */
-const kValidTextureFormatsForCopyE2T = [
-'r8unorm',
-'r16float',
-'r32float',
-'rg8unorm',
-'rg16float',
-'rg32float',
-'rgba8unorm',
-'rgba8unorm-srgb',
-'bgra8unorm',
-'bgra8unorm-srgb',
-'rgb10a2unorm',
-'rgba16float',
-'rgba32float'];
+export function isTextureFormatPossiblyUsableWithCopyExternalImageToTexture(
+format)
+{
+  return (
+    isColorTextureFormat(format) &&
+    !isSintOrUintFormat(format) &&
+    !isCompressedTextureFormat(format) &&
+    !isSnormTextureFormat(format) &&
+    isTextureFormatPossiblyUsableAsColorRenderAttachment(format));
 
+}
 
 /**
  * Returns true if a texture can be used with copyExternalImageToTexture.
@@ -1894,12 +1856,13 @@ export function isTextureFormatUsableWithCopyExternalImageToTexture(
 device,
 format)
 {
-  if (device.features.has('texture-formats-tier1')) {
-    if (kValidTextureFormatsForCopyE2TTier1.includes(format)) {
-      return true;
-    }
-  }
-  return kValidTextureFormatsForCopyE2T.includes(format);
+  return (
+    isColorTextureFormat(format) &&
+    !isSintOrUintFormat(format) &&
+    !isCompressedTextureFormat(format) &&
+    !isSnormTextureFormat(format) &&
+    isTextureFormatColorRenderable(device, format));
+
 }
 
 //
@@ -2105,8 +2068,10 @@ format)
 {
   if (
   dimension === '3d' && (
-  isBCTextureFormat(format) && device.features.has('texture-compression-bc-sliced-3d') ||
-  isASTCTextureFormat(format) && device.features.has('texture-compression-astc-sliced-3d')))
+  isBCTextureFormat(format) &&
+  hasFeature(device.features, 'texture-compression-bc-sliced-3d') ||
+  isASTCTextureFormat(format) &&
+  hasFeature(device.features, 'texture-compression-astc-sliced-3d')))
   {
     return true;
   }
@@ -2373,6 +2338,10 @@ export function isStencilTextureFormat(format) {
   return !!kTextureFormatInfo[format].stencil;
 }
 
+export function isDepthStencilTextureFormat(format) {
+  return isDepthTextureFormat(format) && isStencilTextureFormat(format);
+}
+
 export function isDepthOrStencilTextureFormat(format) {
   return isDepthTextureFormat(format) || isStencilTextureFormat(format);
 }
@@ -2390,10 +2359,10 @@ device,
 format)
 {
   if (format === 'rg11b10ufloat') {
-    return device.features.has('rg11b10ufloat-renderable');
+    return hasFeature(device.features, 'rg11b10ufloat-renderable');
   }
   if (isTextureFormatTier1EnablesRenderAttachmentBlendableMultisample(format)) {
-    return device.features.has('texture-formats-tier1');
+    return hasFeature(device.features, 'texture-formats-tier1');
   }
   return kTextureFormatInfo[format].colorRender || isDepthOrStencilTextureFormat(format);
 }
@@ -2406,10 +2375,10 @@ device,
 format)
 {
   if (format === 'rg11b10ufloat') {
-    return device.features.has('rg11b10ufloat-renderable');
+    return hasFeature(device.features, 'rg11b10ufloat-renderable');
   }
   if (isTextureFormatTier1EnablesRenderAttachmentBlendableMultisample(format)) {
-    return device.features.has('texture-formats-tier1');
+    return hasFeature(device.features, 'texture-formats-tier1');
   }
   return !!kAllTextureFormatInfo[format].colorRender;
 }
@@ -2422,10 +2391,10 @@ export function isTextureFormatBlendable(device, format) {
     return false;
   }
   if (format === 'rg11b10ufloat') {
-    return device.features.has('rg11b10ufloat-renderable');
+    return hasFeature(device.features, 'rg11b10ufloat-renderable');
   }
   if (is32Float(format)) {
-    return device.features.has('float32-blendable');
+    return hasFeature(device.features, 'float32-blendable');
   }
   return !!kAllTextureFormatInfo[format].colorRender?.blend;
 }
@@ -2433,9 +2402,20 @@ export function isTextureFormatBlendable(device, format) {
 /**
  * Returns the texture's type (float, unsigned-float, sint, uint, depth)
  */
-export function getTextureFormatType(format) {
+export function getTextureFormatType(format, aspect = 'all') {
   const info = kTextureFormatInfo[format];
-  const type = info.color?.type ?? info.depth?.type ?? info.stencil?.type;
+  let type;
+  switch (aspect) {
+    case 'all':
+      type = info.color?.type ?? info.depth?.type ?? info.stencil?.type;
+      break;
+    case 'depth-only':
+      type = info.depth?.type;
+      break;
+    case 'stencil-only':
+      type = info.stencil?.type;
+      break;
+  }
   assert(!!type);
   return type;
 }
@@ -2550,12 +2530,12 @@ format)
       return false;
     }
   }
-  if (format === 'bgra8unorm' && device.features.has('bgra8unorm-storage')) {
+  if (format === 'bgra8unorm' && hasFeature(device.features, 'bgra8unorm-storage')) {
     return true;
   }
   if (
   isTextureFormatTier1EnablesStorageReadOnlyWriteOnly(format) &&
-  device.features.has('texture-formats-tier1'))
+  hasFeature(device.features, 'texture-formats-tier1'))
   {
     return true;
   }
@@ -2632,7 +2612,7 @@ device,
 format)
 {
   if (isTextureFormatTier2EnablesStorageReadWrite(format)) {
-    return device.features.has('texture-formats-tier2');
+    return hasFeature(device.features, 'texture-formats-tier2');
   }
   return !!kTextureFormatInfo[format].color?.readWriteStorage;
 }
@@ -2688,10 +2668,10 @@ export function isTextureFormatMultisampled(device, format) {
     }
   }
   if (format === 'rg11b10ufloat') {
-    return device.features.has('rg11b10ufloat-renderable');
+    return hasFeature(device.features, 'rg11b10ufloat-renderable');
   }
   if (isTextureFormatTier1EnablesRenderAttachmentBlendableMultisample(format)) {
-    return device.features.has('texture-formats-tier1');
+    return hasFeature(device.features, 'texture-formats-tier1');
   }
   return kAllTextureFormatInfo[format].multisample;
 }
@@ -2702,10 +2682,10 @@ export function isTextureFormatMultisampled(device, format) {
  */
 export function isTextureFormatResolvable(device, format) {
   if (format === 'rg11b10ufloat') {
-    return device.features.has('rg11b10ufloat-renderable');
+    return hasFeature(device.features, 'rg11b10ufloat-renderable');
   }
   if (isTextureFormatTier1EnablesResolve(format)) {
-    return device.features.has('texture-formats-tier1');
+    return hasFeature(device.features, 'texture-formats-tier1');
   }
   // You can't resolve a non-multisampled format.
   if (!isTextureFormatMultisampled(device, format)) {

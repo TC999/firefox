@@ -321,6 +321,7 @@ FilenameTypeAndDetails nsContentSecurityUtils::FilenameToFilenameType(
   // These are strings because the Telemetry Events API only accepts strings
   static constexpr auto kChromeURI = "chromeuri"_ns;
   static constexpr auto kResourceURI = "resourceuri"_ns;
+  static constexpr auto kMozSrcURI = "mozsrcuri"_ns;
   static constexpr auto kBlobUri = "bloburi"_ns;
   static constexpr auto kDataUri = "dataurl"_ns;
   static constexpr auto kAboutUri = "abouturi"_ns;
@@ -371,6 +372,9 @@ FilenameTypeAndDetails nsContentSecurityUtils::FilenameToFilenameType(
                                     Some(StripQueryRef(fileName)));
     }
     return FilenameTypeAndDetails(kResourceURI, Some(StripQueryRef(fileName)));
+  }
+  if (StringBeginsWith(fileName, "moz-src://"_ns)) {
+    return FilenameTypeAndDetails(kMozSrcURI, Some(StripQueryRef(fileName)));
   }
 
   // blob: and data:
@@ -750,7 +754,11 @@ bool nsContentSecurityUtils::IsEvalAllowed(JSContext* cx,
   MOZ_CRASH_UNSAFE_PRINTF("%s", crashString.get());
 #endif
 
+#if defined(ANDROID) && !defined(NIGHTLY_BUILD)
+  return true;
+#else
   return false;
+#endif
 }
 
 /* static */
@@ -1000,10 +1008,10 @@ nsresult CheckCSPFrameAncestorPolicy(nsIChannel* aChannel,
 
   nsAutoCString tCspHeaderValue, tCspROHeaderValue;
   if (httpChannel) {
-    Unused << httpChannel->GetResponseHeader("content-security-policy"_ns,
-                                             tCspHeaderValue);
+    (void)httpChannel->GetResponseHeader("content-security-policy"_ns,
+                                         tCspHeaderValue);
 
-    Unused << httpChannel->GetResponseHeader(
+    (void)httpChannel->GetResponseHeader(
         "content-security-policy-report-only"_ns, tCspROHeaderValue);
 
     // if there are no CSP values, then there is nothing to do here.
@@ -1317,6 +1325,13 @@ static nsLiteralCString sStyleSrcUnsafeInlineAllowList[] = {
     "chrome://pippki/content/load_device.xhtml"_ns,
     "chrome://pippki/content/setp12password.xhtml"_ns,
 };
+// img-src moz-remote-image:
+static nsLiteralCString sImgSrcMozRemoteImageAllowList[] = {
+    "about:preferences"_ns,
+    "about:settings"_ns,
+    "chrome://browser/content/preferences/dialogs/applicationManager.xhtml"_ns,
+    "chrome://mozapps/content/handling/appChooser.xhtml"_ns,
+};
 // img-src data: blob:
 static nsLiteralCString sImgSrcDataBlobAllowList[] = {
     "about:addons"_ns,
@@ -1330,6 +1345,7 @@ static nsLiteralCString sImgSrcDataBlobAllowList[] = {
     "about:logins"_ns,
     "about:newprofile"_ns,
     "about:newtab"_ns,
+    "about:opentabs"_ns,
     "about:preferences"_ns,
     "about:privatebrowsing"_ns,
     "about:processes"_ns,
@@ -1343,7 +1359,6 @@ static nsLiteralCString sImgSrcDataBlobAllowList[] = {
     "chrome://browser/content/aboutDialog.xhtml"_ns,
     "chrome://browser/content/aboutlogins/aboutLogins.html"_ns,
     "chrome://browser/content/genai/chat.html"_ns,
-    "chrome://browser/content/pageinfo/pageInfo.xhtml"_ns,
     "chrome://browser/content/places/bookmarksSidebar.xhtml"_ns,
     "chrome://browser/content/places/places.xhtml"_ns,
     "chrome://browser/content/preferences/dialogs/permissions.xhtml"_ns,
@@ -1379,9 +1394,7 @@ static nsLiteralCString sImgSrcHttpsAllowList[] = {
     "chrome://devtools/content/application/index.html"_ns,
     "chrome://devtools/content/framework/browser-toolbox/window.html"_ns,
     "chrome://devtools/content/framework/toolbox-window.xhtml"_ns,
-    "chrome://browser/content/preferences/dialogs/applicationManager.xhtml"_ns,
     "chrome://global/content/alerts/alert.xhtml"_ns,
-    "chrome://mozapps/content/handling/appChooser.xhtml"_ns,
 };
 // img-src http:
 //  UNSAFE! Do not use.
@@ -1390,9 +1403,7 @@ static nsLiteralCString sImgSrcHttpAllowList[] = {
     "chrome://devtools/content/application/index.html"_ns,
     "chrome://devtools/content/framework/browser-toolbox/window.html"_ns,
     "chrome://devtools/content/framework/toolbox-window.xhtml"_ns,
-    "chrome://browser/content/preferences/dialogs/applicationManager.xhtml"_ns,
     "chrome://global/content/alerts/alert.xhtml"_ns,
-    "chrome://mozapps/content/handling/appChooser.xhtml"_ns,
     // STOP! Do not add anything to this list.
 };
 // img-src jar: file:
@@ -1404,8 +1415,7 @@ static nsLiteralCString sImgSrcAddonsAllowList[] = {
 // img-src *
 //  UNSAFE! Allows loading everything.
 static nsLiteralCString sImgSrcWildcardAllowList[] = {
-    "about:reader"_ns, "chrome://browser/content/pageinfo/pageInfo.xhtml"_ns,
-    "chrome://browser/content/syncedtabs/sidebar.xhtml"_ns,
+    "about:reader"_ns, "chrome://browser/content/syncedtabs/sidebar.xhtml"_ns,
     // STOP! Do not add anything to this list.
 };
 // img-src https://example.org
@@ -1415,14 +1425,10 @@ static nsLiteralCString sImgSrcHttpsHostAllowList[] = {
     "chrome://browser/content/aboutlogins/aboutLogins.html"_ns,
     "chrome://browser/content/spotlight.html"_ns,
 };
-// media-src data: blob:
-static nsLiteralCString sMediaSrcDataBlobAllowList[] = {
-    "chrome://browser/content/pageinfo/pageInfo.xhtml"_ns,
-};
 // media-src *
 //  UNSAFE! Allows loading everything.
 static nsLiteralCString sMediaSrcWildcardAllowList[] = {
-    "about:reader"_ns, "chrome://browser/content/pageinfo/pageInfo.xhtml"_ns,
+    "about:reader"_ns,
     // STOP! Do not add anything to this list.
 };
 // media-src https://example.org
@@ -1602,6 +1608,14 @@ class ImgSrcVisitor : public AllowBuiltinSrcVisitor {
       return true;
     }
 
+    // moz-remote-image: safely re-encodes the image, but can still be used for
+    // arbitrary network requests.
+    if (scheme == u"moz-remote-image"_ns) {
+      if (CheckAllowList(sImgSrcMozRemoteImageAllowList)) {
+        return true;
+      }
+    }
+
     // data: and blob: can be used to decode arbitrary images.
     if (scheme == u"data"_ns || scheme == u"blob") {
       if (CheckAllowList(sImgSrcDataBlobAllowList)) {
@@ -1641,20 +1655,6 @@ class MediaSrcVisitor : public AllowBuiltinSrcVisitor {
   MediaSrcVisitor(CSPDirective aDirective, nsACString& aURL)
       : AllowBuiltinSrcVisitor(aDirective, aURL) {
     MOZ_ASSERT(aDirective == CSPDirective::MEDIA_SRC_DIRECTIVE);
-  }
-
-  bool visitSchemeSrc(const nsCSPSchemeSrc& src) override {
-    nsAutoString scheme;
-    src.getScheme(scheme);
-
-    // data: and blob: can be used to decode arbitrary media.
-    if (scheme == u"data"_ns || scheme == u"blob") {
-      if (CheckAllowList(sMediaSrcDataBlobAllowList)) {
-        return true;
-      }
-    }
-
-    return AllowBuiltinSrcVisitor::visitSchemeSrc(src);
   }
 
   bool visitHostSrc(const nsCSPHostSrc& src) override {
