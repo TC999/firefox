@@ -15,13 +15,22 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.annotation.UiThread
 import androidx.annotation.VisibleForTesting
 import androidx.biometric.BiometricManager
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalDensity
 import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.activityViewModels
 import androidx.fragment.app.setFragmentResultListener
@@ -32,19 +41,15 @@ import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import mozilla.appservices.places.BookmarkRoot
-import mozilla.components.browser.state.selector.normalTabs
 import mozilla.components.browser.state.selector.privateTabs
-import mozilla.components.browser.state.selector.selectedTab
-import mozilla.components.browser.state.state.TabSessionState
+import mozilla.components.compose.base.modifier.thenConditional
 import mozilla.components.compose.base.snackbar.displaySnackbar
 import mozilla.components.concept.base.crash.Breadcrumb
 import mozilla.components.feature.accounts.push.CloseTabsUseCases
 import mozilla.components.feature.downloads.ui.DownloadCancelDialogFragment
-import mozilla.components.feature.tabs.tabstray.TabsFeature
-import mozilla.components.lib.state.ext.observeAsState
 import mozilla.components.lib.state.helpers.StoreProvider.Companion.storeProvider
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
 import mozilla.components.support.ktx.android.view.setSystemBarsBackground
@@ -54,10 +59,7 @@ import org.mozilla.fenix.GleanMetrics.PrivateBrowsingLocked
 import org.mozilla.fenix.GleanMetrics.TabsTray
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
-import org.mozilla.fenix.ext.actualInactiveTabs
 import org.mozilla.fenix.ext.components
-import org.mozilla.fenix.ext.getBottomToolbarHeight
-import org.mozilla.fenix.ext.getTopToolbarHeight
 import org.mozilla.fenix.ext.hideToolbar
 import org.mozilla.fenix.ext.pixelSizeFor
 import org.mozilla.fenix.ext.registerForActivityResult
@@ -74,26 +76,29 @@ import org.mozilla.fenix.settings.biometric.ext.isAuthenticatorAvailable
 import org.mozilla.fenix.settings.biometric.ext.isHardwareAvailable
 import org.mozilla.fenix.share.ShareFragment
 import org.mozilla.fenix.tabstray.InactiveTabsBinding
-import org.mozilla.fenix.tabstray.Page
-import org.mozilla.fenix.tabstray.TabsTrayAccessPoint
-import org.mozilla.fenix.tabstray.TabsTrayAction
-import org.mozilla.fenix.tabstray.TabsTrayState
-import org.mozilla.fenix.tabstray.TabsTrayStore
 import org.mozilla.fenix.tabstray.TabsTrayTelemetryMiddleware
 import org.mozilla.fenix.tabstray.binding.SecureTabManagerBinding
-import org.mozilla.fenix.tabstray.browser.TabSorter
 import org.mozilla.fenix.tabstray.controller.DefaultTabManagerController
 import org.mozilla.fenix.tabstray.controller.DefaultTabManagerInteractor
 import org.mozilla.fenix.tabstray.controller.TabManagerController
 import org.mozilla.fenix.tabstray.controller.TabManagerInteractor
+import org.mozilla.fenix.tabstray.data.TabData
+import org.mozilla.fenix.tabstray.data.TabsTrayItem
 import org.mozilla.fenix.tabstray.navigation.TabManagerNavDestination
+import org.mozilla.fenix.tabstray.redux.action.TabsTrayAction
+import org.mozilla.fenix.tabstray.redux.middleware.TabSearchMiddleware
+import org.mozilla.fenix.tabstray.redux.middleware.TabSearchNavigationMiddleware
+import org.mozilla.fenix.tabstray.redux.middleware.TabStorageMiddleware
+import org.mozilla.fenix.tabstray.redux.state.Page
+import org.mozilla.fenix.tabstray.redux.state.TabsTrayState
+import org.mozilla.fenix.tabstray.redux.store.TabsTrayStore
 import org.mozilla.fenix.tabstray.syncedtabs.SyncedTabsIntegration
 import org.mozilla.fenix.tabstray.ui.animation.defaultPredictivePopTransitionSpec
 import org.mozilla.fenix.tabstray.ui.animation.defaultTransitionSpec
 import org.mozilla.fenix.tabstray.ui.animation.popTransitionSpec
 import org.mozilla.fenix.tabstray.ui.tabsearch.TabSearchScreen
 import org.mozilla.fenix.tabstray.ui.tabstray.TabsTray
-import org.mozilla.fenix.tabstray.ui.theme.getTabManagerTheme
+import org.mozilla.fenix.tabstray.ui.theme.TabManagerThemeProvider
 import org.mozilla.fenix.theme.FirefoxTheme
 import org.mozilla.fenix.theme.ThemeManager
 import org.mozilla.fenix.utils.Settings
@@ -118,11 +123,11 @@ class TabManagementFragment : DialogFragment() {
 
     private val inactiveTabsBinding = ViewBoundFeatureWrapper<InactiveTabsBinding>()
     private val secureTabManagerBinding = ViewBoundFeatureWrapper<SecureTabManagerBinding>()
-    private val tabsFeature = ViewBoundFeatureWrapper<TabsFeature>()
     private val syncedTabsIntegration = ViewBoundFeatureWrapper<SyncedTabsIntegration>()
     private lateinit var snackbarHostState: SnackbarHostState
 
-    @Suppress("LongMethod")
+    private val animationDurationMs = 200
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         recordBreadcrumb("TabManagementFragment onCreate")
@@ -146,12 +151,12 @@ class TabManagementFragment : DialogFragment() {
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?,
-    ): View? {
+    ): View {
         // Remove the window dimming so the Toolbar UI from Home/Browser is still visible during the transition
         dialog?.window?.setDimAmount(0f)
 
         val args by navArgs<TabManagementFragmentArgs>()
-        args.accessPoint.takeIf { it != TabsTrayAccessPoint.None }?.let {
+        args.accessPoint.takeIf { it != AccessPoint.None }?.let {
             TabsTray.accessPoint[it.name.lowercase()].add()
         }
         val initialMode = if (args.enterMultiselect) {
@@ -160,36 +165,40 @@ class TabManagementFragment : DialogFragment() {
             TabsTrayState.Mode.Normal
         }
         val initialPage = args.page
-        val activity = activity as HomeActivity
         val initialInactiveExpanded = requireComponents.appStore.state.inactiveTabsExpanded
-        val inactiveTabs = requireComponents.core.store.state.actualInactiveTabs(requireContext().settings())
-        val normalTabs = requireComponents.core.store.state.normalTabs - inactiveTabs.toSet()
 
         tabsTrayStore = storeProvider.get { restoredState ->
             TabsTrayStore(
                 initialState = restoredState ?: TabsTrayState(
                     selectedPage = initialPage,
                     mode = initialMode,
-                    inactiveTabs = inactiveTabs,
                     inactiveTabsExpanded = initialInactiveExpanded,
-                    normalTabs = normalTabs,
-                    privateTabs = requireComponents.core.store.state.privateTabs,
-                    selectedTabId = requireComponents.core.store.state.selectedTabId,
+                    tabSearchEnabled = requireComponents.settings.tabSearchEnabled,
+                    tabGroupsEnabled = requireContext().settings().tabGroupsEnabled,
                 ),
                 middlewares = listOf(
                     TabsTrayTelemetryMiddleware(requireComponents.nimbus.events),
+                    TabSearchMiddleware(),
+                    TabSearchNavigationMiddleware(onSearchResultClicked = ::performTabClick),
+                    TabStorageMiddleware(
+                        inactiveTabsEnabled = requireComponents.settings.inactiveTabsAreEnabled,
+                        tabGroupsEnabled = requireComponents.settings.tabGroupsEnabled,
+                        tabDataFlow = requireComponents.core.store.stateFlow.map { TabData(browserState = it) },
+                        tabGroupRepository = requireComponents.core.tabGroupRepository,
+                        mainScope = lifecycleScope,
+                    ),
                 ),
             )
         }
 
         tabManagerController = DefaultTabManagerController(
             accountManager = requireComponents.backgroundServices.accountManager,
-            activity = activity,
+            context = requireContext(),
             appStore = requireComponents.appStore,
             tabsTrayStore = tabsTrayStore,
             browserStore = requireComponents.core.store,
             settings = requireContext().settings(),
-            browsingModeManager = activity.browsingModeManager,
+            browsingModeManager = (activity as HomeActivity).browsingModeManager,
             navController = findNavController(),
             navigateToHomeAndDeleteSession = ::navigateToHomeAndDeleteSession,
             profiler = requireComponents.core.engine.profiler,
@@ -197,7 +206,6 @@ class TabManagementFragment : DialogFragment() {
             fenixBrowserUseCases = requireComponents.useCases.fenixBrowserUseCases,
             closeSyncedTabsUseCases = requireComponents.useCases.closeSyncedTabsUseCases,
             bookmarksStorage = requireComponents.core.bookmarksStorage,
-            ioDispatcher = Dispatchers.IO,
             collectionStorage = requireComponents.core.tabCollectionStorage,
             showUndoSnackbarForTab = ::showUndoSnackbarForTab,
             showUndoSnackbarForInactiveTab = ::showUndoSnackbarForInactiveTab,
@@ -212,23 +220,10 @@ class TabManagementFragment : DialogFragment() {
         )
 
         return content {
-            val state by tabsTrayStore.observeAsState(tabsTrayStore.state) { it }
-            val isPbmLocked by requireComponents.appStore
-                .observeAsState(initialValue = requireComponents.appStore.state.isPrivateScreenLocked) {
-                    it.isPrivateScreenLocked
-                }
-            val density = LocalDensity.current
-            val tabManagerAnimationHelper = remember {
-                DefaultTabManagerAnimationHelper(
-                    selectedTab = requireComponents.core.store.state.selectedTab,
-                    animationsEnabled = requireContext().settings().tabManagerOpeningAnimationEnabled,
-                    initialPage = tabsTrayStore.state.selectedPage,
-                    previousDestinationId = findNavController().previousBackStackEntry?.destination?.id,
-                    homepageAsANewTabEnabled = requireContext().settings().enableHomepageAsNewTab,
-                    topToolbarHeight = with(density) { getTopToolbarHeight().toDp() },
-                    bottomToolbarHeight = with(density) { getBottomToolbarHeight().toDp() },
-                )
-            }
+            val state by tabsTrayStore.stateFlow.collectAsState()
+            val isPbmLocked by remember {
+                requireComponents.appStore.stateFlow.map { it.isPrivateScreenLocked }
+            }.collectAsState(initial = requireComponents.appStore.state.isPrivateScreenLocked)
 
             snackbarHostState = remember { SnackbarHostState() }
 
@@ -237,20 +232,21 @@ class TabManagementFragment : DialogFragment() {
                     tabsTrayStore.state.mode is TabsTrayState.Mode.Select -> {
                         tabsTrayStore.dispatch(TabsTrayAction.ExitSelectMode)
                     }
-                    tabManagerAnimationHelper.shouldAnimateOnTabManagerOpen -> {
-                        // Perform the transition to return to the selected tab when the back button is pressed
-                        // and the Tab Manager animated on entry.
-                        tabManagerAnimationHelper.leaveTabManager()
-                    }
                     else -> {
                         onTabsTrayDismissed()
                     }
                 }
             }
 
-            FirefoxTheme(theme = getTabManagerTheme(page = state.selectedPage)) {
+            FirefoxTheme(theme = TabManagerThemeProvider(selectedPage = state.selectedPage).provideTheme()) {
                 val navBarColor = MaterialTheme.colorScheme.surfaceContainerHigh.toArgb()
                 val statusBarColor = MaterialTheme.colorScheme.surface.toArgb()
+                val transitionColor = MaterialTheme.colorScheme.surfaceContainer
+
+                val tabTrayVisibilityState = remember {
+                    MutableTransitionState(false).apply { targetState = true }
+                }
+                val tabSelectedState = remember { mutableStateOf<TabsTrayItem.Tab?>(null) }
 
                 LaunchedEffect(state.selectedPage) {
                     dialog?.window?.setSystemBarsBackground(
@@ -259,18 +255,33 @@ class TabManagementFragment : DialogFragment() {
                     )
                 }
 
-                TabManagerTransitionLayout(
-                    tabManagerAnimationHelper = tabManagerAnimationHelper,
-                    onExitTransitionCompleted = onExitTransitionCompleted@{
-                        // The transition has finished so we initiate the tab selection logic.
-                        // Safe check to confirm the state is [ThumbnailToTabManager] and the Tab Manager
-                        // wasn't left to open a new tab or navigate to a screen other than browser/home.
-                        val safeState =
-                            tabManagerAnimationHelper.state as? TabManagerAnimationState.TabManagerToThumbnail
-                        safeState ?: return@onExitTransitionCompleted
+                val shouldPerformTransitionAnimation = remember {
+                    derivedStateOf {
+                        shouldPerformTransitionAnimation(
+                            state.selectedPage,
+                            state.mode,
+                            tabSelectedState.value,
+                        )
+                    }
+                }
 
-                        onTabClick(tab = safeState.tab)
-                    },
+                // When the TabTray is hidden by an action, if a new tab is being selected, navigate to it.
+                LaunchedEffect(tabTrayVisibilityState.currentState) {
+                    tabSelectedState.value?.let {
+                        if (!tabTrayVisibilityState.currentState) {
+                            performTabClick(tab = it)
+                        }
+                    }
+                }
+
+                AnimatedVisibility(
+                    enter = fadeIn(animationSpec = tween(durationMillis = animationDurationMs)),
+                    exit = fadeOut(animationSpec = tween(durationMillis = animationDurationMs)),
+                    visibleState = tabTrayVisibilityState,
+                    modifier = Modifier.thenConditional(
+                        Modifier.drawBehind(onDraw = { drawRect(color = transitionColor) }),
+                        { !tabTrayVisibilityState.targetState },
+                    ),
                 ) {
                     NavDisplay(
                         backStack = state.backStack,
@@ -287,10 +298,12 @@ class TabManagementFragment : DialogFragment() {
                                             requireComponents.settings.showSecretDebugMenuThisSession,
                                     shouldShowTabAutoCloseBanner =
                                         requireContext().settings().shouldShowAutoCloseTabsBanner &&
-                                            requireContext().settings().canShowCfr,
+                                                requireContext().settings().canShowCfr,
                                     shouldShowLockPbmBanner = shouldShowLockPbmBanner(
-                                        isPrivateMode = (activity as HomeActivity).browsingModeManager.mode.isPrivate,
-                                        hasPrivateTabs = requireComponents.core.store.state.privateTabs.isNotEmpty(),
+                                        isPrivateMode =
+                                            requireComponents.appStore.state.mode.isPrivate,
+                                        hasPrivateTabs =
+                                            requireComponents.core.store.state.privateTabs.isNotEmpty(),
                                         biometricAvailable = BiometricManager.from(requireContext())
                                             .isHardwareAvailable(),
                                         privateLockEnabled = requireContext().settings().privateBrowsingModeLocked,
@@ -310,18 +323,23 @@ class TabManagementFragment : DialogFragment() {
                                     onTabClose = { tab ->
                                         tabManagerInteractor.onTabClosed(tab, TAB_MANAGER_FEATURE_NAME)
                                     },
-                                    onTabClick = { tab ->
-                                        if (tabManagerAnimationHelper.animationsEnabled &&
-                                            tabsTrayStore.state.mode is TabsTrayState.Mode.Normal
-                                        ) {
-                                            tabManagerAnimationHelper.transitionToThumbnail(tab = tab)
-                                        } else {
-                                            onTabClick(tab = tab)
+                                    onItemClick = { tab ->
+                                        // Either start the transition animation and delay the click handling
+                                        // until it is complete, or directly proceed.
+                                        if (tab is TabsTrayItem.Tab) {
+                                            tabSelectedState.value = tab
+                                            if (shouldPerformTransitionAnimation.value) {
+                                                tabTrayVisibilityState.targetState = false
+                                            } else {
+                                                performTabClick(tab = tab)
+                                            }
                                         }
                                     },
-                                    onTabLongClick = tabManagerInteractor::onTabLongClicked,
-                                    onInactiveTabsHeaderClick = tabManagerInteractor::onInactiveTabsHeaderClicked,
-                                    onDeleteAllInactiveTabsClick = tabManagerInteractor::onDeleteAllInactiveTabsClicked,
+                                    onItemLongClick = tabManagerInteractor::onTabLongClicked,
+                                    onInactiveTabsHeaderClick =
+                                        tabManagerInteractor::onInactiveTabsHeaderClicked,
+                                    onDeleteAllInactiveTabsClick =
+                                        tabManagerInteractor::onDeleteAllInactiveTabsClicked,
                                     onInactiveTabsAutoCloseDialogShown = {
                                         tabsTrayStore.dispatch(TabsTrayAction.TabAutoCloseDialogShown)
                                     },
@@ -420,11 +438,14 @@ class TabManagementFragment : DialogFragment() {
         }
     }
 
-    private fun onTabClick(tab: TabSessionState) {
-        if (!requireContext().settings().hasShownTabSwipeCFR &&
-            !requireContext().settings().isTabStripEnabled &&
-            requireContext().settings().isSwipeToolbarToSwitchTabsEnabled
-        ) {
+    /**
+     * @param tab: TabsTrayItem
+     *
+     * This method performs the tab click handling.  Separate from
+     * onTabClick() in that an animation may play prior to handling the user action.
+     */
+    private fun performTabClick(tab: TabsTrayItem) {
+        if (tab is TabsTrayItem.Tab && shouldConsiderShowingTabSwipeCFR()) {
             val normalTabs = tabsTrayStore.state.normalTabs
             val currentTabId = tabsTrayStore.state.selectedTabId
 
@@ -444,6 +465,11 @@ class TabManagementFragment : DialogFragment() {
             source = TAB_MANAGER_FEATURE_NAME,
         )
     }
+
+    private fun shouldConsiderShowingTabSwipeCFR(settings: Settings = requireContext().settings()) =
+        with(settings) {
+            !hasShownTabSwipeCFR && !isTabStripEnabled && isSwipeToolbarToSwitchTabsEnabled
+        }
 
     override fun onPause() {
         super.onPause()
@@ -479,23 +505,11 @@ class TabManagementFragment : DialogFragment() {
             view = view,
         )
 
-        tabsFeature.set(
-            feature = TabsFeature(
-                tabsTray = TabSorter(
-                    requireContext().settings(),
-                    tabsTrayStore,
-                ),
-                store = requireContext().components.core.store,
-            ),
-            owner = this,
-            view = view,
-        )
-
         secureTabManagerBinding.set(
             feature = SecureTabManagerBinding(
                 store = tabsTrayStore,
                 settings = requireComponents.settings,
-                fragment = this,
+                window = this.dialog?.window,
             ),
             owner = this,
             view = view,
@@ -628,8 +642,10 @@ class TabManagementFragment : DialogFragment() {
     }
 
     @VisibleForTesting
-    internal fun getTabPositionFromId(tabsList: List<TabSessionState>, tabId: String): Int {
-        tabsList.forEachIndexed { index, tab -> if (tab.id == tabId) return index }
+    internal fun getTabPositionFromId(tabsList: List<TabsTrayItem>, tabId: String): Int {
+        tabsList.forEachIndexed { index, tab ->
+            if (tab is TabsTrayItem.Tab && tab.id == tabId) return index
+        }
         return -1
     }
 
@@ -764,6 +780,36 @@ class TabManagementFragment : DialogFragment() {
 
     private fun openPrivateTabsPage() {
         tabManagerInteractor.onTabPageClicked(Page.PrivateTabs)
+    }
+
+    /**
+     * @param selectedPage: The currently selected [TabsTray] [Page]
+     * @param mode: The current [TabsTrayState] operating mode
+     * @param tabState: The selected [TabsTrayItem.Tab]
+     * The TabsTray transition animation should be performed if enabled in settings,
+     * if the selected tab is on the current active tab page,
+     * and the current TabsTray mode is the default (normal) mode (e.g., not a special select mode).
+     */
+    internal fun shouldPerformTransitionAnimation(
+        selectedPage: Page,
+        mode: TabsTrayState.Mode,
+        tabState: TabsTrayItem.Tab?,
+    ): Boolean {
+        return requireContext().settings().tabManagerOpeningAnimationEnabled &&
+                tabMatchesPage(selectedPage, tabState) &&
+                mode is TabsTrayState.Mode.Normal
+    }
+
+    /**
+     * @param selectedPage: The selected [TabsTray] [Page]
+     * @param tabState: The selected [TabsTrayItem.Tab]
+     *
+     * Returns true if the selected page is private and the tab is private, or
+     * the selected page is normal and the tab is normal.  Returns false otherwise.
+     */
+    private fun tabMatchesPage(selectedPage: Page, tabState: TabsTrayItem.Tab?): Boolean {
+        return (selectedPage == Page.NormalTabs && tabState?.private == false) ||
+                (selectedPage == Page.PrivateTabs && tabState?.private == true)
     }
 
     /**

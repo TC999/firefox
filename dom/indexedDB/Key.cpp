@@ -202,18 +202,21 @@ Result<Ok, nsresult> Key::SetFromString(const nsAString& aString) {
 uint32_t Key::LengthOfEncodedBinary(const EncodedDataType* aPos,
                                     const EncodedDataType* aEnd) {
   MOZ_ASSERT(*aPos % Key::eMaxType == Key::eBinary, "Don't call me!");
+  MOZ_DIAGNOSTIC_ASSERT(aPos < aEnd);
 
-  const auto* iter = aPos + 1;
-  for (; iter < aEnd && *iter != eTerminator; ++iter) {
-    if (*iter & 0x80) {
-      ++iter;
-      // XXX if iter == aEnd now, we got a bad enconding, should we report that
-      // also in non-debug builds?
-      MOZ_ASSERT(iter < aEnd);
-    }
-  }
+  const EncodedDataType* const begin = aPos + 1;
+  const EncodedDataType* encodedSectionEnd = nullptr;
 
-  return iter - aPos - 1;
+  // Stops at aEnd if the terminator is trimmed and correctly reports end
+  (void)CalcDecodedStringySize<uint8_t>(begin, aEnd, &encodedSectionEnd);
+
+  MOZ_DIAGNOSTIC_ASSERT(encodedSectionEnd && encodedSectionEnd >= begin &&
+                        encodedSectionEnd <= aEnd);
+  MOZ_DIAGNOSTIC_ASSERT(
+      encodedSectionEnd == aEnd ||
+      (encodedSectionEnd < aEnd && *encodedSectionEnd == eTerminator));
+
+  return AssertedCast<uint32_t>(encodedSectionEnd - begin);
 }
 
 Result<Key, nsresult> Key::ToLocaleAwareKey(const nsCString& aLocale) const {
@@ -585,19 +588,34 @@ void Key::ReserveAutoIncrementKey(bool aFirstOfArray) {
   mozilla::BigEndian::writeUint64(buffer, UINT64_MAX);
 }
 
-void Key::MaybeUpdateAutoIncrementKey(int64_t aKey) {
+Result<Ok, nsresult> Key::MaybeUpdateAutoIncrementKey(int64_t aKey) {
   if (mAutoIncrementKeyOffsets.IsEmpty()) {
-    return;
+    return Ok{};
   }
 
+  static constexpr auto maxOffset =
+      KEY_MAXIMUM_BUFFER_LENGTH - sizeof(double) - 1;
+
   for (uint32_t offset : mAutoIncrementKeyOffsets) {
+    if (offset > maxOffset) {
+      return Err(NS_ERROR_DOM_INDEXEDDB_KEY_ERR);
+    }
+
     char* buffer;
-    MOZ_ALWAYS_TRUE(mBuffer.GetMutableData(&buffer));
+    const auto capacity = mBuffer.GetMutableData(&buffer);
+    MOZ_ALWAYS_TRUE(capacity);
+
+    if (offset + sizeof(double) > capacity) {
+      return Err(NS_ERROR_DOM_INDEXEDDB_KEY_ERR);
+    }
+
     buffer += offset;
     WriteDoubleToUint64(buffer, double(aKey));
   }
 
   TrimBuffer();
+
+  return Ok{};
 }
 
 void Key::WriteDoubleToUint64(char* aBuffer, double aValue) {
@@ -706,29 +724,7 @@ Result<Ok, nsresult> Key::EncodeAsString(const Span<const T> aInput,
 Result<Ok, nsresult> Key::EncodeLocaleString(const nsAString& aString,
                                              uint8_t aTypeOffset,
                                              const nsCString& aLocale) {
-  const int length = aString.Length();
-  if (length == 0) {
-    return Ok();
-  }
-
-  auto collResult = intl::Collator::TryCreate(aLocale.get());
-  if (collResult.isErr()) {
-    return Err(NS_ERROR_FAILURE);
-  }
-  auto collator = collResult.unwrap();
-  MOZ_ASSERT(collator);
-
-  AutoTArray<uint8_t, 128> keyBuffer;
-  MOZ_TRY(collator->GetSortKey(Span{aString}, keyBuffer)
-              .mapErr([](intl::ICUError icuError) {
-                return icuError == intl::ICUError::OutOfMemory
-                           ? NS_ERROR_OUT_OF_MEMORY
-                           : NS_ERROR_FAILURE;
-              }));
-
-  size_t sortKeyLength = keyBuffer.Length();
-  return EncodeString(Span{keyBuffer}.AsConst().First(sortKeyLength),
-                      aTypeOffset);
+  return Err(NS_ERROR_FAILURE);
 }
 
 // static

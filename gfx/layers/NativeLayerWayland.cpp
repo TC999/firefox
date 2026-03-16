@@ -40,6 +40,7 @@
 #include "mozilla/webrender/RenderDMABUFTextureHost.h"
 #include "mozilla/widget/WaylandSurface.h"
 #include "mozilla/StaticPrefs_widget.h"
+#include "ScopedGLHelpers.h"
 
 #ifdef MOZ_LOGGING
 #  undef LOG
@@ -90,6 +91,9 @@ nsAutoCString NativeLayerWayland::GetDebugTag() const {
   tag.AppendPrintf("W[%p]R[%p]L[%p]", mRootLayer->GetLoggingWidget(),
                    mRootLayer.get(), this);
   return tag;
+}
+nsAutoCString NativeLayerRootSnapshotterWayland::GetDebugTag() const {
+  return mRootLayer->GetDebugTag();
 }
 #endif
 
@@ -261,6 +265,49 @@ NativeLayerRootWayland::CreateLayerForExternalTexture(bool aIsOpaque) {
       "opaque %d",
       GetLoggingWidget(), aIsOpaque);
   return MakeAndAddRef<NativeLayerWaylandExternal>(this, aIsOpaque);
+}
+
+UniquePtr<NativeLayerRootSnapshotter>
+NativeLayerRootWayland::CreateSnapshotter() {
+  if (!mGL) {
+    MOZ_ASSERT_UNREACHABLE("Unexpected to be called!");
+    return nullptr;
+  }
+
+  if (mSublayers.IsEmpty()) {
+    return nullptr;
+  }
+
+  auto snapshotter = NativeLayerRootSnapshotterWayland::Create(this, mGL);
+  if (!snapshotter) {
+    MOZ_ASSERT_UNREACHABLE("Unexpected to be called!");
+    return nullptr;
+  }
+
+  return snapshotter;
+}
+
+NativeLayerWaylandRender* NativeLayerRootWayland::GetLayerForSnapshot() {
+  // For snapshotting, WebRender manages layers to either of the followings.
+  // - One content layer
+  // - One content layer and one debug overlay layer
+  MOZ_ASSERT(mSublayers.Length() <= 2);
+
+  auto& layer = mSublayers[0];
+
+  auto* layerRender = layer->AsNativeLayerWaylandRender();
+  if (!layerRender) {
+    MOZ_ASSERT_UNREACHABLE("Unexpected to be called!");
+    return nullptr;
+  }
+
+  auto* gl = layerRender->gl();
+  if (!gl || gl != mGL) {
+    MOZ_ASSERT_UNREACHABLE("Unexpected to be called!");
+    return nullptr;
+  }
+
+  return layerRender;
 }
 
 void NativeLayerRootWayland::AppendLayer(NativeLayer* aLayer) {
@@ -802,11 +849,22 @@ void NativeLayerWayland::UpdateLayerPlacementLocked(
   mSurface->MoveLocked(aProofOfLock, rect.TopLeft());
   mSurface->SetViewPortDestLocked(aProofOfLock, rect.Size());
 
+  LOGVERBOSE(
+      "NativeLayerWayland::UpdateLayerPlacement(): destination [%d,%d] -> [%d "
+      "x %d]",
+      rect.x, rect.y, rect.width, rect.height);
+
   auto transform2DInversed = transform2D.Inverse();
   Rect bufferClip = transform2DInversed.TransformBounds(surfaceRectClipped);
-  mSurface->SetViewPortSourceRectLocked(
-      aProofOfLock,
+  auto viewportRect = gfx::RoundedToInt(
       bufferClip.Intersect(Rect(0, 0, mSize.width, mSize.height)));
+
+  LOGVERBOSE(
+      "NativeLayerWayland::UpdateLayerPlacement(): source [%d,%d] -> [%d x %d]",
+      viewportRect.x, viewportRect.y, viewportRect.width, viewportRect.height);
+
+  mSurface->SetViewPortSourceRectLocked(
+      aProofOfLock, DesktopIntRect::FromUnknownRect(viewportRect));
 }
 
 void NativeLayerWayland::RenderLayer(double aScale) {
@@ -1000,6 +1058,10 @@ NativeLayerWaylandRender::NativeLayerWaylandRender(
                      "Need a non-null surface pool handle.");
 }
 
+gl::GLContext* NativeLayerWaylandRender::gl() {
+  return mSurfacePoolHandle->gl();
+}
+
 void NativeLayerWaylandRender::AttachExternalImage(
     wr::RenderTextureHost* aExternalImage) {
   MOZ_CRASH("NativeLayerWaylandRender::AttachExternalImage() not implemented.");
@@ -1023,7 +1085,7 @@ RefPtr<DrawTarget> NativeLayerWaylandRender::NextSurfaceAsDrawTarget(
   mDirtyRegion = aUpdateRegion;
 
   MOZ_DIAGNOSTIC_ASSERT(!mInProgressBuffer);
-  if (mFrontBuffer && !mFrontBuffer->IsAttached()) {
+  if (mFrontBuffer && !mFrontBuffer->IsAttached(lock)) {
     LOGVERBOSE(
         "NativeLayerWaylandRender::NextSurfaceAsDrawTarget(): use front buffer "
         "for rendering");
@@ -1034,13 +1096,13 @@ RefPtr<DrawTarget> NativeLayerWaylandRender::NextSurfaceAsDrawTarget(
         "NativeLayerWaylandRender::NextSurfaceAsDrawTarget(): use progress "
         "buffer for rendering");
     mInProgressBuffer = mSurfacePoolHandle->ObtainBufferFromPool(
-        mSize, mRootLayer->GetDRMFormat());
+        lock, mSize, mRootLayer->GetDRMFormat());
     if (mFrontBuffer) {
       LOGVERBOSE(
           "NativeLayerWaylandRender::NextSurfaceAsDrawTarget(): read-back from "
           "front buffer");
       ReadBackFrontBuffer(lock);
-      mSurfacePoolHandle->ReturnBufferToPool(mFrontBuffer);
+      mSurfacePoolHandle->ReturnBufferToPool(lock, mFrontBuffer);
       mFrontBuffer = nullptr;
     }
   }
@@ -1053,7 +1115,7 @@ RefPtr<DrawTarget> NativeLayerWaylandRender::NextSurfaceAsDrawTarget(
     return nullptr;
   }
 
-  MOZ_DIAGNOSTIC_ASSERT(!mInProgressBuffer->IsAttached(),
+  MOZ_DIAGNOSTIC_ASSERT(!mInProgressBuffer->IsAttached(lock),
                         "Reusing attached buffer!");
 
   return mInProgressBuffer->Lock();
@@ -1073,7 +1135,7 @@ Maybe<GLuint> NativeLayerWaylandRender::NextSurfaceAsFramebuffer(
   mDirtyRegion = IntRegion(aUpdateRegion);
 
   MOZ_DIAGNOSTIC_ASSERT(!mInProgressBuffer);
-  if (mFrontBuffer && !mFrontBuffer->IsAttached()) {
+  if (mFrontBuffer && !mFrontBuffer->IsAttached(lock)) {
     LOGVERBOSE(
         "NativeLayerWaylandRender::NextSurfaceAsFramebuffer(): use front "
         "buffer for rendering");
@@ -1084,7 +1146,7 @@ Maybe<GLuint> NativeLayerWaylandRender::NextSurfaceAsFramebuffer(
         "NativeLayerWaylandRender::NextSurfaceAsFramebuffer(): use progress "
         "buffer for rendering");
     mInProgressBuffer = mSurfacePoolHandle->ObtainBufferFromPool(
-        mSize, mRootLayer->GetDRMFormat());
+        lock, mSize, mRootLayer->GetDRMFormat());
   }
 
   MOZ_DIAGNOSTIC_ASSERT(mInProgressBuffer,
@@ -1093,7 +1155,7 @@ Maybe<GLuint> NativeLayerWaylandRender::NextSurfaceAsFramebuffer(
     return Nothing();
   }
 
-  MOZ_DIAGNOSTIC_ASSERT(!mInProgressBuffer->IsAttached(),
+  MOZ_DIAGNOSTIC_ASSERT(!mInProgressBuffer->IsAttached(lock),
                         "Reusing attached buffer!");
 
   // get the framebuffer before handling partial damage so we don't accidently
@@ -1111,7 +1173,7 @@ Maybe<GLuint> NativeLayerWaylandRender::NextSurfaceAsFramebuffer(
         "NativeLayerWaylandRender::NextSurfaceAsFramebuffer(): read-back from "
         "front buffer");
     ReadBackFrontBuffer(lock);
-    mSurfacePoolHandle->ReturnBufferToPool(mFrontBuffer);
+    mSurfacePoolHandle->ReturnBufferToPool(lock, mFrontBuffer);
     mFrontBuffer = nullptr;
   }
 
@@ -1193,9 +1255,12 @@ void NativeLayerWaylandRender::NotifySurfaceReady() {
 
   WaylandSurfaceLock lock(mSurface);
 
-  MOZ_DIAGNOSTIC_ASSERT(!mFrontBuffer);
-  MOZ_DIAGNOSTIC_ASSERT(mInProgressBuffer);
+  // NotifySurfaceReady() may be called even if NextSurfaceAsDrawTarget() fails.
+  if (!mInProgressBuffer) {
+    return;
+  }
 
+  MOZ_DIAGNOSTIC_ASSERT(!mFrontBuffer);
   mFrontBuffer = std::move(mInProgressBuffer);
   if (mSurfacePoolHandle->gl()) {
     auto* buffer = mFrontBuffer->AsWaylandBufferDMABUF();
@@ -1208,18 +1273,42 @@ void NativeLayerWaylandRender::NotifySurfaceReady() {
   mState.mMutatedFrontBuffer = true;
 }
 
+void NativeLayerWaylandRender::CopyFrontBufferToFrameBuffer(GLuint aFB) {
+  if (!mFrontBuffer) {
+    return;
+  }
+
+  WaylandSurfaceLock lock(mSurface);
+
+  mSurfacePoolHandle->gl()->MakeCurrent();
+
+  Maybe<GLuint> sourceFB =
+      mSurfacePoolHandle->GetFramebufferForBuffer(mFrontBuffer, true);
+  MOZ_DIAGNOSTIC_ASSERT(
+      sourceFB,
+      "NativeLayerWaylandRender: Failed to get mFrontBuffer framebuffer!");
+  if (!sourceFB) {
+    return;
+  }
+
+  mSurfacePoolHandle->gl()->BlitHelper()->BlitFramebufferToFramebuffer(
+      sourceFB.value(), aFB, IntRect(IntPoint(), mSize),
+      IntRect(IntPoint(), mSize), LOCAL_GL_NEAREST);
+}
+
 void NativeLayerWaylandRender::DiscardBackbuffersLocked(
     const WaylandSurfaceLock& aProofOfLock, bool aForce) {
   LOGVERBOSE(
       "NativeLayerWaylandRender::DiscardBackbuffersLocked() force %d progress "
       "%p front %p",
       aForce, mInProgressBuffer.get(), mFrontBuffer.get());
-  if (mInProgressBuffer && (!mInProgressBuffer->IsAttached() || aForce)) {
-    mSurfacePoolHandle->ReturnBufferToPool(mInProgressBuffer);
+  if (mInProgressBuffer &&
+      (!mInProgressBuffer->IsAttached(aProofOfLock) || aForce)) {
+    mSurfacePoolHandle->ReturnBufferToPool(aProofOfLock, mInProgressBuffer);
     mInProgressBuffer = nullptr;
   }
-  if (mFrontBuffer && (!mFrontBuffer->IsAttached() || aForce)) {
-    mSurfacePoolHandle->ReturnBufferToPool(mFrontBuffer);
+  if (mFrontBuffer && (!mFrontBuffer->IsAttached(aProofOfLock) || aForce)) {
+    mSurfacePoolHandle->ReturnBufferToPool(aProofOfLock, mFrontBuffer);
     mFrontBuffer = nullptr;
   }
 }
@@ -1320,6 +1409,113 @@ bool NativeLayerWaylandExternal::CommitFrontBufferToScreenLocked(
 
 NativeLayerWaylandExternal::~NativeLayerWaylandExternal() {
   LOG("NativeLayerWaylandExternal::~NativeLayerWaylandExternal()");
+}
+
+/* static */ UniquePtr<NativeLayerRootSnapshotterWayland>
+NativeLayerRootSnapshotterWayland::Create(NativeLayerRootWayland* aRootLayer,
+                                          gl::GLContext* aGL) {
+  MOZ_ASSERT(aRootLayer);
+  MOZ_ASSERT(aGL);
+
+  return UniquePtr<NativeLayerRootSnapshotterWayland>(
+      new NativeLayerRootSnapshotterWayland(aRootLayer, aGL));
+}
+
+NativeLayerRootSnapshotterWayland::NativeLayerRootSnapshotterWayland(
+    NativeLayerRootWayland* aRootLayer, gl::GLContext* aGL)
+    : mRootLayer(aRootLayer), mGL(aGL) {
+  LOG("NativeLayerRootSnapshotterWayland::NativeLayerRootSnapshotterWayland()");
+}
+
+NativeLayerRootSnapshotterWayland::~NativeLayerRootSnapshotterWayland() {
+  LOG("NativeLayerRootSnapshotterWayland::~NativeLayerRootSnapshotterWayland("
+      ")");
+}
+
+already_AddRefed<profiler_screenshots::RenderSource>
+NativeLayerRootSnapshotterWayland::GetWindowContents(
+    const gfx::IntSize& aWindowSize) {
+  LOG("NativeLayerRootSnapshotterWayland::GetWindowContents()");
+  UpdateSnapshot(aWindowSize);
+  return do_AddRef(mSnapshot);
+}
+
+void NativeLayerRootSnapshotterWayland::UpdateSnapshot(
+    const gfx::IntSize& aSize) {
+  LOG("NativeLayerRootSnapshotterWayland::UpdateSnapshot()");
+  auto* layer = mRootLayer->GetLayerForSnapshot();
+  if (!layer) {
+    return;
+  }
+
+  mGL->MakeCurrent();
+
+  if (mLayerForSnapshot != layer) {
+    mSnapshot = nullptr;
+    mLayerForSnapshot = layer;
+  }
+
+  if (!mSnapshot || mSnapshot->Size() != aSize) {
+    mSnapshot = nullptr;
+    auto fb = gl::MozFramebuffer::Create(mGL, aSize, 0, false);
+    if (!fb) {
+      return;
+    }
+    mSnapshot = new RenderSourceNLRS(std::move(fb));
+  }
+
+  mLayerForSnapshot->CopyFrontBufferToFrameBuffer(mSnapshot->FB().mFB);
+}
+
+bool NativeLayerRootSnapshotterWayland::ReadbackPixels(
+    const gfx::IntSize& aReadbackSize, gfx::SurfaceFormat aReadbackFormat,
+    const Range<uint8_t>& aReadbackBuffer) {
+  LOG("NativeLayerRootSnapshotterWayland::ReadbackPixels()");
+  if (aReadbackFormat != gfx::SurfaceFormat::B8G8R8A8) {
+    return false;
+  }
+
+  UpdateSnapshot(aReadbackSize);
+  if (!mSnapshot) {
+    return false;
+  }
+
+  const gl::ScopedBindFramebuffer bindFB(mGL, mSnapshot->FB().mFB);
+  gl::ScopedPackState safePackState(mGL);
+  mGL->fReadPixels(0.0f, 0.0f, aReadbackSize.width, aReadbackSize.height,
+                   LOCAL_GL_BGRA, LOCAL_GL_UNSIGNED_BYTE, &aReadbackBuffer[0]);
+
+  return true;
+}
+
+already_AddRefed<profiler_screenshots::DownscaleTarget>
+NativeLayerRootSnapshotterWayland::CreateDownscaleTarget(
+    const gfx::IntSize& aSize) {
+  LOG("NativeLayerRootSnapshotterWayland::CreateDownscaleTarget()");
+  auto fb = gl::MozFramebuffer::Create(mGL, aSize, 0, false);
+  if (!fb) {
+    return nullptr;
+  }
+  RefPtr<profiler_screenshots::DownscaleTarget> dt =
+      new DownscaleTargetNLRS(mGL, std::move(fb));
+  return dt.forget();
+}
+
+already_AddRefed<profiler_screenshots::AsyncReadbackBuffer>
+NativeLayerRootSnapshotterWayland::CreateAsyncReadbackBuffer(
+    const gfx::IntSize& aSize) {
+  LOG("NativeLayerRootSnapshotterWayland::CreateAsyncReadbackBuffer()");
+  size_t bufferByteCount = aSize.width * aSize.height * 4;
+  GLuint bufferHandle = 0;
+  mGL->fGenBuffers(1, &bufferHandle);
+
+  gl::ScopedPackState scopedPackState(mGL);
+  mGL->fBindBuffer(LOCAL_GL_PIXEL_PACK_BUFFER, bufferHandle);
+  mGL->fPixelStorei(LOCAL_GL_PACK_ALIGNMENT, 1);
+  mGL->fBufferData(LOCAL_GL_PIXEL_PACK_BUFFER, bufferByteCount, nullptr,
+                   LOCAL_GL_STREAM_READ);
+  return MakeAndAddRef<AsyncReadbackBufferNLRS>(mGL, aSize, bufferHandle,
+                                                /*bool aYFlip*/ false);
 }
 
 }  // namespace mozilla::layers

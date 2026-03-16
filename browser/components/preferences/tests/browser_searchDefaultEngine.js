@@ -19,17 +19,17 @@ add_setup(async function () {
     search_url_get_params: "search={searchTerms}",
   });
 
-  const defaultEngine = await Services.search.getDefault();
-  const defaultPrivateEngine = await Services.search.getDefaultPrivate();
+  const defaultEngine = await SearchService.getDefault();
+  const defaultPrivateEngine = await SearchService.getDefaultPrivate();
 
   registerCleanupFunction(async () => {
-    await Services.search.setDefault(
+    await SearchService.setDefault(
       defaultEngine,
-      Ci.nsISearchService.CHANGE_REASON_UNKNOWN
+      SearchService.CHANGE_REASON.UNKNOWN
     );
-    await Services.search.setDefaultPrivate(
+    await SearchService.setDefaultPrivate(
       defaultPrivateEngine,
-      Ci.nsISearchService.CHANGE_REASON_UNKNOWN
+      SearchService.CHANGE_REASON.UNKNOWN
     );
   });
 });
@@ -204,25 +204,22 @@ async function setDefaultEngine(
     testPrivate ? "defaultPrivateEngine" : "defaultEngineNormal"
   );
   const defaultEngineSelector = input.inputEl;
-  const defaultEngineTrigger = input.shadowRoot.querySelector(".panel-trigger");
+  const defaultEnginePopup = input.panelList;
 
   Assert.ok(
-    defaultEngineSelector.value.startsWith(currentEngineName),
+    input.value.startsWith(currentEngineName),
     "Should have the correct engine as default on first open"
   );
 
-  const popupShown = BrowserTestUtils.waitForEvent(
-    defaultEngineSelector,
-    "shown"
-  );
+  const popupShown = BrowserTestUtils.waitForEvent(defaultEnginePopup, "shown");
   EventUtils.synthesizeMouseAtCenter(
-    defaultEngineTrigger,
+    defaultEngineSelector,
     {},
-    defaultEngineTrigger.ownerGlobal
+    defaultEngineSelector.ownerGlobal
   );
   await popupShown;
 
-  const items = Array.from(defaultEngineSelector.children);
+  const items = Array.from(defaultEnginePopup.children);
   const engine2Item = items.find(item =>
     item.textContent.includes(expectedEngineName)
   );
@@ -238,8 +235,8 @@ async function setDefaultEngine(
   await defaultChanged;
 
   const newDefault = testPrivate
-    ? await Services.search.getDefaultPrivate()
-    : await Services.search.getDefault();
+    ? await SearchService.getDefaultPrivate()
+    : await SearchService.getDefault();
   Assert.equal(
     newDefault.name,
     expectedEngineName,
@@ -248,13 +245,10 @@ async function setDefaultEngine(
 }
 
 add_task(async function test_setDefaultEngine() {
-  const engine1 = Services.search.getEngineByName("engine1");
+  const engine1 = SearchService.getEngineByName("engine1");
 
   // Set an initial default so we have a known engine.
-  await Services.search.setDefault(
-    engine1,
-    Ci.nsISearchService.CHANGE_REASON_UNKNOWN
-  );
+  await SearchService.setDefault(engine1, SearchService.CHANGE_REASON.UNKNOWN);
 
   Services.telemetry.clearEvents();
   Services.fog.testResetFOG();
@@ -294,12 +288,12 @@ add_task(async function test_setPrivateDefaultEngine() {
     ],
   });
 
-  const engine2 = Services.search.getEngineByName("engine2");
+  const engine2 = SearchService.getEngineByName("engine2");
 
   // Set an initial default so we have a known engine.
-  await Services.search.setDefaultPrivate(
+  await SearchService.setDefaultPrivate(
     engine2,
-    Ci.nsISearchService.CHANGE_REASON_UNKNOWN
+    SearchService.CHANGE_REASON.UNKNOWN
   );
 
   Services.telemetry.clearEvents();

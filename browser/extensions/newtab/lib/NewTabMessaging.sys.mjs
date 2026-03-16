@@ -63,6 +63,17 @@ export class NewTabMessaging {
               tabDetails.portID
             )
           );
+          this.store.dispatch(
+            ac.OnlyToOneContent(
+              {
+                type: at.MESSAGE_TOGGLE_VISIBILITY,
+                data: {
+                  isVisible: true,
+                },
+              },
+              tabDetails.portID
+            )
+          );
         }
       }
     } else {
@@ -80,7 +91,9 @@ export class NewTabMessaging {
       this.store.dispatch(
         ac.AlsoToPreloaded({
           type: at.MESSAGE_TOGGLE_VISIBILITY,
-          data: true,
+          data: {
+            isVisible: true,
+          },
         })
       );
     }
@@ -159,6 +172,14 @@ export class NewTabMessaging {
         break;
       case at.MESSAGE_DISMISS:
         this.sendTelemetry("DISMISS", action.data.message);
+        this.store.dispatch(
+          ac.AlsoToPreloaded({
+            type: at.MESSAGE_TOGGLE_VISIBILITY,
+            data: {
+              isVisible: false,
+            },
+          })
+        );
         break;
       case at.MESSAGE_CLICK:
         this.sendTelemetry("CLICK", action.data.message, action.data.source);

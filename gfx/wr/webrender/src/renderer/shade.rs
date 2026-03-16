@@ -629,9 +629,8 @@ pub struct Shaders {
 
     ps_split_composite: ShaderHandle,
     ps_quad_textured: ShaderHandle,
+    ps_quad_repeat: ShaderHandle,
     ps_quad_gradient: ShaderHandle,
-    #[allow(unused)] ps_quad_radial_gradient: ShaderHandle,
-    #[allow(unused)] ps_quad_conic_gradient: ShaderHandle,
     ps_mask: ShaderHandle,
     ps_mask_fast: ShaderHandle,
     ps_clear: ShaderHandle,
@@ -838,31 +837,16 @@ impl Shaders {
             &shader_list,
         )?;
 
+        let ps_quad_repeat = loader.create_shader(
+            ShaderKind::Primitive,
+            "ps_quad_repeat",
+            &[],
+            &shader_list,
+        )?;
+
         let ps_quad_gradient = loader.create_shader(
             ShaderKind::Primitive,
             "ps_quad_gradient",
-            if options.enable_dithering {
-               &[DITHERING_FEATURE]
-            } else {
-               &[]
-            },
-            &shader_list,
-        )?;
-
-        let ps_quad_radial_gradient = loader.create_shader(
-            ShaderKind::Primitive,
-            "ps_quad_radial_gradient",
-            if options.enable_dithering {
-               &[DITHERING_FEATURE]
-            } else {
-               &[]
-            },
-            &shader_list,
-        )?;
-
-        let ps_quad_conic_gradient = loader.create_shader(
-            ShaderKind::Primitive,
-            "ps_quad_conic_gradient",
             if options.enable_dithering {
                &[DITHERING_FEATURE]
             } else {
@@ -1082,9 +1066,8 @@ impl Shaders {
             ps_text_run,
             ps_text_run_dual_source,
             ps_quad_textured,
+            ps_quad_repeat,
             ps_quad_gradient,
-            ps_quad_radial_gradient,
-            ps_quad_conic_gradient,
             ps_mask,
             ps_mask_fast,
             ps_split_composite,
@@ -1149,9 +1132,8 @@ impl Shaders {
     ) -> &mut LazilyCompiledShader {
         let shader_handle = match pattern {
             PatternKind::ColorOrTexture => self.ps_quad_textured,
-            PatternKind::RadialGradient => self.ps_quad_radial_gradient,
-            PatternKind::ConicGradient => self.ps_quad_conic_gradient,
             PatternKind::Gradient => self.ps_quad_gradient,
+            PatternKind::Repeat => self.ps_quad_repeat,
             PatternKind::Mask => unreachable!(),
         };
         self.loader.get(shader_handle)
@@ -1179,14 +1161,11 @@ impl Shaders {
             BatchKind::Quad(PatternKind::ColorOrTexture) => {
                 self.ps_quad_textured
             }
-            BatchKind::Quad(PatternKind::RadialGradient) => {
-                self.ps_quad_radial_gradient
-            }
-            BatchKind::Quad(PatternKind::ConicGradient) => {
-                self.ps_quad_conic_gradient
-            }
             BatchKind::Quad(PatternKind::Gradient) => {
                 self.ps_quad_gradient
+            }
+            BatchKind::Quad(PatternKind::Repeat) => {
+                self.ps_quad_repeat
             }
             BatchKind::Quad(PatternKind::Mask) => {
                 unreachable!();

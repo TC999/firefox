@@ -497,6 +497,7 @@ class nsCocoaWindow final : public nsIWidget {
     Zoom,
   };
   void FinishCurrentTransitionIfMatching(const TransitionType& aTransition);
+  bool IsInTransition() { return mTransitionCurrent.isSome(); }
 
   // Called when something has happened that might cause us to update our
   // fullscreen state. Returns true if we updated state. We'll call this
@@ -608,7 +609,6 @@ class nsCocoaWindow final : public nsIWidget {
   // Windowed.
   mozilla::Maybe<TransitionType> mUpdateFullscreenOnResize;
 
-  bool IsInTransition() { return mTransitionCurrent.isSome(); }
   void QueueTransition(const TransitionType& aTransition);
   void ProcessTransitions();
 

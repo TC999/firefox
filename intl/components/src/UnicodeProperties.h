@@ -13,6 +13,12 @@
 #include "unicode/uchar.h"
 #include "unicode/uscript.h"
 
+extern "C" {
+
+uint8_t mozilla_canonical_combining_class(uint32_t c);
+
+}  // extern "C"
+
 namespace mozilla::intl {
 
 /**
@@ -49,13 +55,14 @@ class UnicodeProperties final {
    * UnicodeData.txt.
    */
   static inline uint8_t GetCombiningClass(uint32_t aCh) {
-    return u_getCombiningClass(aCh);
+    return mozilla_canonical_combining_class(aCh);
   }
 
   enum class IntProperty {
     BidiPairedBracketType,
     EastAsianWidth,
     HangulSyllableType,
+    IdentifierStatus,
     LineBreak,
     NumericType,
     VerticalOrientation,
@@ -85,6 +92,9 @@ class UnicodeProperties final {
         break;
       case IntProperty::VerticalOrientation:
         prop = UCHAR_VERTICAL_ORIENTATION;
+        break;
+      case IntProperty::IdentifierStatus:
+        prop = UCHAR_IDENTIFIER_STATUS;
         break;
     }
     return u_getIntPropertyValue(aCh, prop);
@@ -333,6 +343,15 @@ class UnicodeProperties final {
     return sc == Script::THAI || sc == Script::MYANMAR || sc == Script::KHMER ||
            sc == Script::JAVANESE || sc == Script::BALINESE ||
            sc == Script::SUNDANESE || sc == Script::LAO;
+  }
+
+  // Return true if aChar belongs to a cursive script for which inter-character
+  // justification should be disabled.
+  static bool IsCursiveScript(char32_t aChar) {
+    Script sc = GetScriptCode(aChar);
+    return sc == Script::ARABIC || sc == Script::SYRIAC || sc == Script::NKO ||
+           sc == Script::MANDAIC || sc == Script::MONGOLIAN ||
+           sc == Script::PHAGS_PA || sc == Script::HANIFI_ROHINGYA;
   }
 
   // The code point which has the most script extensions is 0x0965, which has 21

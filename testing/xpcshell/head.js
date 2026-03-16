@@ -6,7 +6,7 @@
 
 /*
  * This file contains common code that is loaded before each test file(s).
- * See https://developer.mozilla.org/en-US/docs/Mozilla/QA/Writing_xpcshell-based_unit_tests
+ * See https://firefox-source-docs.mozilla.org/testing/xpcshell/index.html
  * for more information.
  */
 
@@ -264,7 +264,7 @@ void Cc["@mozilla.org/widget/transferable;1"].createInstance();
  * This behaviour would cause random failures and slowdown tests execution,
  * for example by running database vacuum or cleanups for each test.
  *
- * @note Idle service is overridden by default.  If a test requires it, it will
+ * Note: Idle service is overridden by default.  If a test requires it, it will
  *       have to call do_get_idle() function at least once before use.
  */
 var _fakeIdleService = {
@@ -596,14 +596,6 @@ function _execute_test() {
 
   _PromiseTestUtils.init();
 
-  let coverageCollector = null;
-  if (typeof _JSCOV_DIR === "string") {
-    let _CoverageCollector = ChromeUtils.importESModule(
-      "resource://testing-common/CoverageUtils.sys.mjs"
-    ).CoverageCollector;
-    coverageCollector = new _CoverageCollector(_JSCOV_DIR);
-  }
-
   let startTime = ChromeUtils.now();
 
   // _HEAD_FILES is dynamically defined by <runxpcshelltests.py>.
@@ -627,9 +619,7 @@ function _execute_test() {
 
   let timer;
   if (
-    // Services.profiler is missing on some tier3 platforms where
-    // MOZ_GECKO_PROFILER is not set.
-    Services.profiler?.IsActive() &&
+    Services.profiler.IsActive() &&
     !Services.env.exists("MOZ_PROFILER_SHUTDOWN") &&
     Services.env.exists("MOZ_UPLOAD_DIR") &&
     Services.env.exists("MOZ_TEST_TIMEOUT_INTERVAL")
@@ -664,10 +654,6 @@ function _execute_test() {
     _do_main();
     _PromiseTestUtils.assertNoUncaughtRejections();
 
-    if (coverageCollector != null) {
-      coverageCollector.recordTestCoverage(_TEST_FILE[0]);
-    }
-
     if (runningInParent) {
       PerTestCoverageUtils.afterTestSync();
     }
@@ -694,10 +680,6 @@ function _execute_test() {
         extra.stack = _format_stack(e.stack);
       }
       _testLogger.error(message, extra);
-    }
-  } finally {
-    if (coverageCollector != null) {
-      coverageCollector.finalize();
     }
   }
 

@@ -58,7 +58,6 @@ def android_api_to_os_version(api_version: str):
 
 
 class PlatformInfo:
-
     variant_data = {}
 
     buildmap = {
@@ -132,6 +131,8 @@ class PlatformInfo:
         if build is not None and self.os == "win":
             if build == "24h2":
                 version += ".26100"
+            elif build == "25h2":
+                version += ".26200"
             else:
                 version += "." + build
         return version
@@ -184,6 +185,7 @@ class PlatformInfo:
         filename = (
             os.environ.get("GECKO_PATH", ".") + "/taskcluster/test_configs/variants.yml"
         )
+
         with open(filename) as f:
             PlatformInfo.variant_data = yaml.safe_load(f.read())
 

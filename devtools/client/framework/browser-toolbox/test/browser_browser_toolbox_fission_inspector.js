@@ -45,12 +45,10 @@ add_task(async function () {
   const color = await ToolboxTask.spawn(null, async () => {
     /* global gToolbox */
     const inspector = gToolbox.getPanel("inspector");
-    const onSidebarSelect = inspector.sidebar.once("select");
-    inspector.sidebar.select("computedview");
-    await onSidebarSelect;
+    await inspector.sidebar.select("computedview");
 
     await selectNodeInFrames(
-      ['browser[remote="true"][test-tab]', "#my-div"],
+      ["browser[remote][test-tab]", "#my-div"],
       inspector
     );
 

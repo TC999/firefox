@@ -25,6 +25,7 @@ fun mozilla.appservices.logins.Login.toLogin() = Login(
     timeCreated = timeCreated,
     timeLastUsed = timeLastUsed,
     timePasswordChanged = timePasswordChanged,
+    timeLastBreachAlertDismissed = timeLastBreachAlertDismissed,
 )
 
 /**
@@ -56,4 +57,5 @@ fun Login.toLogin() = mozilla.appservices.logins.Login(
     passwordField = passwordField,
     username = username,
     password = password,
+    timeLastBreachAlertDismissed = timeLastBreachAlertDismissed,
 )

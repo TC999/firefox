@@ -15,6 +15,8 @@ const PREF_WIDGETS_LISTS_ENABLED = "widgets.lists.enabled";
 const PREF_WIDGETS_SYSTEM_LISTS_ENABLED = "widgets.system.lists.enabled";
 const PREF_WIDGETS_TIMER_ENABLED = "widgets.focusTimer.enabled";
 const PREF_WIDGETS_SYSTEM_TIMER_ENABLED = "widgets.system.focusTimer.enabled";
+const PREF_WIDGETS_FEEDBACK_ENABLED = "widgets.feedback.enabled";
+const PREF_WIDGETS_HIDE_ALL_TOAST_ENABLED = "widgets.hideAllToast.enabled";
 
 function WrapWithProvider({ children, state = INITIAL_STATE }) {
   const store = createStore(combineReducers(reducers), state);
@@ -304,6 +306,558 @@ describe("<Widgets>", () => {
         );
       }
     });
+
+    it("should dispatch WIDGETS_CONTAINER_ACTION telemetry when hide button is clicked", () => {
+      const hideButton = wrapper.find("#hide-all-widgets-button");
+      hideButton.prop("onClick")({ preventDefault: () => {} });
+
+      const dispatchedActions = store.dispatch
+        .getCalls()
+        .map(call => call.args[0]);
+
+      const containerAction = dispatchedActions.find(
+        action => action.type === at.WIDGETS_CONTAINER_ACTION
+      );
+
+      assert.ok(
+        containerAction,
+        "should dispatch WIDGETS_CONTAINER_ACTION event"
+      );
+      assert.equal(containerAction.data.action_type, "hide_all");
+      assert.equal(
+        containerAction.data.widget_size,
+        "medium",
+        "widget_size should be medium when widgets.system.maximized is false"
+      );
+      assert.equal(
+        containerAction.data.action_value,
+        undefined,
+        "hide_all should not have action_value"
+      );
+    });
+
+    it("should dispatch WIDGETS_CONTAINER_ACTION with medium size when widgets are maximized", () => {
+      const maximizedState = {
+        ...state,
+        Prefs: {
+          ...state.Prefs,
+          values: {
+            ...state.Prefs.values,
+            "widgets.maximized": true,
+            "widgets.system.maximized": true,
+          },
+        },
+      };
+      const maximizedStore = createStore(
+        combineReducers(reducers),
+        maximizedState
+      );
+      sinon.spy(maximizedStore, "dispatch");
+      const maximizedWrapper = mount(
+        <Provider store={maximizedStore}>
+          <Widgets />
+        </Provider>
+      );
+
+      const hideButton = maximizedWrapper.find("#hide-all-widgets-button");
+      hideButton.prop("onClick")({ preventDefault: () => {} });
+
+      const dispatchedActions = maximizedStore.dispatch
+        .getCalls()
+        .map(call => call.args[0]);
+
+      const containerAction = dispatchedActions.find(
+        action => action.type === at.WIDGETS_CONTAINER_ACTION
+      );
+
+      assert.ok(containerAction, "should dispatch WIDGETS_CONTAINER_ACTION");
+      assert.equal(
+        containerAction.data.widget_size,
+        "medium",
+        "should report medium size when maximized"
+      );
+      maximizedStore.dispatch.restore();
+    });
+
+    it("should dispatch WIDGETS_ENABLED for each enabled widget when hide button is clicked", () => {
+      const hideButton = wrapper.find("#hide-all-widgets-button");
+      hideButton.prop("onClick")({ preventDefault: () => {} });
+
+      const dispatchedActions = store.dispatch
+        .getCalls()
+        .map(call => call.args[0]);
+
+      const widgetsEnabledActions = dispatchedActions.filter(
+        action => action.type === at.WIDGETS_ENABLED
+      );
+
+      assert.equal(
+        widgetsEnabledActions.length,
+        2,
+        "should dispatch WIDGETS_ENABLED for both lists and timer"
+      );
+
+      const listsEnabledAction = widgetsEnabledActions.find(
+        action => action.data.widget_name === "lists"
+      );
+      const timerEnabledAction = widgetsEnabledActions.find(
+        action => action.data.widget_name === "focus_timer"
+      );
+
+      assert.ok(
+        listsEnabledAction,
+        "should dispatch WIDGETS_ENABLED for lists"
+      );
+      assert.equal(listsEnabledAction.data.widget_source, "widget");
+      assert.equal(listsEnabledAction.data.enabled, false);
+      assert.equal(listsEnabledAction.data.widget_size, "medium");
+
+      assert.ok(
+        timerEnabledAction,
+        "should dispatch WIDGETS_ENABLED for timer"
+      );
+      assert.equal(timerEnabledAction.data.widget_source, "widget");
+      assert.equal(timerEnabledAction.data.enabled, false);
+      assert.equal(timerEnabledAction.data.widget_size, "medium");
+    });
+
+    it("should dispatch WIDGETS_ENABLED only for enabled widgets", () => {
+      const partialState = {
+        ...state,
+        Prefs: {
+          ...state.Prefs,
+          values: {
+            ...state.Prefs.values,
+            [PREF_WIDGETS_LISTS_ENABLED]: true,
+            [PREF_WIDGETS_SYSTEM_LISTS_ENABLED]: true,
+            [PREF_WIDGETS_TIMER_ENABLED]: false,
+            [PREF_WIDGETS_SYSTEM_TIMER_ENABLED]: true,
+          },
+        },
+      };
+      const partialStore = createStore(combineReducers(reducers), partialState);
+      sinon.spy(partialStore, "dispatch");
+      const partialWrapper = mount(
+        <Provider store={partialStore}>
+          <Widgets />
+        </Provider>
+      );
+
+      const hideButton = partialWrapper.find("#hide-all-widgets-button");
+      hideButton.prop("onClick")({ preventDefault: () => {} });
+
+      const widgetsEnabledActions = partialStore.dispatch
+        .getCalls()
+        .map(call => call.args[0])
+        .filter(action => action.type === at.WIDGETS_ENABLED);
+
+      assert.equal(
+        widgetsEnabledActions.length,
+        1,
+        "should only dispatch WIDGETS_ENABLED for lists (timer is already disabled)"
+      );
+
+      const listsEnabledAction = widgetsEnabledActions.find(
+        action => action.data.widget_name === "lists"
+      );
+
+      assert.ok(
+        listsEnabledAction,
+        "should dispatch WIDGETS_ENABLED for lists"
+      );
+      assert.equal(listsEnabledAction.data.enabled, false);
+
+      partialStore.dispatch.restore();
+    });
+
+    it("should dispatch WIDGETS_ENABLED with correct widget_size when maximized", () => {
+      const maximizedState = {
+        ...state,
+        Prefs: {
+          ...state.Prefs,
+          values: {
+            ...state.Prefs.values,
+            "widgets.maximized": true,
+            "widgets.system.maximized": true,
+          },
+        },
+      };
+      const maximizedStore = createStore(
+        combineReducers(reducers),
+        maximizedState
+      );
+      sinon.spy(maximizedStore, "dispatch");
+      const maximizedWrapper = mount(
+        <Provider store={maximizedStore}>
+          <Widgets />
+        </Provider>
+      );
+
+      const hideButton = maximizedWrapper.find("#hide-all-widgets-button");
+      hideButton.prop("onClick")({ preventDefault: () => {} });
+
+      const widgetsEnabledActions = maximizedStore.dispatch
+        .getCalls()
+        .map(call => call.args[0])
+        .filter(action => action.type === at.WIDGETS_ENABLED);
+
+      assert.equal(widgetsEnabledActions.length, 2);
+
+      widgetsEnabledActions.forEach(action => {
+        assert.equal(
+          action.data.widget_size,
+          "medium",
+          "widget_size should be medium when maximized"
+        );
+      });
+
+      maximizedStore.dispatch.restore();
+    });
+
+    it("should dispatch WIDGETS_ENABLED for each enabled widget when Enter key is pressed", () => {
+      const hideButton = wrapper.find("#hide-all-widgets-button");
+      hideButton.prop("onKeyDown")({ key: "Enter", preventDefault: () => {} });
+
+      const widgetsEnabledActions = store.dispatch
+        .getCalls()
+        .map(call => call.args[0])
+        .filter(action => action.type === at.WIDGETS_ENABLED);
+
+      assert.equal(
+        widgetsEnabledActions.length,
+        2,
+        "should dispatch WIDGETS_ENABLED for both lists and timer"
+      );
+
+      const listsEnabledAction = widgetsEnabledActions.find(
+        action => action.data.widget_name === "lists"
+      );
+      const timerEnabledAction = widgetsEnabledActions.find(
+        action => action.data.widget_name === "focus_timer"
+      );
+
+      assert.ok(
+        listsEnabledAction,
+        "should dispatch WIDGETS_ENABLED for lists"
+      );
+      assert.equal(listsEnabledAction.data.widget_source, "widget");
+      assert.equal(listsEnabledAction.data.enabled, false);
+      assert.equal(listsEnabledAction.data.widget_size, "medium");
+
+      assert.ok(
+        timerEnabledAction,
+        "should dispatch WIDGETS_ENABLED for timer"
+      );
+      assert.equal(timerEnabledAction.data.widget_source, "widget");
+      assert.equal(timerEnabledAction.data.enabled, false);
+      assert.equal(timerEnabledAction.data.widget_size, "medium");
+    });
+  });
+
+  describe("feedback link", () => {
+    let baseState;
+
+    beforeEach(() => {
+      baseState = {
+        ...INITIAL_STATE,
+        Prefs: {
+          ...INITIAL_STATE.Prefs,
+          values: {
+            ...INITIAL_STATE.Prefs.values,
+            [PREF_WIDGETS_LISTS_ENABLED]: true,
+            [PREF_WIDGETS_SYSTEM_LISTS_ENABLED]: true,
+          },
+        },
+      };
+    });
+
+    it("should not render the feedback link when feedbackEnabled is not set", () => {
+      const wrapper = mount(
+        <WrapWithProvider state={baseState}>
+          <Widgets />
+        </WrapWithProvider>
+      );
+      assert.ok(!wrapper.find(".widgets-feedback-link").exists());
+    });
+
+    it("should not render the feedback link when feedbackEnabled is false", () => {
+      const state = {
+        ...baseState,
+        Prefs: {
+          ...baseState.Prefs,
+          values: {
+            ...baseState.Prefs.values,
+            trainhopConfig: { widgets: { feedbackEnabled: false } },
+          },
+        },
+      };
+      const wrapper = mount(
+        <WrapWithProvider state={state}>
+          <Widgets />
+        </WrapWithProvider>
+      );
+      assert.ok(!wrapper.find(".widgets-feedback-link").exists());
+    });
+
+    it("should render the feedback link when trainhopConfig feedbackEnabled is true", () => {
+      const state = {
+        ...baseState,
+        Prefs: {
+          ...baseState.Prefs,
+          values: {
+            ...baseState.Prefs.values,
+            trainhopConfig: { widgets: { feedbackEnabled: true } },
+          },
+        },
+      };
+      const wrapper = mount(
+        <WrapWithProvider state={state}>
+          <Widgets />
+        </WrapWithProvider>
+      );
+      assert.ok(wrapper.find(".widgets-feedback-link").exists());
+    });
+
+    it("should render the feedback link when the pref is true", () => {
+      const state = {
+        ...baseState,
+        Prefs: {
+          ...baseState.Prefs,
+          values: {
+            ...baseState.Prefs.values,
+            [PREF_WIDGETS_FEEDBACK_ENABLED]: true,
+          },
+        },
+      };
+      const wrapper = mount(
+        <WrapWithProvider state={state}>
+          <Widgets />
+        </WrapWithProvider>
+      );
+      assert.ok(wrapper.find(".widgets-feedback-link").exists());
+    });
+
+    it("should dispatch OPEN_LINK and WIDGETS_CONTAINER_ACTION when feedback link is clicked", () => {
+      const state = {
+        ...baseState,
+        Prefs: {
+          ...baseState.Prefs,
+          values: {
+            ...baseState.Prefs.values,
+            trainhopConfig: { widgets: { feedbackEnabled: true } },
+          },
+        },
+      };
+      const store = createStore(combineReducers(reducers), state);
+      sinon.spy(store, "dispatch");
+      const wrapper = mount(
+        <Provider store={store}>
+          <Widgets />
+        </Provider>
+      );
+
+      wrapper.find(".widgets-feedback-link").prop("onClick")({
+        preventDefault: () => {},
+      });
+
+      const dispatched = store.dispatch.getCalls().map(c => c.args[0]);
+      const openLink = dispatched.find(a => a.type === at.OPEN_LINK);
+      const containerAction = dispatched.find(
+        a => a.type === at.WIDGETS_CONTAINER_ACTION
+      );
+
+      assert.ok(openLink, "should dispatch OPEN_LINK");
+      assert.ok(containerAction, "should dispatch WIDGETS_CONTAINER_ACTION");
+      assert.equal(containerAction.data.action_type, "feedback");
+      assert.equal(containerAction.data.widget_size, "medium");
+
+      store.dispatch.restore();
+    });
+
+    it("should use a custom URL from trainhopConfig when provided", () => {
+      const customUrl = "https://example.com/custom-feedback";
+      const state = {
+        ...baseState,
+        Prefs: {
+          ...baseState.Prefs,
+          values: {
+            ...baseState.Prefs.values,
+            trainhopConfig: {
+              widgets: {
+                feedbackEnabled: true,
+                feedbackUrl: customUrl,
+              },
+            },
+          },
+        },
+      };
+      const store = createStore(combineReducers(reducers), state);
+      sinon.spy(store, "dispatch");
+      const wrapper = mount(
+        <Provider store={store}>
+          <Widgets />
+        </Provider>
+      );
+
+      wrapper.find(".widgets-feedback-link").prop("onClick")({
+        preventDefault: () => {},
+      });
+
+      const dispatched = store.dispatch.getCalls().map(c => c.args[0]);
+      const openLink = dispatched.find(a => a.type === at.OPEN_LINK);
+
+      assert.ok(openLink, "should dispatch OPEN_LINK");
+      assert.equal(openLink.data.url, customUrl);
+
+      store.dispatch.restore();
+    });
+  });
+
+  describe("hide all widgets toast", () => {
+    let baseState;
+
+    beforeEach(() => {
+      baseState = {
+        ...INITIAL_STATE,
+        Prefs: {
+          ...INITIAL_STATE.Prefs,
+          values: {
+            ...INITIAL_STATE.Prefs.values,
+            [PREF_WIDGETS_LISTS_ENABLED]: true,
+            [PREF_WIDGETS_SYSTEM_LISTS_ENABLED]: true,
+          },
+        },
+      };
+    });
+
+    function clickHideButton(store, wrapper) {
+      wrapper.find("#hide-all-widgets-button").prop("onClick")({
+        preventDefault: () => {},
+      });
+      return store.dispatch
+        .getCalls()
+        .map(c => c.args[0])
+        .filter(a => a.type === at.SHOW_TOAST_MESSAGE);
+    }
+
+    it("should not dispatch toast when hideAllToastEnabled is not set", () => {
+      const store = createStore(combineReducers(reducers), baseState);
+      sinon.spy(store, "dispatch");
+      const wrapper = mount(
+        <Provider store={store}>
+          <Widgets />
+        </Provider>
+      );
+      const toastActions = clickHideButton(store, wrapper);
+      assert.equal(toastActions.length, 0);
+      store.dispatch.restore();
+    });
+
+    it("should not dispatch toast when pref is false", () => {
+      const state = {
+        ...baseState,
+        Prefs: {
+          ...baseState.Prefs,
+          values: {
+            ...baseState.Prefs.values,
+            [PREF_WIDGETS_HIDE_ALL_TOAST_ENABLED]: false,
+          },
+        },
+      };
+      const store = createStore(combineReducers(reducers), state);
+      sinon.spy(store, "dispatch");
+      const wrapper = mount(
+        <Provider store={store}>
+          <Widgets />
+        </Provider>
+      );
+      const toastActions = clickHideButton(store, wrapper);
+      assert.equal(toastActions.length, 0);
+      store.dispatch.restore();
+    });
+
+    it("should not dispatch toast when trainhopConfig hideAllToastEnabled is false", () => {
+      const state = {
+        ...baseState,
+        Prefs: {
+          ...baseState.Prefs,
+          values: {
+            ...baseState.Prefs.values,
+            trainhopConfig: { widgets: { hideAllToastEnabled: false } },
+          },
+        },
+      };
+      const store = createStore(combineReducers(reducers), state);
+      sinon.spy(store, "dispatch");
+      const wrapper = mount(
+        <Provider store={store}>
+          <Widgets />
+        </Provider>
+      );
+      const toastActions = clickHideButton(store, wrapper);
+      assert.equal(toastActions.length, 0);
+      store.dispatch.restore();
+    });
+
+    it("should dispatch toast when pref is true", () => {
+      const state = {
+        ...baseState,
+        Prefs: {
+          ...baseState.Prefs,
+          values: {
+            ...baseState.Prefs.values,
+            [PREF_WIDGETS_HIDE_ALL_TOAST_ENABLED]: true,
+          },
+        },
+      };
+      const store = createStore(combineReducers(reducers), state);
+      sinon.spy(store, "dispatch");
+      const wrapper = mount(
+        <Provider store={store}>
+          <Widgets />
+        </Provider>
+      );
+      wrapper.find("#hide-all-widgets-button").prop("onClick")({
+        preventDefault: () => {},
+      });
+      const dispatched = store.dispatch.getCalls().map(c => c.args[0]);
+      const toastAction = dispatched.find(
+        a => a.data && a.data.toastId === "hideWidgetsToast"
+      );
+      assert.ok(toastAction, "should dispatch toast action");
+      assert.equal(toastAction.data.showNotifications, true);
+      store.dispatch.restore();
+    });
+
+    it("should dispatch toast when trainhopConfig hideAllToastEnabled is true", () => {
+      const state = {
+        ...baseState,
+        Prefs: {
+          ...baseState.Prefs,
+          values: {
+            ...baseState.Prefs.values,
+            trainhopConfig: { widgets: { hideAllToastEnabled: true } },
+          },
+        },
+      };
+      const store = createStore(combineReducers(reducers), state);
+      sinon.spy(store, "dispatch");
+      const wrapper = mount(
+        <Provider store={store}>
+          <Widgets />
+        </Provider>
+      );
+      wrapper.find("#hide-all-widgets-button").prop("onClick")({
+        preventDefault: () => {},
+      });
+      const dispatched = store.dispatch.getCalls().map(c => c.args[0]);
+      const toastAction = dispatched.find(
+        a => a.data && a.data.toastId === "hideWidgetsToast"
+      );
+      assert.ok(toastAction, "should dispatch toast action");
+      assert.equal(toastAction.data.showNotifications, true);
+      store.dispatch.restore();
+    });
   });
 
   describe("handleToggleMaximize", () => {
@@ -493,6 +1047,79 @@ describe("<Widgets>", () => {
         maximizedPrefCall.args[0].data.value,
         false,
         "should toggle maximized pref to false"
+      );
+
+      maximizedStore.dispatch.restore();
+    });
+
+    it("should dispatch WIDGETS_CONTAINER_ACTION telemetry when toggle button is clicked", () => {
+      const toggleButton = wrapper.find("#toggle-widgets-size-button");
+      toggleButton.prop("onClick")({ preventDefault: () => {} });
+
+      const dispatchedActions = store.dispatch
+        .getCalls()
+        .map(call => call.args[0]);
+
+      const containerAction = dispatchedActions.find(
+        action => action.type === at.WIDGETS_CONTAINER_ACTION
+      );
+
+      assert.ok(
+        containerAction,
+        "should dispatch WIDGETS_CONTAINER_ACTION event"
+      );
+      assert.equal(containerAction.data.action_type, "change_size_all");
+      assert.equal(containerAction.data.action_value, "maximize_widgets");
+      assert.equal(containerAction.data.widget_size, "medium");
+    });
+
+    it("should dispatch WIDGETS_CONTAINER_ACTION with correct values when toggling from maximized", () => {
+      const maximizedState = {
+        ...INITIAL_STATE,
+        Prefs: {
+          ...INITIAL_STATE.Prefs,
+          values: {
+            ...INITIAL_STATE.Prefs.values,
+            [PREF_WIDGETS_LISTS_ENABLED]: true,
+            [PREF_WIDGETS_SYSTEM_LISTS_ENABLED]: true,
+            "widgets.maximized": true,
+            "widgets.system.maximized": true,
+          },
+        },
+      };
+      const maximizedStore = createStore(
+        combineReducers(reducers),
+        maximizedState
+      );
+      sinon.spy(maximizedStore, "dispatch");
+      const maximizedWrapper = mount(
+        <Provider store={maximizedStore}>
+          <Widgets />
+        </Provider>
+      );
+
+      const toggleButton = maximizedWrapper.find("#toggle-widgets-size-button");
+      toggleButton.prop("onClick")({ preventDefault: () => {} });
+
+      const dispatchedActions = maximizedStore.dispatch
+        .getCalls()
+        .map(call => call.args[0]);
+
+      const containerAction = dispatchedActions.find(
+        action => action.type === at.WIDGETS_CONTAINER_ACTION
+      );
+
+      assert.ok(containerAction, "should dispatch WIDGETS_CONTAINER_ACTION");
+      assert.equal(containerAction.data.action_type, "change_size_all");
+      assert.equal(
+        containerAction.data.action_value,
+        "minimize_widgets",
+        "action_value should indicate minimize widgets"
+      );
+      assert.equal(
+        containerAction.data.widget_size,
+        "small",
+        "should report new size (small) after minimizing"
       );
 
       maximizedStore.dispatch.restore();

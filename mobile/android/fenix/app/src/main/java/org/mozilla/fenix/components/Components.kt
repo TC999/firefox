@@ -18,7 +18,13 @@ import mozilla.components.feature.addons.update.DefaultAddonUpdater
 import mozilla.components.feature.autofill.AutofillConfiguration
 import mozilla.components.lib.crash.store.CrashAction
 import mozilla.components.lib.crash.store.CrashMiddleware
+import mozilla.components.lib.integrity.googleplay.GooglePlayIntegrityClient
+import mozilla.components.lib.integrity.googleplay.GoogleProjectNumber
+import mozilla.components.lib.integrity.googleplay.IntegrityManagerProvider
+import mozilla.components.lib.integrity.googleplay.TokenProviderFactory
 import mozilla.components.lib.publicsuffixlist.PublicSuffixList
+import mozilla.components.service.fxrelay.eligibility.RelayEligibilityStore
+import mozilla.components.service.fxrelay.eligibility.middlewares.ClearLastUsedMiddleware
 import mozilla.components.support.base.android.DefaultProcessInfoProvider
 import mozilla.components.support.base.android.NotificationsDelegate
 import mozilla.components.support.base.worker.Frequency
@@ -36,10 +42,14 @@ import org.mozilla.fenix.R
 import org.mozilla.fenix.autofill.AutofillConfirmActivity
 import org.mozilla.fenix.autofill.AutofillSearchActivity
 import org.mozilla.fenix.autofill.AutofillUnlockActivity
+import org.mozilla.fenix.browser.relay.ErrorMessages
+import org.mozilla.fenix.browser.relay.RelayFeatureIntegration
 import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.components.appstate.AppState
 import org.mozilla.fenix.components.appstate.setup.checklist.SetupChecklistState
 import org.mozilla.fenix.components.appstate.setup.checklist.getSetupChecklistCollection
+import org.mozilla.fenix.components.llm.Llm
+import org.mozilla.fenix.components.llm.ext.accessTokenProvider
 import org.mozilla.fenix.components.metrics.MetricsMiddleware
 import org.mozilla.fenix.crashes.CrashReportingAppMiddleware
 import org.mozilla.fenix.crashes.SettingsCrashReportCache
@@ -110,17 +120,19 @@ class Components(private val context: Context) {
 
     val useCases by lazyMonitored {
         UseCases(
-            context,
-            lazyMonitored { core.engine },
-            lazyMonitored { core.store },
-            lazyMonitored { core.webAppShortcutManager },
-            lazyMonitored { core.topSitesStorage },
-            lazyMonitored { core.bookmarksStorage },
-            lazyMonitored { core.historyStorage },
-            lazyMonitored { backgroundServices.syncedTabsCommands },
-            lazyMonitored { appStore },
-            lazyMonitored { core.client },
-            lazyMonitored { strictMode },
+            context = context,
+            crashReporter = lazyMonitored { analytics.crashReporter },
+            engine = lazyMonitored { core.engine },
+            store = lazyMonitored { core.store },
+            shortcutManager = lazyMonitored { core.webAppShortcutManager },
+            topSitesStorage = lazyMonitored { core.topSitesStorage },
+            bookmarksStorage = lazyMonitored { core.bookmarksStorage },
+            historyStorage = lazyMonitored { core.historyStorage },
+            syncedTabsCommands = lazyMonitored { backgroundServices.syncedTabsCommands },
+            adsClientProvider = ads.lazyAdsClientProvider,
+            appStore = lazyMonitored { appStore },
+            client = lazyMonitored { core.client },
+            strictMode = lazyMonitored { strictMode },
         )
     }
 
@@ -202,10 +214,11 @@ class Components(private val context: Context) {
     val remoteSettingsService = lazyMonitored {
         RemoteSettingsService(
             context,
-            if (context.settings().useProductionRemoteSettingsServer) {
-                RemoteSettingsServer.Prod.into()
-            } else {
-                RemoteSettingsServer.Stage.into()
+            when (context.settings().remoteSettingsServer) {
+                context.getString(R.string.remote_settings_server_prod) -> RemoteSettingsServer.Prod.into()
+                context.getString(R.string.remote_settings_server_dev) -> RemoteSettingsServer.Dev.into()
+                context.getString(R.string.remote_settings_server_stage) -> RemoteSettingsServer.Stage.into()
+                else -> RemoteSettingsServer.Prod.into()
             },
             channel = BuildConfig.BUILD_TYPE,
             // Need to send this value separately, since `isLargeScreenSize()` is a fenix extension
@@ -313,8 +326,8 @@ class Components(private val context: Context) {
                 SetupChecklistPreferencesMiddleware(DefaultSetupChecklistRepository(context)),
                 SetupChecklistTelemetryMiddleware(),
                 ReviewPromptMiddleware(
-                    isReviewPromptFeatureEnabled = { settings.customReviewPromptFeatureEnabled },
-                    isTelemetryEnabled = { settings.isTelemetryEnabled },
+                    shouldUseNewTriggerCriteria = { settings.newReviewPromptTriggerCriteriaEnabled },
+                    shouldShowCustomPrompt = { settings.customReviewPromptUiEnabled && settings.isTelemetryEnabled },
                     createJexlHelper = nimbus::createJexlHelper,
                     nimbusEventStore = nimbus.events,
                 ).also {
@@ -341,7 +354,7 @@ class Components(private val context: Context) {
         null
     }
 
-    val fxSuggest by lazyMonitored { FxSuggest(context, remoteSettingsService.value) }
+    val fxSuggest by lazyMonitored { FxSuggest(context, remoteSettingsService.value, analytics.crashReporter) }
 
     val distributionIdManager by lazyMonitored {
         DistributionIdManager(
@@ -349,16 +362,63 @@ class Components(private val context: Context) {
             browserStoreProvider = DefaultDistributionBrowserStoreProvider(core.store),
             distributionProviderChecker = DefaultDistributionProviderChecker(context),
             distributionSettings = DefaultDistributionSettings(settings),
+            metricController = analytics.metrics,
         )
     }
 
+    val integrityClient by lazyMonitored {
+        GooglePlayIntegrityClient(
+            TokenProviderFactory.create(
+                IntegrityManagerProvider.create(context),
+                GoogleProjectNumber.create(BuildConfig.GPS_INTEGRITY_TOKEN),
+            ),
+            clientUUID,
+        )
+    }
+
+    val termsOfUsePromptRepository by lazyMonitored {
+        DefaultTermsOfUsePromptRepository(settings)
+    }
+
     val termsOfUseManager by lazyMonitored {
-        TermsOfUseManager(DefaultTermsOfUsePromptRepository(settings))
+        TermsOfUseManager(termsOfUsePromptRepository)
     }
 
     val settingsIndexer by lazyMonitored {
         DefaultFenixSettingsIndexer(context)
     }
+
+    val ads by lazyMonitored {
+        Ads(context = context)
+    }
+
+    val relayEligibilityStore by lazyMonitored {
+        RelayEligibilityStore(middleware = listOf(ClearLastUsedMiddleware()))
+    }
+
+    val relayFeatureIntegration by lazyMonitored {
+        RelayFeatureIntegration(
+            engine = core.engine,
+            accountManager = backgroundServices.accountManager,
+            store = relayEligibilityStore,
+            appStore = appStore,
+            errorMessages = ErrorMessages(
+                maxMasksReached = context.getString(R.string.email_masks_max_free_tier_reached),
+                errorRetrievingMasks = context.getString(R.string.email_masks_error_retrieving_masks),
+            ),
+        )
+    }
+
+    val llm: Llm by lazyMonitored {
+        Llm(
+            client = core.client,
+            fxaTokenProvider = backgroundServices.accountManager.accessTokenProvider,
+            integrityClient = integrityClient,
+            userIdProvider = clientUUID,
+        )
+    }
+
+    val clientUUID by lazyMonitored { ClientUUID.build(context) }
 }
 
 /**

@@ -117,6 +117,7 @@
 #include "mozilla/dom/ServiceWorkerUtils.h"
 #include "mozilla/dom/SessionHistoryEntry.h"
 #include "mozilla/dom/SessionStorageManager.h"
+#include "mozilla/dom/SharedScriptCache.h"
 #include "mozilla/dom/StorageIPC.h"
 #include "mozilla/dom/URLClassifierParent.h"
 #include "mozilla/dom/UserActivation.h"
@@ -131,6 +132,9 @@
 #include "mozilla/extensions/StreamFilterParent.h"
 #include "mozilla/gfx/GPUProcessManager.h"
 #include "mozilla/gfx/gfxVars.h"
+#ifdef MOZ_WMF
+#  include "mozilla/glean/DomMediaPlatformsWmfMetrics.h"
+#endif
 #include "mozilla/glean/DomMetrics.h"
 #include "mozilla/glean/GleanPings.h"
 #include "mozilla/glean/IpcMetrics.h"
@@ -610,6 +614,7 @@ static const char* sObserverTopics[] = {
     "application-background",
     "application-foreground",
     "memory-pressure",
+    "memory-pressure-stop",
     "child-gc-request",
     "child-cc-request",
     "child-mmu-request",
@@ -721,6 +726,32 @@ nsDependentCSubstring RemoteTypePrefix(const nsACString& aContentProcessType) {
     equalIdx = aContentProcessType.Length();
   }
   return StringHead(aContentProcessType, equalIdx);
+}
+
+static bool IsRemoteTypeJitDisabled(const nsACString& aContentProcessType) {
+  if (!StringEndsWith(aContentProcessType, DISABLE_JIT_REMOTE_TYPE_SUFFIX)) {
+    return false;
+  }
+
+  auto remoteTypePrefix = RemoteTypePrefix(aContentProcessType);
+  if (remoteTypePrefix != FISSION_WEB_REMOTE_TYPE &&
+      remoteTypePrefix != SERVICEWORKER_REMOTE_TYPE &&
+      remoteTypePrefix != WITH_COOP_COEP_REMOTE_TYPE) {
+    return false;
+  }
+
+  auto suffixStart =
+      aContentProcessType.Length() - DISABLE_JIT_REMOTE_TYPE_SUFFIX.Length();
+  if (suffixStart > 0) {
+    char priorChar = aContentProcessType[suffixStart - 1];
+    if (priorChar != '&' && priorChar != '^') {
+      return false;
+    }
+  } else {
+    return false;
+  }
+
+  return true;
 }
 
 bool IsWebRemoteType(const nsACString& aContentProcessType) {
@@ -917,6 +948,7 @@ UniqueContentParentKeepAlive ContentParent::GetUsedBrowserProcess(
   if (aRemoteType != FILE_REMOTE_TYPE &&
       aRemoteType != PRIVILEGEDABOUT_REMOTE_TYPE &&
       aRemoteType != EXTENSION_REMOTE_TYPE &&  // Bug 1638119
+      !IsRemoteTypeJitDisabled(aRemoteType) &&
       (preallocated = PreallocatedProcessManager::Take(aRemoteType))) {
     MOZ_DIAGNOSTIC_ASSERT(preallocated->GetRemoteType() ==
                           PREALLOC_REMOTE_TYPE);
@@ -1522,6 +1554,16 @@ void ContentParent::BroadcastMediaCodecsSupportedUpdate(
 
   // Merge incoming support with existing support list from other locations
   media::MCSInfo::AddSupport(aSupported);
+
+#ifdef MOZ_WMF
+  if (aSupported.contains(media::MediaCodecsSupport::AV1LackOfExtension)) {
+    glean::media::wmf_codec_no_extension.Get("av1"_ns).Set(true);
+  }
+  if (aSupported.contains(media::MediaCodecsSupport::HEVCLackOfExtension)) {
+    glean::media::wmf_codec_no_extension.Get("hevc"_ns).Set(true);
+  }
+#endif
+
   auto fullSupport = media::MCSInfo::GetSupport();
 
   // Generate + save FULL support string for display in about:support
@@ -2104,7 +2146,8 @@ void ContentParent::MaybeBeginShutDown(bool aImmediate,
   bool immediate =
       aImmediate || IsDead() ||
       AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdownConfirmed) ||
-      StaticPrefs::dom_ipc_processReuse_unusedGraceMs() == 0;
+      StaticPrefs::dom_ipc_processReuse_unusedGraceMs() == 0 ||
+      IsRemoteTypeJitDisabled(mRemoteType);
 
   // Clean up any scheduled idle task unless we schedule a new one.
   auto cancelIdleTask = MakeScopeExit([&] {
@@ -2422,6 +2465,7 @@ bool ContentParent::BeginSubprocessLaunch(ProcessPriority aPriority) {
   Preferences::AddStrongObserver(this, "");
 
   geckoargs::sSafeMode.Put(gSafeMode, extraArgs);
+  geckoargs::sDisableJit.Put(IsRemoteTypeJitDisabled(mRemoteType), extraArgs);
 
 #if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
   if (IsContentSandboxEnabled()) {
@@ -2738,7 +2782,9 @@ bool ContentParent::InitInternal(ProcessPriority aInitialPriority) {
       clipboard->IsClipboardTypeSupported(nsIClipboard::kSelectionCache);
 
   // Let's copy the domain policy from the parent to the child (if it's active).
-  auto initialData = MakeUnique<StructuredCloneData>();
+  auto initialData = MakeNotNull<RefPtr<StructuredCloneData>>(
+      JS::StructuredCloneScope::DifferentProcess,
+      StructuredCloneHolder::TransferringNotSupported);
   nsIScriptSecurityManager* ssm = nsContentUtils::GetSecurityManager();
   if (ssm) {
     ssm->CloneDomainPolicy(&xpcomInit.domainPolicy());
@@ -3460,7 +3506,10 @@ mozilla::ipc::IPCResult ContentParent::RecvGetIconForExtension(
     return IPC_OK();
   }
 
-  bits->AppendElements(aIconSize * aIconSize * 4);
+  // Explicitly zero-initialize the output to ensure we do not send
+  // uninitialized heap memory over IPC to the child process to avoid heap data
+  // leakage.
+  bits->InsertElementsAt(0, aIconSize * aIconSize * 4, 0);
 
   AndroidBridge::Bridge()->GetIconForExtension(aFileExt, aIconSize,
                                                bits->Elements());
@@ -3792,7 +3841,9 @@ ContentParent::Observe(nsISupports* aSubject, const char* aTopic,
 
   // listening for memory pressure event
   if (!strcmp(aTopic, "memory-pressure")) {
-    (void)SendFlushMemory(nsDependentString(aData));
+    (void)SendMemoryPressure(nsDependentString(aData));
+  } else if (!strcmp(aTopic, "memory-pressure-stop")) {
+    (void)SendMemoryPressureStop();
   } else if (!strcmp(aTopic, "application-background")) {
     (void)SendApplicationBackground();
   } else if (!strcmp(aTopic, "application-foreground")) {
@@ -4111,6 +4162,13 @@ mozilla::ipc::IPCResult ContentParent::RecvConstructPopupBrowser(
     const uint32_t& aChromeFlags) {
   MOZ_ASSERT(XRE_IsParentProcess());
 
+  if (!aBrowserEp.IsValidForManager(this)) {
+    return IPC_FAIL(this, "Invalid PBrowserParent endpoint");
+  }
+  if (!aWindowEp.IsValidForManager(aBrowserEp)) {
+    return IPC_FAIL(this, "Invalid PWindowGlobalParent endpoint");
+  }
+
   if (!CanOpenBrowser(aContext)) {
     return IPC_FAIL(this, "CanOpenBrowser Failed");
   }
@@ -4274,7 +4332,7 @@ void ContentParent::GeneratePairedMinidump(const char* aReason) {
 
 void ContentParent::HandleOrphanedMinidump(nsString* aDumpId) {
   if (CrashReporter::FinalizeOrphanedMinidump(
-          OtherPid(), GeckoProcessType_Content, aDumpId)) {
+          OtherChildID(), GeckoProcessType_Content, aDumpId)) {
     CrashReporterHost::RecordCrash(GeckoProcessType_Content,
                                    nsICrashService::CRASH_TYPE_CRASH, *aDumpId);
   } else {
@@ -4374,7 +4432,7 @@ void ContentParent::FriendlyName(nsAString& aName, bool aAnonymize) {
 mozilla::ipc::IPCResult ContentParent::RecvInitCrashReporter(
     const CrashReporter::CrashReporterInitArgs& aInitArgs) {
   mCrashReporter = MakeUnique<CrashReporterHost>(GeckoProcessType_Content,
-                                                 OtherPid(), aInitArgs);
+                                                 OtherChildID(), aInitArgs);
   return IPC_OK();
 }
 
@@ -4456,6 +4514,12 @@ PScriptCacheParent* ContentParent::AllocPScriptCacheParent(
 bool ContentParent::DeallocPScriptCacheParent(PScriptCacheParent* cache) {
   delete static_cast<loader::ScriptCacheParent*>(cache);
   return true;
+}
+
+mozilla::ipc::IPCResult ContentParent::RecvUpdateScriptCacheEverHitTelemetry(
+    const uint64_t& aChildId, const uint32_t& aRate) {
+  mozilla::dom::SharedScriptCache::RecvUpdateEverHitTelemetry(aChildId, aRate);
+  return IPC_OK();
 }
 
 already_AddRefed<PNeckoParent> ContentParent::AllocPNeckoParent() {
@@ -4660,36 +4724,28 @@ mozilla::ipc::IPCResult ContentParent::RecvExtProtocolChannelConnectParent(
 }
 
 mozilla::ipc::IPCResult ContentParent::RecvSyncMessage(
-    const nsAString& aMsg, const ClonedMessageData& aData,
-    nsTArray<UniquePtr<StructuredCloneData>>* aRetvals) {
+    const nsAString& aMsg, NotNull<StructuredCloneData*> aData,
+    nsTArray<NotNull<RefPtr<StructuredCloneData>>>* aRetvals) {
   AUTO_PROFILER_LABEL_DYNAMIC_LOSSY_NSSTRING("ContentParent::RecvSyncMessage",
                                              OTHER, aMsg);
   MMPrinter::Print("ContentParent::RecvSyncMessage", aMsg, aData);
 
   RefPtr<nsFrameMessageManager> ppm = mMessageManager;
   if (ppm) {
-    ipc::StructuredCloneData data;
-    ipc::UnpackClonedMessageData(aData, data);
-
-    ppm->ReceiveMessage(ppm, nullptr, aMsg, true, &data, aRetvals,
-                        IgnoreErrors());
+    ppm->ReceiveMessage(ppm, nullptr, aMsg, true, aData, aRetvals);
   }
   return IPC_OK();
 }
 
 mozilla::ipc::IPCResult ContentParent::RecvAsyncMessage(
-    const nsAString& aMsg, const ClonedMessageData& aData) {
+    const nsAString& aMsg, NotNull<StructuredCloneData*> aData) {
   AUTO_PROFILER_LABEL_DYNAMIC_LOSSY_NSSTRING("ContentParent::RecvAsyncMessage",
                                              OTHER, aMsg);
   MMPrinter::Print("ContentParent::RecvAsyncMessage", aMsg, aData);
 
   RefPtr<nsFrameMessageManager> ppm = mMessageManager;
   if (ppm) {
-    ipc::StructuredCloneData data;
-    ipc::UnpackClonedMessageData(aData, data);
-
-    ppm->ReceiveMessage(ppm, nullptr, aMsg, false, &data, nullptr,
-                        IgnoreErrors());
+    ppm->ReceiveMessage(ppm, nullptr, aMsg, false, aData, nullptr);
   }
   return IPC_OK();
 }
@@ -4800,10 +4856,10 @@ mozilla::ipc::IPCResult ContentParent::RecvScriptErrorWithStack(
     const uint32_t& aLineNumber, const uint32_t& aColNumber,
     const uint32_t& aFlags, const nsACString& aCategory,
     const bool& aIsFromPrivateWindow, const bool& aIsFromChromeContext,
-    const ClonedMessageData& aStack) {
+    NotNull<StructuredCloneData*> aStack) {
   return RecvScriptErrorInternal(aMessage, aSourceName, aLineNumber, aColNumber,
                                  aFlags, aCategory, aIsFromPrivateWindow,
-                                 aIsFromChromeContext, &aStack);
+                                 aIsFromChromeContext, aStack);
 }
 
 mozilla::ipc::IPCResult ContentParent::RecvScriptErrorInternal(
@@ -4811,7 +4867,7 @@ mozilla::ipc::IPCResult ContentParent::RecvScriptErrorInternal(
     const uint32_t& aLineNumber, const uint32_t& aColNumber,
     const uint32_t& aFlags, const nsACString& aCategory,
     const bool& aIsFromPrivateWindow, const bool& aIsFromChromeContext,
-    const ClonedMessageData* aStack) {
+    StructuredCloneData* aStack) {
   nsresult rv;
   nsCOMPtr<nsIConsoleService> consoleService =
       do_GetService(NS_CONSOLESERVICE_CONTRACTID, &rv);
@@ -4822,9 +4878,6 @@ mozilla::ipc::IPCResult ContentParent::RecvScriptErrorInternal(
   nsCOMPtr<nsIScriptError> msg;
 
   if (aStack) {
-    StructuredCloneData data;
-    UnpackClonedMessageData(*aStack, data);
-
     AutoJSAPI jsapi;
     if (NS_WARN_IF(!jsapi.Init(xpc::PrivilegedJunkScope()))) {
       MOZ_CRASH();
@@ -4832,10 +4885,9 @@ mozilla::ipc::IPCResult ContentParent::RecvScriptErrorInternal(
     JSContext* cx = jsapi.cx();
 
     JS::Rooted<JS::Value> stack(cx);
-    ErrorResult rv;
-    data.Read(cx, &stack, rv);
+    IgnoredErrorResult rv;
+    aStack->Read(cx, &stack, rv);
     if (rv.Failed() || !stack.isObject()) {
-      rv.SuppressException();
       return IPC_OK();
     }
 
@@ -4867,13 +4919,9 @@ bool ContentParent::DoLoadMessageManagerScript(const nsAString& aURL,
   return SendLoadProcessScript(aURL);
 }
 
-nsresult ContentParent::DoSendAsyncMessage(const nsAString& aMessage,
-                                           StructuredCloneData& aData) {
-  ClonedMessageData data;
-  if (!BuildClonedMessageData(aData, data)) {
-    return NS_ERROR_DOM_DATA_CLONE_ERR;
-  }
-  if (!SendAsyncMessage(aMessage, data)) {
+nsresult ContentParent::DoSendAsyncMessage(
+    const nsAString& aMessage, NotNull<StructuredCloneData*> aData) {
+  if (!SendAsyncMessage(aMessage, aData)) {
     return NS_ERROR_UNEXPECTED;
   }
   return NS_OK;
@@ -5120,8 +5168,18 @@ ContentParent::AllocPContentPermissionRequestParent(
     topPrincipal = principal;
   }
   return nsContentPermissionUtils::CreateContentPermissionRequestParent(
-      aRequests, tp->GetOwnerElement(), aPrincipal, topPrincipal,
-      aIsHandlingUserInput, aMaybeUnsafePermissionDelegate, aTabId);
+      tp->GetOwnerElement(), aPrincipal, topPrincipal, aIsHandlingUserInput,
+      aMaybeUnsafePermissionDelegate, aTabId);
+}
+
+mozilla::ipc::IPCResult ContentParent::RecvPContentPermissionRequestConstructor(
+    PContentPermissionRequestParent* aActor,
+    nsTArray<PermissionRequest>&& aRequests, nsIPrincipal* aPrincipal,
+    nsIPrincipal* aTopLevelPrincipal, const bool& aIsHandlingUserInput,
+    const bool& aMaybeUnsafePermissionDelegate, const TabId& tabId) {
+  nsContentPermissionUtils::InitContentPermissionRequestParent(
+      aActor, std::move(aRequests));
+  return IPC_OK();
 }
 
 bool ContentParent::DeallocPContentPermissionRequestParent(
@@ -5702,68 +5760,6 @@ mozilla::ipc::IPCResult ContentParent::RecvEndDriverCrashGuard(
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult ContentParent::RecvNotifyPushObservers(
-    const nsACString& aScope, nsIPrincipal* aPrincipal,
-    const nsAString& aMessageId) {
-  if (!aPrincipal) {
-    return IPC_FAIL(this, "No principal");
-  }
-
-  if (!ValidatePrincipal(aPrincipal)) {
-    LogAndAssertFailedPrincipalValidationInfo(aPrincipal, __func__);
-  }
-  PushMessageDispatcher dispatcher(aScope, aPrincipal, aMessageId, Nothing());
-  (void)NS_WARN_IF(NS_FAILED(dispatcher.NotifyObserversAndWorkers()));
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult ContentParent::RecvNotifyPushObserversWithData(
-    const nsACString& aScope, nsIPrincipal* aPrincipal,
-    const nsAString& aMessageId, nsTArray<uint8_t>&& aData) {
-  if (!aPrincipal) {
-    return IPC_FAIL(this, "No principal");
-  }
-
-  if (!ValidatePrincipal(aPrincipal)) {
-    LogAndAssertFailedPrincipalValidationInfo(aPrincipal, __func__);
-  }
-  PushMessageDispatcher dispatcher(aScope, aPrincipal, aMessageId,
-                                   Some(std::move(aData)));
-  (void)NS_WARN_IF(NS_FAILED(dispatcher.NotifyObserversAndWorkers()));
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult ContentParent::RecvPushError(const nsACString& aScope,
-                                                     nsIPrincipal* aPrincipal,
-                                                     const nsAString& aMessage,
-                                                     const uint32_t& aFlags) {
-  if (!aPrincipal) {
-    return IPC_FAIL(this, "No principal");
-  }
-
-  if (!ValidatePrincipal(aPrincipal)) {
-    LogAndAssertFailedPrincipalValidationInfo(aPrincipal, __func__);
-  }
-  PushErrorDispatcher dispatcher(aScope, aPrincipal, aMessage, aFlags);
-  (void)NS_WARN_IF(NS_FAILED(dispatcher.NotifyObserversAndWorkers()));
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult
-ContentParent::RecvNotifyPushSubscriptionModifiedObservers(
-    const nsACString& aScope, nsIPrincipal* aPrincipal) {
-  if (!aPrincipal) {
-    return IPC_FAIL(this, "No principal");
-  }
-
-  if (!ValidatePrincipal(aPrincipal)) {
-    LogAndAssertFailedPrincipalValidationInfo(aPrincipal, __func__);
-  }
-  PushSubscriptionModifiedDispatcher dispatcher(aScope, aPrincipal);
-  (void)NS_WARN_IF(NS_FAILED(dispatcher.NotifyObservers()));
-  return IPC_OK();
-}
-
 /* static */
 void ContentParent::BroadcastBlobURLRegistration(const nsACString& aURI,
                                                  BlobImpl* aBlobImpl,
@@ -6338,6 +6334,20 @@ mozilla::ipc::IPCResult ContentParent::RecvRecordPageLoadEvent(
 #ifdef ANDROID
   RecordAndroidAppLinkTelemetry(&aPageloadEventData, aNavigationStartTime,
                                 aAndroidAppLinkLaunchTypeIdentifier);
+
+  // Set the process isolation category based on the remote type for Android.
+  const nsDependentCSubstring remoteTypePrefix =
+      RemoteTypePrefix(GetRemoteType());
+
+  if (remoteTypePrefix == WEB_REMOTE_TYPE) {
+    aPageloadEventData.set_androidIsolationCategory("shared_web"_ns);
+  } else if (remoteTypePrefix == FISSION_WEB_REMOTE_TYPE) {
+    aPageloadEventData.set_androidIsolationCategory("site_isolated"_ns);
+  } else if (remoteTypePrefix == WITH_COOP_COEP_REMOTE_TYPE) {
+    aPageloadEventData.set_androidIsolationCategory("coop_isolated"_ns);
+  } else {
+    aPageloadEventData.set_androidIsolationCategory("other"_ns);
+  }
 #endif
 
   // If the domain information exists, then we need to send it using a special
@@ -6456,6 +6466,9 @@ mozilla::ipc::IPCResult ContentParent::RecvPURLClassifierLocalByNameConstructor(
   for (nsCString& featureName : aFeatureNames) {
     RefPtr<nsIUrlClassifierFeature> feature =
         UrlClassifierFeatureFactory::GetFeatureByName(featureName);
+    if (!feature) {
+      continue;
+    }
     nsAutoCString name;
     nsresult rv = feature->GetName(name);
     if (NS_WARN_IF(NS_FAILED(rv))) {
@@ -6572,7 +6585,8 @@ ContentParent::RecvStorageAccessPermissionGrantedForOrigin(
   }
 
   if (!aTrackingPrincipal) {
-    return IPC_FAIL(this, "No principal");
+    aResolver(false);
+    return IPC_OK();
   }
 
   // We only report here if we cannot report the console directly in the content
@@ -6626,98 +6640,6 @@ mozilla::ipc::IPCResult ContentParent::RecvCompleteAllowAccessFor(
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult ContentParent::RecvSetAllowStorageAccessRequestFlag(
-    nsIPrincipal* aEmbeddedPrincipal, nsIURI* aEmbeddingOrigin,
-    SetAllowStorageAccessRequestFlagResolver&& aResolver) {
-  MOZ_ASSERT(aEmbeddedPrincipal);
-  MOZ_ASSERT(aEmbeddingOrigin);
-
-  if (!aEmbeddedPrincipal || !aEmbeddingOrigin) {
-    aResolver(false);
-    return IPC_OK();
-  }
-
-  // Get the permission manager and build the key.
-  RefPtr<PermissionManager> permManager = PermissionManager::GetInstance();
-  if (!permManager) {
-    aResolver(false);
-    return IPC_OK();
-  }
-  nsCOMPtr<nsIURI> embeddedURI = aEmbeddedPrincipal->GetURI();
-  nsCString permissionKey;
-  bool success = AntiTrackingUtils::CreateStorageRequestPermissionKey(
-      embeddedURI, permissionKey);
-  if (!success) {
-    aResolver(false);
-    return IPC_OK();
-  }
-
-  // Set the permission to ALLOW for a prefence specified amount of seconds.
-  // Time units are inconsistent, be careful
-  int64_t when = (PR_Now() / PR_USEC_PER_MSEC) +
-                 StaticPrefs::dom_storage_access_forward_declared_lifetime() *
-                     PR_MSEC_PER_SEC;
-  nsCOMPtr<nsIPrincipal> principal = BasePrincipal::CreateContentPrincipal(
-      aEmbeddingOrigin, aEmbeddedPrincipal->OriginAttributesRef());
-  nsresult rv = permManager->AddFromPrincipal(
-      principal, permissionKey, nsIPermissionManager::ALLOW_ACTION,
-      nsIPermissionManager::EXPIRE_TIME, when);
-  if (NS_FAILED(rv)) {
-    aResolver(false);
-    return IPC_OK();
-  }
-
-  // Resolve with success if we set the permission.
-  aResolver(true);
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult ContentParent::RecvTestAllowStorageAccessRequestFlag(
-    nsIPrincipal* aEmbeddingPrincipal, nsIURI* aEmbeddedOrigin,
-    TestAllowStorageAccessRequestFlagResolver&& aResolver) {
-  MOZ_ASSERT(aEmbeddingPrincipal);
-  MOZ_ASSERT(aEmbeddedOrigin);
-
-  // Get the permission manager and build the key.
-  RefPtr<PermissionManager> permManager = PermissionManager::GetInstance();
-  if (!permManager) {
-    aResolver(false);
-    return IPC_OK();
-  }
-  nsCString requestPermissionKey;
-  bool success = AntiTrackingUtils::CreateStorageRequestPermissionKey(
-      aEmbeddedOrigin, requestPermissionKey);
-  if (!success) {
-    aResolver(false);
-    return IPC_OK();
-  }
-
-  // Get the permission and resolve false if it is not set to ALLOW.
-  uint32_t access = nsIPermissionManager::UNKNOWN_ACTION;
-  nsresult rv = permManager->TestPermissionFromPrincipal(
-      aEmbeddingPrincipal, requestPermissionKey, &access);
-  if (NS_FAILED(rv)) {
-    aResolver(false);
-    return IPC_OK();
-  }
-  if (access != nsIPermissionManager::ALLOW_ACTION) {
-    aResolver(false);
-    return IPC_OK();
-  }
-
-  // Remove the permission, failing if the permission manager fails
-  rv = permManager->RemoveFromPrincipal(aEmbeddingPrincipal,
-                                        requestPermissionKey);
-  if (NS_FAILED(rv)) {
-    aResolver(false);
-    return IPC_OK();
-  }
-
-  // At this point, signal to our caller that the permission was set
-  aResolver(true);
-  return IPC_OK();
-}
-
 mozilla::ipc::IPCResult ContentParent::RecvStoreUserInteractionAsPermission(
     nsIPrincipal* aPrincipal) {
   if (!aPrincipal) {
@@ -6744,44 +6666,17 @@ mozilla::ipc::IPCResult ContentParent::RecvTestCookiePermissionDecided(
 
   RefPtr<WindowGlobalParent> wgp =
       aContext.get_canonical()->GetCurrentWindowGlobal();
+
+  if (!wgp) {
+    return IPC_FAIL(this, "No current window global");
+  }
+
   nsCOMPtr<nsICookieJarSettings> cjs = wgp->CookieJarSettings();
 
   Maybe<bool> result =
       StorageAccessAPIHelper::CheckCookiesPermittedDecidesStorageAccessAPI(
           cjs, aPrincipal);
   aResolver(result);
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult ContentParent::RecvTestStorageAccessPermission(
-    nsIPrincipal* aEmbeddingPrincipal, const nsCString& aEmbeddedOrigin,
-    const TestStorageAccessPermissionResolver&& aResolver) {
-  // Get the permission manager and build the key.
-  RefPtr<PermissionManager> permManager = PermissionManager::GetInstance();
-  if (!permManager) {
-    aResolver(Nothing());
-    return IPC_OK();
-  }
-  nsCString requestPermissionKey;
-  AntiTrackingUtils::CreateStoragePermissionKey(aEmbeddedOrigin,
-                                                requestPermissionKey);
-
-  // Test the permission
-  uint32_t access = nsIPermissionManager::UNKNOWN_ACTION;
-  nsresult rv = permManager->TestPermissionFromPrincipal(
-      aEmbeddingPrincipal, requestPermissionKey, &access);
-  if (NS_FAILED(rv)) {
-    aResolver(Nothing());
-    return IPC_OK();
-  }
-  if (access == nsIPermissionManager::ALLOW_ACTION) {
-    aResolver(Some(true));
-  } else if (access == nsIPermissionManager::DENY_ACTION) {
-    aResolver(Some(false));
-  } else {
-    aResolver(Nothing());
-  }
-
   return IPC_OK();
 }
 
@@ -7432,7 +7327,7 @@ mozilla::ipc::IPCResult ContentParent::RecvMaybeExitFullscreen(
 
 mozilla::ipc::IPCResult ContentParent::RecvWindowPostMessage(
     const MaybeDiscarded<BrowsingContext>& aContext,
-    const ClonedOrErrorMessageData& aMessage, const PostMessageData& aData) {
+    StructuredCloneData* aMessage, const PostMessageData& aData) {
   if (aContext.IsNullOrDiscarded()) {
     MOZ_LOG(
         BrowsingContext::GetLog(), LogLevel::Debug,
@@ -7455,24 +7350,7 @@ mozilla::ipc::IPCResult ContentParent::RecvWindowPostMessage(
     return IPC_OK();
   }
 
-  ClonedOrErrorMessageData message;
-  StructuredCloneData messageFromChild;
-  if (aMessage.type() == ClonedOrErrorMessageData::TClonedMessageData) {
-    UnpackClonedMessageData(aMessage, messageFromChild);
-
-    ClonedMessageData clonedMessageData;
-    if (BuildClonedMessageData(messageFromChild, clonedMessageData)) {
-      message = std::move(clonedMessageData);
-    } else {
-      // FIXME Logging?
-      message = ErrorMessageData();
-    }
-  } else {
-    MOZ_ASSERT(aMessage.type() == ClonedOrErrorMessageData::TErrorMessageData);
-    message = ErrorMessageData();
-  }
-
-  (void)cp->SendWindowPostMessage(context, message, aData);
+  (void)cp->SendWindowPostMessage(context, aMessage, aData);
   return IPC_OK();
 }
 
@@ -7749,15 +7627,12 @@ ContentParent::RecvGetLoadingSessionHistoryInfoFromParent(
 
 mozilla::ipc::IPCResult ContentParent::RecvSynchronizeNavigationAPIState(
     const MaybeDiscarded<BrowsingContext>& aContext,
-    const ClonedMessageData& aState) {
+    NotNull<nsStructuredCloneContainer*> aState) {
   if (aContext.IsNullOrDiscarded()) {
     return IPC_OK();
   }
 
-  RefPtr state = MakeRefPtr<nsStructuredCloneContainer>();
-  state->CopyFromClonedMessageData(aState);
-
-  aContext.get_canonical()->SynchronizeNavigationAPIState(state);
+  aContext.get_canonical()->SynchronizeNavigationAPIState(aState);
   return IPC_OK();
 }
 
@@ -7914,15 +7789,10 @@ void ContentParent::StartRemoteWorkerService() {
   }
 }
 
-IPCResult ContentParent::RecvRawMessage(
-    const JSActorMessageMeta& aMeta, JSIPCValue&& aData,
-    const UniquePtr<ClonedMessageData>& aStack) {
-  UniquePtr<StructuredCloneData> stack;
-  if (aStack) {
-    stack = MakeUnique<StructuredCloneData>();
-    stack->BorrowFromClonedMessageData(*aStack);
-  }
-  ReceiveRawMessage(aMeta, std::move(aData), std::move(stack));
+IPCResult ContentParent::RecvRawMessage(const JSActorMessageMeta& aMeta,
+                                        JSIPCValue&& aData,
+                                        StructuredCloneData* aStack) {
+  ReceiveRawMessage(aMeta, std::move(aData), aStack);
   return IPC_OK();
 }
 
@@ -7985,6 +7855,32 @@ mozilla::ipc::IPCResult ContentParent::RecvSetContainerFeaturePolicy(
 
   auto* context = aContainerContext.get_canonical();
   context->SetContainerFeaturePolicy(std::move(aContainerFeaturePolicyInfo));
+
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentParent::RecvUpdateAncestorOriginsList(
+    const MaybeDiscardedBrowsingContext& aContext) {
+  if (!aContext.IsNullOrDiscarded()) {
+    auto* canonical = aContext.get_canonical();
+    if (WindowGlobalParent* windowGlobal =
+            canonical->GetCurrentWindowGlobal()) {
+      canonical->CreateRedactedAncestorOriginsList(
+          windowGlobal->DocumentPrincipal(),
+          canonical->GetEmbedderFrameReferrerPolicy());
+    }
+  }
+
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentParent::RecvSetReferrerPolicyForEmbedderFrame(
+    const MaybeDiscardedBrowsingContext& aContext,
+    const ReferrerPolicy& aPolicy) {
+  if (!aContext.IsNullOrDiscarded()) {
+    auto* canonical = aContext.get_canonical();
+    canonical->SetEmbedderFrameReferrerPolicy(aPolicy);
+  }
 
   return IPC_OK();
 }

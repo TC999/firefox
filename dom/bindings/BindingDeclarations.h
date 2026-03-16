@@ -10,8 +10,8 @@
  * include anywhere without running into include hell like we do with
  * BindingUtils.h
  */
-#ifndef mozilla_dom_BindingDeclarations_h__
-#define mozilla_dom_BindingDeclarations_h__
+#ifndef mozilla_dom_BindingDeclarations_h_
+#define mozilla_dom_BindingDeclarations_h_
 
 #include <type_traits>
 
@@ -46,26 +46,26 @@ struct DictionaryBase {
  protected:
   bool ParseJSON(JSContext* aCx, const nsAString& aJSON,
                  JS::MutableHandle<JS::Value> aVal);
+  bool ParseJSON(JSContext* aCx, const nsACString& aJSON,
+                 JS::MutableHandle<JS::Value> aVal);
 
   bool StringifyToJSON(JSContext* aCx, JS::Handle<JSObject*> aObj,
                        nsAString& aJSON) const;
+  bool StringifyToJSON(JSContext* aCx, JS::Handle<JSObject*> aObj,
+                       nsACString& aJSON) const;
 
   // Struct used as a way to force a dictionary constructor to not init the
   // dictionary (via constructing from a pointer to this class).  We're putting
   // it here so that all the dictionaries will have access to it, but outside
   // code will not.
   struct FastDictionaryInitializer {};
+};
 
-  bool mIsAnyMemberPresent = false;
-
- private:
-  // aString is expected to actually be an nsAString*.  Should only be
-  // called from StringifyToJSON.
-  static bool AppendJSONToString(const char16_t* aJSONData,
-                                 uint32_t aDataLength, void* aString);
-
- public:
+struct MaybeEmptyDictionaryBase : DictionaryBase {
   bool IsAnyMemberPresent() const { return mIsAnyMemberPresent; }
+
+ protected:
+  bool mIsAnyMemberPresent = false;
 };
 
 template <class T>
@@ -569,4 +569,4 @@ class ReflectedHTMLAttributeSlots;
 }  // namespace dom
 }  // namespace mozilla
 
-#endif  // mozilla_dom_BindingDeclarations_h__
+#endif  // mozilla_dom_BindingDeclarations_h_

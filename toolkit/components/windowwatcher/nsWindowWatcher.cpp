@@ -90,15 +90,8 @@ class nsWindowWatcher;
 struct nsWatcherWindowEntry {
   nsWatcherWindowEntry(mozIDOMWindowProxy* aWindow,
                        nsIWebBrowserChrome* aChrome)
-      : mChrome(nullptr) {
-    mWindow = aWindow;
-    nsCOMPtr<nsISupportsWeakReference> supportsweak(do_QueryInterface(aChrome));
-    if (supportsweak) {
-      supportsweak->GetWeakReference(getter_AddRefs(mChromeWeak));
-    } else {
-      mChrome = aChrome;
-      mChromeWeak = nullptr;
-    }
+      : mWindow(do_GetWeakReference(aWindow)),
+        mChrome(do_GetWeakReference(aChrome)) {
     ReferenceSelf();
   }
   ~nsWatcherWindowEntry() = default;
@@ -107,9 +100,8 @@ struct nsWatcherWindowEntry {
   void Unlink();
   void ReferenceSelf();
 
-  mozIDOMWindowProxy* mWindow;
-  nsIWebBrowserChrome* mChrome;
-  nsWeakPtr mChromeWeak;
+  nsWeakPtr mWindow;
+  nsWeakPtr mChrome;
   // each struct is in a circular, doubly-linked list
   nsWatcherWindowEntry* mYounger;  // next younger in sequence
   nsWatcherWindowEntry* mOlder;
@@ -193,10 +185,15 @@ nsWatcherWindowEnumerator::GetNext(nsISupports** aResult) {
 
   *aResult = nullptr;
 
-  if (mCurrentPosition) {
-    CallQueryInterface(mCurrentPosition->mWindow, aResult);
+  while (mCurrentPosition) {
+    nsCOMPtr<mozIDOMWindowProxy> window =
+        do_QueryReferent(mCurrentPosition->mWindow);
+    if (window) {
+      CallQueryInterface(window, aResult);
+      mCurrentPosition = FindNext();
+      return NS_OK;
+    }
     mCurrentPosition = FindNext();
-    return NS_OK;
   }
   return NS_ERROR_FAILURE;
 }
@@ -553,8 +550,8 @@ nsWindowWatcher::OpenWindowWithRemoteTab(
   // don't need to propagate isPopupRequested out-parameter to the resulting
   // browsing context.
   bool unused = false;
-  uint32_t chromeFlags =
-      CalculateChromeFlagsForContent(aFeatures, aModifiers, &unused);
+  uint32_t chromeFlags = CalculateChromeFlagsForContent(aFeatures, aModifiers,
+                                                        aCalledFromJS, &unused);
 
   if (isPrivateBrowsingWindow) {
     chromeFlags |= nsIWebBrowserChrome::CHROME_PRIVATE_WINDOW;
@@ -609,6 +606,16 @@ nsWindowWatcher::OpenWindowWithRemoteTab(
   chromeTreeOwner->GetPrimaryRemoteTab(getter_AddRefs(newBrowserParent));
   if (NS_WARN_IF(!newBrowserParent)) {
     return NS_ERROR_UNEXPECTED;
+  }
+
+  if (chromeFlags & nsIWebBrowserChrome::CHROME_DOCUMENT_PIP) {
+    RefPtr<BrowserHost> newBrowserHost = BrowserHost::GetFrom(newBrowserParent);
+    RefPtr<Element> rootElement =
+        newBrowserHost->GetOwnerElement()->OwnerDoc()->GetRootElement();
+    if (aFeatures.Exists("disallow_return_to_opener")) {
+      rootElement->SetAttribute(u"disallowReturnToOpener"_ns, u""_ns,
+                                IgnoreErrors());
+    }
   }
 
   newBrowserParent.forget(aResult);
@@ -804,8 +811,8 @@ nsresult nsWindowWatcher::OpenWindowInternal(
   } else {
     MOZ_DIAGNOSTIC_ASSERT(parentBC && parentBC->IsContent(),
                           "content caller must provide content parent");
-    chromeFlags =
-        CalculateChromeFlagsForContent(features, aModifiers, &isPopupRequested);
+    chromeFlags = CalculateChromeFlagsForContent(
+        features, aModifiers, aCalledFromJS, &isPopupRequested);
 
     if (aDialog) {
       MOZ_ASSERT(XRE_IsParentProcess());
@@ -959,10 +966,17 @@ nsresult nsWindowWatcher::OpenWindowInternal(
       activeDocsSandboxFlags = parentDoc->GetSandboxFlags();
 
       if (!aForceNoOpener) {
+        // Inherit from the entry global, e.g. for window.open and fall
+        // back to the parent, e.g. for link clicks.
+        Document* creator = GetEntryDocument();
+        if (!creator) {
+          creator = parentDoc;
+        }
         openWindowInfo->mPolicyContainerToInheritForAboutBlank =
-            parentDoc->GetPolicyContainer();
+            creator->GetPolicyContainer();
         openWindowInfo->mCoepToInheritForAboutBlank =
-            parentDoc->GetEmbedderPolicy();
+            creator->GetEmbedderPolicy();
+        openWindowInfo->mBaseUriToInheritForAboutBlank = creator->GetBaseURI();
       }
 
       // Check to see if this frame is allowed to navigate, but don't check if
@@ -1645,14 +1659,7 @@ nsWindowWatcher::AddWindow(mozIDOMWindowProxy* aWindow,
     // its chrome mapping and return
     info = FindWindowEntry(aWindow);
     if (info) {
-      nsCOMPtr<nsISupportsWeakReference> supportsweak(
-          do_QueryInterface(aChrome));
-      if (supportsweak) {
-        supportsweak->GetWeakReference(getter_AddRefs(info->mChromeWeak));
-      } else {
-        info->mChrome = aChrome;
-        info->mChromeWeak = nullptr;
-      }
+      info->mChrome = do_GetWeakReference(aChrome);
       return NS_OK;
     }
 
@@ -1706,7 +1713,8 @@ nsWatcherWindowEntry* nsWindowWatcher::FindWindowEntry(
   info = mOldestWindow;
   listEnd = nullptr;
   while (info != listEnd) {
-    if (info->mWindow == aWindow) {
+    nsCOMPtr<mozIDOMWindowProxy> window = do_QueryReferent(info->mWindow);
+    if (window && window == aWindow) {
       return info;
     }
     info = info->mYounger;
@@ -1737,8 +1745,11 @@ nsresult nsWindowWatcher::RemoveWindow(nsWatcherWindowEntry* aInfo) {
   // send notifications.
   nsCOMPtr<nsIObserverService> os = mozilla::services::GetObserverService();
   if (os) {
-    nsCOMPtr<nsISupports> domwin(do_QueryInterface(aInfo->mWindow));
-    os->NotifyObservers(domwin, "domwindowclosed", nullptr);
+    nsCOMPtr<mozIDOMWindowProxy> window = do_QueryReferent(aInfo->mWindow);
+    if (window) {
+      nsCOMPtr<nsISupports> domwin(do_QueryInterface(window));
+      os->NotifyObservers(domwin, "domwindowclosed", nullptr);
+    }
   }
 
   delete aInfo;
@@ -1756,12 +1767,8 @@ nsWindowWatcher::GetChromeForWindow(mozIDOMWindowProxy* aWindow,
   MutexAutoLock lock(mListLock);
   nsWatcherWindowEntry* info = FindWindowEntry(aWindow);
   if (info) {
-    if (info->mChromeWeak) {
-      return info->mChromeWeak->QueryReferent(
-          NS_GET_IID(nsIWebBrowserChrome), reinterpret_cast<void**>(aResult));
-    }
-    *aResult = info->mChrome;
-    NS_IF_ADDREF(*aResult);
+    nsCOMPtr<nsIWebBrowserChrome> chrome = do_QueryReferent(info->mChrome);
+    chrome.forget(aResult);
   }
   return NS_OK;
 }
@@ -1878,6 +1885,9 @@ bool nsWindowWatcher::ShouldOpenPopup(const WindowFeatures& aFeatures) {
  * from a child process. The feature string can only control whether to open a
  * new tab or a new popup.
  * @param aFeatures a string containing a list of named features
+ * @param aCalledFromJS a bool indicating whether the features were provided by
+ content JS. If not, we can expose non-standard, more powerful features to
+ content callers.
  * @param aIsPopupRequested an out parameter that indicates whether a popup
  *        is requested by aFeatures
  * @return the chrome bitmask
@@ -1886,7 +1896,12 @@ bool nsWindowWatcher::ShouldOpenPopup(const WindowFeatures& aFeatures) {
 uint32_t nsWindowWatcher::CalculateChromeFlagsForContent(
     const WindowFeatures& aFeatures,
     const mozilla::dom::UserActivation::Modifiers& aModifiers,
-    bool* aIsPopupRequested) {
+    bool aCalledFromJS, bool* aIsPopupRequested) {
+  if (!aCalledFromJS &&
+      aFeatures.GetBoolWithDefault("pictureinpicture", false)) {
+    return nsIWebBrowserChrome::CHROME_DOCUMENT_PICTURE_IN_PICTURE_FLAGS;
+  }
+
   if (aFeatures.IsEmpty() || !ShouldOpenPopup(aFeatures)) {
     // Open the current/new tab in the current/new window
     // (depends on browser.link.open_newwindow).
@@ -2654,6 +2669,10 @@ int32_t nsWindowWatcher::GetWindowOpenLocation(
         return nsIBrowserDOMWindow::OPEN_NEWWINDOW;
       }
     }
+  }
+
+  if (aChromeFlags & nsIWebBrowserChrome::CHROME_DOCUMENT_PIP) {
+    return nsIBrowserDOMWindow::OPEN_NEWWINDOW;
   }
 #endif
 

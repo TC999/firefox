@@ -4,7 +4,7 @@
 
 import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 import { connect } from "react-redux";
-import React, { useEffect } from "react";
+import React from "react";
 
 // Pref Constants
 const PREF_AD_SIZE_MEDIUM_RECTANGLE = "newtabAdSize.mediumRectangle";
@@ -19,6 +19,11 @@ const PREF_CONTEXTUAL_BANNER_PLACEMENTS =
   "discoverystream.placements.contextualBanners";
 const PREF_CONTEXTUAL_BANNER_COUNTS =
   "discoverystream.placements.contextualBanners.counts";
+const PREF_UNIFIED_ADS_ENABLED = "unifiedAds.spocs.enabled";
+const PREF_UNIFIED_ADS_ENDPOINT = "unifiedAds.endpoint";
+const PREF_ALLOWED_ENDPOINTS = "discoverystream.endpoints";
+const PREF_OHTTP_CONFIG = "discoverystream.ohttp.configURL";
+const PREF_OHTTP_RELAY = "discoverystream.ohttp.relayURL";
 
 const Row = props => (
   <tr className="message-item" {...props}>
@@ -84,50 +89,6 @@ export class TogglePrefCheckbox extends React.PureComponent {
   }
 }
 
-export class Personalization extends React.PureComponent {
-  constructor(props) {
-    super(props);
-    this.togglePersonalization = this.togglePersonalization.bind(this);
-  }
-
-  togglePersonalization() {
-    this.props.dispatch(
-      ac.OnlyToMain({
-        type: at.DISCOVERY_STREAM_PERSONALIZATION_TOGGLE,
-      })
-    );
-  }
-
-  render() {
-    const { lastUpdated, initialized } = this.props.state.Personalization;
-    return (
-      <React.Fragment>
-        <table>
-          <tbody>
-            <Row>
-              <td colSpan="2">
-                <TogglePrefCheckbox
-                  checked={this.props.personalized}
-                  pref="personalized"
-                  onChange={this.togglePersonalization}
-                />
-              </td>
-            </Row>
-            <Row>
-              <td className="min">Personalization Last Updated</td>
-              <td>{relativeTime(lastUpdated) || "(no data)"}</td>
-            </Row>
-            <Row>
-              <td className="min">Personalization Initialized</td>
-              <td>{initialized ? "true" : "false"}</td>
-            </Row>
-          </tbody>
-        </table>
-      </React.Fragment>
-    );
-  }
-}
-
 export class DiscoveryStreamAdminUI extends React.PureComponent {
   constructor(props) {
     super(props);
@@ -145,15 +106,29 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
     this.resetBlocks = this.resetBlocks.bind(this);
     this.refreshInferredPersonalization =
       this.refreshInferredPersonalization.bind(this);
+    this.refreshInferredPersonalizationAndDebug =
+      this.refreshInferredPersonalizationAndDebug.bind(this);
     this.refreshTopicSelectionCache =
       this.refreshTopicSelectionCache.bind(this);
+    this.requestDebugFeatures = this.requestDebugFeatures.bind(this);
+    this.setDebugOverrides = this.setDebugOverrides.bind(this);
+    this.handleDebugOverridesToggle =
+      this.handleDebugOverridesToggle.bind(this);
+    this.handleDebugOverrideChange = this.handleDebugOverrideChange.bind(this);
+    this.handleResetAllOverrides = this.handleResetAllOverrides.bind(this);
     this.handleSectionsToggle = this.handleSectionsToggle.bind(this);
     this.toggleIABBanners = this.toggleIABBanners.bind(this);
+    this.handleAllizomToggle = this.handleAllizomToggle.bind(this);
     this.sendConversionEvent = this.sendConversionEvent.bind(this);
     this.state = {
       toggledStories: {},
       weatherQuery: "",
+      pendingOverrides: {},
     };
+  }
+
+  componentDidMount() {
+    this.requestDebugFeatures();
   }
 
   setConfigValue(configName, configValue) {
@@ -189,6 +164,95 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
         type: at.INFERRED_PERSONALIZATION_REFRESH,
       })
     );
+  }
+
+  refreshInferredPersonalizationAndDebug() {
+    this.refreshInferredPersonalization();
+  }
+
+  requestDebugFeatures() {
+    this.props.dispatch(
+      ac.OnlyToMain({
+        type: at.INFERRED_PERSONALIZATION_DEBUG_FEATURES_REQUEST,
+      })
+    );
+  }
+
+  setDebugOverrides(overrides) {
+    this.props.dispatch(
+      ac.OnlyToMain({
+        type: at.INFERRED_PERSONALIZATION_DEBUG_OVERRIDES_SET,
+        data: overrides,
+      })
+    );
+  }
+
+  getDebugFeaturesList() {
+    const { debugFeatures } = this.props.state.InferredPersonalization;
+    if (!debugFeatures) {
+      return [];
+    }
+    return Object.keys(debugFeatures)
+      .sort()
+      .filter(featureName => featureName !== "clicks")
+      .map(featureName => ({
+        name: featureName,
+        ...debugFeatures[featureName],
+      }));
+  }
+
+  getOverrideValues(features, fallbackToCurrent = false) {
+    const overrides = {};
+    for (const feature of features) {
+      let value = feature.overrideValue;
+      if (!Number.isFinite(value) && fallbackToCurrent) {
+        value = Number.isFinite(feature.currentValue)
+          ? feature.currentValue
+          : 0;
+      }
+      if (Number.isFinite(value)) {
+        overrides[feature.name] = value;
+      }
+    }
+    return overrides;
+  }
+
+  handleDebugOverridesToggle(e) {
+    const { pressed } = e.target;
+    const features = this.getDebugFeaturesList();
+    const currentOverrides = this.getOverrideValues(features, true);
+    if (!pressed) {
+      this.setState({ pendingOverrides: { ...currentOverrides } });
+      this.setDebugOverrides(null);
+      return;
+    }
+    const overrides = Object.keys(this.state.pendingOverrides).length
+      ? { ...this.state.pendingOverrides }
+      : currentOverrides;
+    this.setDebugOverrides(overrides);
+  }
+
+  handleDebugOverrideChange(featureName, value) {
+    const features = this.getDebugFeaturesList();
+    const overrides = Object.keys(this.state.pendingOverrides).length
+      ? { ...this.state.pendingOverrides }
+      : this.getOverrideValues(features, true);
+    overrides[featureName] = value;
+    this.setState({ pendingOverrides: { ...overrides } });
+    if (Object.keys(this.getOverrideValues(features)).length) {
+      this.setDebugOverrides(overrides);
+    }
+  }
+
+  handleResetAllOverrides() {
+    const features = this.getDebugFeaturesList();
+    const overrides = Object.fromEntries(
+      features.map(({ name: featureName }) => [featureName, 0])
+    );
+    this.setState({ pendingOverrides: { ...overrides } });
+    if (Object.keys(this.getOverrideValues(features)).length) {
+      this.setDebugOverrides(overrides);
+    }
   }
 
   refreshTopicSelectionCache() {
@@ -353,14 +417,11 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
     this.props.dispatch(
       ac.SetPref("discoverystream.sections.cards.enabled", pressed)
     );
-    this.props.dispatch(
-      ac.SetPref("discoverystream.sections.cards.thumbsUpDown.enabled", pressed)
-    );
   }
 
   sendConversionEvent() {
     const detail = {
-      partnerId: "demo-partner",
+      partnerId: "295BEEF7-1E3B-4128-B8F8-858E12AA660B",
       lookbackDays: 7,
       impressionType: "default",
     };
@@ -436,16 +497,159 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
       coarseInferredInterests,
       coarsePrivateInferredInterests,
     } = this.props.state.InferredPersonalization;
+    const inferredPersonalizationEnabled = Boolean(
+      this.props.otherPrefs?.[
+        "discoverystream.sections.personalization.inferred.enabled"
+      ]
+    );
+    const hasModelData =
+      inferredInterests !== undefined ||
+      coarseInferredInterests !== undefined ||
+      coarsePrivateInferredInterests !== undefined;
+    if (!inferredPersonalizationEnabled || !hasModelData) {
+      return null;
+    }
     return (
-      <div>
-        {" "}
-        Inferred Interests:
-        <pre>{JSON.stringify(inferredInterests, null, 2)}</pre> Coarse Inferred
-        Interests:
-        <pre>{JSON.stringify(coarseInferredInterests, null, 2)}</pre> Coarse
-        Inferred Interests With Differential Privacy:
-        <pre>{JSON.stringify(coarsePrivateInferredInterests, null, 2)}</pre>
+      <div className="personalization-data">
+        {this.renderInferredPersonalizationOverrides()}
+        <div className="inferred-vectors-row">
+          <div className="inferred-vector-column">
+            <div className="inferred-vector-title">Raw Interest Values</div>
+            <div className="inferred-vector-panel">
+              <pre>{JSON.stringify(inferredInterests, null, 2)}</pre>
+            </div>
+          </div>
+          <div className="inferred-vector-column">
+            <div className="inferred-vector-title">
+              Differentially Private Interest Vector{" "}
+            </div>
+            <div className="inferred-vector-panel">
+              <pre>
+                {JSON.stringify(coarsePrivateInferredInterests, null, 2)}
+              </pre>
+            </div>
+          </div>
+        </div>
       </div>
+    );
+  }
+
+  renderInferredPersonalizationOverrides() {
+    const { lastUpdated } = this.props.state.InferredPersonalization;
+    const features = this.getDebugFeaturesList();
+    if (!features.length) {
+      return null;
+    }
+    const overrides = this.getOverrideValues(features);
+    const overridesEnabled = Object.keys(overrides).length;
+    const hasAnyNonZeroOverride = Object.values(overrides).some(
+      value => Number.isFinite(value) && value > 0
+    );
+    return (
+      <>
+        <div className="inferred-overrides-header">
+          <h3 className="inferred-overrides-title">Inferred Personalization</h3>
+          <div className="inferred-overrides-actions">
+            <button
+              className="button"
+              onClick={this.refreshInferredPersonalizationAndDebug}
+            >
+              Recompute Interest Vector
+            </button>
+            <button className="button" onClick={this.refreshCache}>
+              Refresh Story Cache
+            </button>
+          </div>
+        </div>
+        <div className="inferred-overrides-last-refreshed">
+          <span className="inferred-overrides-last-refreshed-label">
+            Last refreshed
+          </span>
+          <span>{relativeTime(lastUpdated) || "(no data)"}</span>
+        </div>
+        <table className="minimal-table inferred-personalization-overrides">
+          <tbody>
+            <Row className="inferred-overrides-toggle-row">
+              <td className="min">Overrides</td>
+              <td className="min inferred-score-col" />
+              <td>
+                <div className="toggle-wrapper">
+                  <moz-toggle
+                    id="inferred-personalization-overrides"
+                    pressed={overridesEnabled || null}
+                    onToggle={this.handleDebugOverridesToggle}
+                    label="Enable overrides"
+                  />
+                </div>
+              </td>
+            </Row>
+            <Row className="inferred-overrides-refresh-row">
+              <td colSpan="3">
+                <button
+                  className="button"
+                  disabled={hasAnyNonZeroOverride ? null : true}
+                  onClick={this.handleResetAllOverrides}
+                >
+                  Reset overrides
+                </button>
+              </td>
+            </Row>
+            <Row className="inferred-overrides-table-header">
+              <td />
+              <td className="min inferred-score-col">Score</td>
+              <td />
+            </Row>
+            {features.map(feature => {
+              const maxValue = Math.max(0, (feature.numValues || 1) - 1);
+              const currentCoarseValue = feature.currentValue;
+              const pendingValue = this.state.pendingOverrides[feature.name];
+              let displayValue = 0;
+
+              if (Number.isFinite(pendingValue)) {
+                displayValue = pendingValue;
+              } else if (Number.isFinite(feature.overrideValue)) {
+                displayValue = feature.overrideValue;
+              } else if (Number.isFinite(feature.currentValue)) {
+                displayValue = feature.currentValue;
+              }
+
+              return (
+                <Row key={feature.name} className="inferred-override-row">
+                  <td className="min">{feature.name}</td>
+                  <td className="min inferred-score-col">
+                    {Number.isFinite(currentCoarseValue)
+                      ? currentCoarseValue
+                      : "-"}
+                  </td>
+                  <td>
+                    <div className="inferred-override-controls">
+                      <input
+                        className="inferred-override-slider"
+                        type="range"
+                        min="0"
+                        max={String(maxValue)}
+                        step="1"
+                        value={String(displayValue)}
+                        disabled={!overridesEnabled}
+                        aria-label={`${feature.name} override`}
+                        onChange={e =>
+                          this.handleDebugOverrideChange(
+                            feature.name,
+                            Number(e.target.value)
+                          )
+                        }
+                      />
+                      <span className="inferred-override-value">
+                        {displayValue}
+                      </span>
+                    </div>
+                  </td>
+                </Row>
+              );
+            })}
+          </tbody>
+        </table>
+      </>
     );
   }
 
@@ -517,20 +721,68 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
     );
   }
 
+  handleAllizomToggle(e) {
+    const prefs = this.props.otherPrefs;
+    const unifiedAdsSpocsEnabled = prefs[PREF_UNIFIED_ADS_ENABLED];
+    if (!unifiedAdsSpocsEnabled) {
+      return;
+    }
+    const { pressed } = e.target;
+    const { dispatch } = this.props;
+    const allowedEndpoints = prefs[PREF_ALLOWED_ENDPOINTS];
+    const setPref = (pref = "", value = "") => {
+      dispatch(ac.SetPref(pref, value));
+    };
+    const clearPref = (pref = "") => {
+      dispatch(
+        ac.OnlyToMain({
+          type: at.CLEAR_PREF,
+          data: {
+            name: pref,
+          },
+        })
+      );
+    };
+    if (pressed) {
+      setPref(PREF_UNIFIED_ADS_ENDPOINT, "https://ads.allizom.org/");
+      setPref(
+        PREF_ALLOWED_ENDPOINTS,
+        `${allowedEndpoints},https://ads.allizom.org/`
+      );
+      setPref(
+        PREF_OHTTP_CONFIG,
+        "https://stage.ohttp-gateway.nonprod.webservices.mozgcp.net/ohttp-configs"
+      );
+      setPref(
+        PREF_OHTTP_RELAY,
+        "https://mozilla-ohttp-relay-test.edgecompute.app/"
+      );
+    } else {
+      clearPref(PREF_UNIFIED_ADS_ENDPOINT);
+      clearPref(PREF_ALLOWED_ENDPOINTS);
+      clearPref(PREF_OHTTP_CONFIG);
+      clearPref(PREF_OHTTP_RELAY);
+    }
+  }
+
   renderSpocs() {
     const { spocs } = this.props.state.DiscoveryStream;
 
     const unifiedAdsSpocsEnabled =
-      this.props.otherPrefs["unifiedAds.spocs.enabled"];
+      this.props.otherPrefs[PREF_UNIFIED_ADS_ENABLED];
 
     // Determine which mechanism is querying the UAPI ads server
     const PREF_UNIFIED_ADS_ADSFEED_ENABLED = "unifiedAds.adsFeed.enabled";
     const adsFeedEnabled =
       this.props.otherPrefs[PREF_UNIFIED_ADS_ADSFEED_ENABLED];
 
-    const unifiedAdsEndpoint = this.props.otherPrefs["unifiedAds.endpoint"];
+    const unifiedAdsEndpoint = this.props.otherPrefs[PREF_UNIFIED_ADS_ENDPOINT];
+    const spocsEndpoint = unifiedAdsSpocsEnabled
+      ? unifiedAdsEndpoint
+      : spocs.spocs_endpoint;
 
     let spocsData = [];
+    let allizomEnabled = spocsEndpoint?.includes("allizom");
 
     if (
       spocs.data &&
@@ -545,16 +797,23 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
         <table>
           <tbody>
             <Row>
+              <td colSpan="2">
+                <moz-toggle
+                  id="sections-toggle"
+                  disabled={!unifiedAdsSpocsEnabled || null}
+                  pressed={allizomEnabled || null}
+                  onToggle={this.handleAllizomToggle}
+                  label="Toggle allizom"
+                />
+              </td>
+            </Row>
+            <Row>
               <td className="min">adsfeed enabled</td>
               <td>{adsFeedEnabled ? "true" : "false"}</td>
             </Row>
             <Row>
-              <td className="min">spocs_endpoint</td>
-              <td>
-                {unifiedAdsSpocsEnabled
-                  ? unifiedAdsEndpoint
-                  : spocs.spocs_endpoint}
-              </td>
+              <td className="min">spocs endpoint</td>
+              <td>{spocsEndpoint}</td>
             </Row>
             <Row>
               <td className="min">Data last fetched</td>
@@ -632,8 +891,6 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
   render() {
     const prefToggles = "enabled collapsible".split(" ");
     const { config, layout } = this.props.state.DiscoveryStream;
-    const personalized =
-      this.props.otherPrefs["discoverystream.personalization.enabled"];
     const sectionsEnabled = this.props.otherPrefs[PREF_SECTIONS_ENABLED];
 
     // Prefs for IAB Banners
@@ -666,13 +923,6 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
         </button>{" "}
         <button className="button" onClick={this.idleDaily}>
           Trigger Idle Daily
-        </button>
-        <br />
-        <button
-          className="button"
-          onClick={this.refreshInferredPersonalization}
-        >
-          Refresh Inferred Personalization
         </button>
         <br />
         <button className="button" onClick={this.syncRemoteSettings}>
@@ -749,14 +999,6 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
             ))}
           </div>
         ))}
-        <h3>Personalization</h3>
-        <Personalization
-          personalized={personalized}
-          dispatch={this.props.dispatch}
-          state={{
-            Personalization: this.props.state.Personalization,
-          }}
-        />
         <h3>Spocs</h3>
         {this.renderSpocs()}
         <h3>Feeds Data</h3>
@@ -769,7 +1011,6 @@ export class DiscoveryStreamAdminUI extends React.PureComponent {
         <div className="large-data-container">{this.renderBlocksData()}</div>
         <h3>Weather Data</h3>
         {this.renderWeatherData()}
-        <h3>Personalization Data</h3>
         {this.renderPersonalizationData()}
       </div>
     );
@@ -806,7 +1047,6 @@ export class DiscoveryStreamAdminInner extends React.PureComponent {
             <DiscoveryStreamAdminUI
               state={{
                 DiscoveryStream: this.props.DiscoveryStream,
-                Personalization: this.props.Personalization,
                 Weather: this.props.Weather,
                 InferredPersonalization: this.props.InferredPersonalization,
               }}
@@ -824,32 +1064,25 @@ export function CollapseToggle(props) {
   const { devtoolsCollapsed } = props;
   const label = `${devtoolsCollapsed ? "Expand" : "Collapse"} devtools`;
 
-  useEffect(() => {
-    // Set or remove body class depending on devtoolsCollapsed state
-    if (devtoolsCollapsed) {
-      globalThis.document.body.classList.remove("no-scroll");
-    } else {
-      globalThis.document.body.classList.add("no-scroll");
-    }
-
-    // Cleanup on unmount
-    return () => {
-      globalThis.document.body.classList.remove("no-scroll");
-    };
-  }, [devtoolsCollapsed]);
-
   return (
     <>
-      <a
-        href={devtoolsCollapsed ? "#devtools" : "#"}
+      <button
         title={label}
         aria-label={label}
         className={`discoverystream-admin-toggle ${
           devtoolsCollapsed ? "expanded" : "collapsed"
         }`}
+        onClick={() => {
+          globalThis.location.hash = devtoolsCollapsed ? "#devtools" : "";
+        }}
       >
-        <span className="icon icon-devtools" />
-      </a>
+        <div>
+          <img
+            role="presentation"
+            src="chrome://global/skin/icons/developer.svg"
+          />
+        </div>
+      </button>
       {!devtoolsCollapsed ? (
         <DiscoveryStreamAdminInner {...props} collapsed={devtoolsCollapsed} />
       ) : null}
@@ -862,7 +1095,6 @@ const _DiscoveryStreamAdmin = props => <CollapseToggle {...props} />;
 export const DiscoveryStreamAdmin = connect(state => ({
   Sections: state.Sections,
   DiscoveryStream: state.DiscoveryStream,
-  Personalization: state.Personalization,
   InferredPersonalization: state.InferredPersonalization,
   Prefs: state.Prefs,
   Weather: state.Weather,

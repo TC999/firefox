@@ -1577,14 +1577,16 @@ class Editor extends EventEmitter {
   }
 
   /**
-   * Set event listeners for the line gutter
+   * This enables the gutter and sets up all the
+   * event listeners for the various panels in the gutter.
+   * Currently the panels are the line numbers & code fold gutter.
    *
    * @param {object} domEventHandlers
    *
    * example usage:
    *  const domEventHandlers = { click(event) { console.log(event);} }
    */
-  setGutterEventListeners(domEventHandlers) {
+  enableGutter(domEventHandlers = {}) {
     const cm = editors.get(this);
     const {
       codemirrorView: { lineNumbers },
@@ -1619,6 +1621,19 @@ class Editor extends EventEmitter {
             domEventHandlers: this.#gutterDOMEventHandlers,
           })
         ),
+      ],
+    });
+  }
+
+  /**
+   * This removes the gutter and the panels wthin it
+   */
+  disableGutter() {
+    const cm = editors.get(this);
+    cm.dispatch({
+      effects: [
+        this.#compartments.lineNumberCompartment.reconfigure([]),
+        this.#compartments.foldGutterCompartment.reconfigure([]),
       ],
     });
   }
@@ -1977,6 +1992,20 @@ class Editor extends EventEmitter {
   }
 
   /**
+   * Calculates and returns the width of a single character of the input box.
+   * This will be used in opening the popup at the correct offset.
+   *
+   * @returns {number | null}: Width off the "x" char, or null if the input does not exist.
+   */
+  getInputCharWidth() {
+    const cm = editors.get(this);
+    if (this.config.cm6) {
+      return cm.defaultCharacterWidth;
+    }
+    return cm.defaultCharWidth();
+  }
+
+  /**
    * Check that text is selected
    *
    * @returns {boolean}
@@ -2091,6 +2120,18 @@ class Editor extends EventEmitter {
 
     const info = this.lineInfo(line);
     return info ? info.text : "";
+  }
+
+  /**
+   * Gets the text from the start postion to just before the cursor position
+   */
+  getTextBeforeCursor() {
+    const cm = editors.get(this);
+    if (this.config.cm6) {
+      const pos = cm.state.selection.main.head;
+      return cm.state.sliceDoc(0, pos);
+    }
+    return cm.getDoc().getRange({ line: 0, ch: 0 }, cm.getCursor());
   }
 
   getDoc() {
@@ -2536,6 +2577,58 @@ class Editor extends EventEmitter {
       scope = scope.parent;
     }
     return bindingReferences;
+  }
+
+  /**
+   * Retrieve variables declared in the expression from the CodeMirror state, in order
+   * to display them in the autocomplete popup.
+   *
+   * @returns Array
+   */
+  async getExpressionVariables() {
+    const cm = editors.get(this);
+    const variables = [];
+
+    if (this.config.cm6) {
+      const { codemirrorLanguage } = this.#CodeMirror6;
+      const cursorLocation = this.getSelectionCursor();
+      const line = cm.state.doc.line(cursorLocation.from.line);
+      const tokPos = line.from + cursorLocation.from.ch;
+
+      await lezerUtils.walkTree(cm, codemirrorLanguage, {
+        filterSet: lezerUtils.nodeTypeSets.variables,
+        enterVisitor: node => {
+          if (node.from <= tokPos && node.to >= tokPos) {
+            variables.push(cm.state.doc.sliceString(node.from, node.to));
+          }
+        },
+        walkFrom: line.from,
+        walkTo: line.to,
+      });
+    } else {
+      const { state } = cm.getTokenAt(cm.getCursor());
+      if (state.context) {
+        for (let c = state.context; c; c = c.prev) {
+          for (let v = c.vars; v; v = v.next) {
+            if (v.name) {
+              variables.push(v.name);
+            }
+          }
+        }
+      }
+
+      const keys = ["localVars", "globalVars"];
+      for (const key of keys) {
+        if (state[key]) {
+          for (let v = state[key]; v; v = v.next) {
+            if (v.name) {
+              variables.push(v.name);
+            }
+          }
+        }
+      }
+    }
+    return variables;
   }
 
   /**
@@ -3830,13 +3923,6 @@ class Editor extends EventEmitter {
     this.clearSources();
 
     if (this.#prefObserver) {
-      this.#prefObserver.off(KEYMAP_PREF, this.setKeyMap);
-      this.#prefObserver.off(TAB_SIZE, this.reloadPreferences);
-      this.#prefObserver.off(EXPAND_TAB, this.reloadPreferences);
-      this.#prefObserver.off(AUTO_CLOSE, this.reloadPreferences);
-      this.#prefObserver.off(AUTOCOMPLETE, this.reloadPreferences);
-      this.#prefObserver.off(DETECT_INDENT, this.reloadPreferences);
-      this.#prefObserver.off(ENABLE_CODE_FOLDING, this.reloadPreferences);
       this.#prefObserver.destroy();
     }
 

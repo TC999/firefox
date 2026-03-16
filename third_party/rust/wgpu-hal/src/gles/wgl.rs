@@ -281,6 +281,21 @@ fn create_global_window_class() -> Result<CString, crate::InstanceError> {
     let name = format!("wgpu Device Class {:x}\0", class_addr as usize);
     let name = CString::from_vec_with_nul(name.into_bytes()).unwrap();
 
+    // The window class may already be registered if we are a dynamic library that got
+    // unloaded & loaded back into the same process. If so, just skip creation.
+    let already_exists = unsafe {
+        let mut wc = mem::zeroed::<WindowsAndMessaging::WNDCLASSEXA>();
+        WindowsAndMessaging::GetClassInfoExA(
+            Some(instance.into()),
+            PCSTR(name.as_ptr().cast()),
+            &mut wc,
+        )
+        .is_ok()
+    };
+    if already_exists {
+        return Ok(name);
+    }
+
     // Use a wrapper function for compatibility with `windows-rs`.
     unsafe extern "system" fn wnd_proc(
         window: Foundation::HWND,
@@ -433,7 +448,7 @@ fn create_instance_device() -> Result<InstanceDevice, crate::InstanceError> {
 impl crate::Instance for Instance {
     type A = super::Api;
 
-    unsafe fn init(desc: &crate::InstanceDescriptor) -> Result<Self, crate::InstanceError> {
+    unsafe fn init(desc: &crate::InstanceDescriptor<'_>) -> Result<Self, crate::InstanceError> {
         profiling::scope!("Init OpenGL (WGL) Backend");
         let opengl_module =
             unsafe { LibraryLoader::LoadLibraryA(PCSTR(c"opengl32.dll".as_ptr().cast())) }
@@ -548,12 +563,12 @@ impl crate::Instance for Instance {
         })
     }
 
-    #[cfg_attr(target_os = "macos", allow(unused, unused_mut, unreachable_code))]
     unsafe fn create_surface(
         &self,
-        _display_handle: RawDisplayHandle,
+        display_handle: RawDisplayHandle,
         window_handle: RawWindowHandle,
     ) -> Result<Surface, crate::InstanceError> {
+        assert!(matches!(display_handle, RawDisplayHandle::Windows(_)));
         let window = if let RawWindowHandle::Win32(handle) = window_handle {
             handle
         } else {
@@ -858,7 +873,7 @@ impl crate::Surface for Surface {
         &self,
         _timeout_ms: Option<Duration>,
         _fence: &super::Fence,
-    ) -> Result<Option<crate::AcquiredSurfaceTexture<super::Api>>, crate::SurfaceError> {
+    ) -> Result<crate::AcquiredSurfaceTexture<super::Api>, crate::SurfaceError> {
         let swapchain = self.swapchain.read();
         let sc = swapchain.as_ref().unwrap();
         let texture = super::Texture {
@@ -876,10 +891,10 @@ impl crate::Surface for Surface {
                 depth: 1,
             },
         };
-        Ok(Some(crate::AcquiredSurfaceTexture {
+        Ok(crate::AcquiredSurfaceTexture {
             texture,
             suboptimal: false,
-        }))
+        })
     }
     unsafe fn discard_texture(&self, _texture: super::Texture) {}
 }

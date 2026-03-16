@@ -284,6 +284,7 @@ class SearchDialogControllerTest {
         ).handleUrlCommitted(searchTerm)
 
         verify(exactly = 0) {
+            @Suppress("DEPRECATION")
             activity.openToBrowserAndLoad(
                 searchTermOrURL = any(),
                 newTab = any(),
@@ -691,6 +692,7 @@ class SearchDialogControllerTest {
             focusToolbar = focusToolbar,
             clearToolbar = clearToolbar,
             dismissDialogAndGoBack = dismissDialogAndGoBack,
+            showDeleteHistoryItemSnackbar = {},
         )
     }
 

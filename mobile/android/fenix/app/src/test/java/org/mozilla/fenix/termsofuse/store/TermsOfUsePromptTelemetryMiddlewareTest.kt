@@ -1,7 +1,6 @@
 package org.mozilla.fenix.termsofuse.store
 
 import io.mockk.mockk
-import mozilla.components.lib.state.MiddlewareContext
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -20,9 +19,6 @@ class TermsOfUsePromptTelemetryMiddlewareTest {
 
     @get:Rule
     val gleanTestRule = FenixGleanTestRule(testContext)
-
-    private val middlewareContext =
-        mockk<MiddlewareContext<TermsOfUsePromptState, TermsOfUsePromptAction>>(relaxed = true)
 
     @Test
     fun `WHEN the OnAcceptClicked action THEN the expected telemetry is recorded`() {
@@ -111,7 +107,7 @@ class TermsOfUsePromptTelemetryMiddlewareTest {
 
     private fun invokeMiddlewareWith(action: TermsOfUsePromptAction) {
         TermsOfUsePromptTelemetryMiddleware()(
-            context = middlewareContext,
+            store = mockk(),
             next = {},
             action = action,
         )

@@ -419,7 +419,7 @@ LoadingSessionHistoryInfo::LoadingSessionHistoryInfo(
 LoadingSessionHistoryInfo::LoadingSessionHistoryInfo(
     SessionHistoryEntry* aEntry, const LoadingSessionHistoryInfo* aInfo)
     : mInfo(aEntry->Info()),
-      mTriggeringEntry(aInfo->mTriggeringEntry),
+      mPreviousEntry(aInfo->mPreviousEntry),
       mTriggeringNavigationType(aInfo->mTriggeringNavigationType),
       mLoadId(aInfo->mLoadId),
       mLoadIsFromSessionHistory(aInfo->mLoadIsFromSessionHistory),
@@ -601,7 +601,15 @@ SessionHistoryEntry::GetTitle(nsAString& aTitle) {
 
 NS_IMETHODIMP
 SessionHistoryEntry::SetTitle(const nsAString& aTitle) {
+  if (aTitle.Equals(mInfo->GetTitle())) {
+    return NS_OK;
+  }
+
   mInfo->SetTitle(aTitle);
+  if (nsCOMPtr<nsISHistory> sHistory =
+          do_QueryReferent(SharedInfo()->mSHistory)) {
+    sHistory->NotifyOnEntryTitleUpdated(this);
+  }
   return NS_OK;
 }
 
@@ -1590,6 +1598,50 @@ already_AddRefed<nsIURI> SessionHistoryEntry::GetURIOrInheritedForAboutBlank()
   return mInfo->GetURIOrInheritedForAboutBlank();
 }
 
+already_AddRefed<nsSHistory> SessionHistoryEntry::GetSessionHistory() {
+  if (nsCOMPtr<nsISHEntry> rootSHEntry = nsSHistory::GetRootSHEntry(this)) {
+    return rootSHEntry->GetShistory().downcast<nsSHistory>();
+  }
+  return nullptr;
+}
+
+/* static */
+Maybe<PreviousSessionHistoryInfo>
+PreviousSessionHistoryInfo::CreateValidatedPreviousEntry(
+    const SessionHistoryInfo& aCurrentEntry,
+    const Maybe<SessionHistoryInfo>& aPreviousEntryForActivation,
+    Maybe<NavigationType> aNavigationType) {
+  // https://html.spec.whatwg.org/#update-document-for-history-step-application
+  // Step 7 If all the following are true:
+  // * previousEntryForActivation is given;
+  // * navigationType is non-null; and
+  // * navigationType is "reload" or previousEntryForActivation's document is
+  //   not document,
+  if (!aPreviousEntryForActivation || !aNavigationType ||
+      (*aNavigationType != NavigationType::Reload &&
+       aCurrentEntry.SharesDocumentWith(*aPreviousEntryForActivation))) {
+    return Nothing();
+  }
+
+  // 7.4 Otherwise, if all the following are true:
+  //     navigationType is "replace";
+  //     previousEntryForActivation's document state's origin is same origin
+  //     with document's origin; and previousEntryForActivation's document's
+  //     initial about:blank is false,
+  // then set activation's old entry to a new NavigationHistoryEntry in
+  // navigation's relevant realm, whose session history entry is
+  // previousEntryForActivation.
+  nsCOMPtr previousURI =
+      aPreviousEntryForActivation->GetURIOrInheritedForAboutBlank();
+  nsCOMPtr currentURI = aCurrentEntry.GetURIOrInheritedForAboutBlank();
+  if (NS_FAILED(nsContentUtils::GetSecurityManager()->CheckSameOriginURI(
+          currentURI, previousURI, false, false))) {
+    return Some(PreviousSessionHistoryInfo{});
+  }
+
+  return Some(PreviousSessionHistoryInfo(aPreviousEntryForActivation));
+}
+
 }  // namespace dom
 }  // namespace mozilla
 
@@ -1599,28 +1651,6 @@ void ParamTraits<mozilla::dom::SessionHistoryInfo>::Write(
     IPC::MessageWriter* aWriter,
     const mozilla::dom::SessionHistoryInfo& aParam) {
   nsCOMPtr<nsIInputStream> postData = aParam.GetPostData();
-
-  mozilla::Maybe<std::tuple<uint32_t, mozilla::dom::ClonedMessageData>>
-      stateData;
-  if (aParam.mStateData) {
-    stateData.emplace();
-    // FIXME: We should fail more aggressively if this fails, as currently we'll
-    // just early return and the deserialization will break.
-    NS_ENSURE_SUCCESS_VOID(
-        aParam.mStateData->GetFormatVersion(&std::get<0>(*stateData)));
-    NS_ENSURE_TRUE_VOID(
-        aParam.mStateData->BuildClonedMessageData(std::get<1>(*stateData)));
-  }
-
-  mozilla::Maybe<std::tuple<uint32_t, mozilla::dom::ClonedMessageData>>
-      navigationState;
-  if (aParam.mNavigationAPIState) {
-    navigationState.emplace();
-    NS_ENSURE_SUCCESS_VOID(aParam.mNavigationAPIState->GetFormatVersion(
-        &std::get<0>(*navigationState)));
-    NS_ENSURE_TRUE_VOID(aParam.mNavigationAPIState->BuildClonedMessageData(
-        std::get<1>(*navigationState)));
-  }
 
   WriteParam(aWriter, aParam.mURI);
   WriteParam(aWriter, aParam.mOriginalURI);
@@ -1633,7 +1663,7 @@ void ParamTraits<mozilla::dom::SessionHistoryInfo>::Write(
   WriteParam(aWriter, aParam.mLoadType);
   WriteParam(aWriter, aParam.mScrollPositionX);
   WriteParam(aWriter, aParam.mScrollPositionY);
-  WriteParam(aWriter, stateData);
+  WriteParam(aWriter, aParam.mStateData);
   WriteParam(aWriter, aParam.mSrcdocData);
   WriteParam(aWriter, aParam.mBaseURI);
   WriteParam(aWriter, aParam.mNavigationKey);
@@ -1655,13 +1685,11 @@ void ParamTraits<mozilla::dom::SessionHistoryInfo>::Write(
   WriteParam(aWriter, aParam.mSharedState.Get()->mCacheKey);
   WriteParam(aWriter, aParam.mSharedState.Get()->mIsFrameNavigation);
   WriteParam(aWriter, aParam.mSharedState.Get()->mSaveLayoutState);
-  WriteParam(aWriter, navigationState);
+  WriteParam(aWriter, aParam.mNavigationAPIState);
 }
 
 bool ParamTraits<mozilla::dom::SessionHistoryInfo>::Read(
     IPC::MessageReader* aReader, mozilla::dom::SessionHistoryInfo* aResult) {
-  mozilla::Maybe<std::tuple<uint32_t, mozilla::dom::ClonedMessageData>>
-      stateData;
   uint64_t sharedId;
   if (!ReadParam(aReader, &aResult->mURI) ||
       !ReadParam(aReader, &aResult->mOriginalURI) ||
@@ -1674,7 +1702,7 @@ bool ParamTraits<mozilla::dom::SessionHistoryInfo>::Read(
       !ReadParam(aReader, &aResult->mLoadType) ||
       !ReadParam(aReader, &aResult->mScrollPositionX) ||
       !ReadParam(aReader, &aResult->mScrollPositionY) ||
-      !ReadParam(aReader, &stateData) ||
+      !ReadParam(aReader, &aResult->mStateData) ||
       !ReadParam(aReader, &aResult->mSrcdocData) ||
       !ReadParam(aReader, &aResult->mBaseURI) ||
       !ReadParam(aReader, &aResult->mNavigationKey) ||
@@ -1761,31 +1789,31 @@ bool ParamTraits<mozilla::dom::SessionHistoryInfo>::Read(
     aResult->mSharedState.Get()->mContentType = contentType;
   }
 
-  mozilla::Maybe<std::tuple<uint32_t, mozilla::dom::ClonedMessageData>>
-      navigationState;
   if (!ReadParam(aReader, &aResult->mSharedState.Get()->mLayoutHistoryState) ||
       !ReadParam(aReader, &aResult->mSharedState.Get()->mCacheKey) ||
       !ReadParam(aReader, &aResult->mSharedState.Get()->mIsFrameNavigation) ||
       !ReadParam(aReader, &aResult->mSharedState.Get()->mSaveLayoutState) ||
-      !ReadParam(aReader, &navigationState)) {
+      !ReadParam(aReader, &aResult->mNavigationAPIState)) {
     aReader->FatalError("Error reading fields for SessionHistoryInfo");
     return false;
   }
 
-  if (stateData.isSome()) {
-    uint32_t version = std::get<0>(*stateData);
-    aResult->mStateData = new nsStructuredCloneContainer(version);
-    aResult->mStateData->StealFromClonedMessageData(std::get<1>(*stateData));
-  }
-  MOZ_ASSERT_IF(stateData.isNothing(), !aResult->mStateData);
+  return true;
+}
 
-  if (navigationState.isSome()) {
-    uint32_t version = std::get<0>(*navigationState);
-    aResult->mNavigationAPIState = new nsStructuredCloneContainer(version);
-    aResult->mNavigationAPIState->StealFromClonedMessageData(
-        std::get<1>(*navigationState));
+void ParamTraits<mozilla::dom::PreviousSessionHistoryInfo>::Write(
+    IPC::MessageWriter* aWriter,
+    const mozilla::dom::PreviousSessionHistoryInfo& aParam) {
+  WriteParam(aWriter, aParam.mSameOriginSessionHistoryInfo);
+}
+
+bool ParamTraits<mozilla::dom::PreviousSessionHistoryInfo>::Read(
+    IPC::MessageReader* aReader,
+    mozilla::dom::PreviousSessionHistoryInfo* aResult) {
+  if (!ReadParam(aReader, &aResult->mSameOriginSessionHistoryInfo)) {
+    aReader->FatalError("Error reading fields for PreviousSessionHistoryInfo");
+    return false;
   }
-  MOZ_ASSERT_IF(navigationState.isNothing(), !aResult->mNavigationAPIState);
 
   return true;
 }
@@ -1795,7 +1823,7 @@ void ParamTraits<mozilla::dom::LoadingSessionHistoryInfo>::Write(
     const mozilla::dom::LoadingSessionHistoryInfo& aParam) {
   WriteParam(aWriter, aParam.mInfo);
   WriteParam(aWriter, aParam.mContiguousEntries);
-  WriteParam(aWriter, aParam.mTriggeringEntry);
+  WriteParam(aWriter, aParam.mPreviousEntry);
   WriteParam(aWriter, aParam.mTriggeringNavigationType);
   WriteParam(aWriter, aParam.mLoadId);
   WriteParam(aWriter, aParam.mLoadIsFromSessionHistory);
@@ -1809,7 +1837,7 @@ bool ParamTraits<mozilla::dom::LoadingSessionHistoryInfo>::Read(
     mozilla::dom::LoadingSessionHistoryInfo* aResult) {
   if (!ReadParam(aReader, &aResult->mInfo) ||
       !ReadParam(aReader, &aResult->mContiguousEntries) ||
-      !ReadParam(aReader, &aResult->mTriggeringEntry) ||
+      !ReadParam(aReader, &aResult->mPreviousEntry) ||
       !ReadParam(aReader, &aResult->mTriggeringNavigationType) ||
       !ReadParam(aReader, &aResult->mLoadId) ||
       !ReadParam(aReader, &aResult->mLoadIsFromSessionHistory) ||

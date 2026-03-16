@@ -15,7 +15,6 @@
 #include "Geolocation.h"
 #include "HandlerServiceChild.h"
 #include "ScrollingMetrics.h"
-#include "gfxUtils.h"
 #include "imgLoader.h"
 #include "mozilla/AppShutdown.h"
 #include "mozilla/Attributes.h"
@@ -75,7 +74,9 @@
 #include "mozilla/dom/LSObject.h"
 #include "mozilla/dom/MemoryReportRequest.h"
 #include "mozilla/dom/Navigation.h"
+#include "mozilla/dom/NavigationHistoryEntry.h"
 #include "mozilla/dom/PSessionStorageObserverChild.h"
+#include "mozilla/dom/PolicyContainer.h"
 #include "mozilla/dom/PostMessageEvent.h"
 #include "mozilla/dom/PushNotifier.h"
 #include "mozilla/dom/RemoteWorkerDebuggerManagerChild.h"
@@ -97,6 +98,7 @@
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/hal_sandbox/PHalChild.h"
 #include "mozilla/image/FetchDecodedImage.h"
+#include "mozilla/image/RemoteImageProtocolHandler.h"
 #include "mozilla/intl/L10nRegistry.h"
 #include "mozilla/intl/LocaleService.h"
 #include "mozilla/intl/OSPreferences.h"
@@ -547,21 +549,19 @@ ConsoleListener::Observe(nsIConsoleMessage* aMessage) {
 
         JSAutoRealm ar(cx, &stackGlobal.toObject());
 
-        StructuredCloneData data;
+        auto data = MakeNotNull<RefPtr<StructuredCloneData>>(
+            JS::StructuredCloneScope::DifferentProcess,
+            StructuredCloneHolder::TransferringNotSupported);
         ErrorResult err;
-        data.Write(cx, stack, err);
+        data->Write(cx, stack, err);
+        err.WouldReportJSException();
         if (err.Failed()) {
           return err.StealNSResult();
         }
 
-        ClonedMessageData cloned;
-        if (!data.BuildClonedMessageData(cloned)) {
-          return NS_ERROR_FAILURE;
-        }
-
         mChild->SendScriptErrorWithStack(msg, sourceName, lineNum, colNum,
                                          flags, category, fromPrivateWindow,
-                                         fromChromeContext, cloned);
+                                         fromChromeContext, data);
         return NS_OK;
       }
     }
@@ -662,8 +662,7 @@ NS_INTERFACE_MAP_BEGIN(ContentChild)
 NS_INTERFACE_MAP_END
 
 mozilla::ipc::IPCResult ContentChild::RecvSetXPCOMProcessAttributes(
-    XPCOMInitData&& aXPCOMInit,
-    const UniquePtr<StructuredCloneData>& aInitialData,
+    XPCOMInitData&& aXPCOMInit, NotNull<StructuredCloneData*> aInitialData,
     FullLookAndFeel&& aLookAndFeelData, dom::SystemFontList&& aFontList,
     Maybe<mozilla::ipc::ReadOnlySharedMemoryHandle>&& aSharedUASheetHandle,
     const uintptr_t& aSharedUASheetAddress,
@@ -681,7 +680,7 @@ mozilla::ipc::IPCResult ContentChild::RecvSetXPCOMProcessAttributes(
   PerfStats::SetCollectionMask(aXPCOMInit.perfStatsMask());
   LookAndFeel::EnsureInit();
   InitSharedUASheets(std::move(aSharedUASheetHandle), aSharedUASheetAddress);
-  InitXPCOM(std::move(aXPCOMInit), *aInitialData,
+  InitXPCOM(std::move(aXPCOMInit), aInitialData,
             aIsReadyForBackgroundProcessing);
   InitGraphicsDeviceData(aXPCOMInit.contentDeviceData());
   RefPtr<net::ChildDNSService> dnsServiceChild =
@@ -1169,10 +1168,10 @@ nsresult ContentChild::ProvideWindowCommon(
   // Now change the principal to what it should be according to aOpenWindowInfo.
   // This creates a new document and the timing is quite fragile.
   NS_ENSURE_TRUE(browsingContext->GetDOMWindow(), NS_ERROR_ABORT);
+  NS_ENSURE_TRUE(browsingContext->GetDOMWindow()->GetExtantDoc(),
+                 NS_ERROR_ABORT);
   browsingContext->GetDOMWindow()->SetInitialPrincipal(
-      aOpenWindowInfo->PrincipalToInheritForAboutBlank(),
-      aOpenWindowInfo->PolicyContainerToInheritForAboutBlank(),
-      aOpenWindowInfo->CoepToInheritForAboutBlank());
+      aOpenWindowInfo->PrincipalToInheritForAboutBlank());
 
   // Set to true when we're ready to return from this function.
   bool ready = false;
@@ -1372,7 +1371,7 @@ void ContentChild::InitSharedUASheets(
 
 void ContentChild::InitXPCOM(
     XPCOMInitData&& aXPCOMInit,
-    const mozilla::dom::ipc::StructuredCloneData& aInitialData,
+    NotNull<mozilla::dom::ipc::StructuredCloneData*> aInitialData,
     bool aIsReadyForBackgroundProcessing) {
 #if defined(XP_WIN)
   // DLL services untrusted modules processing depends on
@@ -1444,11 +1443,9 @@ void ContentChild::InitXPCOM(
     if (NS_WARN_IF(!jsapi.Init(xpc::PrivilegedJunkScope()))) {
       MOZ_CRASH();
     }
-    ErrorResult rv;
+    IgnoredErrorResult rv;
     JS::Rooted<JS::Value> data(jsapi.cx());
-    mozilla::dom::ipc::StructuredCloneData id;
-    id.Copy(aInitialData);
-    id.Read(jsapi.cx(), &data, rv);
+    aInitialData->Read(jsapi.cx(), &data, rv);
     if (NS_WARN_IF(rv.Failed())) {
       MOZ_CRASH();
     }
@@ -1500,31 +1497,22 @@ mozilla::ipc::IPCResult ContentChild::RecvRequestMemoryReport(
 
 mozilla::ipc::IPCResult ContentChild::RecvDecodeImage(
     NotNull<nsIURI*> aURI, const ImageIntSize& aSize,
-    DecodeImageResolver&& aResolver) {
+    const ColorScheme& aColorScheme, DecodeImageResolver&& aResolver) {
   auto size = aSize.ToUnknownSize();
   // TODO(Bug 1999930): Investigate using  a content-principal for
   // moz-remote-image: requests
   image::FetchDecodedImage(aURI, size, nsContentUtils::GetSystemPrincipal())
       ->Then(
           GetCurrentSerialEventTarget(), __func__,
-          [size, aResolver](already_AddRefed<imgIContainer> aImage) {
+          [size, aColorScheme,
+           aResolver](already_AddRefed<imgIContainer> aImage) {
             using Result = std::tuple<nsresult, mozilla::Maybe<IPCImage>>;
 
             nsCOMPtr<imgIContainer> image(std::move(aImage));
 
-            const int32_t flags = imgIContainer::FLAG_SYNC_DECODE |
-                                  imgIContainer::FLAG_ASYNC_NOTIFY;
-            RefPtr<gfx::SourceSurface> surface;
-            if (size.Width() && size.Height()) {
-              surface = image->GetFrameAtSize(size, imgIContainer::FRAME_FIRST,
-                                              flags);
-              if (surface && surface->GetSize() != size) {
-                surface = gfxUtils::ScaleSourceSurface(*surface, size);
-              }
-            } else {
-              surface = image->GetFrame(imgIContainer::FRAME_FIRST, flags);
-            }
-
+            RefPtr<gfx::SourceSurface> surface =
+                image::RemoteImageProtocolHandler::GetImageSurface(
+                    image, size, aColorScheme);
             if (!surface) {
               aResolver(Result(NS_ERROR_FAILURE, Nothing()));
               return;
@@ -1872,6 +1860,13 @@ mozilla::ipc::IPCResult ContentChild::RecvConstructBrowser(
     }
   }
 
+  if (!aBrowserEp.IsValidForManager(this)) {
+    return IPC_FAIL(this, "Invalid PBrowserChild endpoint");
+  }
+  if (!aWindowEp.IsValidForManager(aBrowserEp)) {
+    return IPC_FAIL(this, "Invalid PWindowGlobalChild endpoint");
+  }
+
   RefPtr<BrowsingContext> browsingContext =
       BrowsingContext::Get(aWindowInit.context().mBrowsingContextId);
   if (!browsingContext || browsingContext->IsDiscarded()) {
@@ -1890,6 +1885,13 @@ mozilla::ipc::IPCResult ContentChild::RecvConstructBrowser(
     return browsingContext
                ? IPC_FAIL(this, "discarded initial top BrowsingContext")
                : IPC_FAIL(this, "missing initial top BrowsingContext");
+  }
+  if (!browsingContext->AncestorsAreCurrent()) {
+    MOZ_ASSERT(!aIsTopLevel, "Top level discard was already checked");
+    MOZ_LOG(
+        BrowsingContext::GetLog(), LogLevel::Warning,
+        ("Discarded or inactive ancestor of initial frame BrowsingContext"));
+    return IPC_OK();
   }
 
   if (xpc::IsInAutomation() &&
@@ -1960,16 +1962,19 @@ mozilla::ipc::IPCResult ContentChild::RecvConstructBrowser(
 
   RefPtr<nsOpenWindowInfo> openWindowInfo = new nsOpenWindowInfo();
   openWindowInfo->mPrincipalToInheritForAboutBlank = aWindowInit.principal();
+  // XXX We should consider moving this to CreateAboutBlankDocumentViewer (bug
+  // 2004943)
+  openWindowInfo->mPolicyContainerToInheritForAboutBlank =
+      new PolicyContainer();
 
-  {
-    // Block the script runner that notifies about the creation of the script
-    // global for the initial about:blank.
-    nsAutoScriptBlocker blockScripts;
-
-    if (NS_WARN_IF(NS_FAILED(browserChild->Init(
-            /* aOpener */ nullptr, windowChild, openWindowInfo)))) {
-      return IPC_FAIL(browserChild, "BrowserChild::Init failed");
+  nsresult rv = browserChild->Init(
+      /* aOpener */ nullptr, windowChild, openWindowInfo);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    if (rv == NS_ERROR_OUT_OF_MEMORY) {
+      NS_ABORT_OOM(0);
     }
+    IPC_FAIL_UNSAFE_PRINTF(browserChild, "BrowserChild::Init failed (rv=%s)",
+                           mozilla::GetStaticErrorName(rv));
   }
 
   nsCOMPtr<nsIObserverService> os = services::GetObserverService();
@@ -2386,7 +2391,7 @@ mozilla::ipc::IPCResult ContentChild::RecvLoadProcessScript(
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvAsyncMessage(
-    const nsString& aMsg, const ClonedMessageData& aData) {
+    const nsString& aMsg, NotNull<StructuredCloneData*> aData) {
   AUTO_PROFILER_LABEL_DYNAMIC_LOSSY_NSSTRING("ContentChild::RecvAsyncMessage",
                                              OTHER, aMsg);
   MMPrinter::Print("ContentChild::RecvAsyncMessage", aMsg, aData);
@@ -2394,10 +2399,7 @@ mozilla::ipc::IPCResult ContentChild::RecvAsyncMessage(
   RefPtr<nsFrameMessageManager> cpm =
       nsFrameMessageManager::GetChildProcessManager();
   if (cpm) {
-    StructuredCloneData data;
-    ipc::UnpackClonedMessageData(aData, data);
-    cpm->ReceiveMessage(cpm, nullptr, aMsg, false, &data, nullptr,
-                        IgnoreErrors());
+    cpm->ReceiveMessage(cpm, nullptr, aMsg, false, aData, nullptr);
   }
   return IPC_OK();
 }
@@ -2431,9 +2433,13 @@ mozilla::ipc::IPCResult ContentChild::RecvUpdateL10nFileSources(
 mozilla::ipc::IPCResult ContentChild::RecvUpdateSharedData(
     mozilla::ipc::ReadOnlySharedMemoryHandle&& aMapHandle,
     nsTArray<IPCBlob>&& aBlobs, nsTArray<nsCString>&& aChangedKeys) {
-  nsTArray<RefPtr<BlobImpl>> blobImpls(aBlobs.Length());
+  nsTArray<NotNull<RefPtr<BlobImpl>>> blobImpls(aBlobs.Length());
   for (auto& ipcBlob : aBlobs) {
-    blobImpls.AppendElement(IPCBlobUtils::Deserialize(ipcBlob));
+    RefPtr<BlobImpl> blobImpl = IPCBlobUtils::Deserialize(ipcBlob);
+    if (!blobImpl) {
+      return IPC_FAIL(this, "IPCBlobUtils::Deserialize failed");
+    }
+    blobImpls.AppendElement(WrapNotNull(blobImpl));
   }
 
   if (mSharedData) {
@@ -2570,11 +2576,22 @@ mozilla::ipc::IPCResult ContentChild::RecvRemoveAllPermissions() {
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult ContentChild::RecvFlushMemory(const nsString& reason) {
+void ContentChild::NotifyMemoryPressure(const char* aTopic,
+                                        const char16_t* aReason) {
   nsCOMPtr<nsIObserverService> os = mozilla::services::GetObserverService();
   if (!mShuttingDown && os) {
-    os->NotifyObservers(nullptr, "memory-pressure", reason.get());
+    os->NotifyObservers(nullptr, aTopic, aReason);
   }
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvMemoryPressure(
+    const nsString& reason) {
+  NotifyMemoryPressure("memory-pressure", reason.get());
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvMemoryPressureStop() {
+  NotifyMemoryPressure("memory-pressure-stop", nullptr);
   return IPC_OK();
 }
 
@@ -3224,40 +3241,6 @@ mozilla::ipc::IPCResult ContentChild::RecvPWebBrowserPersistDocumentConstructor(
   } else {
     static_cast<WebBrowserPersistDocumentChild*>(aActor)->Start(foundDoc);
   }
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult ContentChild::RecvPush(const nsCString& aScope,
-                                               nsIPrincipal* aPrincipal,
-                                               const nsString& aMessageId) {
-  PushMessageDispatcher dispatcher(aScope, aPrincipal, aMessageId, Nothing());
-  (void)NS_WARN_IF(NS_FAILED(dispatcher.NotifyObserversAndWorkers()));
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult ContentChild::RecvPushWithData(
-    const nsCString& aScope, nsIPrincipal* aPrincipal,
-    const nsString& aMessageId, nsTArray<uint8_t>&& aData) {
-  PushMessageDispatcher dispatcher(aScope, aPrincipal, aMessageId,
-                                   Some(std::move(aData)));
-  (void)NS_WARN_IF(NS_FAILED(dispatcher.NotifyObserversAndWorkers()));
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult ContentChild::RecvPushError(const nsCString& aScope,
-                                                    nsIPrincipal* aPrincipal,
-                                                    const nsString& aMessage,
-                                                    const uint32_t& aFlags) {
-  PushErrorDispatcher dispatcher(aScope, aPrincipal, aMessage, aFlags);
-  (void)NS_WARN_IF(NS_FAILED(dispatcher.NotifyObserversAndWorkers()));
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult
-ContentChild::RecvNotifyPushSubscriptionModifiedObservers(
-    const nsCString& aScope, nsIPrincipal* aPrincipal) {
-  PushSubscriptionModifiedDispatcher dispatcher(aScope, aPrincipal);
-  (void)NS_WARN_IF(NS_FAILED(dispatcher.NotifyObservers()));
   return IPC_OK();
 }
 
@@ -4161,7 +4144,7 @@ mozilla::ipc::IPCResult ContentChild::RecvMaybeExitFullscreen(
 
 mozilla::ipc::IPCResult ContentChild::RecvWindowPostMessage(
     const MaybeDiscarded<BrowsingContext>& aContext,
-    const ClonedOrErrorMessageData& aMessage, const PostMessageData& aData) {
+    StructuredCloneData* aMessage, const PostMessageData& aData) {
   if (aContext.IsNullOrDiscarded()) {
     MOZ_LOG(BrowsingContext::GetLog(), LogLevel::Debug,
             ("ChildIPC: Trying to send a message to dead or detached context"));
@@ -4205,7 +4188,9 @@ mozilla::ipc::IPCResult ContentChild::RecvWindowPostMessage(
       new PostMessageEvent(sourceBc, aData.origin(), window, providedPrincipal,
                            aData.innerWindowId(), aData.callerURI(),
                            aData.scriptLocation(), aData.isFromPrivateWindow());
-  event->UnpackFrom(aMessage);
+  if (aMessage) {
+    event->SetMessageData(aMessage);
+  }
 
   event->DispatchToTargetThread(IgnoredErrorResult());
   return IPC_OK();
@@ -4623,6 +4608,38 @@ mozilla::ipc::IPCResult ContentChild::RecvStopLoad(
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult ContentChild::RecvDeactivateDocuments(
+    const MaybeDiscarded<BrowsingContext>& aContext) {
+  if (aContext.IsNullOrDiscarded()) {
+    return IPC_OK();
+  }
+  BrowsingContext* browsingContext = aContext.get();
+  MOZ_DIAGNOSTIC_ASSERT(browsingContext->IsTopContent());
+
+  browsingContext->DeactivateDocuments();
+
+  return IPC_OK();
+}
+
+// https://html.spec.whatwg.org/#update-document-for-history-step-application
+// Perform steps 7 and 9 for the BFCache case.
+mozilla::ipc::IPCResult ContentChild::RecvReactivateDocuments(
+    const MaybeDiscarded<BrowsingContext>& aContext,
+    const Maybe<SessionHistoryInfo>& aReactivatedEntry,
+    const nsTArray<SessionHistoryInfo>& aNewSHEs,
+    const Maybe<PreviousSessionHistoryInfo>& aPreviousEntryForActivation) {
+  if (aContext.IsNullOrDiscarded()) {
+    return IPC_OK();
+  }
+  RefPtr browsingContext = aContext.get();
+  MOZ_DIAGNOSTIC_ASSERT(browsingContext->IsTopContent());
+
+  browsingContext->ReactivateDocuments(aReactivatedEntry, aNewSHEs,
+                                       aPreviousEntryForActivation);
+
+  return IPC_OK();
+}
+
 #if defined(MOZ_SANDBOX) && defined(MOZ_DEBUG) && defined(ENABLE_TESTS)
 mozilla::ipc::IPCResult ContentChild::RecvInitSandboxTesting(
     Endpoint<PSandboxTestingChild>&& aEndpoint) {
@@ -4679,15 +4696,10 @@ already_AddRefed<JSActor> ContentChild::InitJSActor(
   return actor.forget();
 }
 
-IPCResult ContentChild::RecvRawMessage(
-    const JSActorMessageMeta& aMeta, JSIPCValue&& aData,
-    const UniquePtr<ClonedMessageData>& aStack) {
-  UniquePtr<StructuredCloneData> stack;
-  if (aStack) {
-    stack = MakeUnique<StructuredCloneData>();
-    stack->BorrowFromClonedMessageData(*aStack);
-  }
-  ReceiveRawMessage(aMeta, std::move(aData), std::move(stack));
+IPCResult ContentChild::RecvRawMessage(const JSActorMessageMeta& aMeta,
+                                       JSIPCValue&& aData,
+                                       ipc::StructuredCloneData* aStack) {
+  ReceiveRawMessage(aMeta, std::move(aData), aStack);
   return IPC_OK();
 }
 

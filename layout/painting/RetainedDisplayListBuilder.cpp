@@ -270,7 +270,7 @@ bool RetainedDisplayListBuilder::PreProcessDisplayList(
       const ActiveScrolledRoot* asyncAncestorASR = aAsyncAncestorASR;
       if (item->CanMoveAsync()) {
         asyncAncestor = item->Frame();
-        asyncAncestorASR = item->GetActiveScrolledRoot();
+        asyncAncestorASR = item->GetNearestScrollASR();
       }
 
       if (!PreProcessDisplayList(
@@ -1178,7 +1178,7 @@ static void FindContainingBlocks(nsIFrame* aFrame,
 
     AddFramesForContainingBlock(f, f->GetChildList(FrameChildListID::Float),
                                 aExtraFrames);
-    AddFramesForContainingBlock(f, f->GetChildList(f->GetAbsoluteListID()),
+    AddFramesForContainingBlock(f, f->GetChildList(FrameChildListID::Absolute),
                                 aExtraFrames);
 
     // This condition must match the condition in

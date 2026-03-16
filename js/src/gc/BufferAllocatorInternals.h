@@ -9,10 +9,11 @@
 #ifndef gc_BufferAllocatorInternals_h
 #define gc_BufferAllocatorInternals_h
 
-#include "mozilla/MathAlgorithms.h"
+#include <bit>
+
+#include "NamespaceImports.h"
 
 #include "ds/SlimLinkedList.h"
-
 #include "gc/BufferAllocator.h"
 #include "gc/IteratorUtils.h"
 
@@ -120,7 +121,7 @@ class js::gc::AtomicBitmap<N>::Iter {
       word = bitmap.getWord(wordIndex);
     }
 
-    bitIndex = mozilla::CountTrailingZeroes(word);
+    bitIndex = std::countr_zero(word);
     bit = wordIndex * bitsPerWord + bitIndex;
   }
 
@@ -204,8 +205,8 @@ class BufferAllocator::ChunkLists::ChunkIter
 template <typename Derived, size_t Size, size_t Granularity>
 struct AllocSpace {
   static_assert(Size > Granularity);
-  static_assert(mozilla::IsPowerOfTwo(Size));
-  static_assert(mozilla::IsPowerOfTwo(Granularity));
+  static_assert(std::has_single_bit(Size));
+  static_assert(std::has_single_bit(Granularity));
   static constexpr size_t SizeBytes = Size;
   static constexpr size_t GranularityBytes = Granularity;
 
@@ -235,6 +236,7 @@ struct AllocSpace {
 
   void setAllocated(void* alloc, size_t bytes, bool allocated);
   void updateEndOffset(void* alloc, size_t oldBytes, size_t newBytes);
+  void setDeallocated(void* alloc, size_t bytes);
 
   bool isAllocated(const void* alloc) const {
     size_t bit = ptrToIndex(alloc);
@@ -344,7 +346,7 @@ struct BufferChunk
 #endif
 
   MainThreadOrGCTaskData<bool> allocatedDuringCollection;
-  MainThreadData<bool> hasNurseryOwnedAllocs;
+  MainThreadOrGCTaskData<bool> hasNurseryOwnedAllocs;
   MainThreadOrGCTaskData<bool> hasNurseryOwnedAllocsAfterSweep;
 
   static constexpr size_t MaxAllocsPerChunk = MaxAllocCount;  // todo remove
@@ -390,6 +392,8 @@ struct BufferChunk
   size_t sizeClassForAvailableLists() const;
 
   bool isPointerWithinAllocation(void* ptr) const;
+
+  void getStats(BufferAllocator::Stats& stats);
 };
 
 constexpr size_t FirstMediumAllocOffset = BufferChunk::firstAllocOffset();

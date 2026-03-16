@@ -135,8 +135,6 @@ skip-if = [
 
 ["test_getUserMedia_mediaStreamTrackClone.html"]
 
-["test_getUserMedia_nonDefaultRate.html"]
-
 ["test_getUserMedia_peerIdentity.html"]
 
 ["test_getUserMedia_permission.html"]
@@ -153,6 +151,7 @@ run-if = [
 ]
 skip-if = [
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && debug", # Bug 1787039
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && debug", # Bug 1787039
 ]
 
 ["test_getUserMedia_spinEventLoop.html"]

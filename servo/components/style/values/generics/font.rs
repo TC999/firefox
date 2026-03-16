@@ -4,6 +4,7 @@
 
 //! Generic types for font stuff.
 
+use crate::derives::*;
 use crate::parser::{Parse, ParserContext};
 use crate::values::animated::ToAnimatedZero;
 use crate::{One, Zero};
@@ -11,8 +12,10 @@ use byteorder::{BigEndian, ReadBytesExt};
 use cssparser::Parser;
 use std::fmt::{self, Write};
 use std::io::Cursor;
-use style_traits::{CssWriter, ParseError};
-use style_traits::{StyleParseErrorKind, ToCss};
+use style_traits::{
+    CssString, CssWriter, KeywordValue, ParseError, StyleParseErrorKind, ToCss, ToTyped, TypedValue,
+};
+use thin_vec::ThinVec;
 
 /// A trait for values that are labelled with a FontTag (for feature and
 /// variation settings).
@@ -257,7 +260,6 @@ impl<Angle: Zero> FontStyle<Angle> {
     ToComputedValue,
     ToResolvedValue,
     ToShmem,
-    ToTyped,
 )]
 pub enum GenericFontSizeAdjust<Factor> {
     #[animation(error)]
@@ -290,6 +292,19 @@ impl<Factor: ToCss> ToCss for GenericFontSizeAdjust<Factor> {
 
         dest.write_str(prefix)?;
         value.to_css(dest)
+    }
+}
+
+impl<Factor: ToTyped> ToTyped for GenericFontSizeAdjust<Factor> {
+    fn to_typed(&self, dest: &mut ThinVec<TypedValue>) -> Result<(), ()> {
+        match self {
+            Self::None => {
+                dest.push(TypedValue::Keyword(KeywordValue(CssString::from("none"))));
+                Ok(())
+            },
+            Self::ExHeight(v) => v.to_typed(dest),
+            _ => Err(()),
+        }
     }
 }
 

@@ -6,6 +6,7 @@ package org.mozilla.fenix.browser
 
 import android.content.Context
 import android.content.Intent
+import android.hardware.SensorManager
 import android.os.StrictMode
 import android.view.View
 import android.view.ViewGroup
@@ -13,10 +14,13 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.VisibleForTesting
 import androidx.appcompat.content.res.AppCompatResources
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.Observer
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import mozilla.components.browser.state.selector.findTab
@@ -31,6 +35,8 @@ import mozilla.components.feature.contextmenu.ContextMenuCandidate
 import mozilla.components.feature.readerview.ReaderViewFeature
 import mozilla.components.feature.tab.collections.TabCollection
 import mozilla.components.feature.tabs.WindowFeature
+import mozilla.components.lib.accelerometer.sensormanager.LifecycleAwareSensorManagerAccelerometer
+import mozilla.components.lib.shake.detectShakes
 import mozilla.components.support.base.feature.UserInteractionHandler
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
 import mozilla.components.support.ktx.kotlin.isContentUrl
@@ -57,6 +63,7 @@ import org.mozilla.fenix.ext.runIfFragmentIsAttached
 import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.home.HomeFragment
 import org.mozilla.fenix.nimbus.FxNimbus
+import org.mozilla.fenix.settings.downloads.DownloadLocationManager
 import org.mozilla.fenix.settings.quicksettings.protections.cookiebanners.getCookieBannerUIMode
 import org.mozilla.fenix.shortcut.PwaOnboardingObserver
 import org.mozilla.fenix.telemetry.ACTION_SHARE_CLICKED
@@ -167,6 +174,58 @@ class BrowserFragment : BaseBrowserFragment(), UserInteractionHandler {
                 owner = this,
                 view = view,
             )
+        }
+
+        setupShakeDetection()
+    }
+
+    private fun setupShakeDetection() {
+        if (
+            !(
+                requireComponents.core.summarizeFeatureSettings.canShowFeature &&
+                requireComponents.core.summarizeFeatureSettings.shakeToSummarizeEnabled
+            )
+        ) {
+            return
+        }
+
+        val sensorManager = requireActivity().getSystemService(SensorManager::class.java) ?: return
+        val accelerometer = LifecycleAwareSensorManagerAccelerometer(sensorManager)
+        with(viewLifecycleOwner) {
+            lifecycle.addObserver(accelerometer)
+            lifecycleScope.launch {
+                viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    accelerometer.detectShakes()
+                        .onStart {
+                            summarizeToolbarCfrBinding.get()?.maybeDismissCfr()
+                        }
+                        .collect {
+                        findNavController().apply {
+                            // We don't want to navigate to the summarization fragment if the current
+                            // tab is private.
+                            val isPrivate = getSafeCurrentTab()?.content?.private == true
+
+                            // We don't want to navigate to the summarization fragment if the current
+                            // tab is loading.
+                            val isPageLoading = getSafeCurrentTab()?.content?.loading == true
+
+                            // Since the summarization fragment is in a dialog, it's possible that we
+                            // can still detect shakes in the background. Don't try to navigate twice.
+                            val currentDestinationIsNotTheBrowser = currentDestination?.id != R.id.browserFragment
+
+                            if (isPrivate || isPageLoading || currentDestinationIsNotTheBrowser) {
+                                return@collect
+                            }
+
+                            navigate(
+                                BrowserFragmentDirections.actionBrowserFragmentToSummarizationFragment(
+                                    true,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -323,12 +382,11 @@ class BrowserFragment : BaseBrowserFragment(), UserInteractionHandler {
         val readerModeAction = BrowserToolbar.ToggleButton(
             image = AppCompatResources.getDrawable(
                 context,
-                R.drawable.ic_readermode,
+                iconsR.drawable.mozac_ic_reader_view_24,
             )!!,
-            imageSelected =
-            AppCompatResources.getDrawable(
+            imageSelected = AppCompatResources.getDrawable(
                 context,
-                R.drawable.ic_readermode_selected,
+                iconsR.drawable.mozac_ic_reader_view_fill_24,
             )!!,
             contentDescription = context.getString(R.string.browser_menu_read),
             contentDescriptionSelected = context.getString(R.string.browser_menu_read_close),
@@ -638,7 +696,7 @@ class BrowserFragment : BaseBrowserFragment(), UserInteractionHandler {
                                 isLocalPdf = tab.content.url.isContentUrl(),
                                 isSecured = tab.content.securityInfo.isSecure,
                                 sitePermissions = sitePermissions,
-                                certificateName = tab.content.securityInfo.issuer,
+                                certificate = tab.content.securityInfo.certificate,
                                 permissionHighlights = tab.content.permissionHighlights,
                                 isTrackingProtectionEnabled = isTrackingProtectionEnabled,
                                 cookieBannerUIMode = cookieBannerUIMode,
@@ -709,11 +767,14 @@ class BrowserFragment : BaseBrowserFragment(), UserInteractionHandler {
         )
 
         return ContextMenuCandidate.defaultCandidates(
-            context,
-            context.components.useCases.tabsUseCases,
-            context.components.useCases.contextMenuUseCases,
-            view,
-            ContextMenuSnackbarDelegate(),
+            context = context,
+            tabsUseCases = context.components.useCases.tabsUseCases,
+            contextMenuUseCases = context.components.useCases.contextMenuUseCases,
+            snackBarParentView = view,
+            snackbarDelegate = ContextMenuSnackbarDelegate(),
+            downloadsLocation = {
+                DownloadLocationManager(requireContext()).defaultLocation
+            },
         ) + ContextMenuCandidate.createOpenInExternalAppCandidate(
             requireContext(),
             contextMenuCandidateAppLinksUseCases,

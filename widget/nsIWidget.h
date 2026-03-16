@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsIWidget_h__
-#define nsIWidget_h__
+#ifndef nsIWidget_h_
+#define nsIWidget_h_
 
 #include <cmath>
 #include <cstdint>
@@ -78,6 +78,14 @@ enum class WindowButtonType : uint8_t;
 struct FontRange;
 struct SwipeEventQueue;
 
+enum class HapticFeedbackType : uint8_t {
+  ShortPress = 0,
+  LongPress = 1,
+  TextHandleMove = 2,
+
+  End,  // Not a feedback type, only to mark the upper boundary
+};
+
 enum class WindowShadow : uint8_t {
   None,
   Menu,
@@ -85,11 +93,6 @@ enum class WindowShadow : uint8_t {
   Tooltip,
 };
 
-#if defined(MOZ_WIDGET_ANDROID)
-namespace ipc {
-class Shmem;
-}
-#endif  // defined(MOZ_WIDGET_ANDROID)
 namespace dom {
 class BrowserChild;
 enum class CallerType : uint32_t;
@@ -422,6 +425,7 @@ class nsIWidget : public nsSupportsWeakReference {
   typedef mozilla::widget::IMEEnabled IMEEnabled;
   typedef mozilla::widget::IMEMessage IMEMessage;
   typedef mozilla::widget::IMENotification IMENotification;
+  typedef mozilla::widget::IMENotificationRequest IMENotificationRequest;
   typedef mozilla::widget::IMENotificationRequests IMENotificationRequests;
   typedef mozilla::widget::IMEState IMEState;
   typedef mozilla::widget::InputContext InputContext;
@@ -725,14 +729,6 @@ class nsIWidget : public nsSupportsWeakReference {
    *
    */
   virtual bool IsVisible() const = 0;
-
-  /**
-   * Returns whether the window has allocated resources so
-   * we can paint into it.
-   * Recently it's used on Linux/Gtk where we should not paint
-   * to invisible window.
-   */
-  virtual bool IsMapped() const { return true; }
 
   /**
    * Perform platform-dependent sanity check on a potential window position.
@@ -1300,7 +1296,9 @@ class nsIWidget : public nsSupportsWeakReference {
   void NotifyWindowDestroyed();
   void NotifySizeMoveDone();
   using ByMoveToRect = nsIWidgetListener::ByMoveToRect;
-  void NotifyWindowMoved(int32_t aX, int32_t aY,
+  void NotifyWindowMoved(const LayoutDeviceIntPoint&,
+                         ByMoveToRect = ByMoveToRect::No);
+  void NotifyWindowMoved(const DesktopIntPoint&,
                          ByMoveToRect = ByMoveToRect::No);
   // Should be called by derived implementations to notify on system color and
   // theme changes. (Only one invocation per change is needed, not one
@@ -1414,8 +1412,6 @@ class nsIWidget : public nsSupportsWeakReference {
 
   void FreeShutdownObserver();
   void FreeLocalesChangedObserver();
-
-  bool IsPIPWindow() const { return mIsPIPWindow; };
 
  public:
   /**
@@ -2315,16 +2311,6 @@ class nsIWidget : public nsSupportsWeakReference {
    */
   virtual void RecvToolbarAnimatorMessageFromCompositor(int32_t aMessage) {}
 
-  /**
-   * RecvScreenPixels Buffer containing the pixel from the frame buffer. Used
-   * for android robocop tests.
-   *
-   * @param aMem  shared memory containing the frame buffer pixels.
-   * @param aSize size of the buffer in screen pixels.
-   */
-  virtual void RecvScreenPixels(mozilla::ipc::Shmem&& aMem,
-                                const ScreenIntSize& aSize, bool aNeedsYFlip) {}
-
   virtual void UpdateDynamicToolbarMaxHeight(mozilla::ScreenIntCoord aHeight) {}
   virtual mozilla::ScreenIntCoord GetDynamicToolbarMaxHeight() const {
     return 0;
@@ -2357,6 +2343,8 @@ class nsIWidget : public nsSupportsWeakReference {
     Puppet,
   };
   bool IsPuppetWidget() const { return mWidgetType == WidgetType::Puppet; }
+  bool IsHeadlessWidget() const { return mWidgetType == WidgetType::Headless; }
+  bool IsNativeWidget() const { return mWidgetType == WidgetType::Native; }
 
   using WindowButtonType = mozilla::WindowButtonType;
 
@@ -2368,6 +2356,11 @@ class nsIWidget : public nsSupportsWeakReference {
    */
   virtual void SetWindowButtonRect(WindowButtonType aButtonType,
                                    const LayoutDeviceIntRect& aClientRect) {}
+
+  /**
+   * Provide haptic feedback for this widget.
+   */
+  virtual void PerformHapticFeedback(mozilla::HapticFeedbackType aType) {}
 
 #ifdef DEBUG
   virtual nsresult SetHiDPIMode(bool aHiDPI) {
@@ -2441,8 +2434,7 @@ class nsIWidget : public nsSupportsWeakReference {
   // a PANGESTURE_(MAY)START event).
   bool mCurrentPanGestureBelongsToSwipe;
 
-  // It's PictureInPicture window.
-  bool mIsPIPWindow : 1;
+  mozilla::widget::PiPType mPiPType;
 
   struct InitialZoomConstraints {
     InitialZoomConstraints(const uint32_t& aPresShellID,
@@ -2487,4 +2479,4 @@ class nsIWidget : public nsSupportsWeakReference {
                           mozilla::layers::CompositorOptions* aOptionsOut);
 };
 
-#endif  // nsIWidget_h__
+#endif  // nsIWidget_h_

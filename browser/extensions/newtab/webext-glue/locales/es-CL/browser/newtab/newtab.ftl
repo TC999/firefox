@@ -23,6 +23,9 @@ newtab-personalize-dialog-label =
     .aria-label = Personalizar
 newtab-logo-and-wordmark =
     .aria-label = { -brand-full-name }
+newtab-card-dismiss-button =
+    .title = Ocultar
+    .aria-label = Ocultar
 
 ## Search box component.
 
@@ -49,7 +52,7 @@ newtab-search-box-input =
     .placeholder = Buscar en la web
     .aria-label = Buscar en la web
 
-## Top Sites - General form dialog.
+## Clear text button for the URL and image URL input fields in the Top Sites form.
 
 newtab-topsites-add-search-engine-header = Añadir motor de búsqueda
 newtab-topsites-add-shortcut-header = Nuevo atajo
@@ -69,6 +72,11 @@ newtab-topsites-url-validation = URL válida requerida
 newtab-topsites-image-url-label = URL de imagen personalizada
 newtab-topsites-use-image-link = Utilizar una imagen personalizada…
 newtab-topsites-image-validation = Falló la carga de la imagen. Prueba una URL diferente.
+
+## Clear text button for the URL and image URL input fields in the Top Sites form.
+
+newtab-topsites-clear-input =
+    .aria-label = Limpiar texto
 
 ## Top Sites - General form dialog buttons. These are verbs/actions.
 
@@ -325,18 +333,18 @@ newtab-custom-recent-subtitle = Una selección de sitios y contenidos recientes
 newtab-custom-weather-toggle =
     .label = Clima
     .description = El pronóstico del día de un vistazo
-newtab-custom-trending-search-toggle =
-    .label = Tendencias de búsquedas
-    .description = Temas populares y buscados frecuentemente
 newtab-custom-widget-weather-toggle =
     .label = Clima
-newtab-custom-widget-trending-search-toggle =
-    .label = Tendencias de búsquedas
 newtab-custom-widget-lists-toggle =
     .label = Listas
 newtab-custom-widget-timer-toggle =
     .label = Temporizador
 newtab-custom-widget-section-title = Widgets
+newtab-custom-widget-section-toggle =
+    .label = Widgets
+newtab-widget-manage-title = Widgets
+newtab-widget-manage-widget-button =
+    .label = Gestionar widgets
 # Tooltip for close button
 newtab-custom-close-menu-button =
     .title = Cerrar
@@ -464,6 +472,8 @@ newtab-weather-change-location-search-input-placeholder =
     .placeholder = Buscar ubicación
     .aria-label = Buscar ubicación
 newtab-weather-menu-weather-display = Visualización del clima
+newtab-weather-todays-forecast = Pronóstico del tiempo para hoy
+newtab-weather-see-full-forecast = Ver pronóstico completo
 # Display options are:
 # - Simple: Displays a current weather condition icon and the current temperature
 # - Detailed: Include simple information plus a short text summary: e.g. "Mostly cloudy"
@@ -476,6 +486,7 @@ newtab-weather-menu-temperature-option-fahrenheit = Fahrenheit
 newtab-weather-menu-temperature-option-celsius = Celsius
 newtab-weather-menu-change-temperature-units-fahrenheit = Cambiar a Fahrenheit
 newtab-weather-menu-change-temperature-units-celsius = Cambiar a Celsius
+newtab-weather-menu-hide-weather-v2 = Ocultar clima
 newtab-weather-menu-hide-weather = Ocultar el clima en Nueva pestaña
 newtab-weather-menu-learn-more = Aprender más
 newtab-weather-menu-detect-my-location = Detectar mi ubicación
@@ -488,6 +499,11 @@ newtab-weather-opt-in-yes =
     .label = Sí
 # We'll be showing static (fake) weather data if the user has not opted in to using their location
 newtab-weather-static-city = Nueva York
+# Variables:
+#   $provider (string) - Service provider for weather data
+newtab-weather-see-forecast-description =
+    .title = Ver pronóstico en { $provider }
+    .aria-description = { $provider } ∙ Patrocinado
 
 ## Topic Labels
 
@@ -592,7 +608,7 @@ newtab-download-mobile-highlight-image =
 newtab-shortcuts-highlight-title = Tus favoritos al alcance de tus dedos
 newtab-shortcuts-highlight-subtitle = Añade un acceso directo para tener tus sitios favoritos a un solo clic de distancia.
 
-## Strings for reporting ads and content
+## Strings for reporting issues with ads and content
 
 newtab-report-content-why-reporting-this =
     .label = ¿Por qué estás informando esto?
@@ -610,21 +626,13 @@ newtab-report-content-inappropriate-offensive =
     .label = Inapropiado u ofensivo
 newtab-report-content-spam-misleading =
     .label = Spam o engañoso
+newtab-report-content-requires-payment-subscription =
+    .label = Requiere pago o suscripción
+newtab-report-content-requires-payment-subscription-learn-more = Aprender más
 newtab-report-cancel = Cancelar
 newtab-report-submit = Enviar
 newtab-toast-thanks-for-reporting =
     .message = Gracias por informar esto.
-
-## Strings for trending searches
-
-newtab-trending-searches-show-trending =
-    .title = Mostrar búsquedas de tendencia
-newtab-trending-searches-hide-trending =
-    .title = Ocultar búsquedas de tendencia
-newtab-trending-searches-learn-more = Aprender más
-newtab-trending-searches-dismiss = Ocultar búsquedas de tendencia
-# "Trending searches refers to popular searches from search engines
-newtab-trending-searches-title = Tendencias de búsquedas
 
 ## Strings for task / to-do list productivity widget
 
@@ -664,6 +672,17 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Nueva lista
+newtab-widget-section-title = Widgets
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Ocultar widgets
+    .aria-label = Ocultar todos los widgets
+newtab-widget-section-maximize =
+    .title = Expandir widgets
+    .aria-label = Expandir todos los widgets al tamaño completo
+newtab-widget-section-minimize =
+    .title = Minimizar widgets
+    .aria-label = Minimizar todos los widgets al tamaño compacto
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
@@ -686,6 +705,12 @@ newtab-widget-timer-menu-notifications = Desactivar notificaciones
 newtab-widget-timer-menu-notifications-on = Activar notificaciones
 newtab-widget-timer-menu-hide = Ocultar temporizador
 newtab-widget-timer-menu-learn-more = Más información
+# The title displays above a set of top news headlines.
+newtab-daily-briefing-card-title = Titulares principales
+newtab-daily-briefing-card-menu-dismiss = Ocultar
+# Variables:
+#   $minutes (number) - Time since the feed has been refreshed
+newtab-daily-briefing-card-timestamp = Actualizado hace { $minutes }m
 newtab-widget-message-title = Mantén la concentración con listas y un temporizador incorporado
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Desde recordatorios rápidos hasta tareas diarias, sesiones de concentración y descansos para estirarse, mantén la concentración en tus tareas y a tiempo.
@@ -695,3 +720,25 @@ newtab-promo-card-cta = Más información
 newtab-promo-card-dismiss-button =
     .title = Ocultar
     .aria-label = Ocultar
+
+## Strings for activation window message variants. In certain experiment configurations,
+## the strings from these variants may be displayed in a message below the search input
+## for the first 48 hours of a new profile's lifetime. Some messages include buttons with
+## labels, but not all.
+
+newtab-activation-window-message-dismiss-button =
+    .title = Ocultar
+    .aria-label = Ocultar
+# "This space" refers to about:newtab. The call to action here ("make it your own")
+# is to customize newtab with a background image or colour, or by tweaking the
+# existing widgetry that appears on it.
+newtab-activation-window-message-customization-focus-header = Haz tuyo este espacio
+newtab-activation-window-message-customization-focus-message = Elige un fondo de pantalla nuevo, agrega accesos directos a tus sitios favoritos y mantente al día sobre las historias que te interesan.
+newtab-activation-window-message-customization-focus-primary-button =
+    .label = Empieza a personalizar
+# "This space" refers to about:newtab. The sentiment of "plays by your rules" is
+# meant to evoke the idea that newtab is malleable and customizable. The call to
+# action is to customize newtab with a background image or colour, or by tweaking
+# the existing widgetry that appears on it.
+newtab-activation-window-message-values-focus-header = Este espacio juega según tus reglas
+newtab-activation-window-message-values-focus-message = { -brand-product-name } te permite navegar como quieras, con una forma más personal de empezar el día en línea. Personaliza { -brand-product-name }.

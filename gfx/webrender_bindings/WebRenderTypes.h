@@ -127,6 +127,7 @@ enum class SpatialKeyKind : uint32_t {
   ImagePipeline,
   APZ,
   ViewTransition,
+  SCOrigin,
 };
 
 // Construct a unique, persistent spatial key based on the frame tree pointer,
@@ -805,6 +806,7 @@ enum class WebRenderError : int8_t {
   VIDEO_OVERLAY,
   VIDEO_HW_OVERLAY,
   VIDEO_SW_OVERLAY,
+  DCOMP_TEXTURE_OVERLAY,
   EXCESSIVE_RESETS,
 
   Sentinel /* this must be last for serialization purposes. */

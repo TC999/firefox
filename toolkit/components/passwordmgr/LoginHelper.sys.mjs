@@ -276,6 +276,8 @@ class ImportRowProcessor {
     login.timePasswordChanged =
       loginData.timePasswordChanged || loginData.timeCreated;
     login.timesUsed = loginData.timesUsed || 1;
+    login.timeLastBreachAlertDismissed =
+      loginData.timeLastBreachAlertDismissed || null;
     login.guid = loginData.guid || null;
     return login;
   }
@@ -368,7 +370,10 @@ class ImportRowProcessor {
             summaryRow.login
           );
         } else if (summaryRow.result === "modified") {
-          Services.logins.modifyLogin(summaryRow.login, summaryRow.propBag);
+          await Services.logins.modifyLoginAsync(
+            summaryRow.login,
+            summaryRow.propBag
+          );
         }
       } catch (e) {
         console.error(e);
@@ -908,6 +913,7 @@ export const LoginHelper = {
           case "timeLastUsed":
           case "timePasswordChanged":
           case "timesUsed":
+          case "timeLastBreachAlertDismissed":
             newLogin[prop.name] = prop.value;
             break;
 
@@ -1511,6 +1517,7 @@ export const LoginHelper = {
       "timeLastUsed",
       "timePasswordChanged",
       "timesUsed",
+      "timeLastBreachAlertDismissed",
     ]) {
       formLogin[prop] = login[prop];
     }
@@ -1627,8 +1634,8 @@ export const LoginHelper = {
   },
 
   /**
-   * Shows the Primary Password prompt if enabled, or the
-   * OS auth dialog otherwise.
+   * Shows OS auth dialog if OS auth is enabled or the Primary Password dialog when
+   * the token is locked or OS auth is disabled.
    *
    * @param {Element} browser
    *        The <browser> that the prompt should be shown on
@@ -1682,7 +1689,8 @@ export const LoginHelper = {
       };
     }
     // Use the OS auth dialog if there is no primary password
-    if (!token.hasPassword && OSReauthEnabled) {
+    // or if primary password is already unlocked.
+    if ((!token.hasPassword || token.isLoggedIn()) && OSReauthEnabled) {
       let result;
       try {
         isAuthorized = await this.verifyUserOSAuth(

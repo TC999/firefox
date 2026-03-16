@@ -30,6 +30,7 @@
 #include "nsHttpChunkedDecoder.h"
 #include "nsHttpDigestAuth.h"
 #include "nsHttpHandler.h"
+#include "nsHttpConnectionMgr.h"
 #include "nsHttpNTLMAuth.h"
 #ifdef MOZ_AUTH_EXTENSION
 #  include "nsHttpNegotiateAuth.h"
@@ -60,6 +61,7 @@
 #include "nsQueryObject.h"
 #include "nsSocketTransportService2.h"
 #include "nsStringStream.h"
+#include "nsThreadUtils.h"
 #include "nsTransportUtils.h"
 #include "sslerr.h"
 #include "SpeculativeTransaction.h"
@@ -74,6 +76,19 @@
 using namespace mozilla::net;
 
 namespace mozilla::net {
+
+//-----------------------------------------------------------------------------
+// nsHttpTransaction::UpdateSecurityCallbacks
+//-----------------------------------------------------------------------------
+
+NS_IMPL_ISUPPORTS_INHERITED(nsHttpTransaction::UpdateSecurityCallbacks,
+                            Runnable, nsIRunnablePriority)
+
+NS_IMETHODIMP
+nsHttpTransaction::UpdateSecurityCallbacks::GetPriority(uint32_t* aPriority) {
+  *aPriority = mPriority;
+  return NS_OK;
+}
 
 //-----------------------------------------------------------------------------
 // nsHttpTransaction <public>
@@ -339,7 +354,8 @@ nsresult nsHttpTransaction::Init(
 
   bool forceUseHTTPSRR = StaticPrefs::network_dns_force_use_https_rr();
   if ((StaticPrefs::network_dns_use_https_rr_as_altsvc() &&
-       !(mCaps & NS_HTTP_DISALLOW_HTTPS_RR)) ||
+       !(mCaps & NS_HTTP_DISALLOW_HTTPS_RR) &&
+       !(mCaps & NS_HTTP_USE_HAPPY_EYEBALLS)) ||
       forceUseHTTPSRR) {
     nsCOMPtr<nsIEventTarget> target;
     (void)gHttpHandler->GetSocketThreadTarget(getter_AddRefs(target));
@@ -403,9 +419,11 @@ void nsHttpTransaction::OnPendingQueueInserted(
     mHashKeyOfConnectionEntry.Assign(aConnectionHashKey);
   }
 
-  // Don't create mHttp3BackupTimer if HTTPS RR is in play.
+  // Don't create mHttp3BackupTimer if HTTPS RR is used or Happy Eyeballs is
+  // enabled. The Happy Eyeballs state machine will handle fallback to h2.
   if ((mConnInfo->IsHttp3() || mConnInfo->IsHttp3ProxyConnection()) &&
-      !mOrigConnInfo && !mConnInfo->GetWebTransport()) {
+      !mOrigConnInfo && !mConnInfo->GetWebTransport() &&
+      !(mCaps & NS_HTTP_USE_HAPPY_EYEBALLS)) {
     // Backup timer should only be created once.
     if (!mHttp3BackupTimerCreated) {
       CreateAndStartTimer(mHttp3BackupTimer, this,
@@ -421,6 +439,12 @@ nsresult nsHttpTransaction::AsyncRead(nsIStreamListener* listener,
   nsresult rv =
       nsInputStreamPump::Create(getter_AddRefs(transactionPump), mPipeIn);
   NS_ENSURE_SUCCESS(rv, rv);
+
+  // If this is for a TRR request, we increase the priority of the
+  // OnInputStreamReady runnables
+  if (mIsTRRTransaction) {
+    transactionPump->SetHighPriority(true);
+  }
 
   rv = transactionPump->AsyncRead(listener);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -440,6 +464,10 @@ void nsHttpTransaction::SetH2WSConnRefTaken() {
     nsCOMPtr<nsIRunnable> event =
         NewRunnableMethod("nsHttpTransaction::SetH2WSConnRefTaken", this,
                           &nsHttpTransaction::SetH2WSConnRefTaken);
+    if (mIsTRRTransaction) {
+      event = new PrioritizableRunnable(
+          event.forget(), nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
+    }
     gSocketTransportService->Dispatch(event, NS_DISPATCH_NORMAL);
     return;
   }
@@ -541,15 +569,23 @@ void nsHttpTransaction::OnActivated() {
     }
   }
 
+  // Populate connection metadata here rather than in OnTransportStatus. With
+  // happy eyeballs, transport status events may arrive before the winning
+  // connection is assigned to the transaction, making OnTransportStatus
+  // unreliable for this purpose.
+  if (mConnection) {
+    MutexAutoLock lock(mLock);
+    mConnection->GetSelfAddr(&mSelfAddr);
+    mConnection->GetPeerAddr(&mPeerAddr);
+    mResolvedByTRR = mConnection->ResolvedByTRR();
+    mEffectiveTRRMode = mConnection->EffectiveTRRMode();
+    mTRRSkipReason = mConnection->TRRSkipReason();
+    mEchConfigUsed = mConnection->GetEchConfigUsed();
+  }
+
   mActivated = true;
   gHttpHandler->ConnMgr()->AddActiveTransaction(this);
   FinalizeConnInfo();
-  if (mConnection) {
-    RefPtr<HttpConnectionBase> conn = mConnection->HttpConnection();
-    if (conn) {
-      conn->RecordConnectionAddressType();
-    }
-  }
 }
 
 void nsHttpTransaction::GetSecurityCallbacks(nsIInterfaceRequestor** cb) {
@@ -566,8 +602,10 @@ void nsHttpTransaction::SetSecurityCallbacks(
   }
 
   if (gSocketTransportService) {
-    RefPtr<UpdateSecurityCallbacks> event =
-        new UpdateSecurityCallbacks(this, aCallbacks);
+    RefPtr<UpdateSecurityCallbacks> event = new UpdateSecurityCallbacks(
+        this, aCallbacks,
+        mIsTRRTransaction ? nsIRunnablePriority::PRIORITY_MEDIUMHIGH
+                          : nsIRunnablePriority::PRIORITY_NORMAL);
     gSocketTransportService->Dispatch(event, nsIEventTarget::DISPATCH_NORMAL);
   }
 }
@@ -578,26 +616,18 @@ void nsHttpTransaction::OnTransportStatus(nsITransport* transport,
         " progress=%" PRId64 "]\n",
         this, static_cast<uint32_t>(status), progress));
 
-  if (status == NS_NET_STATUS_CONNECTED_TO ||
-      status == NS_NET_STATUS_WAITING_FOR) {
-    if (mConnection) {
-      MutexAutoLock lock(mLock);
-      mConnection->GetSelfAddr(&mSelfAddr);
-      mConnection->GetPeerAddr(&mPeerAddr);
-      mResolvedByTRR = mConnection->ResolvedByTRR();
-      mEffectiveTRRMode = mConnection->EffectiveTRRMode();
-      mTRRSkipReason = mConnection->TRRSkipReason();
-      mEchConfigUsed = mConnection->GetEchConfigUsed();
-    }
-  }
-
   // If the timing is enabled, and we are not using a persistent connection
   // then the requestStart timestamp will be null, so we mark the timestamps
   // for domainLookupStart/End and connectStart/End
   // If we are using a persistent connection they will remain null,
   // and the correct value will be returned in Performance.
   if (GetRequestStart().IsNull()) {
-    if (status == NS_NET_STATUS_RESOLVING_HOST) {
+    if (mConnInfo && mConnInfo->GetHappyEyeballsEnabled()) {
+      // Happy eyeballs sets connection timing data directly.
+      if (status == NS_NET_STATUS_SENDING_TO) {
+        SetRequestStart(TimeStamp::Now(), true);
+      }
+    } else if (status == NS_NET_STATUS_RESOLVING_HOST) {
       SetDomainLookupStart(TimeStamp::Now(), true);
     } else if (status == NS_NET_STATUS_RESOLVED_HOST) {
       SetDomainLookupEnd(TimeStamp::Now());
@@ -897,6 +927,10 @@ void nsHttpTransaction::DontReuseConnection() {
     nsCOMPtr<nsIRunnable> event =
         NewRunnableMethod("nsHttpTransaction::DontReuseConnection", this,
                           &nsHttpTransaction::DontReuseConnection);
+    if (mIsTRRTransaction) {
+      event = new PrioritizableRunnable(
+          event.forget(), nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
+    }
     gSocketTransportService->Dispatch(event, NS_DISPATCH_NORMAL);
     return;
   }
@@ -1506,6 +1540,12 @@ void nsHttpTransaction::Close(nsresult reason) {
           if (psm::IsNSSErrorCode(-1 * NS_ERROR_GET_CODE(aStatus))) {
             return TRANSACTION_RESTART_HTTPS_RR_SEC_ERROR;
           }
+          if (aStatus == NS_ERROR_NOT_CONNECTED ||
+              aStatus == NS_ERROR_SOCKET_ADDRESS_IN_USE ||
+              aStatus == NS_ERROR_FILE_ALREADY_EXISTS ||
+              aStatus == NS_ERROR_NET_INTERRUPT) {
+            return TRANSACTION_RESTART_OTHERS;
+          }
           MOZ_ASSERT_UNREACHABLE("Unexpected reason");
           return TRANSACTION_RESTART_OTHERS;
         };
@@ -1639,6 +1679,13 @@ void nsHttpTransaction::Close(nsresult reason) {
     if (mOrigConnInfo) {
       glean::http::dns_httpssvc_connection_failed_reason.AccumulateSingleSample(
           HTTPSSVC_CONNECTION_OK);
+    }
+
+    if (mConnection) {
+      RefPtr<HttpConnectionBase> conn = mConnection->HttpConnection();
+      if (conn) {
+        conn->RecordConnectionAddressType();
+      }
     }
   }
 
@@ -3496,7 +3543,7 @@ void nsHttpTransaction::OnBackupConnectionReady(bool aTriggeredByHTTPSRR) {
 
 static void CreateBackupConnection(
     nsHttpConnectionInfo* aBackupConnInfo, nsIInterfaceRequestor* aCallbacks,
-    uint32_t aCaps, std::function<void(bool)>&& aResultCallback) {
+    uint32_t aCaps, std::function<void(nsresult)>&& aResultCallback) {
   aBackupConnInfo->SetFallbackConnection(true);
   RefPtr<SpeculativeTransaction> trans = new FallbackTransaction(
       aBackupConnInfo, aCallbacks, aCaps | NS_HTTP_DISALLOW_HTTP3,
@@ -3525,8 +3572,8 @@ void nsHttpTransaction::OnHttp3BackupTimer() {
   }
 
   RefPtr<nsHttpTransaction> self = this;
-  auto callback = [self](bool aSucceded) {
-    if (aSucceded) {
+  auto callback = [self](nsresult aResult) {
+    if (NS_SUCCEEDED(aResult)) {
       self->OnBackupConnectionReady(false);
     }
   };
@@ -3581,8 +3628,8 @@ void nsHttpTransaction::OnFastFallbackTimer() {
   MOZ_ASSERT(!mBackupConnInfo->IsHttp3());
 
   RefPtr<nsHttpTransaction> self = this;
-  auto callback = [self](bool aSucceded) {
-    if (!aSucceded) {
+  auto callback = [self](nsresult aResult) {
+    if (NS_FAILED(aResult)) {
       return;
     }
 

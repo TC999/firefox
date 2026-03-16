@@ -113,8 +113,8 @@ nsresult WorkerLoadInfo::SetPrincipalsAndCSPOnMainThread(
   mCSP = aCsp;
 
   if (mCSP) {
-    Result<UniquePtr<WorkerCSPContext>, nsresult> ctx =
-        WorkerCSPContext::CreateFromCSP(aCsp);
+    Result<UniquePtr<OffThreadCSPContext>, nsresult> ctx =
+        OffThreadCSPContext::CreateFromCSP(aCsp);
     if (NS_WARN_IF(ctx.isErr())) {
       return ctx.unwrapErr();
     }
@@ -378,7 +378,7 @@ WorkerLoadInfo::InterfaceRequestor::InterfaceRequestor(
       callbacks->GetInterface(NS_GET_IID(nsILoadContext),
                               getter_AddRefs(baseContext));
     }
-    mOuterRequestor = callbacks;
+    mOuterRequestor = std::move(callbacks);
   }
 
   mLoadContext = new LoadContext(aPrincipal, baseContext);

@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-#ifndef __nsRFPService_h__
-#define __nsRFPService_h__
+#ifndef _nsRFPService_h_
+#define _nsRFPService_h_
 
 #include <cstdint>
 #include <bitset>
@@ -58,7 +58,7 @@
 #  define SPOOFED_UA_OS SPOOFED_UA_OS_OTHER
 #  define SPOOFED_APPVERSION "5.0 (X11)"
 #  define SPOOFED_OSCPU "Linux x86_64"
-#  define SPOOFED_MAX_TOUCH_POINTS 0
+#  define SPOOFED_MAX_TOUCH_POINTS 5
 #endif
 
 #define LEGACY_BUILD_ID "20181001000000"
@@ -116,7 +116,7 @@ class KeyboardHashKey : public PLDHashEntryHdr {
   typedef const KeyboardHashKey* KeyTypePointer;
 
   KeyboardHashKey(const KeyboardLangs aLang, const KeyboardRegions aRegion,
-                  const KeyNameIndexType aKeyIdx, const nsAString& aKey);
+                  const KeyNameIndex aKeyIdx, const nsAString& aKey);
 
   explicit KeyboardHashKey(KeyTypePointer aOther);
 
@@ -134,7 +134,7 @@ class KeyboardHashKey : public PLDHashEntryHdr {
 
   KeyboardLangs mLang;
   KeyboardRegions mRegion;
-  KeyNameIndexType mKeyIdx;
+  KeyNameIndex mKeyIdx;
   nsString mKey;
 };
 
@@ -228,7 +228,8 @@ enum CanvasFingerprinterAlias {
   eSignifyd = 5,
   eClaydar = 6,
   eForter = 7,
-  // Unknown but distinct types of fingerprinters
+
+  // Variants are unknown but distinct types of fingerprinters
   eVariant1 = 8,
   eVariant2 = 9,
   eVariant3 = 10,
@@ -237,7 +238,10 @@ enum CanvasFingerprinterAlias {
   eVariant6 = 13,
   eVariant7 = 14,
   eVariant8 = 15,
-  eLastAlias = eVariant8
+
+  eClientGear = 16,
+  eImperva = 17,
+  eLastAlias = eImperva
 };
 
 enum CanvasExtractionAPI : uint8_t {
@@ -300,6 +304,12 @@ enum CanvasUsageSource : uint64_t {
 
   Worker_OffscreenCanvas_WebGPU_toBlob = 1llu << 36,
   Worker_OffscreenCanvas_WebGPU_getImageData = 1llu << 37,
+
+  // --- New entires added here to preserve original values (no reordering!)
+  MainThread_Canvas_OffscreenCanvas2D_getImageData = 1llu << 38,
+  MainThread_Canvas_OffscreenCanvas2D_toBlob = 1llu << 39,
+
+  // After you go past 40 - metrics.yaml will need to be updated
 
 };
 MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(CanvasUsageSource);
@@ -558,12 +568,10 @@ class nsRFPService final : public nsIObserver, public nsIRFPService {
   // --------------------------------------------------------------------------
 
   static void MaybeReportCanvasFingerprinter(nsTArray<CanvasUsage>& aUses,
-                                             nsIChannel* aChannel,
-                                             const nsACString& aURI,
+                                             nsIChannel* aChannel, nsIURI* aURI,
                                              const nsACString& aOriginNoSuffix);
 
-  static void MaybeReportFontFingerprinter(nsIChannel* aChannel,
-                                           const nsACString& aURI,
+  static void MaybeReportFontFingerprinter(nsIChannel* aChannel, nsIURI* aURI,
                                            const nsACString& aOriginNoSuffix);
 
   // --------------------------------------------------------------------------
@@ -735,4 +743,4 @@ class nsRFPService final : public nsIObserver, public nsIRFPService {
 
 }  // namespace mozilla
 
-#endif /* __nsRFPService_h__ */
+#endif /* _nsRFPService_h_ */

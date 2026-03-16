@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsNetUtil_h__
-#define nsNetUtil_h__
+#ifndef nsNetUtil_h_
+#define nsNetUtil_h_
 
 #include <functional>
 #include "mozilla/Maybe.h"
@@ -1162,7 +1162,8 @@ bool IsScriptLikeOrInvalid(const nsAString& aAs);
 bool CheckPreloadAttrs(const nsAttrValue& aAs, const nsAString& aType,
                        const nsAString& aMedia,
                        mozilla::dom::Document* aDocument);
-void WarnIgnoredPreload(const mozilla::dom::Document&, nsIURI&);
+void WarnIgnoredPreload(const mozilla::dom::Document& aDoc, nsIURI* aURI,
+                        const nsAString& aSrcset = nsString());
 
 // Implements parsing of Use-As-Dictionary headers for Compression Dictionary
 // support.
@@ -1231,4 +1232,4 @@ Result<ActivateStorageAccess, nsresult> ParseActivateStorageAccess(
 }  // namespace net
 }  // namespace mozilla
 
-#endif  // !nsNetUtil_h__
+#endif  // !nsNetUtil_h_

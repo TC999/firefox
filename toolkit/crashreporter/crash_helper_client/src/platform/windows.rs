@@ -4,7 +4,8 @@
 
 use anyhow::{bail, Result};
 use crash_helper_common::{
-    BreakpadChar, BreakpadData, BreakpadString, IPCChannel, IPCConnector, IPCListener, Pid,
+    messages::ChildProcessRendezVousReply, BreakpadChar, BreakpadData, BreakpadString,
+    GeckoChildId, IPCChannel, IPCConnector, IPCListener, Pid,
 };
 use std::{
     ffi::{OsStr, OsString},
@@ -13,6 +14,7 @@ use std::{
         ffi::{OsStrExt, OsStringExt},
         io::{FromRawHandle, OwnedHandle, RawHandle},
     },
+    process,
     ptr::{null, null_mut},
 };
 use windows_sys::Win32::{
@@ -73,9 +75,9 @@ impl CrashHelperClient {
         cmd_line.push(" ");
         cmd_line.push(escape_cmd_line_arg(&minidump_path));
         cmd_line.push(" ");
-        cmd_line.push(escape_cmd_line_arg(&endpoint.serialize()));
+        cmd_line.push(escape_cmd_line_arg(&endpoint.serialize()?));
         cmd_line.push(" ");
-        cmd_line.push(escape_cmd_line_arg(&listener.serialize()));
+        cmd_line.push(escape_cmd_line_arg(&listener.serialize()?));
         cmd_line.push("\0");
         let mut cmd_line: Vec<u16> = cmd_line.encode_wide().collect();
 
@@ -115,8 +117,11 @@ impl CrashHelperClient {
         Ok(unsafe { OwnedHandle::from_raw_handle(pi.hProcess as RawHandle) })
     }
 
-    pub(crate) fn prepare_for_minidump(_crash_helper_pid: Pid) {
-        // On Windows this is currently a no-op
+    pub(crate) fn prepare_for_minidump(
+        _crash_helper_pid: Pid,
+        id: GeckoChildId,
+    ) -> ChildProcessRendezVousReply {
+        ChildProcessRendezVousReply::new(/* dumpable */ true, process::id() as Pid, id, [])
     }
 }
 

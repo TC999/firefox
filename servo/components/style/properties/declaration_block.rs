@@ -14,7 +14,8 @@ use super::{
 };
 use crate::context::QuirksMode;
 use crate::custom_properties;
-use crate::dom::DummyAttributeProvider;
+use crate::derives::*;
+use crate::dom::AttributeTracker;
 use crate::error_reporting::{ContextualParseError, ParseErrorReporter};
 use crate::parser::ParserContext;
 use crate::properties::{
@@ -114,24 +115,6 @@ impl Importance {
             Self::Important => true,
         }
     }
-}
-
-/// A property-aware wrapper around reification results.
-///
-/// While `TypedValue` is property-agnostic, this enum represents the outcome
-/// of reifying a specific property inside a `PropertyDeclarationBlock`.
-#[derive(Clone, Debug)]
-pub enum PropertyTypedValue {
-    /// The property is not present in the declaration block.
-    None,
-
-    /// The property exists but cannot be expressed as a `TypedValue`.
-    /// Used for shorthands and other unrepresentable cases, which must be
-    /// exposed as `CSSUnsupportedValue` objects tied to the property.
-    Unsupported,
-
-    /// The property was successfully reified into a `TypedValue`.
-    Typed(TypedValue),
 }
 
 /// A set of properties.
@@ -260,6 +243,15 @@ pub struct PropertyDeclarationBlock {
     property_ids: PropertyDeclarationIdSet,
 }
 
+impl PartialEq for PropertyDeclarationBlock {
+    fn eq(&self, other: &Self) -> bool {
+        // property_ids must be equal if declarations are equal, so we don't
+        // need to compare them explicitly.
+        self.declarations == other.declarations
+            && self.declarations_importance == other.declarations_importance
+    }
+}
+
 /// Iterator over `(PropertyDeclaration, Importance)` pairs.
 pub struct DeclarationImportanceIterator<'a> {
     iter: Zip<Iter<'a, PropertyDeclaration>, smallbitvec::Iter<'a>>,
@@ -362,7 +354,7 @@ impl<'a, 'cx, 'cx_a: 'cx> Iterator for AnimationValueIterator<'a, 'cx, 'cx_a> {
                 self.style,
                 self.default_values,
                 // TODO (descalante): should be able to get an attr from an animated element
-                &DummyAttributeProvider {},
+                &mut AttributeTracker::new_dummy(),
             );
 
             if let Some(anim) = animation {
@@ -600,28 +592,27 @@ impl PropertyDeclarationBlock {
         }
     }
 
-    /// Find the value of the given property in this block and reify it
-    pub fn property_value_to_typed(&self, property: &PropertyId) -> PropertyTypedValue {
+    /// Find the value of the given property in this block and reify it.
+    /// Returns `Err(())` if the property is not present in this declaration
+    /// block.
+    pub fn property_value_to_typed_value(
+        &self,
+        property: &PropertyId,
+    ) -> Result<Option<TypedValue>, ()> {
         match property.as_shorthand() {
             Ok(shorthand) => {
                 if shorthand
                     .longhands()
                     .all(|longhand| self.contains(PropertyDeclarationId::Longhand(longhand)))
                 {
-                    PropertyTypedValue::Unsupported
+                    Ok(None)
                 } else {
-                    PropertyTypedValue::None
+                    Err(())
                 }
             },
             Err(longhand_or_custom) => match self.get(longhand_or_custom) {
-                Some((value, _importance)) => {
-                    if let Some(typed_value) = value.to_typed() {
-                        PropertyTypedValue::Typed(typed_value)
-                    } else {
-                        PropertyTypedValue::Unsupported
-                    }
-                },
-                None => PropertyTypedValue::None,
+                Some((value, _importance)) => Ok(value.to_typed_value()),
+                None => Err(()),
             },
         }
     }
@@ -1014,7 +1005,7 @@ impl PropertyDeclarationBlock {
                     stylist,
                     &context,
                     &mut Default::default(),
-                    &DummyAttributeProvider {},
+                    &mut AttributeTracker::new_dummy(),
                 )
                 .to_css(dest),
             (ref d, _) => d.to_css(dest),

@@ -161,9 +161,9 @@ class WindowGlobalChild final : public WindowGlobalActor,
   mozilla::ipc::IProtocol* AsNativeActor() override { return this; }
 
   // IPC messages
-  mozilla::ipc::IPCResult RecvRawMessage(
-      const JSActorMessageMeta& aMeta, JSIPCValue&& aData,
-      const UniquePtr<ClonedMessageData>& aStack);
+  mozilla::ipc::IPCResult RecvRawMessage(const JSActorMessageMeta& aMeta,
+                                         JSIPCValue&& aData,
+                                         StructuredCloneData* aStack);
 
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
   mozilla::ipc::IPCResult RecvMakeFrameLocal(
@@ -183,7 +183,7 @@ class WindowGlobalChild final : public WindowGlobalActor,
                                            DrawSnapshotResolver&& aResolve);
 
   mozilla::ipc::IPCResult RecvDispatchSecurityPolicyViolation(
-      const nsString& aViolationEventJSON);
+      const nsString& aViolationEventJSON, const nsString& aReportGroupName);
 
   mozilla::ipc::IPCResult RecvSaveStorageAccessPermissionGranted();
 
@@ -207,6 +207,15 @@ class WindowGlobalChild final : public WindowGlobalActor,
   // TODO: Use MOZ_CAN_RUN_SCRIPT when it gains IPDL support (bug 1539864)
   MOZ_CAN_RUN_SCRIPT_BOUNDARY mozilla::ipc::IPCResult RecvProcessCloseRequest(
       const MaybeDiscarded<dom::BrowsingContext>& aFrameContext);
+
+  mozilla::ipc::IPCResult RecvGetModelContextTools(
+      GetModelContextToolsResolver&& aResolver);
+
+  // TODO: Use MOZ_CAN_RUN_SCRIPT when it gains IPDL support (bug 1539864)
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY
+  mozilla::ipc::IPCResult RecvInvokeModelContextTool(
+      const nsCString& aToolName, NotNull<StructuredCloneData*> aInput,
+      InvokeModelContextToolResolver&& aResolver);
 
   virtual void ActorDestroy(ActorDestroyReason aWhy) override;
 

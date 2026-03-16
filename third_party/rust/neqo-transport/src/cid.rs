@@ -15,16 +15,16 @@ use std::{
     rc::Rc,
 };
 
-use neqo_common::{hex, hex_with_len, qdebug, qinfo, Buffer, Decoder, Encoder};
+use neqo_common::{Buffer, Decoder, Encoder, hex, hex_with_len, qdebug, qinfo};
 use neqo_crypto::{random, randomize};
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
 use crate::{
+    Error, Res,
     frame::{FrameEncoder as _, FrameType},
     packet, recovery,
     stateless_reset::Token as Srt,
     stats::FrameStats,
-    Error, Res,
 };
 
 #[derive(Clone, Default, Eq, Hash, PartialEq)]
@@ -493,15 +493,19 @@ impl ConnectionIdManager {
         if self.generator.deref().borrow().generates_empty_cids() {
             return Err(Error::ConnectionIdsExhausted);
         }
-        if let Some(cid) = self.generator.borrow_mut().generate_cid() {
-            assert_ne!(cid.len(), 0);
-            debug_assert_eq!(self.next_seqno, Self::SEQNO_PREFERRED);
-            self.connection_ids
-                .add_local(ConnectionIdEntry::new(self.next_seqno, cid.clone(), ()));
-            self.next_seqno += 1;
-            Ok((cid, Srt::random()))
-        } else {
-            Err(Error::ConnectionIdsExhausted)
+        match self.generator.borrow_mut().generate_cid() {
+            Some(cid) => {
+                assert_ne!(cid.len(), 0);
+                debug_assert_eq!(self.next_seqno, Self::SEQNO_PREFERRED);
+                self.connection_ids.add_local(ConnectionIdEntry::new(
+                    self.next_seqno,
+                    cid.clone(),
+                    (),
+                ));
+                self.next_seqno += 1;
+                Ok((cid, Srt::random()))
+            }
+            None => Err(Error::ConnectionIdsExhausted),
         }
     }
 
@@ -613,10 +617,10 @@ mod tests {
     use test_fixture::fixture_init;
 
     use crate::{
+        Token as Srt,
         cid::{ConnectionId, ConnectionIdEntry},
         packet,
         stats::FrameStats,
-        Token as Srt,
     };
 
     #[test]
@@ -652,5 +656,31 @@ mod tests {
             !entry.write(&mut builder, &mut FrameStats::default()),
             "couldn't write frame into too-short builder",
         );
+    }
+
+    #[test]
+    fn random_cid_generator_empty() {
+        use crate::cid::{ConnectionIdGenerator as _, RandomConnectionIdGenerator};
+        fixture_init();
+        let mut gen_empty = RandomConnectionIdGenerator::new(0);
+        assert!(gen_empty.generates_empty_cids());
+        let empty_cid = gen_empty.generate_cid().unwrap();
+        assert_eq!(empty_cid.len(), 0);
+        assert_eq!(empty_cid.to_string(), "");
+        let mut gen_nonempty = RandomConnectionIdGenerator::new(8);
+        assert!(!gen_nonempty.generates_empty_cids());
+        let nonempty_cid = gen_nonempty.generate_cid().unwrap();
+        assert_eq!(nonempty_cid.len(), 8);
+        assert_eq!(nonempty_cid.to_string().len(), 16); // 8 bytes = 16 hex chars
+    }
+
+    #[test]
+    fn connection_id_ref_display() {
+        use super::ConnectionIdRef;
+        let bytes = [0x01, 0x02, 0x03];
+        let cid = ConnectionId::from(&bytes);
+        let cid_ref = ConnectionIdRef::from(&bytes);
+        assert_eq!(cid.to_string(), "010203");
+        assert_eq!(cid_ref.to_string(), cid.to_string());
     }
 }

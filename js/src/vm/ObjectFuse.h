@@ -7,8 +7,9 @@
 #ifndef vm_ObjectFuse_h
 #define vm_ObjectFuse_h
 
-#include "mozilla/MathAlgorithms.h"
 #include "mozilla/MemoryReporting.h"
+
+#include <bit>
 
 #include "gc/Barrier.h"
 #include "jit/InvalidationScriptSet.h"
@@ -29,7 +30,7 @@
 // property value. In Warp, the guard becomes an invalidation dependency and the
 // property value is a constant in the MIR graph, enabling additional compiler
 // optimizations. ObjectFuse is currently used for the global object, the
-// global lexical environment, and certain builtin constructors and prototypes.
+// global lexical environment, prototypes, and certain builtin constructors.
 //
 // Each ObjectFuse has a generation counter. When the generation is bumped, IC
 // guards will fail and dependent Ion scripts that are affected by the operation
@@ -209,9 +210,9 @@ class ObjectFuse {
   // from the index and mask pair stored in an IC stub.
   static uint32_t propertySlotFromIndexAndMask(uint32_t propIndex,
                                                uint32_t propMask) {
-    MOZ_ASSERT(mozilla::CountPopulation32(propMask) == 1);
+    MOZ_ASSERT(std::has_single_bit(propMask));
     uint32_t slot = propIndex * NumPropsPerWord;
-    slot += mozilla::CountTrailingZeroes(propMask) / NumBitsPerProp;
+    slot += std::countr_zero(propMask) / NumBitsPerProp;
     return slot;
   }
 

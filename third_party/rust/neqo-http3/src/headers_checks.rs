@@ -4,8 +4,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use enumset::{enum_set, EnumSet, EnumSetType};
-use neqo_common::{header::HeadersExt as _, Header};
+use enumset::{EnumSet, EnumSetType, enum_set};
+use neqo_common::{Header, header::HeadersExt as _};
 
 use crate::{Error, MessageType, Res};
 
@@ -199,27 +199,21 @@ mod tests {
     #[test]
     fn connect_with_missing_header() {
         for field in &[":scheme", ":path", ":authority"] {
-            assert!(headers_valid(
-                &create_connect_headers_without_field(field),
-                MessageType::Request
-            )
-            .is_err());
+            assert!(
+                headers_valid(
+                    &create_connect_headers_without_field(field),
+                    MessageType::Request
+                )
+                .is_err()
+            );
         }
     }
 
     #[test]
     fn invalid_scheme_webtransport_connect() {
-        assert!(headers_valid(
-            &[
-                Header::new(":method", "CONNECT"),
-                Header::new(":protocol", "webtransport"),
-                Header::new(":authority", "something.com"),
-                Header::new(":scheme", "http"),
-                Header::new(":path", "/here"),
-            ],
-            MessageType::Request
-        )
-        .is_err());
+        let mut headers = create_connect_headers();
+        headers[2] = Header::new(":scheme", "http");
+        assert!(headers_valid(&headers, MessageType::Request).is_err());
     }
 
     #[test]
@@ -229,16 +223,18 @@ mod tests {
 
     #[test]
     fn invalid_webtransport_connect_with_status() {
-        assert!(headers_valid(
-            [
-                create_connect_headers(),
-                vec![Header::new(":status", "200")]
-            ]
-            .concat()
-            .as_slice(),
-            MessageType::Request
-        )
-        .is_err());
+        assert!(
+            headers_valid(
+                [
+                    create_connect_headers(),
+                    vec![Header::new(":status", "200")]
+                ]
+                .concat()
+                .as_slice(),
+                MessageType::Request
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -254,5 +250,72 @@ mod tests {
     fn is_interim_not_a_number() {
         let headers = vec![Header::new(":status", "not-a-number")];
         assert!(is_interim(&headers).is_err());
+    }
+
+    #[test]
+    fn protocol_requires_connect_method() {
+        // :protocol is only valid with CONNECT method.
+        let mut headers = create_connect_headers();
+        headers[0] = Header::new(":method", "GET");
+        assert!(headers_valid(&headers, MessageType::Request).is_err());
+    }
+
+    #[test]
+    fn classic_connect_valid() {
+        // Classic CONNECT only requires :method and :authority.
+        let headers = vec![
+            Header::new(":method", "CONNECT"),
+            Header::new(":authority", "proxy.example.com:443"),
+        ];
+        assert!(headers_valid(&headers, MessageType::Request).is_ok());
+    }
+
+    #[test]
+    fn response_requires_status() {
+        let headers = vec![Header::new(":status", "200")];
+        assert!(headers_valid(&headers, MessageType::Response).is_ok());
+    }
+
+    #[test]
+    fn response_missing_status() {
+        let headers: Vec<Header> = vec![];
+        assert!(headers_valid(&headers, MessageType::Response).is_err());
+    }
+
+    #[test]
+    fn regular_request_valid() {
+        let headers = vec![
+            Header::new(":method", "GET"),
+            Header::new(":scheme", "https"),
+            Header::new(":path", "/index.html"),
+        ];
+        assert!(headers_valid(&headers, MessageType::Request).is_ok());
+    }
+
+    #[test]
+    fn regular_request_missing_method() {
+        let headers = vec![
+            Header::new(":scheme", "https"),
+            Header::new(":path", "/index.html"),
+        ];
+        assert!(headers_valid(&headers, MessageType::Request).is_err());
+    }
+
+    #[test]
+    fn regular_request_missing_scheme() {
+        let headers = vec![
+            Header::new(":method", "GET"),
+            Header::new(":path", "/index.html"),
+        ];
+        assert!(headers_valid(&headers, MessageType::Request).is_err());
+    }
+
+    #[test]
+    fn regular_request_missing_path() {
+        let headers = vec![
+            Header::new(":method", "GET"),
+            Header::new(":scheme", "https"),
+        ];
+        assert!(headers_valid(&headers, MessageType::Request).is_err());
     }
 }

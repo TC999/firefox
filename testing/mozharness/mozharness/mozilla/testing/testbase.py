@@ -8,9 +8,9 @@ import json
 import os
 import platform
 import ssl
-
-from six.moves import urllib
-from six.moves.urllib.parse import ParseResult, urlparse
+import urllib.parse
+import urllib.request
+from urllib.parse import ParseResult, urlparse
 
 from mozharness.base.errors import BaseErrorList
 from mozharness.base.log import FATAL, WARNING
@@ -478,14 +478,8 @@ You can set this by specifying --test-url URL
         self.download_unpack(self.test_url, test_install_dir, extract_dirs=extract_dirs)
 
     def structured_output(self, suite_category):
-        """Defines whether structured logging is in use in this configuration. This
-        may need to be replaced with data from a different config at the resolution
-        of bug 1070041 and related bugs.
-        """
-        return (
-            "structured_suites" in self.config
-            and suite_category in self.config["structured_suites"]
-        )
+        unstructured_suites = self.config.get("unstructured_suites", [])
+        return suite_category not in unstructured_suites
 
     def get_test_output_parser(
         self,

@@ -13,6 +13,8 @@ import mozilla.components.browser.state.selector.findTab
 import mozilla.components.browser.state.state.SearchState
 import mozilla.components.browser.state.state.searchEngines
 import mozilla.components.browser.state.state.selectedOrDefaultSearchEngine
+import mozilla.components.concept.awesomebar.AwesomeBar
+import mozilla.components.concept.awesomebar.AwesomeBar.GroupedSuggestion
 import mozilla.components.concept.awesomebar.AwesomeBar.Suggestion
 import mozilla.components.concept.awesomebar.AwesomeBar.SuggestionProvider
 import mozilla.components.lib.state.Action
@@ -114,6 +116,7 @@ sealed class SearchEngineSource {
  * @property searchEngineSource The current selected search engine with the context of how it was selected.
  * @property defaultEngine The current default search engine (or null if none is available yet).
  * @property searchSuggestionsProviders The list of search suggestions providers that the user can choose from.
+ * @property hiddenSuggestions The list of suggestions that should not be shown anymore to users.
  * @property searchSuggestionsOrientedAtBottom Whether or not the search suggestions should be oriented at the
  * bottom of the screen.
  * @property searchStartedForCurrentUrl Whether or not the search started with editing the current URL.
@@ -145,6 +148,8 @@ sealed class SearchEngineSource {
  * AwesomeBar. Always `false` in private mode, or when a non-default engine is selected.
  * @property showNonSponsoredSuggestions Whether or not to show Firefox Suggest search suggestions for web content
  * in the AwesomeBar. Always `false` in private mode, or when a non-default engine is selected.
+ * @property showStocksSuggestions Whether or not to show the optimized search suggestion stock cards
+ * in the AwesomeBar.
  * @property showTrendingSearches Whether the setting for showing trending searches is enabled or disabled.
  * @property showRecentSearches Whether the setting for showing recent searches is enabled or disabled.
  * @property showQrButton Whether or not to show the QR button.
@@ -160,6 +165,7 @@ data class SearchFragmentState(
     val searchEngineSource: SearchEngineSource,
     val defaultEngine: SearchEngine?,
     val searchSuggestionsProviders: List<SuggestionProvider>,
+    val hiddenSuggestions: Set<GroupedSuggestion>,
     val searchSuggestionsOrientedAtBottom: Boolean,
     val searchStartedForCurrentUrl: Boolean,
     val shouldShowSearchSuggestions: Boolean,
@@ -180,6 +186,7 @@ data class SearchFragmentState(
     val showAllSessionSuggestions: Boolean,
     val showSponsoredSuggestions: Boolean,
     val showNonSponsoredSuggestions: Boolean,
+    val showStocksSuggestions: Boolean,
     val showTrendingSearches: Boolean,
     val showRecentSearches: Boolean,
     val showQrButton: Boolean,
@@ -202,6 +209,7 @@ data class SearchFragmentState(
             searchEngineSource = SearchEngineSource.None,
             defaultEngine = null,
             searchSuggestionsProviders = emptyList(),
+            hiddenSuggestions = emptySet(),
             searchSuggestionsOrientedAtBottom = false,
             searchStartedForCurrentUrl = false,
             shouldShowSearchSuggestions = false,
@@ -222,6 +230,7 @@ data class SearchFragmentState(
             showAllSessionSuggestions = false,
             showSponsoredSuggestions = false,
             showNonSponsoredSuggestions = false,
+            showStocksSuggestions = false,
             showTrendingSearches = false,
             showRecentSearches = false,
             showQrButton = false,
@@ -262,6 +271,7 @@ fun createInitialSearchFragmentState(
         searchTerms = tab?.content?.searchTerms.orEmpty(),
         searchEngineSource = searchEngineSource,
         searchSuggestionsProviders = emptyList(),
+        hiddenSuggestions = emptySet(),
         searchSuggestionsOrientedAtBottom = settings.shouldUseBottomToolbar,
         searchStartedForCurrentUrl = false,
         shouldShowSearchSuggestions = false,
@@ -288,6 +298,9 @@ fun createInitialSearchFragmentState(
             settings.enableFxSuggest && settings.showSponsoredSuggestions,
         showNonSponsoredSuggestions = browsingMode == BrowsingMode.Normal &&
             settings.enableFxSuggest && settings.showNonSponsoredSuggestions,
+        showStocksSuggestions = settings.enableFxSuggest && settings.showNonSponsoredSuggestions &&
+                settings.isSearchOptimizationEnabled && settings.shouldShowSearchOptimizationCards &&
+                settings.shouldShowSearchOptimizationStockCard,
         showTrendingSearches = shouldShowTrendingSearchSuggestions(
             browsingMode = browsingMode,
             settings = settings,
@@ -413,7 +426,7 @@ sealed class SearchFragmentAction : Action {
      * Action indicating a suggestion was clicked.
      */
     data class SuggestionClicked(
-        val suggestion: Suggestion,
+        val suggestion: AwesomeBar.SuggestionItem,
     ) : SearchFragmentAction()
 
     /**
@@ -421,6 +434,20 @@ sealed class SearchFragmentAction : Action {
      */
     data class SuggestionSelected(
         val suggestion: Suggestion,
+    ) : SearchFragmentAction()
+
+    /**
+     * Action indicating a suggestion that should not be shown anymore to users.
+     */
+    data class SuggestionHidden(
+        val suggestion: GroupedSuggestion,
+    ) : SearchFragmentAction()
+
+    /**
+     * Action indicating a suggestion that can be shown again to users.
+     */
+    data class SuggestionRestored(
+        val suggestion: GroupedSuggestion,
     ) : SearchFragmentAction()
 
     /**
@@ -461,6 +488,11 @@ private fun searchStateReducer(state: SearchFragmentState, action: SearchFragmen
                     action.settings.enableFxSuggest && action.settings.showSponsoredSuggestions,
                 showNonSponsoredSuggestions = action.browsingMode == BrowsingMode.Normal &&
                     action.settings.enableFxSuggest && action.settings.showNonSponsoredSuggestions,
+                showStocksSuggestions = action.settings.enableFxSuggest &&
+                        action.settings.showNonSponsoredSuggestions &&
+                        action.settings.isSearchOptimizationEnabled &&
+                        action.settings.shouldShowSearchOptimizationCards &&
+                        action.settings.shouldShowSearchOptimizationStockCard,
                 showAllSessionSuggestions = true,
                 showTrendingSearches = shouldShowTrendingSearchSuggestions(
                     browsingMode = action.browsingMode,
@@ -507,6 +539,7 @@ private fun searchStateReducer(state: SearchFragmentState, action: SearchFragmen
                 },
                 showSponsoredSuggestions = false,
                 showNonSponsoredSuggestions = false,
+                showStocksSuggestions = false,
                 showTrendingSearches = shouldShowTrendingSearchSuggestions(
                     browsingMode = action.browsingMode,
                     settings = action.settings,
@@ -531,6 +564,7 @@ private fun searchStateReducer(state: SearchFragmentState, action: SearchFragmen
                 showAllSessionSuggestions = false,
                 showSponsoredSuggestions = false,
                 showNonSponsoredSuggestions = false,
+                showStocksSuggestions = false,
                 showTrendingSearches = false,
                 showRecentSearches = false,
             )
@@ -551,6 +585,7 @@ private fun searchStateReducer(state: SearchFragmentState, action: SearchFragmen
                 showAllSessionSuggestions = false,
                 showSponsoredSuggestions = false,
                 showNonSponsoredSuggestions = false,
+                showStocksSuggestions = false,
                 showTrendingSearches = false,
                 showRecentSearches = false,
             )
@@ -571,6 +606,7 @@ private fun searchStateReducer(state: SearchFragmentState, action: SearchFragmen
                 showAllSessionSuggestions = true,
                 showSponsoredSuggestions = false,
                 showNonSponsoredSuggestions = false,
+                showStocksSuggestions = false,
                 showTrendingSearches = false,
                 showRecentSearches = false,
             )
@@ -617,6 +653,14 @@ private fun searchStateReducer(state: SearchFragmentState, action: SearchFragmen
 
         is SearchFragmentAction.SearchStarted -> {
             state.copy(searchStartedForCurrentUrl = action.searchStartedForCurrentUrl)
+        }
+
+        is SearchFragmentAction.SuggestionHidden -> {
+            state.copy(hiddenSuggestions = state.hiddenSuggestions + action.suggestion)
+        }
+
+        is SearchFragmentAction.SuggestionRestored -> {
+            state.copy(hiddenSuggestions = state.hiddenSuggestions - action.suggestion)
         }
 
         is SearchFragmentAction.SuggestionClicked,

@@ -13,8 +13,13 @@
 #include "mozilla/dom/nsCSPService.h"
 #include "mozilla/dom/PolicyContainer.h"
 
+#include "imgLoader.h"
 #include "mozAutoDocUpdate.h"
+#include "mozilla/ClearOnShutdown.h"
 #include "mozilla/IdleTaskRunner.h"
+#include "nsIAsyncShutdown.h"
+#include "nsIPropertyBag.h"
+#include "nsIWritablePropertyBag.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/ProfilerLabels.h"
 #include "mozilla/ProfilerMarkers.h"
@@ -44,6 +49,7 @@
 #include "nsIViewSourceChannel.h"
 #include "nsNetUtil.h"
 #include "xpcpublic.h"
+#include "mozilla/Services.h"
 
 using namespace mozilla;
 
@@ -107,6 +113,12 @@ class MOZ_RAII nsHtml5AutoFlush final {
           "How do we have mParser but the doc update isn't open?");
     }
     mExecutor->EndFlush();
+    if (mExecutor->IsComplete()) {
+      // `mExecutor->EndDocUpdate()` caused a call to `nsIParser::Terminate`,
+      // so now we should clear the whole op queue in order to be able to
+      // assert in the destructor of `nsHtml5TreeOpExecutor`.
+      mOpsToRemove = mExecutor->OpQueueLength();
+    }
     mExecutor->RemoveFromStartOfOpQueue(mOpsToRemove);
     // We might have missed a speculative load flush due to sync XHR
     mExecutor->FlushSpeculativeLoads();
@@ -119,8 +131,68 @@ class MOZ_RAII nsHtml5AutoFlush final {
   }
 };
 
-static LinkedList<nsHtml5TreeOpExecutor>* gBackgroundFlushList = nullptr;
+StaticAutoPtr<LinkedList<nsHtml5TreeOpExecutor>> gBackgroundFlushList;
 StaticRefPtr<IdleTaskRunner> gBackgroundFlushRunner;
+static bool sShutdown = false;
+
+class Html5BackgroundFlushShutdownBlocker final
+    : public nsIAsyncShutdownBlocker {
+ public:
+  NS_DECL_ISUPPORTS
+  NS_DECL_NSIASYNCSHUTDOWNBLOCKER
+
+  Html5BackgroundFlushShutdownBlocker() = default;
+
+ private:
+  ~Html5BackgroundFlushShutdownBlocker() = default;
+};
+
+NS_IMPL_ISUPPORTS(Html5BackgroundFlushShutdownBlocker, nsIAsyncShutdownBlocker)
+
+NS_IMETHODIMP
+Html5BackgroundFlushShutdownBlocker::GetName(nsAString& aName) {
+  aName.AssignLiteral(
+      "HTML5 Parser: Cancel background flush runner before shutdown");
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+Html5BackgroundFlushShutdownBlocker::BlockShutdown(
+    nsIAsyncShutdownClient* aBarrierClient) {
+  sShutdown = true;
+
+  if (gBackgroundFlushRunner) {
+    gBackgroundFlushRunner->Cancel();
+  }
+
+  ClearOnShutdown(&gBackgroundFlushList);
+  ClearOnShutdown(&gBackgroundFlushRunner);
+
+  aBarrierClient->RemoveBlocker(this);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+Html5BackgroundFlushShutdownBlocker::GetState(nsIPropertyBag** aState) {
+  *aState = nullptr;
+  return NS_OK;
+}
+
+// static
+void nsHtml5TreeOpExecutor::InitializeStatics() {
+  MOZ_ASSERT(!sShutdown, "InitializeStatics called after shutdown");
+  nsCOMPtr<nsIAsyncShutdownService> svc = services::GetAsyncShutdownService();
+  if (svc) {
+    nsCOMPtr<nsIAsyncShutdownClient> phase;
+    nsresult rv = svc->GetXpcomWillShutdown(getter_AddRefs(phase));
+    if (NS_SUCCEEDED(rv) && phase) {
+      RefPtr<Html5BackgroundFlushShutdownBlocker> blocker =
+          new Html5BackgroundFlushShutdownBlocker();
+      phase->AddBlocker(blocker, NS_LITERAL_STRING_FROM_CSTRING(__FILE__),
+                        __LINE__, u""_ns);
+    }
+  }
+}
 
 nsHtml5TreeOpExecutor::nsHtml5TreeOpExecutor()
     : nsHtml5DocumentBuilder(false),
@@ -139,8 +211,6 @@ nsHtml5TreeOpExecutor::~nsHtml5TreeOpExecutor() {
     ClearOpQueue();
     removeFrom(*gBackgroundFlushList);
     if (gBackgroundFlushList->isEmpty()) {
-      delete gBackgroundFlushList;
-      gBackgroundFlushList = nullptr;
       if (gBackgroundFlushRunner) {
         gBackgroundFlushRunner->Cancel();
         gBackgroundFlushRunner = nullptr;
@@ -427,8 +497,6 @@ static bool BackgroundFlushCallback(TimeStamp /*aDeadline*/) {
     ex->RunFlushLoop();
   }
   if (gBackgroundFlushList && gBackgroundFlushList->isEmpty()) {
-    delete gBackgroundFlushList;
-    gBackgroundFlushList = nullptr;
     gBackgroundFlushRunner->Cancel();
     gBackgroundFlushRunner = nullptr;
     return true;
@@ -437,6 +505,10 @@ static bool BackgroundFlushCallback(TimeStamp /*aDeadline*/) {
 }
 
 void nsHtml5TreeOpExecutor::ContinueInterruptedParsingAsync() {
+  if (sShutdown) {
+    return;
+  }
+
   if (mDocument && !mDocument->IsInBackgroundWindow()) {
     nsCOMPtr<nsIRunnable> flusher = new nsHtml5ExecutorReflusher(this);
     if (NS_FAILED(mDocument->Dispatch(flusher.forget()))) {
@@ -467,6 +539,10 @@ void nsHtml5TreeOpExecutor::ContinueInterruptedParsingAsync() {
 }
 
 void nsHtml5TreeOpExecutor::FlushSpeculativeLoads() {
+  if (sShutdown) {
+    return;
+  }
+
   nsTArray<nsHtml5SpeculativeLoad> speculativeLoadQueue;
   mStage.MoveSpeculativeLoadsTo(speculativeLoadQueue);
   nsHtml5SpeculativeLoad* start = speculativeLoadQueue.Elements();
@@ -537,7 +613,7 @@ void nsHtml5TreeOpExecutor::RunFlushLoop() {
   // Remember the entry time
   (void)nsContentSink::WillParseImpl();
 
-  for (;;) {
+  while (!sShutdown) {
     if (!mParser) {
       // Parse has terminated.
       ClearOpQueue();  // clear in order to be able to assert in destructor
@@ -723,6 +799,10 @@ void nsHtml5TreeOpExecutor::RunFlushLoop() {
 }
 
 nsresult nsHtml5TreeOpExecutor::FlushDocumentWrite() {
+  if (sShutdown) {
+    return NS_OK;
+  }
+
   nsresult rv = IsBroken();
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -1076,7 +1156,7 @@ nsIURI* nsHtml5TreeOpExecutor::GetViewSourceBaseURI() {
     } else {
       // Fail gracefully if the base URL isn't a view-source: URL.
       // Not sure if this can ever happen.
-      mViewSourceBaseURI = orig;
+      mViewSourceBaseURI = std::move(orig);
     }
   }
   return mViewSourceBaseURI;
@@ -1161,6 +1241,14 @@ bool nsHtml5TreeOpExecutor::ShouldPreloadURI(nsIURI* aURI) {
   return mPreloadedURLs.EnsureInserted(spec);
 }
 
+bool nsHtml5TreeOpExecutor::ImageTypeSupports(const nsAString& aType) {
+  if (aType.IsEmpty()) {
+    return true;
+  }
+  return imgLoader::SupportImageWithMimeType(
+      NS_ConvertUTF16toUTF8(aType), AcceptedMimeTypes::IMAGES_AND_DOCUMENTS);
+}
+
 dom::ReferrerPolicy nsHtml5TreeOpExecutor::GetPreloadReferrerPolicy(
     const nsAString& aReferrerPolicy) {
   dom::ReferrerPolicy referrerPolicy =
@@ -1233,12 +1321,13 @@ void nsHtml5TreeOpExecutor::PreloadImage(
     const nsAString& aURL, const nsAString& aCrossOrigin,
     const nsAString& aMedia, const nsAString& aSrcset, const nsAString& aSizes,
     const nsAString& aImageReferrerPolicy, bool aLinkPreload,
-    const nsAString& aFetchPriority) {
+    const nsAString& aFetchPriority, const nsAString& aType) {
   nsCOMPtr<nsIURI> baseURI = BaseURIForPreload();
   bool isImgSet = false;
   nsCOMPtr<nsIURI> uri =
       mDocument->ResolvePreloadImage(baseURI, aURL, aSrcset, aSizes, &isImgSet);
-  if (uri && ShouldPreloadURI(uri) && MediaApplies(aMedia)) {
+  if (uri && ShouldPreloadURI(uri) && MediaApplies(aMedia) &&
+      ImageTypeSupports(aType)) {
     // use document wide referrer policy
     mDocument->MaybePreLoadImage(uri, aCrossOrigin,
                                  GetPreloadReferrerPolicy(aImageReferrerPolicy),
@@ -1349,7 +1438,7 @@ void nsHtml5TreeOpExecutor::SetSpeculationBase(const nsAString& aURL) {
     }
   }
 
-  mSpeculationBaseURI = newBaseURI;
+  mSpeculationBaseURI = std::move(newBaseURI);
   mDocument->Preloads().SetSpeculationBase(mSpeculationBaseURI);
 }
 

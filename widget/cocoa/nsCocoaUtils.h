@@ -375,7 +375,7 @@ class nsCocoaUtils {
   /**
    * Makes a cocoa event from a widget keyboard event.
    */
-  static NSEvent* MakeNewCococaEventFromWidgetEvent(
+  static NSEvent* MakeNewCocoaEventFromWidgetEvent(
       const mozilla::WidgetKeyboardEvent& aKeyEvent, NSInteger aWindowNumber,
       NSGraphicsContext* aContext);
 
@@ -509,7 +509,7 @@ class nsCocoaUtils {
       mozilla::Modifiers aModifiers);
 
   /**
-   * Return true if aAvailableType is a vaild NSPasteboard type.
+   * Return true if aAvailableType is a valid NSPasteboard type.
    */
   static bool IsValidPasteboardType(NSString* aAvailableType,
                                     bool aAllowFileURL);

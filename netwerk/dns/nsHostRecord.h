@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsHostRecord_h__
-#define nsHostRecord_h__
+#ifndef nsHostRecord_h_
+#define nsHostRecord_h_
 
 #include "mozilla/AtomicBitfields.h"
 #include "mozilla/DataMutex.h"
@@ -343,10 +343,6 @@ class AddrHostRecord final : public nsHostRecord {
 
   void ResolveComplete() override;
 
-  // The number of times ReportUnusable() has been called in the record's
-  // lifetime.
-  uint32_t mUnusableCount = 0;
-
   // a list of addresses associated with this record that have been reported
   // as unusable. the list is kept as a set of strings to make it independent
   // of gencnt.
@@ -408,4 +404,4 @@ static inline bool IsLowPriority(nsIDNSService::DNSFlags flags) {
   return flags & nsHostRecord::DNS_PRIORITY_LOW;
 }
 
-#endif  // nsHostRecord_h__
+#endif  // nsHostRecord_h_

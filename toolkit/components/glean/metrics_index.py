@@ -44,7 +44,6 @@ gecko_metrics = [
     "dom/quota/metrics.yaml",
     "dom/security/metrics.yaml",
     "dom/serviceworkers/metrics.yaml",
-    "dom/storage/metrics.yaml",
     "dom/webauthn/metrics.yaml",
     "dom/workers/metrics.yaml",
     "editor/libeditor/metrics.yaml",
@@ -53,6 +52,7 @@ gecko_metrics = [
     "image/decoders/metrics.yaml",
     "intl/locale/metrics.yaml",
     "ipc/metrics.yaml",
+    "js/src/metrics.yaml",
     "js/xpconnect/metrics.yaml",
     "layout/base/metrics.yaml",
     "mobile/shared/modules/geckoview/metrics.yaml",
@@ -63,7 +63,6 @@ gecko_metrics = [
     "netwerk/metrics.yaml",
     "netwerk/protocol/http/metrics.yaml",
     "netwerk/protocol/websocket/metrics.yaml",
-    "parser/html/metrics.yaml",
     "parser/htmlparser/metrics.yaml",
     "security/certverifier/metrics.yaml",
     "security/ct/metrics.yaml",
@@ -77,6 +76,7 @@ gecko_metrics = [
     "toolkit/components/antitracking/metrics.yaml",
     "toolkit/components/backgroundhangmonitor/metrics.yaml",
     "toolkit/components/captchadetection/metrics.yaml",
+    "toolkit/components/cleardata/metrics.yaml",
     "toolkit/components/cookiebanners/metrics.yaml",
     "toolkit/components/doh/metrics.yaml",
     "toolkit/components/downloads/metrics.yaml",
@@ -117,6 +117,7 @@ gecko_metrics = [
 # Order is lexicographical, enforced by t/c/glean/tests/pytest/test_yaml_indices.py
 firefox_desktop_metrics = [
     "browser/actors/metrics.yaml",
+    "browser/components/aiwindow/metrics.yaml",
     "browser/components/asrouter/metrics.yaml",
     "browser/components/attribution/metrics.yaml",
     "browser/components/backup/metrics.yaml",
@@ -141,6 +142,7 @@ firefox_desktop_metrics = [
     "browser/components/sessionstore/metrics.yaml",
     "browser/components/sidebar/metrics.yaml",
     "browser/components/tabbrowser/metrics.yaml",
+    "browser/components/tabnotes/metrics.yaml",
     "browser/components/taskbartabs/metrics.yaml",
     "browser/components/textrecognition/metrics.yaml",
     "browser/components/urlbar/metrics.yaml",
@@ -207,6 +209,7 @@ metrics_yamls = sorted(
 # Order is lexicographical, enforced by t/c/glean/tests/pytest/test_yaml_indices.py
 gecko_pings = [
     "dom/pings.yaml",
+    "modules/libpref/pings.yaml",
     "netwerk/pings.yaml",
     "toolkit/components/antitracking/bouncetrackingprotection/pings.yaml",
     "toolkit/components/backgroundhangmonitor/pings.yaml",
@@ -231,7 +234,6 @@ firefox_desktop_pings = [
     "dom/security/pings.yaml",
     "services/fxaccounts/pings.yaml",
     "services/sync/pings.yaml",
-    "toolkit/components/crashes/pings.yaml",
     "toolkit/components/nimbus/pings.yaml",
     "toolkit/components/reportbrokensite/pings.yaml",
     "toolkit/components/telemetry/pings.yaml",
@@ -242,7 +244,6 @@ firefox_desktop_pings = [
 # Pings that are sent by the Firefox Desktop Background Update Task
 # Order is lexicographical, enforced by t/c/glean/tests/pytest/test_yaml_indices.py
 background_update_pings = [
-    "toolkit/components/crashes/pings.yaml",
     "toolkit/mozapps/update/pings.yaml",
     "toolkit/mozapps/update/shared_pings.yaml",
 ]
@@ -251,7 +252,6 @@ background_update_pings = [
 # Order is lexicographical, enforced by t/c/glean/tests/pytest/test_yaml_indices.py
 background_tasks_pings = [
     "toolkit/components/backgroundtasks/pings.yaml",
-    "toolkit/components/crashes/pings.yaml",
     "toolkit/components/nimbus/pings.yaml",
     "toolkit/mozapps/defaultagent/pings.yaml",
 ]

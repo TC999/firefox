@@ -32,6 +32,7 @@
 
 #include "gc/Marking-inl.h"
 #include "gc/StableCellHasher-inl.h"
+#include "gc/WeakMap-inl.h"
 #include "vm/BytecodeIterator-inl.h"
 #include "vm/Stack-inl.h"
 
@@ -2686,9 +2687,9 @@ bool DebugEnvironmentProxy::isOptimizedOut() const {
     JSContext* cx, AbstractFramePtr frame, const jsbytecode* pc,
     MutableHandleObject env, MutableHandle<Scope*> scope);
 
-DebugEnvironments::DebugEnvironments(JSContext* cx, Zone* zone)
-    : zone_(zone),
-      proxiedEnvs(cx),
+DebugEnvironments::DebugEnvironments(JSContext* cx)
+    : zone_(cx->zone()),
+      proxiedEnvs(cx->zone()),
       missingEnvs(cx->zone()),
       liveEnvs(cx->zone()) {}
 
@@ -2701,9 +2702,9 @@ void DebugEnvironments::traceWeak(JSTracer* trc) {
    * missingEnvs points to debug envs weakly so that debug envs can be
    * released more eagerly.
    */
-  for (MissingEnvironmentMap::Enum e(missingEnvs); !e.empty(); e.popFront()) {
+  for (auto iter = missingEnvs.modIter(); !iter.done(); iter.next()) {
     auto result =
-        TraceWeakEdge(trc, &e.front().value(), "MissingEnvironmentMap value");
+        TraceWeakEdge(trc, &iter.get().value(), "MissingEnvironmentMap value");
     if (result.isDead()) {
       /*
        * Note that onPopCall, onPopVar, and onPopLexical rely on missingEnvs to
@@ -2723,15 +2724,15 @@ void DebugEnvironments::traceWeak(JSTracer* trc) {
        * missingEnvs here.
        */
       liveEnvs.remove(&result.initialTarget()->environment());
-      e.removeFront();
+      iter.remove();
     } else {
-      MissingEnvironmentKey key = e.front().key();
+      MissingEnvironmentKey key = iter.get().key();
       Scope* scope = key.scope();
       MOZ_ALWAYS_TRUE(TraceManuallyBarrieredWeakEdge(
           trc, &scope, "MissingEnvironmentKey scope"));
       if (scope != key.scope()) {
         key.updateScope(scope);
-        e.rekeyFront(key);
+        iter.rekey(key);
       }
     }
   }
@@ -2786,7 +2787,7 @@ DebugEnvironments* DebugEnvironments::ensureRealmData(JSContext* cx) {
     return debugEnvs;
   }
 
-  auto debugEnvs = cx->make_unique<DebugEnvironments>(cx, cx->zone());
+  auto debugEnvs = cx->make_unique<DebugEnvironments>(cx);
   if (!debugEnvs) {
     return nullptr;
   }
@@ -3142,6 +3143,30 @@ void DebugEnvironments::onPopModule(JSContext* cx, const EnvironmentIter& ei) {
   onPopGeneric<ModuleEnvironmentObject, ModuleScope>(cx, ei);
 }
 
+void DebugEnvironments::onPopWasm(JSContext* cx, AbstractFramePtr frame) {
+  MOZ_ASSERT(frame.isWasmDebugFrame());
+
+  DebugEnvironments* envs = cx->realm()->debugEnvs();
+  if (!envs) {
+    return;
+  }
+
+  Rooted<WasmInstanceObject*> instance(cx, frame.wasmInstance()->object());
+  uint32_t funcIndex = frame.asWasmDebugFrame()->funcIndex();
+  Rooted<Scope*> wasmFunctionScope(
+      cx, instance->getExistingFunctionScope(funcIndex));
+  if (!wasmFunctionScope) {
+    return;
+  }
+
+  MissingEnvironmentKey key(frame, wasmFunctionScope);
+  if (MissingEnvironmentMap::Ptr p = envs->missingEnvs.lookup(key)) {
+    EnvironmentObject& env = p->value()->environment();
+    envs->liveEnvs.remove(&env);
+    envs->missingEnvs.remove(p);
+  }
+}
+
 void DebugEnvironments::onRealmUnsetIsDebuggee(Realm* realm) {
   if (DebugEnvironments* envs = realm->debugEnvs()) {
     envs->proxiedEnvs.clear();
@@ -3264,17 +3289,16 @@ void DebugEnvironments::forwardLiveFrame(JSContext* cx, AbstractFramePtr from,
     return;
   }
 
-  for (MissingEnvironmentMap::Enum e(envs->missingEnvs); !e.empty();
-       e.popFront()) {
-    MissingEnvironmentKey key = e.front().key();
+  for (auto iter = envs->missingEnvs.modIter(); !iter.done(); iter.next()) {
+    MissingEnvironmentKey key = iter.get().key();
     if (key.frame() == from) {
       key.updateFrame(to);
-      e.rekeyFront(key);
+      iter.rekey(key);
     }
   }
 
-  for (LiveEnvironmentMap::Enum e(envs->liveEnvs); !e.empty(); e.popFront()) {
-    LiveEnvironmentVal& val = e.front().value();
+  for (auto iter = envs->liveEnvs.iter(); !iter.done(); iter.next()) {
+    LiveEnvironmentVal& val = iter.get().value();
     if (val.frame() == from) {
       val.updateFrame(to);
     }
@@ -3283,9 +3307,9 @@ void DebugEnvironments::forwardLiveFrame(JSContext* cx, AbstractFramePtr from,
 
 /* static */
 void DebugEnvironments::traceLiveFrame(JSTracer* trc, AbstractFramePtr frame) {
-  for (MissingEnvironmentMap::Enum e(missingEnvs); !e.empty(); e.popFront()) {
-    if (e.front().key().frame() == frame) {
-      TraceEdge(trc, &e.front().value(), "debug-env-live-frame-missing-env");
+  for (auto iter = missingEnvs.iter(); !iter.done(); iter.next()) {
+    if (iter.get().key().frame() == frame) {
+      TraceEdge(trc, &iter.get().value(), "debug-env-live-frame-missing-env");
     }
   }
 }
@@ -3748,7 +3772,7 @@ static void ReportRuntimeRedeclaration(JSContext* cx,
     if (!prop->configurable()) {
       redeclKind = "non-configurable global property";
     } else {
-      shadowedExistingProp = prop;
+      shadowedExistingProp = std::move(prop);
     }
   } else {
     // ES 15.1.11 step 5.c-d
@@ -4386,10 +4410,9 @@ static bool AnalyzeEntrainedVariablesInScript(JSContext* cx,
 
     buf.printf("(%s:%u) ::", innerScript->filename(), innerScript->lineno());
 
-    for (PropertyNameSet::Range r = remainingNames.all(); !r.empty();
-         r.popFront()) {
+    for (auto iter = remainingNames.iter(); !iter.done(); iter.next()) {
       buf.printf(" ");
-      buf.putString(cx, r.front());
+      buf.putString(cx, iter.get());
     }
 
     JS::UniqueChars str = buf.release();

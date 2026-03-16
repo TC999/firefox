@@ -67,6 +67,7 @@ NS_INTERFACE_MAP_BEGIN(nsContentTreeOwner)
   NS_INTERFACE_MAP_ENTRY(nsIWebBrowserChrome)
   NS_INTERFACE_MAP_ENTRY(nsIInterfaceRequestor)
   NS_INTERFACE_MAP_ENTRY(nsIWindowProvider)
+  NS_INTERFACE_MAP_ENTRY(nsISupportsWeakReference)
 NS_INTERFACE_MAP_END
 
 //*****************************************************************************
@@ -596,7 +597,7 @@ nsContentTreeOwner::Blur() {
 
     // got it!(?)
     if (foundUs) {
-      appWindow = nextAppWindow;
+      appWindow = std::move(nextAppWindow);
       break;
     }
 

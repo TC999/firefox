@@ -73,7 +73,7 @@ class AggregateCapturer final
                            const NormalizedConstraints& aConstraints,
                            const dom::VideoResizeModeEnum& aResizeMode,
                            bool aStarted);
-  webrtc::VideoCaptureCapability CombinedCapability();
+  Maybe<webrtc::VideoCaptureCapability> CombinedCapability();
 
   void OnCaptureEnded();
   void OnFrame(const webrtc::VideoFrame& aVideoFrame) override;
@@ -138,7 +138,7 @@ class AggregateCapturer final
 
 class DeliverFrameRunnable;
 
-class CamerasParent final : public PCamerasParent {
+class CamerasParent : public PCamerasParent {
  public:
   using ShutdownMozPromise = media::ShutdownBlockingTicket::ShutdownMozPromise;
 
@@ -210,17 +210,18 @@ class CamerasParent final : public PCamerasParent {
   ShmemBuffer GetBuffer(int aCaptureId, size_t aSize);
 
   // helper to forward to the PBackground thread
-  int DeliverFrameOverIPC(CaptureEngine aCapEngine, int aCaptureId,
-                          const Span<const int>& aStreamId,
-                          const TrackingId& aTrackingId,
-                          Variant<ShmemBuffer, webrtc::VideoFrame>&& aBuffer,
-                          const VideoFrameProperties& aProps);
+  virtual int DeliverFrameOverIPC(
+      CaptureEngine aCapEngine, int aCaptureId,
+      const Span<const int>& aStreamId, const TrackingId& aTrackingId,
+      Variant<ShmemBuffer, webrtc::VideoFrame>&& aBuffer,
+      const VideoFrameProperties& aProps);
 
   CamerasParent();
 
- private:
+ protected:
   virtual ~CamerasParent();
 
+ private:
   struct GetOrCreateCapturerResult {
     AggregateCapturer* mCapturer{};
     int mStreamId{};

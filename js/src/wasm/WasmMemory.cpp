@@ -18,15 +18,11 @@
 
 #include "wasm/WasmMemory.h"
 
-#include "mozilla/MathAlgorithms.h"
-
 #include "js/Conversions.h"
 #include "js/ErrorReport.h"
 #include "vm/ArrayBufferObject.h"
 #include "wasm/WasmCodegenTypes.h"
 #include "wasm/WasmProcess.h"
-
-using mozilla::IsPowerOfTwo;
 
 using namespace js;
 using namespace js::wasm;
@@ -87,8 +83,8 @@ bool wasm::ToAddressType(JSContext* cx, HandleValue value,
  *   f32.load offset=8
  *
  * The address is 128; the offset is 8. The memory base is not observable to
- * wasm. Note that the address comes from wasm value stack, but the offset is an
- * immediate.
+ * wasm. Note that the address comes from the wasm value stack, but the offset
+ * is an immediate.
  *
  * The "effective address" (EA) is the non-overflowed sum of the address and the
  * offset. (If the sum overflows, the program traps.) For the above, the

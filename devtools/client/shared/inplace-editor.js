@@ -36,6 +36,12 @@ loader.lazyRequireGetter(
   true
 );
 
+const lazy = {};
+ChromeUtils.defineESModuleGetters(lazy, {
+  getAutocompleteDataForColorFunction:
+    "resource://devtools/client/shared/inplace-editor-utils/autocomplete-color-function.mjs",
+});
+
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 const CONTENT_TYPES = {
   PLAIN_TEXT: 0,
@@ -1655,6 +1661,12 @@ class InplaceEditor extends EventEmitter {
             if (currentFunction) {
               currentFunction.tokens.push(token);
             }
+          } else if (currentFunction && currentFunction.tokens.length) {
+            // Here we have a whitespace or a comment, we don't want to put them in the
+            // list of tokens, but we can mark the last token as "complete".
+            // This way we can differentiate between an incomplete item that we should
+            // autocomplete (e.g. `color(f`)), and one for which we shouldn't (e.g. `color(from `))
+            currentFunction.tokens.at(-1).complete = true;
           }
           if (
             token.tokenType === "Function" ||
@@ -1711,7 +1723,7 @@ class InplaceEditor extends EventEmitter {
           postLabelValues = [];
         } else if (functionValues) {
           list = functionValues.list;
-          postLabelValues = functionValues.postLabelValues;
+          postLabelValues = functionValues.postLabelValues || [];
         } else {
           list = this.#getCSSValuesForPropertyName(this.property.name);
           // Only show !important if:
@@ -1873,11 +1885,13 @@ class InplaceEditor extends EventEmitter {
    * @param {object} functionStackEntry
    * @param {InspectorCSSToken} functionStackEntry.fnToken: The token for the
    *        function call
+   * @param {Array<InspectorCSSToken>} functionStackEntry.tokens: The tokens representing the
+   *        function parameters (i.e. what's inside the parenthesis)
    * @returns {object | null} Return null if there's nothing specific to display for the function.
    *          Otherwise, return an object of the following shape:
-   *            - {Array<String>} list: The list of autocomplete items
-   *            - {Array<String>} postLabelValue: The list of autocomplete items
-   *              post labels (e.g. for variable names, their values).
+   *            - {Array<string>} list: The list of autocomplete items
+   *            - {Array<string>|undefined} postLabelValue: The list of autocomplete items
+   *              post labels (e.g. for variables, their values).
    */
   #getAutocompleteDataForFunction(functionStackEntry) {
     const functionName = functionStackEntry?.fnToken?.value;
@@ -1885,30 +1899,68 @@ class InplaceEditor extends EventEmitter {
       return null;
     }
 
-    let list = [];
-    let postLabelValues = [];
-
     if (functionName === "var") {
-      // We only want to return variables for the first parameters of var(), not for its
-      // fallback. If we get more than one tokens, and given we don't get comments or
-      // whitespace, this means we're in the fallback value already.
-      if (functionStackEntry.tokens.length > 1) {
-        // In such case we'll use the default behavior
-        return null;
-      }
-      list = this.#getCSSVariableNames();
-      postLabelValues = list.map(varName => this.#getCSSVariableValue(varName));
-    } else if (functionName.includes("gradient")) {
-      // For gradient functions we want to display named colors and color functions,
-      // but only if the user didn't already entered a color token after the last comma.
-      list = this.#getCSSValuesForPropertyName("color");
+      return this.#getAutocompleteDataForVarFunction(functionStackEntry);
     }
 
-    // TODO: Handle other functions, e.g. color functions to autocomplete on relative
-    // color format (Bug 1898273), `color()` to suggest color space (Bug 1898277),
-    // `anchor()` to display existing anchor names (Bug 1903278)
+    if (functionName.includes("gradient")) {
+      return this.#getAutocompleteDataForGradientFunction();
+    }
 
+    if (functionName === "color") {
+      return lazy.getAutocompleteDataForColorFunction({
+        functionTokens: functionStackEntry.tokens,
+        getCSSValuesForPropertyName:
+          this.#getCSSValuesForPropertyName.bind(this),
+      });
+    }
+
+    // TODO: Handle other functions, e.g. `anchor()` to display existing anchor names (Bug 1903278)
+
+    return { list: [] };
+  }
+
+  /**
+   * Compute the autocomplete data for the passed var() function.
+   *
+   * @param {object} functionStackEntry
+   * @param {InspectorCSSToken} functionStackEntry.fnToken: The token for the
+   *        function call
+   * @returns {object} Returns an object of the following shape:
+   *            - {Array<string>} list: The list of autocomplete items
+   *            - {Array<string>} postLabelValue: The values of the variables
+   */
+  #getAutocompleteDataForVarFunction(functionStackEntry) {
+    // We only want to return variables for the first parameters of var(), not for its
+    // fallback. If we get more than one tokens, and given we don't get comments or
+    // whitespace, this means we're in the fallback value already.
+    if (functionStackEntry.tokens.length > 1) {
+      // In such case we'll use the default behavior
+      return null;
+    }
+    const list = this.#getCSSVariableNames();
+    const postLabelValues = list.map(varName =>
+      this.#getCSSVariableValue(varName)
+    );
     return { list, postLabelValues };
+  }
+
+  /**
+   * Compute the autocomplete data for gradient functions.
+   *
+   * @param {string} functionName: The gradient function we want the autocomplete items for
+   * @param {object} functionStackEntry
+   * @param {InspectorCSSToken} functionStackEntry.fnToken: The token for the function call
+   * @param {Array<InspectorCSSToken>} functionStackEntry.tokens: The tokens representing the
+   *        function parameters (i.e. what's inside the parenthesis)
+   * @returns {object} Returns an object of the following shape:
+   *            - {Array<string>} list: The list of autocomplete items
+   */
+  #getAutocompleteDataForGradientFunction() {
+    // For gradient functions we want to display named colors and color functions,
+    // but only if the user didn't already entered a color token after the last comma.
+    const list = this.#getCSSValuesForPropertyName("color");
+    return { list };
   }
 
   /**

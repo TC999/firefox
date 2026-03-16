@@ -22,7 +22,6 @@
 #include "sigslot.h"
 #include "ssl.h"
 
-extern "C" {
 // clang-format off
 #include "r_types.h"
 #include "async_wait.h"
@@ -31,7 +30,6 @@ extern "C" {
 #include "util.h"
 #include "r_time.h"
 // clang-format on
-}
 
 #include "gtest_ringbuffer_dumper.h"
 #include "ice_ctx.h"
@@ -4498,6 +4496,22 @@ TEST_F(WebRtcIcePacketFilterTest, TestRecvDataPacketWithAPendingAddress) {
   TestIncomingTcp(data, sizeof(data), true);
 
   ASSERT_EQ(0, nr_stun_message_destroy(&msg));
+}
+
+TEST_F(WebRtcIcePacketFilterTest, ZeroLengthIncoming) {
+  nr_stun_message* msg;
+  ASSERT_EQ(0, nr_stun_build_req_no_auth(nullptr, &msg));
+
+  msg->header.type = NR_STUN_MSG_BINDING_REQUEST;
+  ASSERT_EQ(0, nr_stun_encode_message(msg));
+  TestOutgoing(msg->buffer, msg->length, 123, 45, true);
+  TestOutgoingTcp(msg->buffer, msg->length, true);
+
+  ASSERT_EQ(0, nr_stun_message_destroy(&msg));
+
+  const unsigned char data[] = "";
+  TestIncoming(data, sizeof(data), 123, 45, true);
+  TestIncomingTcp(data, sizeof(data), true);
 }
 
 TEST(WebRtcIceInternalsTest, TestAddBogusAttribute)

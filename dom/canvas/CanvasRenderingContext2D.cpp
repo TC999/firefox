@@ -13,6 +13,7 @@
 #include "ImageEncoder.h"
 #include "ImageRegion.h"
 #include "LayerUserData.h"
+#include "PseudoStyleType.h"
 #include "Units.h"
 #include "WindowRenderer.h"
 #include "gfxBlur.h"
@@ -89,7 +90,6 @@
 #include "mozilla/layers/WebRenderUserData.h"
 #include "nsBidiPresUtils.h"
 #include "nsCCUncollectableMarker.h"
-#include "nsCSSPseudoElements.h"
 #include "nsCSSValue.h"
 #include "nsColor.h"
 #include "nsComputedDOMStyle.h"
@@ -1747,17 +1747,18 @@ bool CanvasRenderingContext2D::EnsureTarget(ErrorResult& aError,
     return true;
   }
 
-  // Check that the dimensions are sane
-  if (mWidth > StaticPrefs::gfx_canvas_max_size() ||
-      mHeight > StaticPrefs::gfx_canvas_max_size()) {
-    SetErrorState();
-    aError.ThrowInvalidStateError("Canvas exceeds max size.");
-    return false;
-  }
-
   if (mWidth < 0 || mHeight < 0) {
     SetErrorState();
     aError.ThrowInvalidStateError("Canvas has invalid size.");
+    return false;
+  }
+
+  // Check that the dimensions are sane
+  if (mWidth > StaticPrefs::gfx_canvas_max_size() ||
+      mHeight > StaticPrefs::gfx_canvas_max_size() ||
+      size_t(mWidth) * size_t(mHeight) > StaticPrefs::gfx_canvas_max_area()) {
+    SetErrorState();
+    aError.ThrowInvalidStateError("Canvas exceeds max size.");
     return false;
   }
 
@@ -4293,22 +4294,22 @@ bool CanvasRenderingContext2D::SetFontInternal(const nsACString& aFont,
       // Leave whatever the shorthand set.
       break;
     case CanvasFontVariantCaps::Small_caps:
-      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_SMALLCAPS;
+      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_SMALL_CAPS;
       break;
     case CanvasFontVariantCaps::All_small_caps:
-      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_ALLSMALL;
+      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_ALL_SMALL_CAPS;
       break;
     case CanvasFontVariantCaps::Petite_caps:
-      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_PETITECAPS;
+      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_PETITE_CAPS;
       break;
     case CanvasFontVariantCaps::All_petite_caps:
-      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_ALLPETITE;
+      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_ALL_PETITE_CAPS;
       break;
     case CanvasFontVariantCaps::Unicase:
       resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_UNICASE;
       break;
     case CanvasFontVariantCaps::Titling_caps:
-      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_TITLING;
+      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_TITLING_CAPS;
       break;
     default:
       MOZ_ASSERT_UNREACHABLE("unknown caps value");
@@ -4369,7 +4370,7 @@ static void SerializeFontForCanvas(const StyleFontFamilyList& aList,
     aUsedFont.Append(" ");
   }
 
-  if (aStyle.variantCaps == NS_FONT_VARIANT_CAPS_SMALLCAPS) {
+  if (aStyle.variantCaps == NS_FONT_VARIANT_CAPS_SMALL_CAPS) {
     aUsedFont.Append("small-caps ");
   }
 
@@ -4464,26 +4465,26 @@ bool CanvasRenderingContext2D::SetFontInternalDisconnected(
   // the available values); see https://github.com/whatwg/html/issues/8103.
   switch (CurrentState().fontVariantCaps) {
     case CanvasFontVariantCaps::Normal:
-      fontStyle.variantCaps = smallCaps ? NS_FONT_VARIANT_CAPS_SMALLCAPS
+      fontStyle.variantCaps = smallCaps ? NS_FONT_VARIANT_CAPS_SMALL_CAPS
                                         : NS_FONT_VARIANT_CAPS_NORMAL;
       break;
     case CanvasFontVariantCaps::Small_caps:
-      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_SMALLCAPS;
+      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_SMALL_CAPS;
       break;
     case CanvasFontVariantCaps::All_small_caps:
-      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_ALLSMALL;
+      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_ALL_SMALL_CAPS;
       break;
     case CanvasFontVariantCaps::Petite_caps:
-      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_PETITECAPS;
+      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_PETITE_CAPS;
       break;
     case CanvasFontVariantCaps::All_petite_caps:
-      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_ALLPETITE;
+      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_ALL_PETITE_CAPS;
       break;
     case CanvasFontVariantCaps::Unicase:
       fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_UNICASE;
       break;
     case CanvasFontVariantCaps::Titling_caps:
-      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_TITLING;
+      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_TITLING_CAPS;
       break;
     default:
       MOZ_ASSERT_UNREACHABLE("unknown caps value");
@@ -4583,16 +4584,14 @@ void CanvasRenderingContext2D::FillText(const nsAString& aText, double aX,
   if (mFillTextCalls <= 5) {
     if (aText == u"Cwm fjordbank glyphs vext quiz, 😃"_ns) {
       mFeatureUsage |= CanvasFeatureUsage::KnownText_1;
-    } else if (aText == u"Cwm fjordbank gly 😃"_ns) {
-      mFeatureUsage |= CanvasFeatureUsage::KnownText_1;
     } else if (StringBeginsWith(aText, u"Hel$&?6%"_ns)) {
-      mFeatureUsage |= CanvasFeatureUsage::KnownText_2;
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_2;  // Imperva
     } else if (StringBeginsWith(aText, u"<@nv45. "_ns)) {
       mFeatureUsage |= CanvasFeatureUsage::KnownText_3;
     } else if (aText == u"Cañvas FP 😎 12345"_ns) {
       mFeatureUsage |= CanvasFeatureUsage::KnownText_4;
     } else if (StringBeginsWith(aText, u"❤️🤪🎉👋"_ns)) {
-      mFeatureUsage |= CanvasFeatureUsage::KnownText_5;
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_5;  // hCaptcha
     } else if (aText == u"SomeCanvasFingerPrint.65@345876"_ns) {
       mFeatureUsage |= CanvasFeatureUsage::KnownText_6;
     } else if (aText == u"Browser,Signal <canvas> 2.0"_ns) {
@@ -4606,9 +4605,9 @@ void CanvasRenderingContext2D::FillText(const nsAString& aText, double aX,
     } else if (aText == u"g"_ns) {
       mFeatureUsage |= CanvasFeatureUsage::KnownText_11;
     } else if (aText == u"Soft Ruddy Foothold 2"_ns) {
-      mFeatureUsage |= CanvasFeatureUsage::KnownText_12;
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_12;  // Akamai
     } else if (aText == u"!H71JCaj)]# 1@#"_ns) {
-      mFeatureUsage |= CanvasFeatureUsage::KnownText_13;
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_13;  // Akamai
     } else if (aText == u"oubrg5h56e@!$3t4"_ns) {
       mFeatureUsage |= CanvasFeatureUsage::KnownText_14;
     } else if (aText == u"Cwm fjordbank glyphs vext quiz,"_ns) {
@@ -4631,6 +4630,14 @@ void CanvasRenderingContext2D::FillText(const nsAString& aText, double aX,
       mFeatureUsage |= CanvasFeatureUsage::KnownText_23;
     } else if (aText == u"<@nv45. F1n63r,Pr1n71n6!"_ns) {
       mFeatureUsage |= CanvasFeatureUsage::KnownText_24;
+    } else if (aText == u"Cwm fjordbank gly 😃"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_25;
+    } else if (aText == u"clientgear.com <canvas> 1.0") {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_26;
+    } else if (aText == u"iO0A🤣💩") {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_27;
+    } else if (aText == u"Ry"_ns) {
+      mFeatureUsage |= CanvasFeatureUsage::KnownText_28;
     }
   }
   mFillTextCalls++;
@@ -5219,7 +5226,7 @@ UniquePtr<TextMetrics> CanvasRenderingContext2D::DrawOrMeasureText(
 
   switch (state.textBaseline) {
     case CanvasTextBaseline::Hanging:
-      baselineAnchor = font->GetBaselines(fontOrientation).mHanging;
+      baselineAnchor = font->GetBaseline(gfxFont::kHanging, fontOrientation);
       break;
     case CanvasTextBaseline::Top:
       baselineAnchor = fontMetrics.emAscent;
@@ -5228,10 +5235,11 @@ UniquePtr<TextMetrics> CanvasRenderingContext2D::DrawOrMeasureText(
       baselineAnchor = (fontMetrics.emAscent - fontMetrics.emDescent) * .5f;
       break;
     case CanvasTextBaseline::Alphabetic:
-      baselineAnchor = font->GetBaselines(fontOrientation).mAlphabetic;
+      baselineAnchor = font->GetBaseline(gfxFont::kAlphabetic, fontOrientation);
       break;
     case CanvasTextBaseline::Ideographic:
-      baselineAnchor = font->GetBaselines(fontOrientation).mIdeographic;
+      baselineAnchor =
+          font->GetBaseline(gfxFont::kIdeographicUnder, fontOrientation);
       break;
     case CanvasTextBaseline::Bottom:
       baselineAnchor = -fontMetrics.emDescent;
@@ -5264,7 +5272,6 @@ UniquePtr<TextMetrics> CanvasRenderingContext2D::DrawOrMeasureText(
         -processor.mBoundingBox.Y() - baselineAnchor;
     double actualBoundingBoxDescent =
         processor.mBoundingBox.YMost() + baselineAnchor;
-    auto baselines = font->GetBaselines(fontOrientation);
     return MakeUnique<TextMetrics>(
         totalWidth, actualBoundingBoxLeft, actualBoundingBoxRight,
         fontMetrics.maxAscent - baselineAnchor,   // fontBBAscent
@@ -5272,9 +5279,11 @@ UniquePtr<TextMetrics> CanvasRenderingContext2D::DrawOrMeasureText(
         actualBoundingBoxAscent, actualBoundingBoxDescent,
         fontMetrics.emAscent - baselineAnchor,   // emHeightAscent
         fontMetrics.emDescent + baselineAnchor,  // emHeightDescent
-        baselines.mHanging - baselineAnchor,
-        baselines.mAlphabetic - baselineAnchor,
-        baselines.mIdeographic - baselineAnchor);
+        font->GetBaseline(gfxFont::kHanging, fontOrientation) - baselineAnchor,
+        font->GetBaseline(gfxFont::kAlphabetic, fontOrientation) -
+            baselineAnchor,
+        font->GetBaseline(gfxFont::kIdeographicUnder, fontOrientation) -
+            baselineAnchor);
   }
 
   // If we did not actually calculate bounds, set up a simple bounding box
@@ -6837,14 +6846,18 @@ void CanvasRenderingContext2D::PutImageData_explicit(
                         dirtyRect.Size());
       });
 
-  if (aRv.Failed()) {
-    return;
-  }
-
+  // Ensure surfaces unmapped before potential error exit.
   if (lockedBits) {
     mTarget->ReleaseBits(lockedBits);
   } else if (sourceSurface) {
     sourceSurface->Unmap();
+  }
+
+  if (aRv.Failed()) {
+    return;
+  }
+
+  if (sourceSurface) {
     mTarget->CopySurface(sourceSurface, dirtyRect - dirtyRect.TopLeft(),
                          dirtyRect.TopLeft());
   }

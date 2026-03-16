@@ -10,7 +10,7 @@ import sys
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 import mozpack.path as mozpath
 from mozfile import which
@@ -62,7 +62,8 @@ class JujutsuRepository(Repository):
             jj_ws_root = Path(out.rstrip())
             jj_repo = jj_ws_root / ".jj" / "repo"
             if not jj_repo.is_dir():
-                jj_repo = Path(jj_repo.read_text())
+                # Path / absolute discards the left operand, so this handles both relative and absolute paths.
+                jj_repo = jj_repo.parent / Path(jj_repo.read_text())
         except Exception:
             raise MissingVCSInfo("cannot find jj repo")
 
@@ -162,10 +163,31 @@ class JujutsuRepository(Repository):
             return None
         return email.strip()
 
+    def get_remote_url(self, remote=None, push=False):
+        if not remote:
+            if push:
+                if remote := self._run(
+                    "config", "get", "git.push", return_codes=[0, 1]
+                ):
+                    remote = remote.strip().strip('"')
+            else:
+                fetch_config = self._run(
+                    "config", "get", "git.fetch", return_codes=[0, 1]
+                )
+                if fetch_config:
+                    # Windows may add extra quotes around JSON values
+                    fetch_config = fetch_config.strip().strip('"')
+                    remote = json.loads(fetch_config)[0]
+
+            if not remote:
+                return None
+
+        return self._git.get_remote_url(remote, push)
+
     def get_changed_files(self, diff_filter="ADM", mode="(ignored)", rev="@"):
         assert all(f.lower() in self._valid_diff_filter for f in diff_filter)
 
-        out = self._run_read_only(
+        out = self._run(
             "log",
             "-r",
             rev,
@@ -319,6 +341,32 @@ class JujutsuRepository(Repository):
             cmd.extend(paths)
         self._run(*cmd, **run_kwargs)
 
+    def push(self, remote: Optional[str] = None, ref: Optional[str] = None):
+        if ref and not remote:
+            raise ValueError("Cannot specify ref without specifying remote")
+
+        args = ["git", "push"]
+        if remote:
+            if remote.startswith("git@"):
+                if remote.endswith(".git"):
+                    remote = remote[:-4]
+
+                for line in self._run("git", "remote", "list").strip().splitlines():
+                    name, url = line.split(" ", 1)
+                    if url.endswith(".git"):
+                        url = url[:-4]
+
+                    if url == remote:
+                        remote = name
+                        break
+                else:
+                    raise ValueError(f"No remote configured for '{remote}'")
+
+            args.extend(["--remote", remote])
+        if ref:
+            args.extend(["-r", ref])
+        self._run(*args)
+
     def push_to_try(
         self,
         message: str,
@@ -423,11 +471,35 @@ class JujutsuRepository(Repository):
         `changed_files` may contain a dict of file paths and their contents,
         see `stage_changes`.
         """
+        opid = self._run(
+            "operation", "log", "-n1", "--no-graph", "-T", "id.short(16)"
+        ).rstrip()
+        try:
+            change, _ = self.prepare_try_push(commit_message, changed_files)
+            yield change
+        finally:
+            self._run("operation", "restore", opid)
+
+    def prepare_try_push(
+        self, commit_message: str, changed_files: Optional[dict[str, str]] = None
+    ) -> tuple[Optional[str], Callable]:
+        """Create a temporary try commit as a context manager.
+
+        Create a new commit using `commit_message` as the commit message. The commit
+        may be empty, for example when only including try syntax.
+
+        `changed_files` may contain a dict of file paths and their contents,
+        see `stage_changes`.
+
+        This function returns a tuple of the changeid of the new head and a
+        function that can be called to restore the repository to its original
+        state prior to this function having been run.
+        """
+        self._run("debug", "snapshot")  # Force a snapshot.
         # Redundant with the snapshot from the next command, but the semantics
         # of this operation depend on a snapshot happening (and it will eat
         # working-copy changes if not!), so be extra explicit here in case it
         # becomes possible to default snapshotting off.
-        self._run("debug", "snapshot")  # Force a snapshot.
         opid = self._run(
             "operation", "log", "-n1", "--no-graph", "-T", "id.short(16)"
         ).rstrip()
@@ -442,9 +514,24 @@ class JujutsuRepository(Repository):
                 self.add_remove_files(p)
             # Update the jj commit with the changes we just made.
             self._snapshot()
-            yield self._resolve_to_change("@")
-        finally:
+
+            # Tug any bookmarks from parent commit for pushing.
+            self._run(
+                "bookmark", "move", "--from", "heads(@- & bookmarks())", "--to", "@"
+            )
+
+            def cleanup():
+                self._run("operation", "restore", opid)
+
+            return self._resolve_to_change("@"), cleanup
+        except:
+            # cleanup is handled by the caller in the happy path to allow
+            # it to log metrics. we also need to handle cleanup in the
+            # exception case, where the caller won't have the cleanup handler
+            # available. we lose metrics for this case, but they're not
+            # crucial for this path.
             self._run("operation", "restore", opid)
+            raise
 
     def get_last_modified_time_for_file(self, path: Path) -> datetime:
         """Return last modified in VCS time for the specified file."""

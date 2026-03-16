@@ -26,9 +26,9 @@ import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.tooling.preview.PreviewLightDark
+import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
-import mozilla.components.compose.base.annotation.FlexibleWindowLightDarkPreview
+import mozilla.components.compose.base.annotation.FlexibleWindowPreview
 import mozilla.components.lib.crash.store.CrashReportOption
 import mozilla.components.lib.state.ext.observeAsComposableState
 import org.mozilla.fenix.R
@@ -39,6 +39,7 @@ import org.mozilla.fenix.compose.list.SwitchListItem
 import org.mozilla.fenix.compose.list.TextListItem
 import org.mozilla.fenix.compose.settings.SettingsSectionHeader
 import org.mozilla.fenix.theme.FirefoxTheme
+import org.mozilla.fenix.theme.PreviewThemeProvider
 import org.mozilla.fenix.theme.Theme
 
 /**
@@ -72,7 +73,7 @@ internal fun DataChoicesScreen(
             onStudiesClick = onStudiesClick,
             onTelemetryToggle = onTelemetryToggle,
             onUsagePingToggle = onUsagePingToggle,
-            onMarketingDataToggled = onMarketingDataToggled,
+            onMeasurementDataToggled = onMarketingDataToggled,
             onCrashOptionSelected = onCrashOptionSelected,
             learnMoreTechnicalData = learnMoreTechnicalData,
             learnMoreDailyUsage = learnMoreDailyUsage,
@@ -89,7 +90,7 @@ internal fun DataChoicesUi(
     onStudiesClick: () -> Unit,
     onTelemetryToggle: () -> Unit,
     onUsagePingToggle: () -> Unit,
-    onMarketingDataToggled: () -> Unit,
+    onMeasurementDataToggled: () -> Unit,
     onCrashOptionSelected: (CrashReportOption) -> Unit,
     learnMoreTechnicalData: () -> Unit,
     learnMoreDailyUsage: () -> Unit,
@@ -147,15 +148,17 @@ internal fun DataChoicesUi(
         HorizontalDivider(modifier = Modifier.padding(top = 16.dp, bottom = 24.dp))
 
         // Campaign measurement Section
-        TogglePreferenceSection(
-            categoryTitle = stringResource(R.string.preferences_marketing_data_title),
-            preferenceTitle = stringResource(R.string.preferences_marketing_data_2),
-            preferenceSummary = stringResource(R.string.preferences_marketing_data_description_4),
-            learnMoreText = stringResource(R.string.preferences_marketing_data_learn_more),
-            isToggled = state.measurementDataEnabled,
-            onToggleChanged = onMarketingDataToggled,
-            onLearnMoreClicked = learnMoreMarketingData,
-        )
+        if (state.showMeasurementDataSection) {
+            TogglePreferenceSection(
+                categoryTitle = stringResource(R.string.preferences_marketing_data_title),
+                preferenceTitle = stringResource(R.string.preferences_marketing_data_2),
+                preferenceSummary = stringResource(R.string.preferences_marketing_data_description_4),
+                learnMoreText = stringResource(R.string.preferences_marketing_data_learn_more),
+                isToggled = state.measurementDataEnabled,
+                onToggleChanged = onMeasurementDataToggled,
+                onLearnMoreClicked = learnMoreMarketingData,
+            )
+        }
     }
 }
 
@@ -268,7 +271,7 @@ private fun TogglePreferenceSection(
 }
 
 /**
- * Composable section that displays the user’s participation status in studies or experiments.
+ * Composable section that displays the user's participation status in studies or experiments.
  *
  * @param studiesEnabled Whether the user is currently enrolled in studies.
  *                       Affects the summary text shown in the section.
@@ -293,7 +296,7 @@ private fun StudiesSection(
         )
 
         TextListItem(
-            label = stringResource(R.string.studies_title),
+            label = stringResource(R.string.studies_title_2),
             description = stringResource(if (studiesEnabled) R.string.studies_on else R.string.studies_off),
             enabled = sectionEnabled,
             onClick = onClick,
@@ -331,10 +334,12 @@ private fun LearnMoreLink(onLearnMoreClicked: () -> Unit, learnMoreText: String)
     }
 }
 
-@FlexibleWindowLightDarkPreview
+@FlexibleWindowPreview
 @Composable
-private fun DataChoicesPreview() {
-    FirefoxTheme {
+private fun DataChoicesPreview(
+    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
+) {
+    FirefoxTheme(theme) {
         DataChoicesScreen(
             store = DataChoicesStore(
                 initialState = DataChoicesState(),
@@ -345,20 +350,10 @@ private fun DataChoicesPreview() {
 
 @Preview
 @Composable
-private fun DataChoicesPrivatePreview() {
-    FirefoxTheme(theme = Theme.Private) {
-        DataChoicesScreen(
-            store = DataChoicesStore(
-                initialState = DataChoicesState(),
-            ),
-        )
-    }
-}
-
-@PreviewLightDark
-@Composable
-private fun DataChoicesTelemetryDisabledPreview() {
-    FirefoxTheme {
+private fun DataChoicesTelemetryDisabledPreview(
+    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
+) {
+    FirefoxTheme(theme) {
         DataChoicesScreen(
             store = DataChoicesStore(
                 initialState = DataChoicesState(
@@ -372,13 +367,16 @@ private fun DataChoicesTelemetryDisabledPreview() {
 
 @Preview
 @Composable
-private fun DataChoicesTelemetryDisabledPrivatePreview() {
-    FirefoxTheme(theme = Theme.Private) {
+private fun DataChoicesMarketingSectionDisabledPreview(
+    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
+) {
+    FirefoxTheme(theme) {
         DataChoicesScreen(
             store = DataChoicesStore(
                 initialState = DataChoicesState(
                     studiesEnabled = false,
                     telemetryEnabled = false,
+                    showMeasurementDataSection = false,
                 ),
             ),
         )

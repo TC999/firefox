@@ -5,6 +5,7 @@
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 
 /**
+ * @import {BrowserSearchTelemetry} from "moz-src:///browser/components/search/BrowserSearchTelemetry.sys.mjs"
  * @import {ProvidersManager} from "moz-src:///browser/components/urlbar/UrlbarProvidersManager.sys.mjs"
  * @import {UrlbarView} from "moz-src:///browser/components/urlbar/UrlbarView.sys.mjs"
  */
@@ -14,13 +15,12 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   ExtensionUtils: "resource://gre/modules/ExtensionUtils.sys.mjs",
   Interactions: "moz-src:///browser/components/places/Interactions.sys.mjs",
-  SearchbarProvidersManager:
+  ProvidersManager:
     "moz-src:///browser/components/urlbar/UrlbarProvidersManager.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
   UrlbarProviderSemanticHistorySearch:
     "moz-src:///browser/components/urlbar/UrlbarProviderSemanticHistorySearch.sys.mjs",
-  UrlbarProvidersManager:
-    "moz-src:///browser/components/urlbar/UrlbarProvidersManager.sys.mjs",
   UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
   UrlUtils: "resource://gre/modules/UrlUtils.sys.mjs",
 });
@@ -83,6 +83,9 @@ export class UrlbarController {
     if (!("isPrivate" in options.input)) {
       throw new Error("input.isPrivate must be set.");
     }
+    if (!options.input.sapName) {
+      throw new Error("input needs a non-empty 'sapName' property.");
+    }
 
     this.input = options.input;
     this.browserWindow = options.input.window;
@@ -92,9 +95,7 @@ export class UrlbarController {
      */
     this.manager =
       options.manager ||
-      (this.input.sapName == "searchbar"
-        ? lazy.SearchbarProvidersManager
-        : lazy.UrlbarProvidersManager);
+      lazy.ProvidersManager.getInstanceForSap(options.input.sapName);
 
     this._listeners = new Set();
     this._userSelectionBehavior = "none";
@@ -314,7 +315,7 @@ export class UrlbarController {
       return;
     }
 
-    if (this.view.isOpen && executeAction && this._lastQueryContextWrapper) {
+    if (executeAction) {
       // In native inputs on most platforms, Shift+Up/Down moves the caret to the
       // start/end of the input and changes its selection, so in that case defer
       // handling to the input instead of changing the view's selection.
@@ -326,11 +327,11 @@ export class UrlbarController {
         return;
       }
 
-      let { queryContext } = this._lastQueryContextWrapper;
       let handled = false;
       if (lazy.UrlbarPrefs.get("scotchBonnet.enableOverride")) {
         handled = this.input.searchModeSwitcher.handleKeyDown(event);
-      } else {
+      } else if (this.view.isOpen && this._lastQueryContextWrapper) {
+        let { queryContext } = this._lastQueryContextWrapper;
         handled = this.view.oneOffSearchButtons?.handleKeyDown(
           event,
           this.view.visibleRowCount,
@@ -570,7 +571,7 @@ export class UrlbarController {
                 context.sapName == "searchbar") &&
               lazy.UrlbarPrefs.get("browser.search.suggest.enabled")
             ) {
-              let engine = Services.search.getEngineByName(
+              let engine = lazy.SearchService.getEngineByName(
                 result.payload.engine
               );
               lazy.UrlbarUtils.setupSpeculativeConnection(
@@ -780,6 +781,10 @@ export class UrlbarController {
  * @see Events.yaml
  */
 class TelemetryEvent {
+  /**
+   * @param {UrlbarController} controller
+   *  The associated UrlbarController.
+   */
   constructor(controller) {
     this._controller = controller;
     lazy.UrlbarPrefs.addObserver(this);
@@ -1054,6 +1059,45 @@ class TelemetryEvent {
   }
 
   /**
+   * Converts a search source string to a sap string.
+   * Both are the same concept but they have slightly different values.
+   * The sap string is used in urlbar.* telemetry.
+   *
+   * @see {BrowserSearchTelemetry.KNOWN_SEARCH_SOURCES} For an overview
+   * of the available values of search source and which telemetry uses it.
+   *
+   * @param {string} searchSource
+   *   The search source string to convert.
+   * @returns {null|"urlbar"|"searchbar"|"handoff"|"urlbar_newtab"|"urlbar_addonpage"}
+   *   The sap value for urlbar.* telemetry or null if the browser window
+   *   already started closing. In that case, no telemetry should be recorded.
+   */
+  #searchSourceToSap(searchSource) {
+    let browserWindow = this._controller.browserWindow;
+    if (searchSource === "urlbar_handoff") {
+      return "handoff";
+    }
+    if (searchSource === "searchbar") {
+      return "searchbar";
+    }
+    if (browserWindow.closed) {
+      // If the browser window has already started closing, then we bail-out.
+      // We would rather return no telemetry than have telemetry with an
+      // incorrect SAP. Generally, this should only happen in tests, since
+      // the timing would need to be very close for the code not to have got
+      // here before the user started closing the window.
+      return null;
+    }
+    if (browserWindow.isBlankPageURL(browserWindow.gBrowser.currentURI.spec)) {
+      return "urlbar_newtab";
+    }
+    if (lazy.ExtensionUtils.isExtensionUrl(browserWindow.gBrowser.currentURI)) {
+      return "urlbar_addonpage";
+    }
+    return "urlbar";
+  }
+
+  /**
    * Records the relevant telemetry information for the given parameters.
    *
    * @param {"abandonment" | "engagement" | "disable" | "bounce"} method
@@ -1100,22 +1144,10 @@ class TelemetryEvent {
       viewTime = 0,
     }
   ) {
-    const browserWindow = this._controller.browserWindow;
-    let sap = "urlbar";
-    if (searchSource === "urlbar-handoff") {
-      sap = "handoff";
-    } else if (searchSource === "searchbar") {
-      sap = "searchbar";
-    } else if (
-      browserWindow.isBlankPageURL(browserWindow.gBrowser.currentURI.spec)
-    ) {
-      sap = "urlbar_newtab";
-    } else if (
-      lazy.ExtensionUtils.isExtensionUrl(browserWindow.gBrowser.currentURI)
-    ) {
-      sap = "urlbar_addonpage";
+    let sap = this.#searchSourceToSap(searchSource);
+    if (!sap) {
+      return;
     }
-
     searchMode = searchMode ?? this._controller.input.searchMode;
 
     // Distinguish user typed search strings from persisted search terms.
@@ -1140,7 +1172,8 @@ class TelemetryEvent {
       .filter(v => v)
       .join(",");
     let available_semantic_sources = this.#getAvailableSemanticSources().join();
-    const search_engine_default_id = Services.search.defaultEngine.telemetryId;
+    const search_engine_default_id =
+      lazy.SearchService.defaultEngine.telemetryId;
 
     switch (method) {
       case "engagement": {
@@ -1172,12 +1205,18 @@ class TelemetryEvent {
           search_mode,
           n_chars: numChars.toString(),
           n_words: numWords.toString(),
-          n_results: numResults,
+          n_results: numResults.toString(),
           selected_position: (selIndex + 1).toString(),
           selected_result,
           provider,
           engagement_type:
-            selType === "help" || selType === "dismiss" ? selType : action,
+            selType === "help" ||
+            selType === "dismiss" ||
+            selType === "ask_button" ||
+            selType === "navigate_button" ||
+            selType === "search_button"
+              ? selType
+              : action,
           search_engine_default_id,
           groups,
           results,
@@ -1196,7 +1235,7 @@ class TelemetryEvent {
           search_mode,
           n_chars: numChars.toString(),
           n_words: numWords.toString(),
-          n_results: numResults,
+          n_results: numResults.toString(),
           search_engine_default_id,
           groups,
           results,
@@ -1226,7 +1265,7 @@ class TelemetryEvent {
           search_engine_default_id,
           n_chars: numChars.toString(),
           n_words: numWords.toString(),
-          n_results: numResults,
+          n_results: numResults.toString(),
           selected_result,
           results,
           feature: "suggest",
@@ -1247,7 +1286,7 @@ class TelemetryEvent {
           search_engine_default_id,
           n_chars: numChars.toString(),
           n_words: numWords.toString(),
-          n_results: numResults,
+          n_results: numResults.toString(),
           selected_result,
           selected_position: (selIndex + 1).toString(),
           provider,
@@ -1295,11 +1334,19 @@ class TelemetryEvent {
     return sources;
   }
 
+  /**
+   * @param {UrlbarQueryContext} queryContext
+   */
   #recordExposures(queryContext) {
     let exposures = this.#exposures;
     this.#exposures = [];
     this.#tentativeExposures = [];
     if (!exposures.length) {
+      return;
+    }
+    let sap = this.#searchSourceToSap(this._controller.input.getSearchSource());
+    if (!sap) {
+      // Window started closing.
       return;
     }
 
@@ -1325,6 +1372,7 @@ class TelemetryEvent {
           keyword,
           terminal: terminal.toString(),
           result: resultType,
+          sap,
         };
         lazy.logger.debug("Recording keyword_exposure event", data);
         Glean.urlbar.keywordExposure.record(data);
@@ -1337,6 +1385,7 @@ class TelemetryEvent {
     let exposure = {
       results: tuples.map(t => t[0]).join(","),
       terminal: tuples.map(t => t[1]).join(","),
+      sap,
     };
     lazy.logger.debug("Recording exposure event", exposure);
     Glean.urlbar.exposure.record(exposure);
@@ -1452,7 +1501,7 @@ class TelemetryEvent {
       interaction = "refined";
     }
 
-    if (searchSource === "urlbar-persisted") {
+    if (searchSource === "urlbar_persisted") {
       switch (interaction) {
         case "returned": {
           interaction = "persisted_search_terms";
@@ -1514,6 +1563,8 @@ class TelemetryEvent {
       return "dismiss";
     }
     if (MouseEvent.isInstance(event)) {
+      // TODO (Bug 2018250): Don’t rely on `event` and use `selType` or
+      // `details.element` if possible.
       return /** @type {HTMLElement} */ (event.target).classList.contains(
         "urlbar-go-button"
       )
@@ -1628,21 +1679,20 @@ class TelemetryEvent {
     this.#previousSearchWordsSet = null;
   }
 
+  /**
+   * Prefs to record in telemetry.
+   *
+   * If a pref is a `fallbackPref` for a Nimbus variable, list the variable
+   * instead of the pref. That way, the metric will record the variable value
+   * when the variable is defined and the pref value otherwise.
+   */
   #PING_PREFS = {
     maxRichResults: Glean.urlbar.prefMaxResults,
-    "quicksuggest.online.available": Glean.urlbar.prefSuggestOnlineAvailable,
+    quickSuggestOnlineAvailable: Glean.urlbar.prefSuggestOnlineAvailable,
     "quicksuggest.online.enabled": Glean.urlbar.prefSuggestOnlineEnabled,
     "suggest.quicksuggest.all": Glean.urlbar.prefSuggestAll,
     "suggest.quicksuggest.sponsored": Glean.urlbar.prefSuggestSponsored,
     "suggest.topsites": Glean.urlbar.prefSuggestTopsites,
-  };
-
-  // Used to record telemetry for prefs that are fallbacks for Nimbus variables.
-  // `onNimbusChanged` is called for these variables rather than `onPrefChanged`
-  // but we want to record telemetry as if the prefs themselves changed. This
-  // object maps Nimbus variable names to their fallback prefs.
-  #PING_NIMBUS_VARIABLES = {
-    quickSuggestOnlineAvailable: "quicksuggest.online.available",
   };
 
   #readPingPrefs() {
@@ -1651,19 +1701,20 @@ class TelemetryEvent {
     }
   }
 
-  #recordPref(pref, newValue = undefined) {
+  #recordPref(pref) {
     const metric = this.#PING_PREFS[pref];
-    const prefValue = newValue ?? lazy.UrlbarPrefs.get(pref);
     if (metric) {
-      metric.set(prefValue);
+      metric.set(lazy.UrlbarPrefs.get(pref));
     }
+
     switch (pref) {
       case "suggest.quicksuggest.all":
       case "suggest.quicksuggest.sponsored":
       case "quicksuggest.enabled":
-        if (!prefValue) {
+        if (!lazy.UrlbarPrefs.get(pref)) {
           this.handleDisableSuggest();
         }
+        break;
     }
   }
 
@@ -1671,10 +1722,8 @@ class TelemetryEvent {
     this.#recordPref(pref);
   }
 
-  onNimbusChanged(name, newValue) {
-    if (this.#PING_NIMBUS_VARIABLES.hasOwnProperty(name)) {
-      this.#recordPref(this.#PING_NIMBUS_VARIABLES[name], newValue);
-    }
+  onNimbusChanged(variable) {
+    this.#recordPref(variable);
   }
 
   // Used to avoid re-entering `record()`.

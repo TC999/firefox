@@ -197,6 +197,10 @@ internal object AppStoreReducer {
             state.copy(openInFirefoxRequested = false)
         }
 
+        is AppAction.UpdateDefaultBrowserStatus -> state.copy(
+            isDefaultBrowser = action.isDefault,
+        )
+
         is AppAction.UserAccountAuthenticated -> state.copy(
             snackbarState = SnackbarState.UserAccountAuthenticated,
         )

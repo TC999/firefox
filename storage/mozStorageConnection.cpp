@@ -39,10 +39,9 @@
 #include "ObfuscatingVFS.h"
 #include "QuotaVFS.h"
 #include "StorageBaseStatementInternal.h"
-#include "SQLCollations.h"
+#include "mozilla/intl/AppCollator.h"
 #include "FileSystemModule.h"
 #include "mozStorageHelper.h"
-#include "sqlite3_static_ext.h"
 
 #include "mozilla/Assertions.h"
 #include "mozilla/Logging.h"
@@ -1249,7 +1248,7 @@ nsresult Connection::initializeInternal() {
   }
 
   // Register our built-in SQL collating sequences.
-  srv = registerCollations(mDBConn, mStorageService);
+  srv = mozilla::intl::AppCollator::InstallCallbacks(mDBConn);
   if (srv != SQLITE_OK) {
     return convertResultCode(srv);
   }

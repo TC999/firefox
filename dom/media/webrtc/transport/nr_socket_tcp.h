@@ -39,21 +39,17 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef nr_socket_tcp_h__
-#define nr_socket_tcp_h__
+#ifndef nr_socket_tcp_h_
+#define nr_socket_tcp_h_
 
 #include <list>
 
 #include "mozilla/net/WebrtcTCPSocketCallback.h"
-#include "nsTArray.h"
-
-extern "C" {
 #include "nr_api.h"
 #include "nr_socket.h"
-#include "transport_addr.h"
-}
-
 #include "nr_socket_prsock.h"
+#include "nsTArray.h"
+#include "transport_addr.h"
 
 namespace mozilla {
 using namespace net;
@@ -113,4 +109,4 @@ class NrTcpSocket : public NrSocketBase, public WebrtcTCPSocketCallback {
 
 }  // namespace mozilla
 
-#endif  // nr_socket_tcp_h__
+#endif  // nr_socket_tcp_h_

@@ -31,6 +31,7 @@ import org.mozilla.fenix.nimbus.FakeNimbusEventStore
 import org.mozilla.fenix.settings.PhoneFeature
 import org.mozilla.fenix.settings.ShortcutType
 import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType
+import org.mozilla.fenix.wallpapers.Wallpaper
 import org.robolectric.RobolectricTestRunner
 import java.util.Calendar
 
@@ -142,6 +143,13 @@ class SettingsTest {
 
         // Then
         assertEquals("Mozilla", settings.defaultSearchEngineName)
+    }
+
+    @Test
+    fun defaultWallpaperIsEdgeToEdge() {
+        // When just created
+        // Then
+        assertEquals(Wallpaper.EdgeToEdge.name, settings.currentWallpaperName)
     }
 
     @Test
@@ -785,46 +793,6 @@ class SettingsTest {
     }
 
     @Test
-    fun `GIVEN re-engagement notification shown and number of app launch THEN should set re-engagement notification returns correct value`() {
-        val localSetting = spyk(settings)
-
-        localSetting.reEngagementNotificationShown = false
-        localSetting.numberOfAppLaunches = 0
-        assert(localSetting.shouldSetReEngagementNotification())
-
-        localSetting.numberOfAppLaunches = 1
-        assert(localSetting.shouldSetReEngagementNotification())
-
-        localSetting.numberOfAppLaunches = 2
-        assertFalse(localSetting.shouldSetReEngagementNotification())
-
-        localSetting.reEngagementNotificationShown = true
-        localSetting.numberOfAppLaunches = 0
-        assertFalse(localSetting.shouldSetReEngagementNotification())
-    }
-
-    @Test
-    fun `GIVEN re-engagement notification shown and is default browser THEN should show re-engagement notification returns correct value`() {
-        val localSetting = spyk(settings)
-
-        every { localSetting.isDefaultBrowserBlocking() } returns false
-
-        localSetting.reEngagementNotificationShown = false
-        assert(localSetting.shouldShowReEngagementNotification())
-
-        localSetting.reEngagementNotificationShown = true
-        assertFalse(localSetting.shouldShowReEngagementNotification())
-
-        every { localSetting.isDefaultBrowserBlocking() } returns true
-
-        localSetting.reEngagementNotificationShown = false
-        assertFalse(localSetting.shouldShowReEngagementNotification())
-
-        localSetting.reEngagementNotificationShown = true
-        assertFalse(localSetting.shouldShowReEngagementNotification())
-    }
-
-    @Test
     fun inactiveTabsAreEnabled() {
         // When just created
         // Then
@@ -908,6 +876,20 @@ class SettingsTest {
             featureEnabled = true,
             hasUserBeenOnboarded = false,
             isLauncherIntent = true,
+        )
+
+        assertTrue(actual)
+    }
+
+    @Test
+    fun `GIVEN should not show by default WHEN enablePersistentOnboarding is true THEN shouldShowOnboarding returns true`() {
+        val settings = spyk(settings)
+        every { settings.enablePersistentOnboarding } returns true
+
+        val actual = settings.shouldShowOnboarding(
+            featureEnabled = false,
+            hasUserBeenOnboarded = true,
+            isLauncherIntent = false,
         )
 
         assertTrue(actual)
@@ -1324,6 +1306,7 @@ class SettingsTest {
 
     @Test
     fun `GIVEN toolbar customization is disabled WHEN reading toolbarSimpleShortcut THEN NEW_TAB is returned regardless of stored key`() {
+        settings.shouldShowToolbarCustomization = false
         settings.toolbarSimpleShortcutKey = ShortcutType.SHARE.value
 
         val result = settings.toolbarSimpleShortcut
@@ -1341,6 +1324,7 @@ class SettingsTest {
 
     @Test
     fun `GIVEN toolbar customization is disabled WHEN reading toolbarExpandedShortcut THEN BOOKMARK is returned regardless of stored key`() {
+        settings.shouldShowToolbarCustomization = false
         settings.toolbarExpandedShortcutKey = ShortcutType.NEW_TAB.value
 
         val result = settings.toolbarExpandedShortcut

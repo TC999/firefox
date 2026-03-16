@@ -406,6 +406,21 @@ netwerk/test/unit
 -----------------
 Performance tests from the 'netwerk/test/unit' folder.
 
+test_trr_bench.js
+=================
+
+:owner: Network Team
+:name: TRR Benchmark
+:Default options:
+
+::
+
+ --perfherder
+
+**Benchmark for TRR (Trusted Recursive Resolver) DNS lookup performance under various load conditions.**
+
+This test measures TRR DNS lookup performance by comparing baseline DNS resolution times with low contention against performance under high contention with many concurrent requests. It validates that TRR requests maintain acceptable performance even when the network is busy with other requests.
+
 test_http3_perf.js
 ==================
 
@@ -519,6 +534,24 @@ This mozperftest gets webpagetest to run pageload tests on Firefox against the 5
 toolkit/components/ml/tests/browser
 -----------------------------------
 Performance tests running through Mochitest for ML Models
+
+browser_ml_security_perf.js
+===========================
+
+:owner: GenAI Team
+:name: ML Security Orchestrator Performance Tests
+:Default options:
+
+::
+
+ --perfherder
+ --perfherder-metrics name:latency,unit:ms,shouldAlert:False
+ --verbose
+ --manifest perftest.toml
+ --manifest-flavor browser-chrome
+ --try-platform linux, mac, win
+
+**Template test for latency for ML Security Orchestrator**
 
 browser_ml_semantic_history_search_perf.js
 ==========================================

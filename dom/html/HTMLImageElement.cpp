@@ -10,10 +10,8 @@
 #include "mozilla/FocusModel.h"
 #include "mozilla/MouseEvents.h"
 #include "mozilla/PresShell.h"
-#include "mozilla/StaticPrefs_image.h"
 #include "mozilla/dom/BindContext.h"
 #include "mozilla/dom/BindingUtils.h"
-#include "mozilla/dom/DOMIntersectionObserver.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/HTMLFormElement.h"
 #include "mozilla/dom/HTMLImageElementBinding.h"
@@ -131,8 +129,19 @@ bool HTMLImageElement::Complete() {
     return true;
   }
 
-  if (!mCurrentRequest || mPendingRequest || mPendingImageLoadTask) {
+  if (mPendingRequest || mPendingImageLoadTask) {
     return false;
+  }
+
+  if (!mCurrentRequest) {
+    // mCurrentRequest can be null in the following two cases:
+    //   * This image has loading="lazy" attribute and the request hasn't yet
+    //     started
+    //   * The image fails to start loading, due to the URL being invalid or
+    //     the load getting blocked
+    // The former case should return complete==false, and the latter case
+    // should return complete==true.
+    return !mLazyLoading;
   }
 
   uint32_t status;
@@ -436,11 +445,14 @@ nsresult HTMLImageElement::BindToTree(BindContext& aContext, nsINode& aParent) {
   // initiated by a user interaction.
   if (IsInPicture()) {
     if (!mInDocResponsiveContent) {
-      OwnerDoc()->AddResponsiveContent(this);
+      aContext.OwnerDoc().AddResponsiveContent(this);
       mInDocResponsiveContent = true;
     }
     mUseUrgentStartForChannel = UserActivation::IsHandlingUserInput();
     UpdateSourceSyncAndQueueImageTask(false, /* aNotify = */ false);
+  }
+  if (mLazyLoading) {
+    LazyLoadingElementBindToTree(aContext);
   }
   return NS_OK;
 }
@@ -453,6 +465,11 @@ void HTMLImageElement::UnbindFromTree(UnbindContext& aContext) {
       UnsetFlags(MAYBE_ORPHAN_FORM_ELEMENT);
     }
   }
+
+  if (mLazyLoading) {
+    LazyLoadingElementUnbindFromTree(aContext);
+  }
+
   // Our in-pictureness can only change if we're the unbind root.
   const bool wasInPicture = IsInPicture();
 
@@ -464,7 +481,7 @@ void HTMLImageElement::UnbindFromTree(UnbindContext& aContext) {
     MOZ_ASSERT(aContext.IsUnbindRoot(this));
     MOZ_ASSERT(mInDocResponsiveContent);
     if (!HasAttr(nsGkAtoms::srcset)) {
-      OwnerDoc()->RemoveResponsiveContent(this);
+      aContext.OwnerDoc().RemoveResponsiveContent(this);
       mInDocResponsiveContent = false;
     }
     UpdateSourceSyncAndQueueImageTask(false, /* aNotify = */ false);
@@ -504,6 +521,12 @@ void HTMLImageElement::NodeInfoChanged(Document* aOldDoc) {
     OwnerDoc()->AddResponsiveContent(this);
   }
 
+  // Might be moving to a script-disabled document or vice versa.
+  StopLazyLoading(StartLoad::No);
+  if (LoadingState() == Loading::Lazy) {
+    SetLazyLoading();
+  }
+
   // Reparse the URI if needed. Note that we can't check whether we already have
   // a parsed URI, because it might be null even if we have a valid src
   // attribute, if we tried to parse with a different base.
@@ -511,12 +534,6 @@ void HTMLImageElement::NodeInfoChanged(Document* aOldDoc) {
   nsAutoString src;
   if (GetAttr(nsGkAtoms::src, src) && !src.IsEmpty()) {
     StringToURI(src, OwnerDoc(), getter_AddRefs(mSrcURI));
-  }
-
-  if (mLazyLoading) {
-    aOldDoc->GetLazyLoadObserver()->Unobserve(*this);
-    mLazyLoading = false;
-    SetLazyLoading();
   }
 
   // Run selection algorithm synchronously and reload when an img element's
@@ -586,7 +603,7 @@ JSObject* HTMLImageElement::WrapNode(JSContext* aCx,
 }
 
 #ifdef DEBUG
-HTMLFormElement* HTMLImageElement::GetForm() const { return mForm; }
+HTMLFormElement* HTMLImageElement::GetFormInternal() const { return mForm; }
 #endif
 
 void HTMLImageElement::SetForm(HTMLFormElement* aForm) {
@@ -733,7 +750,7 @@ void HTMLImageElement::LoadSelectedImage(bool aAlwaysLoad,
                    triggeringPrincipal);
   }
 
-  mLastSelectedSource = selectedSource;
+  mLastSelectedSource = std::move(selectedSource);
   mCurrentDensity = currentDensity;
 
   if (NS_FAILED(rv)) {
@@ -1051,20 +1068,9 @@ void HTMLImageElement::MediaFeatureValuesChanged() {
 }
 
 void HTMLImageElement::SetLazyLoading() {
-  if (mLazyLoading) {
+  if (mLazyLoading || !MaybeStartLazyLoading()) {
     return;
   }
-
-  // If scripting is disabled don't do lazy load.
-  // https://whatpr.org/html/3752/images.html#updating-the-image-data
-  //
-  // Same for printing.
-  Document* doc = OwnerDoc();
-  if (!doc->IsScriptEnabled() || doc->IsStaticDocument()) {
-    return;
-  }
-
-  doc->EnsureLazyLoadObserver().Observe(*this);
   mLazyLoading = true;
   UpdateImageState(true);
 }
@@ -1073,12 +1079,9 @@ void HTMLImageElement::StopLazyLoading(StartLoad aStartLoad) {
   if (!mLazyLoading) {
     return;
   }
+  Element::StopLazyLoading();
   mLazyLoading = false;
-  Document* doc = OwnerDoc();
-  if (auto* obs = doc->GetLazyLoadObserver()) {
-    obs->Unobserve(*this);
-  }
-
+  // FIXME(emilio): Missing UpdateImageState() call?
   if (aStartLoad == StartLoad::Yes) {
     UpdateSourceSyncAndQueueImageTask(true, /* aNotify = */ true);
   }

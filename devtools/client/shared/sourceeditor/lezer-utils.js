@@ -79,6 +79,7 @@ const nodeTypeSets = {
     nodeTypes.PropertyName,
   ]),
   expressionProperty: new Set([nodeTypes.PropertyName]),
+  variables: new Set([nodeTypes.VariableName, nodeTypes.this]),
 };
 
 const ast = new Map();
@@ -145,8 +146,8 @@ function clear() {
  *
  * @param {object} doc - The codemirror document used to retrive the part of content
  * @param {object} node - The parser syntax node https://lezer.codemirror.net/docs/ref/#common.SyntaxNode
- * @params {object} options
- *                  options.includeAnonymousFunctions - if true, allow matching anonymous functions
+ * @param {object} options
+ * @param {boolean} options.includeAnonymousFunctions - if true, allow matching anonymous functions
  * @returns
  */
 function getEnclosingFunction(

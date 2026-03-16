@@ -69,8 +69,10 @@ impl<'a> Expander<'a> {
             ModuleField::Type(_) => {}
             ModuleField::Rec(_) => {}
 
-            ModuleField::Import(i) => {
-                self.expand_item_sig(&mut i.item);
+            ModuleField::Import(imports) => {
+                for sig in imports.unique_sigs_mut() {
+                    self.expand_item_sig(sig);
+                }
             }
             ModuleField::Func(f) => {
                 self.expand_type_use(&mut f.ty);
@@ -122,7 +124,7 @@ impl<'a> Expander<'a> {
 
     fn expand_item_sig(&mut self, item: &mut ItemSig<'a>) {
         match &mut item.kind {
-            ItemKind::Func(t) | ItemKind::Tag(TagType::Exception(t)) => {
+            ItemKind::Func(t) | ItemKind::FuncExact(t) | ItemKind::Tag(TagType::Exception(t)) => {
                 self.expand_type_use(t);
             }
             ItemKind::Global(_) | ItemKind::Table(_) | ItemKind::Memory(_) => {}
@@ -264,6 +266,8 @@ impl<'a> TypeKey<'a> for FuncKey<'a> {
             }),
             shared,
             parent: None,
+            descriptor: None,
+            describes: None,
             final_type: None,
         }
     }

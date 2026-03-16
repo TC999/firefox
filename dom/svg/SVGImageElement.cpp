@@ -31,13 +31,13 @@ JSObject* SVGImageElement::WrapNode(JSContext* aCx,
 
 SVGElement::LengthInfo SVGImageElement::sLengthInfo[4] = {
     {nsGkAtoms::x, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGContentUtils::X},
+     SVGLength::Axis::X},
     {nsGkAtoms::y, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGContentUtils::Y},
+     SVGLength::Axis::Y},
     {nsGkAtoms::width, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGContentUtils::X},
+     SVGLength::Axis::X},
     {nsGkAtoms::height, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGContentUtils::Y},
+     SVGLength::Axis::Y},
 };
 
 SVGElement::StringInfo SVGImageElement::sStringInfo[2] = {
@@ -120,7 +120,8 @@ SVGImageElement::PreserveAspectRatio() {
 }
 
 already_AddRefed<DOMSVGAnimatedString> SVGImageElement::Href() {
-  return mStringAttributes[HREF].IsExplicitlySet()
+  return mStringAttributes[HREF].IsExplicitlySet() ||
+                 !mStringAttributes[XLINK_HREF].IsExplicitlySet()
              ? mStringAttributes[HREF].ToDOMAnimatedString(this)
              : mStringAttributes[XLINK_HREF].ToDOMAnimatedString(this);
 }

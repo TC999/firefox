@@ -142,8 +142,9 @@ SVGAnimatedNumber::DOMAnimatedNumber::~DOMAnimatedNumber() {
   sSVGAnimatedNumberTearoffTable.RemoveTearoff(mVal);
 }
 
-UniquePtr<SMILAttr> SVGAnimatedNumber::ToSMILAttr(SVGElement* aSVGElement) {
-  return MakeUnique<SMILNumber>(this, aSVGElement);
+std::unique_ptr<SMILAttr> SVGAnimatedNumber::ToSMILAttr(
+    SVGElement* aSVGElement) {
+  return std::make_unique<SMILNumber>(this, aSVGElement);
 }
 
 nsresult SVGAnimatedNumber::SMILNumber::ValueFromString(
@@ -160,7 +161,7 @@ nsresult SVGAnimatedNumber::SMILNumber::ValueFromString(
 
   SMILValue val(SMILFloatType::Singleton());
   val.mU.mDouble = value;
-  aValue = val;
+  aValue = std::move(val);
 
   return NS_OK;
 }

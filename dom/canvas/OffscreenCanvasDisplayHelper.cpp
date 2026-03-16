@@ -122,18 +122,20 @@ RefPtr<layers::ImageContainer> OffscreenCanvasDisplayHelper::GetImageContainer()
 void OffscreenCanvasDisplayHelper::UpdateContext(
     OffscreenCanvas* aOffscreenCanvas, RefPtr<ThreadSafeWorkerRef>&& aWorkerRef,
     CanvasContextType aType, const Maybe<mozilla::ipc::ActorId>& aChildId) {
-  RefPtr<layers::ImageContainer> imageContainer =
-      MakeRefPtr<layers::ImageContainer>(
-          layers::ImageUsageType::OffscreenCanvas,
-          layers::ImageContainer::ASYNCHRONOUS);
-
   MutexAutoLock lock(mMutex);
+
+  // Only create ImageContainer if we don't already have one (Bug 2004797).
+  // Recreating it would discard any existing frames, causing flicker.
+  if (!mImageContainer) {
+    mImageContainer = MakeRefPtr<layers::ImageContainer>(
+        layers::ImageUsageType::OffscreenCanvas,
+        layers::ImageContainer::ASYNCHRONOUS);
+  }
 
   mOffscreenCanvas = aOffscreenCanvas;
   mWorkerRef = std::move(aWorkerRef);
   mType = aType;
   mContextChildId = aChildId;
-  mImageContainer = std::move(imageContainer);
 
   if (aChildId) {
     mContextManagerId = Some(gfx::CanvasManagerChild::Get()->Id());
@@ -594,14 +596,19 @@ UniquePtr<uint8_t[]> OffscreenCanvasDisplayHelper::GetImageBuffer(
   nsIPrincipal* principal = nullptr;
   nsICookieJarSettings* cookieJarSettings = nullptr;
   {
-    // This function is never called with mOffscreenCanvas set, so we skip
-    // the check for it.
     MutexAutoLock lock(mMutex);
-    MOZ_ASSERT(!mOffscreenCanvas);
 
     if (mCanvasElement) {
       principal = mCanvasElement->NodePrincipal();
       cookieJarSettings = mCanvasElement->OwnerDoc()->CookieJarSettings();
+    } else if (mOffscreenCanvas) {
+      principal = mOffscreenCanvas->GetParentObject()
+                      ? mOffscreenCanvas->GetParentObject()->PrincipalOrNull()
+                      : nullptr;
+      cookieJarSettings =
+          mOffscreenCanvas->GetParentObject()
+              ? mOffscreenCanvas->GetParentObject()->GetCookieJarSettings()
+              : nullptr;
     }
   }
   nsRFPService::PotentiallyDumpImage(

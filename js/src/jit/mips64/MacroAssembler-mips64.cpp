@@ -9,6 +9,8 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/MathAlgorithms.h"
 
+#include <bit>
+
 #include "jit/Bailouts.h"
 #include "jit/BaselineFrame.h"
 #include "jit/JitFrames.h"
@@ -238,7 +240,7 @@ void MacroAssemblerMIPS64::ma_li(Register dest, ImmWord imm) {
     }
     as_dsll(dest, dest, 16);
   } else {
-    uint32_t trailingZeroes = mozilla::CountTrailingZeroes64(value);
+    uint32_t trailingZeroes = std::countr_zero(uint64_t(value));
     if (Imm16::IsInSignedRange(value >> trailingZeroes)) {
       as_addiu(dest, zero, int32_t(value >> trailingZeroes));
       as_dsll32(dest, dest, trailingZeroes);
@@ -2662,8 +2664,7 @@ void MacroAssembler::callWithABIPre(uint32_t* stackAdjust, bool callFromWasm) {
   assertStackAlignment(ABIStackAlignment);
 }
 
-void MacroAssembler::callWithABIPost(uint32_t stackAdjust, ABIType result,
-                                     bool callFromWasm) {
+void MacroAssembler::callWithABIPost(uint32_t stackAdjust, ABIType result) {
   // Restore ra value (as stored in callWithABIPre()).
   loadPtr(Address(StackPointer, stackAdjust - sizeof(intptr_t)), ra);
 

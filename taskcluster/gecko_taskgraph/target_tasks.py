@@ -52,9 +52,6 @@ UNCOMMON_TRY_TASK_LABELS = [
     # Windows tasks
     r"windows11-64-24h2-hw-ref",
     r"windows10-aarch64-qr",
-    # Linux tasks
-    r"linux-",  # hide all linux32 tasks by default - bug 1599197
-    r"linux1804-32",  # hide linux32 tests - bug 1599197
     # Test tasks
     r"web-platform-tests.*backlog",  # hide wpt jobs that are not implemented yet - bug 1572820
     r"-ccov",
@@ -115,7 +112,7 @@ def filter_for_repo_type(task, parameters):
 def filter_for_project(task, parameters):
     """Filter tasks by project.  Optionally enable nightlies."""
     run_on_projects = set(task.attributes.get("run_on_projects", []))
-    return match_run_on_projects(parameters["project"], run_on_projects)
+    return match_run_on_projects(parameters, run_on_projects)
 
 
 def filter_for_hg_branch(task, parameters):
@@ -334,21 +331,35 @@ def _try_task_config(full_task_graph, parameters, graph_config):
     matched_tasks = []
     missing = set()
     for pattern in pattern_tasks:
+        prefix = pattern.replace("*", "")
         found = [
-            t
-            for t in full_task_graph.graph.nodes
-            if t.split(pattern.replace("*", ""))[-1].isnumeric()
+            t for t in full_task_graph.graph.nodes if t.split(prefix)[-1].isnumeric()
         ]
+        if not found:
+            # When dynamic chunking produces 1 chunk, the label has no
+            # numeric suffix (e.g. "test-...-xpcshell" instead of
+            # "test-...-xpcshell-1"). Match the unchunked name too.
+            base = prefix.rstrip("-")
+            if base in full_task_graph.graph.nodes:
+                found = [base]
         if found:
             matched_tasks.extend(found)
         else:
             missing.add(pattern)
 
         if "MOZHARNESS_TEST_PATHS" in parameters["try_task_config"].get("env", {}):
-            matched_tasks = [x for x in matched_tasks if x.endswith("-1")]
+            matched_tasks = [
+                x
+                for x in matched_tasks
+                if x.endswith("-1") or not x.rsplit("-", 1)[-1].isnumeric()
+            ]
 
         if "MOZHARNESS_TEST_TAG" in parameters["try_task_config"].get("env", {}):
-            matched_tasks = [x for x in matched_tasks if x.endswith("-1")]
+            matched_tasks = [
+                x
+                for x in matched_tasks
+                if x.endswith("-1") or not x.rsplit("-", 1)[-1].isnumeric()
+            ]
 
     selected_tasks = set(tasks) | set(matched_tasks)
     missing.update(selected_tasks - set(full_task_graph.tasks))
@@ -528,11 +539,6 @@ def target_tasks_promote_desktop(full_task_graph, parameters, graph_config):
         if task.attributes.get("shipping_product") != parameters["release_product"]:
             return False
 
-        # 'secondary' balrog/update verify/final verify tasks only run for RCs
-        if parameters.get("release_type") != "release-rc":
-            if "secondary" in task.kind:
-                return False
-
         if not filter_out_missing_signoffs(task, parameters):
             return False
 
@@ -572,22 +578,11 @@ def target_tasks_push_desktop(full_task_graph, parameters, graph_config):
 def target_tasks_ship_desktop(full_task_graph, parameters, graph_config):
     """Select the set of tasks required to ship desktop.
     Previous build deps will be optimized out via action task."""
-    is_rc = parameters.get("release_type") == "release-rc"
-    if is_rc:
-        # ship_firefox_rc runs after `promote` rather than `push`; include
-        # all promote tasks.
-        filtered_for_candidates = target_tasks_promote_desktop(
-            full_task_graph,
-            parameters,
-            graph_config,
-        )
-    else:
-        # ship_firefox runs after `push`; include all push tasks.
-        filtered_for_candidates = target_tasks_push_desktop(
-            full_task_graph,
-            parameters,
-            graph_config,
-        )
+    filtered_for_candidates = target_tasks_push_desktop(
+        full_task_graph,
+        parameters,
+        graph_config,
+    )
 
     def filter(task):
         if not filter_out_missing_signoffs(task, parameters):
@@ -597,14 +592,10 @@ def target_tasks_ship_desktop(full_task_graph, parameters, graph_config):
             return True
 
         if (
-            task.attributes.get("shipping_product") != parameters["release_product"]
-            or task.attributes.get("shipping_phase") != "ship"
+            task.attributes.get("shipping_product") == parameters["release_product"]
+            and task.attributes.get("shipping_phase") == "ship"
         ):
-            return False
-
-        if "secondary" in task.kind:
-            return is_rc
-        return not is_rc
+            return True
 
     return [l for l, t in full_task_graph.tasks.items() if filter(t)]
 
@@ -691,6 +682,10 @@ def target_tasks_custom_car_perf_testing(full_task_graph, parameters, graph_conf
         if "network-bench" in try_name and "linux" not in platform:
             return False
 
+        # Bug 2014270 - Disable speedometer2 on production branches
+        if "speedometer2" in try_name:
+            return False
+
         # Desktop and Android selection for CaR
         if accept_raptor_desktop_build(platform):
             if "browsertime" in try_name and "custom-car" in try_name:
@@ -754,6 +749,10 @@ def target_tasks_general_perf_testing(full_task_graph, parameters, graph_config)
         if "tp7" in try_name:
             return False
 
+        # Bug 2014270 - Disable speedometer2 on production branches
+        if "speedometer2" in try_name:
+            return False
+
         # Bug 1867669 - Temporarily disable all live site tests
         if "live" in try_name and "sheriffed" not in try_name:
             return False
@@ -787,7 +786,7 @@ def target_tasks_general_perf_testing(full_task_graph, parameters, graph_config)
                 if "-fis" in try_name:
                     return False
                 if "linux" in platform:
-                    if "speedometer" in try_name:
+                    if "speedometer3" in try_name:
                         return True
                 if "safari" and "benchmark" in try_name:
                     if "jetstream2" in try_name and "safari" in try_name:
@@ -848,7 +847,7 @@ def target_tasks_general_perf_testing(full_task_graph, parameters, graph_config)
                     return True
                 if "fenix" in try_name:
                     return False
-                if "speedometer" in try_name:
+                if "speedometer3" in try_name:
                     return True
                 if "motionmark" in try_name and "1-3" in try_name:
                     if "chrome-m" in try_name:
@@ -872,8 +871,11 @@ def target_tasks_geckoview_perftest(full_task_graph, parameters, graph_config):
 
         if accept_raptor_android_build(platform):
             try_name = attributes.get("raptor_try_name")
+            # Bug 2014270 - Disable speedometer2 on production branches
+            if "speedometer2" in try_name:
+                return False
             if "geckoview" in try_name and "browsertime" in try_name:
-                if "hw-s24" in platform and "speedometer" not in try_name:
+                if "hw-s24" in platform and "speedometer3" not in try_name:
                     return False
                 if "live" in try_name and "cnn-amp" not in try_name:
                     return False
@@ -888,17 +890,14 @@ def make_desktop_nightly_filter(platforms):
     """Returns a filter that gets all nightly tasks on the given platform."""
 
     def filter(task, parameters):
-        return all(
-            [
-                filter_on_platforms(task, platforms),
-                filter_for_project(task, parameters),
-                task.attributes.get("shippable", False),
-                # Tests and nightly only builds don't have `shipping_product` set
-                task.attributes.get("shipping_product")
-                in {None, "firefox", "thunderbird"},
-                task.kind not in {"l10n"},  # no on-change l10n
-            ]
-        )
+        return all([
+            filter_on_platforms(task, platforms),
+            filter_for_project(task, parameters),
+            task.attributes.get("shippable", False),
+            # Tests and nightly only builds don't have `shipping_product` set
+            task.attributes.get("shipping_product") in {None, "firefox", "thunderbird"},
+            task.kind not in {"l10n"},  # no on-change l10n
+        ])
 
     return filter
 
@@ -915,7 +914,7 @@ def target_tasks_speedometer_tests(full_task_graph, parameters, graph_config):
         if accept_raptor_desktop_build(platform):
             if (
                 "browsertime" in try_name
-                and "speedometer" in try_name
+                and "speedometer3" in try_name
                 and "chrome" in try_name
             ):
                 return True
@@ -924,7 +923,7 @@ def target_tasks_speedometer_tests(full_task_graph, parameters, graph_config):
                 return False
             if (
                 "browsertime" in try_name
-                and "speedometer" in try_name
+                and "speedometer3" in try_name
                 and "chrome-m" in try_name
             ):
                 if "-nofis" not in try_name:
@@ -939,9 +938,10 @@ def target_tasks_nightly_linux(full_task_graph, parameters, graph_config):
     """Select the set of tasks required for a nightly build of linux. The
     nightly build process involves a pipeline of builds, signing,
     and, eventually, uploading the tasks to balrog."""
-    filter = make_desktop_nightly_filter(
-        {"linux64-shippable", "linux64-aarch64-shippable"}
-    )
+    filter = make_desktop_nightly_filter({
+        "linux64-shippable",
+        "linux64-aarch64-shippable",
+    })
     return [l for l, t in full_task_graph.tasks.items() if filter(t, parameters)]
 
 
@@ -978,17 +978,6 @@ def target_tasks_nightly_win64_aarch64(full_task_graph, parameters, graph_config
     The nightly build process involves a pipeline of builds, signing,
     and, eventually, uploading the tasks to balrog."""
     filter = make_desktop_nightly_filter({"win64-aarch64-shippable"})
-    return [l for l, t in full_task_graph.tasks.items() if filter(t, parameters)]
-
-
-@register_target_task("nightly_asan")
-def target_tasks_nightly_asan(full_task_graph, parameters, graph_config):
-    """Select the set of tasks required for a nightly build of asan. The
-    nightly build process involves a pipeline of builds, signing,
-    and, eventually, uploading the tasks to balrog."""
-    filter = make_desktop_nightly_filter(
-        {"linux64-asan-reporter-shippable", "win64-asan-reporter-shippable"}
-    )
     return [l for l, t in full_task_graph.tasks.items() if filter(t, parameters)]
 
 
@@ -1038,7 +1027,6 @@ def target_tasks_nightly_desktop(full_task_graph, parameters, graph_config):
         )
         | set(target_tasks_nightly_macosx(full_task_graph, parameters, graph_config))
         | set(target_tasks_nightly_linux(full_task_graph, parameters, graph_config))
-        | set(target_tasks_nightly_asan(full_task_graph, parameters, graph_config))
         | set(release_tasks)
     )
 
@@ -1156,13 +1144,14 @@ def target_tasks_customv8_update(full_task_graph, parameters, graph_config):
 
 @register_target_task("file_update")
 def target_tasks_file_update(full_task_graph, parameters, graph_config):
-    """Select the set of tasks required to perform nightly in-tree file updates"""
+    """Select the set of tasks required to perform periodic in-tree file updates"""
+    return ["repo-update-periodic-file-update"]
 
-    def filter(task):
-        # For now any task in the repo-update kind is ok
-        return task.kind in ["repo-update"]
 
-    return [l for l, t in full_task_graph.tasks.items() if filter(t)]
+@register_target_task("pinning_update")
+def target_tasks_pinning_update(full_task_graph, parameters, graph_config):
+    """Select the set of tasks required to perform periodic HSTS/HPKP pinning updates"""
+    return ["repo-update-pinning-update"]
 
 
 @register_target_task("l10n_bump")
@@ -1181,8 +1170,7 @@ def target_tasks_merge_automation(full_task_graph, parameters, graph_config):
     """Select the set of tasks required to perform repository merges."""
 
     def filter(task):
-        # For now any task in the repo-update kind is ok
-        return task.kind in ["merge-automation"]
+        return task.kind in ["merge-automation", "mark-as-merged"]
 
     return [l for l, t in full_task_graph.tasks.items() if filter(t)]
 
@@ -1222,12 +1210,9 @@ def _filter_by_release_project(parameters):
     if target_project is None:
         raise Exception("Unknown or unspecified release type in simulation run.")
 
-    def filter_for_target_project(task):
-        """Filter tasks by project.  Optionally enable nightlies."""
-        run_on_projects = set(task.attributes.get("run_on_projects", []))
-        return match_run_on_projects(target_project, run_on_projects)
-
-    return filter_for_target_project
+    params = parameters.copy()
+    params["project"] = target_project
+    return lambda task: filter_for_project(task, params)
 
 
 def filter_out_android_on_esr(parameters, task):
@@ -1323,6 +1308,10 @@ def target_tasks_daily_beta_perf(full_task_graph, parameters, graph_config):
         if not platform:
             return False
 
+        # Bug 2014270 - Disable speedometer2 on production branches
+        if "speedometer2" in try_name:
+            return False
+
         # Select beta tasks for awsy
         if "awsy" in try_name:
             if accept_awsy_task(try_name, platform):
@@ -1396,6 +1385,10 @@ def target_tasks_weekly_release_perf(full_task_graph, parameters, graph_config):
         if attributes.get("unittest_suite") not in ("raptor", "awsy"):
             return False
         if not platform:
+            return False
+
+        # Bug 2014270 - Disable speedometer2 on production branches
+        if "speedometer2" in try_name:
             return False
 
         # Select release tasks for awsy
@@ -1574,7 +1567,7 @@ def target_tasks_perftest_fenix_startup(full_task_graph, parameters, graph_confi
     for name, task in full_task_graph.tasks.items():
         if task.kind != "perftest":
             continue
-        if "fenix" in name and "startup" in name and "simpleperf" not in name:
+        if "fenix" in name and "startup" in name and "profiling" not in name:
             yield name
 
 
@@ -1742,8 +1735,23 @@ def target_tasks_weekly_test_info(full_task_graph, parameters, graph_config):
     return ["source-test-file-metadata-test-info-all"]
 
 
-@register_target_task("test-info-xpcshell-timings-daily")
-def target_tasks_test_info_xpcshell_timings_daily(
-    full_task_graph, parameters, graph_config
-):
-    return ["source-test-file-metadata-test-info-xpcshell-timings-daily"]
+@register_target_task("test-info-timings-periodic")
+def target_tasks_test_info_timings_periodic(full_task_graph, parameters, graph_config):
+    return [
+        "source-test-file-metadata-test-info-xpcshell-timings-periodic",
+        "source-test-file-metadata-test-info-mochitest-timings-periodic",
+        "source-test-file-metadata-test-info-manifest-timings-periodic",
+    ]
+
+
+@register_target_task("firefox_pull_request_tasks")
+def target_firefox_pull_requests(full_task_graph, parameters, graph_config):
+    if parameters["tasks_for"] != "github-pull-request":
+        return []
+
+    labels = []
+    for label, task in full_task_graph.tasks.items():
+        if task.attributes.get("code-review") or task.kind == "code-review":
+            labels.append(label)
+
+    return labels

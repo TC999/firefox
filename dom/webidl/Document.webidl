@@ -356,6 +356,9 @@ dictionary CaretPositionFromPointOptions {
 partial interface Document {
     CaretPosition? caretPositionFromPoint(float x, float y, optional CaretPositionFromPointOptions options = {});
 
+    [Pref="dom.caretRangeFromPoint.enabled"]
+    Range? caretRangeFromPoint(optional long x = 0, optional long y = 0);
+
     readonly attribute Element? scrollingElement;
 };
 
@@ -546,11 +549,6 @@ partial interface Document {
   Promise<boolean> hasStorageAccess();
   [Pref="dom.storage_access.enabled", NewObject]
   Promise<undefined> requestStorageAccess();
-  // https://github.com/privacycg/storage-access/pull/100
-  [Pref="dom.storage_access.forward_declared.enabled", NewObject]
-  Promise<undefined> requestStorageAccessUnderSite(DOMString serializedSite);
-  [Pref="dom.storage_access.forward_declared.enabled", NewObject]
-  Promise<undefined> completeStorageAccessRequestFromSite(DOMString serializedSite);
 };
 
 // A privileged API to give chrome privileged code and the content script of the
@@ -593,6 +591,10 @@ partial interface Document {
 partial interface Document {
   [ChromeOnly] readonly attribute PolicyContainer? policyContainer;
   [ChromeOnly] readonly attribute DOMString cspJSON;
+};
+
+partial interface Document {
+  [ChromeOnly] readonly attribute URI? tlsCertificateBindingURI;
 };
 
 partial interface Document {
@@ -786,3 +788,5 @@ partial interface Document {
   [Throws, Pref="dom.security.sanitizer.enabled"]
   static Document parseHTML(DOMString html, optional SetHTMLOptions options = {});
 };
+
+Document includes ARIANotifyMixin;

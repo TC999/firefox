@@ -1525,7 +1525,7 @@ bool nsWindow::ShouldAssociateWithWinAppSDK() const {
   //
   // TODO(emilio): That might not be true anymore after bug 1993474,
   // consider re-testing and removing that special-case.
-  return IsTopLevelWidget() && !mIsPIPWindow;
+  return IsTopLevelWidget() && mPiPType == PiPType::NoPiP;
 }
 
 bool nsWindow::AssociateWithNativeWindow() {
@@ -1774,7 +1774,8 @@ void nsWindow::Show(bool aState) {
             ::ShowWindow(mWnd, SW_SHOWMINIMIZED);
             break;
           default:
-            if (CanTakeFocus() && !mAlwaysOnTop) {
+            if (CanTakeFocus() &&
+                (!mAlwaysOnTop || mPiPType == PiPType::DocumentPiP)) {
               ::ShowWindow(mWnd, SW_SHOWNORMAL);
             } else {
               ::ShowWindow(mWnd, SW_SHOWNOACTIVATE);
@@ -1807,7 +1808,7 @@ void nsWindow::Show(bool aState) {
         if (wasVisible) {
           flags |= SWP_NOZORDER;
         }
-        if (mAlwaysOnTop || mIsAlert) {
+        if ((mAlwaysOnTop && mPiPType != PiPType::DocumentPiP) || mIsAlert) {
           flags |= SWP_NOACTIVATE;
         }
 
@@ -2642,9 +2643,6 @@ void nsWindow::ResetLayout() {
   Invalidate();
 }
 
-#define DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 19
-#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
-
 void nsWindow::SetColorScheme(const Maybe<ColorScheme>& aScheme) {
   BOOL dark =
       aScheme.valueOrFrom(LookAndFeel::SystemColorScheme) == ColorScheme::Dark;
@@ -2805,7 +2803,7 @@ bool nsWindow::UpdateNonClientMargins(bool aReflowWindow) {
     // frame sizes for left, right and bottom since Windows will automagically
     // position the edges "offscreen" for maximized windows.
     metrics.mOffset.top = metrics.mCaptionHeight;
-  } else if (mIsPIPWindow &&
+  } else if (mPiPType == PiPType::MediaPiP &&
              !StaticPrefs::widget_windows_pip_decorations_enabled()) {
     metrics.mOffset = metrics.DefaultMargins();
   } else {
@@ -4264,10 +4262,10 @@ bool nsWindow::DispatchMouseEvent(EventMessage aEventMessage, WPARAM wParam,
   static BYTE sLastMouseButton = 0;
 
   bool insideMovementThreshold =
-      (DeprecatedAbs(sLastMousePoint.x - eventPoint.x.value) <
-       (short)::GetSystemMetrics(SM_CXDOUBLECLK)) &&
-      (DeprecatedAbs(sLastMousePoint.y - eventPoint.y.value) <
-       (short)::GetSystemMetrics(SM_CYDOUBLECLK));
+      (Abs(sLastMousePoint.x - eventPoint.x.value) <
+       (unsigned)::GetSystemMetrics(SM_CXDOUBLECLK)) &&
+      (Abs(sLastMousePoint.y - eventPoint.y.value) <
+       (unsigned)::GetSystemMetrics(SM_CYDOUBLECLK));
 
   BYTE eventButton;
   switch (aButton) {
@@ -6381,7 +6379,7 @@ void nsWindow::OnWindowPosChanged(WINDOWPOS* wp) {
   // Handle window position changes
   if (!(wp->flags & SWP_NOMOVE)) {
     mBounds.MoveTo(wp->x, wp->y);
-    NotifyWindowMoved(wp->x, wp->y);
+    NotifyWindowMoved(mBounds.TopLeft());
   }
 
   // Handle window size changes
@@ -6795,11 +6793,9 @@ bool nsWindow::OnGesture(WPARAM wParam, LPARAM lParam) {
 
     if (mDisplayPanFeedback) {
       mGesture.UpdatePanFeedbackX(
-          mWnd, DeprecatedAbs(RoundDown(wheelEvent.mOverflowDeltaX)),
-          endFeedback);
+          mWnd, RoundDown(wheelEvent.mOverflowDeltaX) != 0, endFeedback);
       mGesture.UpdatePanFeedbackY(
-          mWnd, DeprecatedAbs(RoundDown(wheelEvent.mOverflowDeltaY)),
-          endFeedback);
+          mWnd, RoundDown(wheelEvent.mOverflowDeltaY) != 0, endFeedback);
       mGesture.PanFeedbackFinalize(mWnd, endFeedback);
     }
 
@@ -6911,25 +6907,21 @@ void nsWindow::OnDestroy() {
 }
 
 // Send a resize message to the listener
-bool nsWindow::OnResize(const LayoutDeviceIntSize& aSize) {
+void nsWindow::OnResize(const LayoutDeviceIntSize& aSize) {
   if (mCompositorWidgetDelegate &&
       !mCompositorWidgetDelegate->OnWindowResize(aSize)) {
-    return false;
+    return;
   }
 
-  bool result = false;
   if (mWidgetListener) {
-    result = mWidgetListener->WindowResized(this, aSize.width, aSize.height);
+    mWidgetListener->WindowResized(this, aSize);
   }
 
   // If there is an attached view, inform it as well as the normal widget
   // listener.
   if (mAttachedWidgetListener) {
-    return mAttachedWidgetListener->WindowResized(this, aSize.width,
-                                                  aSize.height);
+    mAttachedWidgetListener->WindowResized(this, aSize);
   }
-
-  return result;
 }
 
 void nsWindow::OnSizeModeChange() {
@@ -8002,8 +7994,8 @@ bool nsWindow::DispatchTouchEventFromWMPointer(
                             ScreenSize(1, 1),  // pixel size radius for pen
                             0.0f,              // no radius rotation
                             aPointerInfo.mPressure);
-  touchData.mTiltX = aPointerInfo.tiltX;
-  touchData.mTiltY = aPointerInfo.tiltY;
+  touchData.mTiltX = aPointerInfo.ComputeTiltX();
+  touchData.mTiltY = aPointerInfo.ComputeTiltY();
   touchData.mTwist = aPointerInfo.twist;
 
   MultiTouchInput touchInput;
@@ -8337,7 +8329,7 @@ bool nsWindow::InitTouchInjection() {
     }
 
     if (!func(TOUCH_INJECT_MAX_POINTS, TOUCH_FEEDBACK_DEFAULT)) {
-      WinUtils::Log("InitializeTouchInjection failure. GetLastError=%d",
+      WinUtils::Log("InitializeTouchInjection failure. GetLastError=%lu",
                     GetLastError());
       return false;
     }
@@ -8394,7 +8386,7 @@ bool nsWindow::InjectTouchPoint(uint32_t aId, LayoutDeviceIntPoint& aPoint,
       ::Sleep(i);
       continue;
     }
-    WinUtils::Log("InjectTouchInput failure. GetLastError=%d", error);
+    WinUtils::Log("InjectTouchInput failure. GetLastError=%lu", error);
     return false;
   }
   return true;

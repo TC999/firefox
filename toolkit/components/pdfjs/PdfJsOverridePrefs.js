@@ -28,5 +28,22 @@
   pref("pdfjs.enableHighlightFloatingButton", true);
 
   pref("pdfjs.enableAltTextForEnglish", false);
+  pref("pdfjs.enableAltText", true);
+  pref("pdfjs.enableAltTextModelDownload", false);
+  pref("pdfjs.enableGuessAltText", false);
+
+  pref("pdfjs.enableHWA", true);
+
+  #if defined(EARLY_BETA_OR_EARLIER)
+
+    pref("pdfjs.enableSplitMerge", true);
+
+  #endif
+
+#endif
+
+#if defined(EARLY_BETA_OR_EARLIER)
+
+  pref("pdfjs.enableOptimizedPartialRendering", true);
 
 #endif

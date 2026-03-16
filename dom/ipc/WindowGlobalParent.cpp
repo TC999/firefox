@@ -34,6 +34,8 @@
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/DOMException.h"
 #include "mozilla/dom/DOMExceptionBinding.h"
+#include "mozilla/dom/DigitalCredential.h"
+#include "mozilla/dom/DigitalCredentialParent.h"
 #include "mozilla/dom/IdentityCredential.h"
 #include "mozilla/dom/InProcessParent.h"
 #include "mozilla/dom/JSActorService.h"
@@ -74,6 +76,7 @@
 #include "nsIPromptCollection.h"
 #include "nsISessionStoreFunctions.h"
 #include "nsISharePicker.h"
+#include "nsISiteIntegrityService.h"
 #include "nsITimer.h"
 #include "nsITransportSecurityInfo.h"
 #include "nsIURIMutator.h"
@@ -336,11 +339,14 @@ mozilla::ipc::IPCResult WindowGlobalParent::RecvLoadURI(
 
   RefPtr<CanonicalBrowsingContext> targetBC = aTargetBC.get_canonical();
 
-  // FIXME: For cross-process loads, we should double check CanAccess() for the
-  // source browsing context in the parent process.
-
   if (targetBC->Group() != BrowsingContext()->Group()) {
     return IPC_FAIL(this, "Illegal cross-group BrowsingContext load");
+  }
+
+  if (!nsContentUtils::CanNavigate(BrowsingContext(), targetBC.get(),
+                                   DocumentPrincipal(), true)) {
+    return IPC_FAIL(this,
+                    "Illegal cross-process load attempt (!CanNavigate())");
   }
 
   // FIXME: We should really initiate the load in the parent before bouncing
@@ -370,11 +376,14 @@ mozilla::ipc::IPCResult WindowGlobalParent::RecvInternalLoad(
   RefPtr<CanonicalBrowsingContext> targetBC =
       aLoadState->TargetBrowsingContext().get_canonical();
 
-  // FIXME: For cross-process loads, we should double check CanAccess() for the
-  // source browsing context in the parent process.
-
   if (targetBC->Group() != BrowsingContext()->Group()) {
     return IPC_FAIL(this, "Illegal cross-group BrowsingContext load");
+  }
+
+  if (!nsContentUtils::CanNavigate(BrowsingContext(), targetBC.get(),
+                                   DocumentPrincipal(), true)) {
+    return IPC_FAIL(this,
+                    "Illegal cross-process load attempt (!CanNavigate())");
   }
 
   // FIXME: We should really initiate the load in the parent before bouncing
@@ -417,7 +426,7 @@ IPCResult WindowGlobalParent::RecvUpdateDocumentURI(NotNull<nsIURI*> aURI) {
                     "principal URI");
   }
 
-  mDocumentURI = aURI;
+  mDocumentURI = std::move(aURI);
   return IPC_OK();
 }
 
@@ -553,15 +562,10 @@ IPCResult WindowGlobalParent::RecvDestroy() {
   return IPC_OK();
 }
 
-IPCResult WindowGlobalParent::RecvRawMessage(
-    const JSActorMessageMeta& aMeta, JSIPCValue&& aData,
-    const UniquePtr<ClonedMessageData>& aStack) {
-  UniquePtr<StructuredCloneData> stack;
-  if (aStack) {
-    stack = MakeUnique<StructuredCloneData>();
-    stack->BorrowFromClonedMessageData(*aStack);
-  }
-  ReceiveRawMessage(aMeta, std::move(aData), std::move(stack));
+IPCResult WindowGlobalParent::RecvRawMessage(const JSActorMessageMeta& aMeta,
+                                             JSIPCValue&& aData,
+                                             StructuredCloneData* aStack) {
+  ReceiveRawMessage(aMeta, std::move(aData), aStack);
   return IPC_OK();
 }
 
@@ -1456,6 +1460,24 @@ mozilla::ipc::IPCResult WindowGlobalParent::RecvSetDocumentDomain(
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult WindowGlobalParent::RecvSetSiteIntegrityProtected(
+    NotNull<nsIURI*> aSourceURI, uint64_t aMaxAge) {
+  nsCOMPtr<nsISiteIntegrityService> service =
+      do_GetService("@mozilla.org/security/integrity;1");
+  if (!service) {
+    return IPC_OK();
+  }
+
+  OriginAttributes originAttributes =
+      DocumentPrincipal()->OriginAttributesRef();
+  StoragePrincipalHelper::UpdateOriginAttributesForNetworkState(
+      aSourceURI, originAttributes);
+
+  (void)service->SetProtected(aSourceURI, originAttributes, aMaxAge);
+
+  return IPC_OK();
+}
+
 mozilla::ipc::IPCResult WindowGlobalParent::RecvReloadWithHttpsOnlyException() {
   nsresult rv;
   nsCOMPtr<nsIURI> currentURI = BrowsingContext()->Top()->GetCurrentURI();
@@ -1833,6 +1855,25 @@ IPCResult WindowGlobalParent::RecvRecordUserActivationForBTP() {
   return IPC_OK();
 }
 
+IPCResult WindowGlobalParent::RecvRecordUserInteractionForPermissions() {
+  WindowGlobalParent* top = TopWindowContext();
+  if (!top) {
+    return IPC_OK();
+  }
+  nsIPrincipal* principal = top->DocumentPrincipal();
+  if (!principal) {
+    return IPC_OK();
+  }
+
+  nsCOMPtr<nsIPermissionManager> permMgr =
+      do_GetService(NS_PERMISSIONMANAGER_CONTRACTID);
+  if (permMgr) {
+    (void)permMgr->UpdateLastInteractionForPrincipal(principal);
+  }
+
+  return IPC_OK();
+}
+
 already_AddRefed<PWebAuthnTransactionParent>
 WindowGlobalParent::AllocPWebAuthnTransactionParent() {
   return MakeAndAddRef<WebAuthnTransactionParent>();
@@ -1841,6 +1882,11 @@ WindowGlobalParent::AllocPWebAuthnTransactionParent() {
 already_AddRefed<PWebIdentityParent>
 WindowGlobalParent::AllocPWebIdentityParent() {
   return MakeAndAddRef<WebIdentityParent>();
+}
+
+already_AddRefed<PDigitalCredentialParent>
+WindowGlobalParent::AllocPDigitalCredentialParent() {
+  return MakeAndAddRef<DigitalCredentialParent>();
 }
 
 NS_IMPL_CYCLE_COLLECTION_CLASS(WindowGlobalParent)

@@ -146,6 +146,17 @@ export namespace schema {
                 required: string[];
             };
         };
+        BrowserDataBackup: {
+            type: string[];
+            properties: {
+                AllowBackup: {
+                    type: string;
+                };
+                AllowRestore: {
+                    type: string;
+                };
+            };
+        };
         CaptivePortal: {
             type: string;
         };
@@ -454,6 +465,9 @@ export namespace schema {
         DisableProfileRefresh: {
             type: string;
         };
+        DisableRemoteImprovements: {
+            type: string;
+        };
         DisableSafeMode: {
             type: string;
         };
@@ -727,6 +741,32 @@ export namespace schema {
                 ImproveSuggest: {
                     type: string;
                 };
+                OnlineEnabled: {
+                    type: string;
+                };
+                Locked: {
+                    type: string;
+                };
+            };
+        };
+        GenerativeAI: {
+            type: string;
+            properties: {
+                Chatbot: {
+                    type: string;
+                };
+                SmartWindow: {
+                    type: string;
+                };
+                LinkPreviews: {
+                    type: string;
+                };
+                TabGroups: {
+                    type: string;
+                };
+                Enabled: {
+                    type: string;
+                };
                 Locked: {
                     type: string;
                 };
@@ -841,6 +881,29 @@ export namespace schema {
             type: string;
             items: {
                 type: string;
+            };
+        };
+        LocalNetworkAccess: {
+            type: string;
+            properties: {
+                Enabled: {
+                    type: string;
+                };
+                BlockTrackers: {
+                    type: string;
+                };
+                EnablePrompting: {
+                    type: string;
+                };
+                SkipDomains: {
+                    type: string;
+                    items: {
+                        type: string;
+                    };
+                };
+                Locked: {
+                    type: string;
+                };
             };
         };
         ManagedBookmarks: {
@@ -1350,6 +1413,35 @@ export namespace schema {
         ShowHomeButton: {
             type: string;
         };
+        SitePolicies: {
+            type: string;
+            items: {
+                type: string;
+                properties: {
+                    Match: {
+                        type: string;
+                        items: {
+                            type: string;
+                        };
+                    };
+                    Exceptions: {
+                        type: string;
+                        items: {
+                            type: string;
+                        };
+                    };
+                    Policies: {
+                        type: string;
+                        properties: {
+                            DisableJit: {
+                                type: string;
+                            };
+                        };
+                    };
+                };
+                required: string[];
+            };
+        };
         SkipTermsOfUse: {
             type: string;
         };
@@ -1412,6 +1504,9 @@ export namespace schema {
             };
         };
         UseSystemPrintDialog: {
+            type: string;
+        };
+        VisualSearchEnabled: {
             type: string;
         };
         WebsiteFilter: {

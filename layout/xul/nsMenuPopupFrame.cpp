@@ -183,20 +183,10 @@ void nsMenuPopupFrame::Init(nsIContent* aContent, nsContainerFrame* aParent,
     mPopupType = PopupType::Tooltip;
   }
 
-  if (PresContext()->IsChrome()) {
-    mInContentShell = false;
-  }
-
-  // Support incontentshell=false attribute to allow popups to be displayed
-  // outside of the content shell. Chrome only.
-  if (el.NodePrincipal()->IsSystemPrincipal()) {
-    if (el.GetXULBoolAttr(nsGkAtoms::incontentshell)) {
-      mInContentShell = true;
-    } else if (el.AttrValueIs(kNameSpaceID_None, nsGkAtoms::incontentshell,
-                              nsGkAtoms::_false, eCaseMatters)) {
-      mInContentShell = false;
-    }
-  }
+  // Support escapecontentshell attribute to allow popups to be displayed
+  // outside of the content shell.
+  mInContentShell = !PresContext()->IsChrome() &&
+                    !el.GetBoolAttr(nsGkAtoms::escapecontentshell);
 
   // To improve performance, create the widget for the popup if needed. Popups
   // such as menus will create their widgets later when the popup opens.
@@ -209,9 +199,7 @@ void nsMenuPopupFrame::Init(nsIContent* aContent, nsContainerFrame* aParent,
 
 bool nsMenuPopupFrame::HasRemoteContent() const {
   return !mInContentShell && mPopupType == PopupType::Panel &&
-         mContent->AsElement()->AttrValueIs(kNameSpaceID_None,
-                                            nsGkAtoms::remote, nsGkAtoms::_true,
-                                            eIgnoreCase);
+         mContent->AsElement()->GetBoolAttr(nsGkAtoms::remote);
 }
 
 bool nsMenuPopupFrame::IsNoAutoHide() const {
@@ -219,9 +207,7 @@ bool nsMenuPopupFrame::IsNoAutoHide() const {
   // outside of them, or when another application is made active. Non-autohide
   // panels cannot be used in content windows.
   return !mInContentShell && mPopupType == PopupType::Panel &&
-         mContent->AsElement()->AttrValueIs(kNameSpaceID_None,
-                                            nsGkAtoms::noautohide,
-                                            nsGkAtoms::_true, eIgnoreCase);
+         mContent->AsElement()->GetBoolAttr(nsGkAtoms::noautohide);
 }
 
 widget::PopupLevel nsMenuPopupFrame::GetPopupLevel(bool aIsNoAutoHide) const {
@@ -332,6 +318,7 @@ void nsMenuPopupFrame::CreateWidget() {
     return;
   }
   mWidget->SetWidgetListener(this);
+  mWidget->EnableDragDrop(true);
   // TODO(emilio): Make all widgets look at widgetData.mTransparencyMode
   // (maybe in BaseCreate?) then remove this call.
   mWidget->SetTransparencyMode(mode);
@@ -821,14 +808,10 @@ static FlipType FlipFromAttribute(nsMenuPopupFrame* aFrame) {
   return FlipType::Default;
 }
 
-void nsMenuPopupFrame::InitializePopup(nsIContent* aAnchorContent,
-                                       nsIContent* aTriggerContent,
-                                       const nsAString& aPosition,
-                                       int32_t aXPos, int32_t aYPos,
-                                       MenuPopupAnchorType aAnchorType,
-                                       bool aAttributesOverride) {
-  PrepareWidget();
-
+void nsMenuPopupFrame::InitializePopupProperties(
+    nsIContent* aAnchorContent, nsIContent* aTriggerContent,
+    const nsAString& aPosition, int32_t aXPos, int32_t aYPos,
+    MenuPopupAnchorType aAnchorType, bool aAttributesOverride) {
   mPopupState = ePopupShowing;
   mAnchorContent = aAnchorContent;
   mAnchorType = aAnchorType;
@@ -954,6 +937,18 @@ void nsMenuPopupFrame::InitializePopup(nsIContent* aAnchorContent,
   }
 }
 
+void nsMenuPopupFrame::InitializePopup(nsIContent* aAnchorContent,
+                                       nsIContent* aTriggerContent,
+                                       const nsAString& aPosition,
+                                       int32_t aXPos, int32_t aYPos,
+                                       MenuPopupAnchorType aAnchorType,
+                                       bool aAttributesOverride) {
+  PrepareWidget();
+
+  InitializePopupProperties(aAnchorContent, aTriggerContent, aPosition, aXPos,
+                            aYPos, aAnchorType, aAttributesOverride);
+}
+
 void nsMenuPopupFrame::InitializePopupAtScreen(nsIContent* aTriggerContent,
                                                int32_t aXPos, int32_t aYPos,
                                                bool aIsContextMenu) {
@@ -996,6 +991,26 @@ void nsMenuPopupFrame::InitializePopupAsNativeContextMenu(
   mPositionedOffset = 0;
   mPositionedByMoveToRect = false;
   // Native context menus don't call PrepareWidget(), so if we have a widget
+  // already (which generally should only be possible on tests, since
+  // otherwise we shouldn't ever mix native / non-native for the same popup) we
+  // should destroy it now.
+  if (mExpirationState.IsTracked()) {
+    PopupExpirationTracker::Get()->RemoveObject(this);
+  }
+  DestroyWidget();
+}
+
+void nsMenuPopupFrame::InitializePopupAsNativeAnchoredMenu(
+    nsIContent* aAnchorContent, nsIContent* aTriggerContent,
+    const nsAString& aPosition, const CSSIntRect& aRect, bool aIsContextMenu) {
+  InitializePopupProperties(aAnchorContent, aTriggerContent, aPosition, 0, 0,
+                            MenuPopupAnchorType::Rect, false);
+  mIsContextMenu = aIsContextMenu;
+  mIsTopLevelContextMenu = aIsContextMenu;
+  mIsNativeMenu = true;
+  mScreenRect = ToAppUnits(aRect, AppUnitsPerCSSPixel());
+
+  // Native menus don't call PrepareWidget(), so if we have a widget
   // already (which generally should only be possible on tests, since
   // otherwise we shouldn't ever mix native / non-native for the same popup) we
   // should destroy it now.
@@ -1088,7 +1103,7 @@ void nsMenuPopupFrame::HidePopup(bool aDeselectMenu, nsPopupState aNewState,
     // it if the popup is just being made invisible as a popuphiding or command
     // event may want to retrieve it.
     ClearTriggerContentIncludingDocument();
-    mAnchorContent = nullptr;
+    ClearAnchorContent();
   }
 
   // when invisible and about to be closed, HidePopup has already been called,
@@ -1752,17 +1767,6 @@ auto nsMenuPopupFrame::GetRects(const nsSize& aPrefSize) const -> Rects {
   // determine the x and y position of the view by subtracting the desired
   // screen position from the screen position of the root frame.
   result.mViewPoint = result.mUsedRect.TopLeft() - rootScreenRect.TopLeft();
-
-  // Offset the position by the width and height of the borders and titlebar.
-  // Even though GetClientOffset should return (0, 0) when there is no titlebar
-  // or borders, we skip these calculations anyway for non-panels to save time
-  // since they will never have a titlebar.
-  if (mPopupType == PopupType::Panel && widget) {
-    result.mClientOffset = widget->GetClientOffset();
-    result.mViewPoint +=
-        LayoutDeviceIntPoint::ToAppUnits(result.mClientOffset, a2d);
-  }
-
   return result;
 }
 
@@ -1813,7 +1817,6 @@ void nsMenuPopupFrame::PerformMove(const Rects& aRects) {
   }
 
   mAlignmentOffset = aRects.mAlignmentOffset;
-  mLastClientOffset = aRects.mClientOffset;
   mHFlip = aRects.mHFlip;
   mVFlip = aRects.mVFlip;
   mConstrainedByLayout = aRects.mConstrainedByLayout;
@@ -2277,7 +2280,6 @@ void nsMenuPopupFrame::DestroyWidgetIfNeeded() {
 
 void nsMenuPopupFrame::MoveTo(const CSSPoint& aPos, bool aUpdateAttrs,
                               bool aByMoveToRect) {
-  nsIWidget* widget = GetWidget();
   nsPoint appUnitsPos = CSSPixel::ToAppUnits(aPos);
 
   const bool rtl = IsDirectionRTL();
@@ -2298,8 +2300,7 @@ void nsMenuPopupFrame::MoveTo(const CSSPoint& aPos, bool aUpdateAttrs,
     appUnitsPos.y -= margin.top;
   }
 
-  if (mScreenRect.TopLeft() == appUnitsPos &&
-      (!widget || widget->GetClientOffset() == mLastClientOffset)) {
+  if (mScreenRect.TopLeft() == appUnitsPos) {
     return;
   }
 
@@ -2505,22 +2506,20 @@ void nsMenuPopupFrame::CheckForAnchorChange(nsRect& aRect) {
   }
 }
 
-bool nsMenuPopupFrame::WindowMoved(nsIWidget* aWidget, int32_t aX, int32_t aY,
+void nsMenuPopupFrame::WindowMoved(nsIWidget* aWidget,
+                                   const LayoutDeviceIntPoint& aPoint,
                                    ByMoveToRect aByMoveToRect) {
   MOZ_ASSERT(aWidget == mWidget);
 
   if (!IsVisibleOrShowing()) {
-    return true;
+    return;
   }
-
-  LayoutDeviceIntPoint point(aX, aY);
 
   // Don't do anything if the popup is already at the specified location. This
   // prevents recursive calls when a popup is positioned.
   LayoutDeviceIntRect curDevBounds = CalcWidgetBounds();
-  if (curDevBounds.TopLeft() == point &&
-      aWidget->GetClientOffset() == GetLastClientOffset()) {
-    return true;
+  if (curDevBounds.TopLeft() == aPoint) {
+    return;
   }
 
   // Update the popup's position using SetPopupPosition if the popup is
@@ -2532,46 +2531,43 @@ bool nsMenuPopupFrame::WindowMoved(nsIWidget* aWidget, int32_t aX, int32_t aY,
       aByMoveToRect == ByMoveToRect::No) {
     SetPopupPosition(true);
   } else {
-    CSSPoint cssPos = point / PresContext()->CSSToDevPixelScale();
+    CSSPoint cssPos = aPoint / PresContext()->CSSToDevPixelScale();
     MoveTo(cssPos, false, aByMoveToRect == ByMoveToRect::Yes);
   }
-  return true;
 }
 
-bool nsMenuPopupFrame::WindowResized(nsIWidget* aWidget, int32_t aWidth,
-                                     int32_t aHeight) {
+void nsMenuPopupFrame::WindowResized(nsIWidget* aWidget,
+                                     const LayoutDeviceIntSize& aSize) {
   MOZ_ASSERT(aWidget == mWidget);
   if (!IsVisibleOrShowing()) {
-    return true;
+    return;
   }
 
-  LayoutDeviceIntSize size(aWidth, aHeight);
   const LayoutDeviceIntRect curDevBounds = CalcWidgetBounds();
   // If the size is what we think it is, we have nothing to do.
-  if (curDevBounds.Size() == size) {
-    return true;
+  if (curDevBounds.Size() == aSize) {
+    return;
   }
 
   RefPtr<Element> popup = &PopupElement();
 
   // Only set the width and height if the popup already has these attributes.
   if (!popup->HasAttr(nsGkAtoms::width) || !popup->HasAttr(nsGkAtoms::height)) {
-    return true;
+    return;
   }
 
   // The size is different. Convert the actual size to css pixels and store it
   // as 'width' and 'height' attributes on the popup.
   nsPresContext* presContext = PresContext();
 
-  CSSIntSize newCSS(presContext->DevPixelsToIntCSSPixels(size.width),
-                    presContext->DevPixelsToIntCSSPixels(size.height));
+  CSSIntSize newCSS(presContext->DevPixelsToIntCSSPixels(aSize.width),
+                    presContext->DevPixelsToIntCSSPixels(aSize.height));
 
   nsAutoString width, height;
   width.AppendInt(newCSS.width);
   height.AppendInt(newCSS.height);
   popup->SetAttr(kNameSpaceID_None, nsGkAtoms::width, width, true);
   popup->SetAttr(kNameSpaceID_None, nsGkAtoms::height, height, true);
-  return true;
 }
 
 bool nsMenuPopupFrame::RequestWindowClose(nsIWidget* aWidget) {

@@ -165,6 +165,11 @@ void NavigateEvent::Intercept(const NavigationInterceptOptions& aOptions,
 
   // Step 4
   if (aOptions.mPrecommitHandler.WasPassed()) {
+    if (RefPtr<Document> doc = GetAssociatedDocument()) {
+      doc->SetUseCounter(
+          eUseCounter_custom_NavigateEventInterceptWithPrecommitHandler);
+    }
+
     // Step 4.1
     if (!Cancelable()) {
       aRv.ThrowInvalidStateError("Event is not cancelable");
@@ -214,7 +219,7 @@ void NavigateEvent::Intercept(const NavigationInterceptOptions& aOptions,
     }
 
     // Step 9.2
-    mScrollBehavior.emplace(aOptions.mScroll.Value());
+    mScrollBehavior = Some(aOptions.mScroll.Value());
   }
 }
 
@@ -545,6 +550,12 @@ Document* NavigateEvent::GetAssociatedDocument() const {
     return globalWindow->GetExtantDoc();
   }
   return nullptr;
+}
+
+// https://html.spec.whatwg.org/#ongoing-navigation-tracking:dispatch-flag
+void NavigateEvent::Cancel() {
+  mEvent->mFlags.mDefaultPrevented = true;
+  mEvent->mFlags.mDefaultPreventedByContent = true;
 }
 
 }  // namespace mozilla::dom

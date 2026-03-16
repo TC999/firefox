@@ -16,6 +16,7 @@
 #include "mozilla/dom/SafeRefPtr.h"
 #include "mozilla/net/NeckoChannelParams.h"
 #include "nsIChannelEventSink.h"
+#include "nsICookieJarSettings.h"
 #include "nsIInputStream.h"
 #include "nsISupportsImpl.h"
 #include "nsISupportsPriority.h"
@@ -50,7 +51,8 @@ namespace dom {
  * "frame"           | TYPE_INTERNAL_FRAME
  * "iframe"          | TYPE_SUBDOCUMENT, TYPE_INTERNAL_IFRAME
  * "image"           | TYPE_INTERNAL_IMAGE, TYPE_INTERNAL_IMAGE_PRELOAD,
- *                   | TYPE_IMAGE, TYPE_INTERNAL_IMAGE_FAVICON, TYPE_IMAGESET
+ *                   | TYPE_IMAGE, TYPE_INTERNAL_IMAGE_FAVICON, TYPE_IMAGESET,
+ *                   | TYPE_INTERNAL_IMAGE_NOTIFICATION
  * "json"            | TYPE_JSON, TYPE_INTERNAL_JSON_PRELOAD
  * "manifest"        | TYPE_WEB_MANIFEST
  * "object"          | TYPE_INTERNAL_OBJECT, TYPE_OBJECT
@@ -196,6 +198,14 @@ class InternalRequest final : public AtomicSafeRefCounted<InternalRequest> {
     mReferrerPolicy = aReferrerPolicy;
   }
 
+  void SetAssociatedBrowsingContextID(uint64_t aAssociatedBrowsingContextID) {
+    mAssociatedBrowsingContextID = aAssociatedBrowsingContextID;
+  }
+
+  uint64_t AssociatedBrowsingContextID() const {
+    return mAssociatedBrowsingContextID;
+  }
+
   ReferrerPolicy GetEnvironmentReferrerPolicy() const {
     return mEnvironmentReferrerPolicy;
   }
@@ -273,6 +283,14 @@ class InternalRequest final : public AtomicSafeRefCounted<InternalRequest> {
   void SetNeverTaint(bool aNeverTaint) { mNeverTaint = aNeverTaint; }
 
   bool GetNeverTaint() { return mNeverTaint; }
+
+  void SetCookieJarSettings(nsICookieJarSettings* aCookieJarSettings) {
+    mCookieJarSettings = aCookieJarSettings;
+  }
+
+  nsICookieJarSettings* GetCookieJarSettings() const {
+    return mCookieJarSettings;
+  }
 
   const nsCString& GetFragment() const { return mFragment; }
 
@@ -454,6 +472,7 @@ class InternalRequest final : public AtomicSafeRefCounted<InternalRequest> {
 
   nsCOMPtr<nsIPrincipal> mTriggeringPrincipalOverride;
   bool mNeverTaint = false;
+  nsCOMPtr<nsICookieJarSettings> mCookieJarSettings;
   int64_t mBodyLength{InternalResponse::UNKNOWN_BODY_SIZE};
 
   nsCString mPreferredAlternativeDataType;
@@ -467,6 +486,11 @@ class InternalRequest final : public AtomicSafeRefCounted<InternalRequest> {
   // URL: an URL
   nsCString mReferrer;
   ReferrerPolicy mReferrerPolicy;
+
+  // Used to track this fetch request in scenarions where determining load
+  // context is tricky like for Reporting API. There we provide this explicitly
+  // so devtools can track us accordingly.
+  uint64_t mAssociatedBrowsingContextID{0};
 
   // This will be used for request created from Window or Worker contexts
   // In case there's no Referrer Policy in Request, this will be passed to

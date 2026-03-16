@@ -32,9 +32,8 @@ namespace dom::WebAudioUtils {
 // createScriptProcessor() and matches what is used by Blink.  The limit
 // protects against large memory allocations.
 const size_t MaxChannelCount = 32;
-// AudioContext::CreateBuffer() "must support sample-rates in at least the
-// range 22050 to 96000."
-const uint32_t MinSampleRate = 8000;
+// https://webaudio.github.io/web-audio-api/#sample-rates
+const uint32_t MinSampleRate = 3000;
 const uint32_t MaxSampleRate = 768000;
 
 inline bool FuzzyEqual(float v1, float v2) { return fabsf(v1 - v2) < 1e-7f; }
@@ -57,9 +56,9 @@ inline float ConvertDecibelsToLinear(float aDecibels) {
   return fdlibm_powf(10.0f, 0.05f * aDecibels);
 }
 
-inline void FixNaN(double& aDouble) {
-  if (std::isnan(aDouble) || std::isinf(aDouble)) {
-    aDouble = 0.0;
+inline void FixNaN(float& aFloat) {
+  if (std::isnan(aFloat) || std::isinf(aFloat)) {
+    aFloat = 0.0f;
   }
 }
 

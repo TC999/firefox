@@ -15,6 +15,9 @@
 #include "mozilla/dom/WindowGlobalParent.h"
 #include "nsIIOService.h"
 #include "nsIOService.h"
+#include "mozilla/dom/CanonicalBrowsingContext.h"
+#include "mozilla/dom/FeaturePolicy.h"
+#include "xpcpublic.h"
 
 namespace mozilla::net {
 
@@ -33,38 +36,29 @@ LNAPermissionRequest::LNAPermissionRequest(PermissionPromptCallback&& aCallback,
                                            const nsACString& aType)
     : dom::ContentPermissionRequestBase(
           aLoadInfo->GetLoadingPrincipal(), nullptr,
-          (aType.Equals(LOCAL_HOST_PERMISSION_KEY) ? "network.localhost"_ns
-                                                   : "network.localnetwork"_ns),
+          (aType.Equals(LOOPBACK_NETWORK_PERMISSION_KEY)
+               ? "network.loopback-network"_ns
+               : "network.localnetwork"_ns),
           aType),
       mPermissionPromptCallback(std::move(aCallback)) {
   MOZ_ASSERT(aLoadInfo);
 
   aLoadInfo->GetTriggeringPrincipal(getter_AddRefs(mPrincipal));
 
-  RefPtr<mozilla::dom::BrowsingContext> bc;
-  aLoadInfo->GetBrowsingContext(getter_AddRefs(bc));
-  if (bc && bc->Top()) {
-    if (bc->Top()->Canonical()) {
+  aLoadInfo->GetBrowsingContext(getter_AddRefs(mBrowsingContext));
+  if (mBrowsingContext && mBrowsingContext->Top()) {
+    if (mBrowsingContext->Top()->Canonical()) {
       RefPtr<mozilla::dom::WindowGlobalParent> topWindowGlobal =
-          bc->Top()->Canonical()->GetCurrentWindowGlobal();
+          mBrowsingContext->Top()->Canonical()->GetCurrentWindowGlobal();
       if (topWindowGlobal) {
         mTopLevelPrincipal = topWindowGlobal->DocumentPrincipal();
       }
     }
   }
 
-  if (!mTopLevelPrincipal) {
-    // this could happen in tests
-    mTopLevelPrincipal = mPrincipal;
-  }
-
-  if (!mPrincipal->Equals(mTopLevelPrincipal)) {
-    // This is a cross origin request from Iframe
-    // Since permission delegation is not implemented yet in the parent process
-    // we need to set this flag to true explicitly and display the origin of the
-    // iframe in the prompt. See Bug 1978550
-    mIsRequestDelegatedToUnsafeThirdParty = true;
-    // permissions for this iframe is limited to the iframe's principal
+  if (!mTopLevelPrincipal && xpc::IsInAutomation()) {
+    // In test environments, the browsing context may not be fully set up.
+    // Fall back to triggering principal to allow tests to proceed.
     mTopLevelPrincipal = mPrincipal;
   }
 
@@ -76,20 +70,18 @@ LNAPermissionRequest::LNAPermissionRequest(PermissionPromptCallback&& aCallback,
 NS_IMETHODIMP
 LNAPermissionRequest::GetElement(mozilla::dom::Element** aElement) {
   NS_ENSURE_ARG_POINTER(aElement);
-  RefPtr<mozilla::dom::BrowsingContext> bc;
-  mLoadInfo->GetBrowsingContext(getter_AddRefs(bc));
-  if (!bc) {
+  if (!mBrowsingContext) {
     return NS_ERROR_FAILURE;
   }
 
-  return bc->GetTopFrameElement(aElement);
+  return mBrowsingContext->GetTopFrameElement(aElement);
 }
 
 // callback when the permission request is denied
 NS_IMETHODIMP
 LNAPermissionRequest::Cancel() {
   // callback to the http channel on the prompt failure result
-  mPermissionPromptCallback(false, mType);
+  mPermissionPromptCallback(false, mType, mPromptWasShown);
   return NS_OK;
 }
 
@@ -97,16 +89,95 @@ LNAPermissionRequest::Cancel() {
 NS_IMETHODIMP
 LNAPermissionRequest::Allow(JS::Handle<JS::Value> aChoices) {
   // callback to the http channel on the prompt success result
-  mPermissionPromptCallback(true, mType);
+  mPermissionPromptCallback(true, mType, mPromptWasShown);
+  return NS_OK;
+}
+
+// callback when the permission prompt is shown
+NS_IMETHODIMP
+LNAPermissionRequest::NotifyShown() {
+  // Mark that the prompt was shown to the user
+  mPromptWasShown = true;
+
+  // Record telemetry for permission prompts shown to users
+  // Skip telemetry if we don't have both principals (e.g., in test
+  // environments)
+  if (!mPrincipal || !mTopLevelPrincipal) {
+    return NS_OK;
+  }
+
+  // Check if this is a cross-origin request
+  bool isCrossOrigin = !mPrincipal->Equals(mTopLevelPrincipal);
+  if (mType.Equals(LOOPBACK_NETWORK_PERMISSION_KEY)) {
+    if (isCrossOrigin) {
+      mozilla::glean::networking::local_network_access_prompts_shown
+          .Get("localhost_cross_site"_ns)
+          .Add(1);
+    } else {
+      mozilla::glean::networking::local_network_access_prompts_shown
+          .Get("localhost"_ns)
+          .Add(1);
+    }
+  } else if (mType.Equals(LOCAL_NETWORK_PERMISSION_KEY)) {
+    if (isCrossOrigin) {
+      mozilla::glean::networking::local_network_access_prompts_shown
+          .Get("local_network_cross_site"_ns)
+          .Add(1);
+    } else {
+      mozilla::glean::networking::local_network_access_prompts_shown
+          .Get("local_network"_ns)
+          .Add(1);
+    }
+  }
+
   return NS_OK;
 }
 
 nsresult LNAPermissionRequest::RequestPermission() {
   MOZ_ASSERT(NS_IsMainThread());
-  // This check always returns true
-  // See Bug 1978550
-  if (!CheckPermissionDelegate()) {
+
+  // Enforce Feature Policy for Local Network Access (Bug 1978550)
+  if (!mLoadInfo) {
+    NS_WARNING("LNA permission request without load info");
     return Cancel();
+  }
+
+  // Retrieve the canonical browsing context for feature policy checks
+  RefPtr<dom::CanonicalBrowsingContext> bc;
+  if (mBrowsingContext) {
+    bc = mBrowsingContext->Canonical();
+  }
+
+  if (!bc) {
+    // for unit tests, we may not have a browsing context, so we dont treat this
+    // as hard error for automation
+    if (!xpc::IsInAutomation()) {
+      NS_WARNING("local network access without browsing context");
+      return Cancel();
+    }
+  } else {
+    Maybe<dom::FeaturePolicyInfo> fpInfo = bc->GetContainerFeaturePolicy();
+    // Feature Policy is populated in the canonical browsing context via
+    // HTMLIFrameElement::MaybeStoreCrossOriginFeaturePolicy() (for <iframe>)
+    // nsObjectLoadingContent::MaybeStoreCrossOriginFeaturePolicy() (for
+    // <object>/<embed>)
+    // Hence, it's safe to ignore feature policy when it's missing as that
+    // would only mean the request is from a top-level document, which should
+    // be allowed to request local network access without being blocked by
+    // feature policy.
+    if (fpInfo.isSome()) {
+      nsAutoString featureName;
+      if (mType.Equals(LOOPBACK_NETWORK_PERMISSION_KEY)) {
+        featureName = u"loopback-network"_ns;
+      } else {
+        featureName = u"local-network"_ns;
+      }
+
+      if (fpInfo->mInheritedDeniedFeatureNames.Contains(featureName)) {
+        NS_WARNING("Feature policy denying the request");
+        return Cancel();
+      }
+    }
   }
 
   // Check if the domain should skip LNA checks
@@ -130,27 +201,10 @@ nsresult LNAPermissionRequest::RequestPermission() {
     return Cancel();
   }
 
-  // Record telemetry for permission prompts shown to users
-  if (mType.Equals(LOCAL_HOST_PERMISSION_KEY)) {
-    if (mIsRequestDelegatedToUnsafeThirdParty) {
-      mozilla::glean::networking::local_network_access_prompts_shown
-          .Get("localhost_cross_site"_ns)
-          .Add(1);
-    } else {
-      mozilla::glean::networking::local_network_access_prompts_shown
-          .Get("localhost"_ns)
-          .Add(1);
-    }
-  } else if (mType.Equals(LOCAL_NETWORK_PERMISSION_KEY)) {
-    if (mIsRequestDelegatedToUnsafeThirdParty) {
-      mozilla::glean::networking::local_network_access_prompts_shown
-          .Get("local_network_cross_site"_ns)
-          .Add(1);
-    } else {
-      mozilla::glean::networking::local_network_access_prompts_shown
-          .Get("local_network"_ns)
-          .Add(1);
-    }
+  // Ensure we have a top-level principal before showing the permission prompt
+  if (!mTopLevelPrincipal) {
+    NS_WARNING("Cannot show permission prompt without top-level principal");
+    return Cancel();
   }
 
   if (NS_SUCCEEDED(

@@ -80,8 +80,8 @@ static EnumeratedArray<FloatID, RelaxedAtomicUint32, size_t(FloatID::End)>
 constexpr int32_t kNoInt = INT32_MIN;
 static EnumeratedArray<IntID, RelaxedAtomicInt32, size_t(IntID::End)> sIntStore;
 StaticRWLock sFontStoreLock;
-MOZ_RUNINIT static EnumeratedArray<FontID, widget::LookAndFeelFont,
-                                   size_t(FontID::End)>
+constinit static EnumeratedArray<FontID, widget::LookAndFeelFont,
+                                 size_t(FontID::End)>
     sFontStore MOZ_GUARDED_BY(sFontStoreLock);
 
 // To make one of these prefs toggleable from a reftest add a user
@@ -839,7 +839,7 @@ Maybe<nscolor> nsXPLookAndFeel::GenericDarkColor(ColorID aID) {
     case ColorID::Linktext:
       // If you change this color, you probably also want to change the default
       // value of browser.anchor_color.dark.
-      color = NS_RGB(0x8c, 0x8c, 0xff);
+      color = NS_RGB(0x00, 0xca, 0xdb);
       break;
     case ColorID::Activetext:
     case ColorID::SpellCheckerUnderline:

@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef __GFXMESSAGEUTILS_H__
-#define __GFXMESSAGEUTILS_H__
+#ifndef GFXMESSAGEUTILS_H_
+#define GFXMESSAGEUTILS_H_
 
 #include "FilterSupport.h"
 #include "ImageTypes.h"
@@ -1232,23 +1232,6 @@ struct ParamTraits<FontVisibility>
                                       FontVisibility::Count> {};
 
 template <>
-struct ParamTraits<mozilla::fontlist::Pointer> {
-  typedef mozilla::fontlist::Pointer paramType;
-  static void Write(MessageWriter* aWriter, const paramType& aParam) {
-    uint32_t v = aParam.mBlockAndOffset;
-    WriteParam(aWriter, v);
-  }
-  static bool Read(MessageReader* aReader, paramType* aResult) {
-    uint32_t v;
-    if (ReadParam(aReader, &v)) {
-      aResult->mBlockAndOffset.store(v);
-      return true;
-    }
-    return false;
-  }
-};
-
-template <>
 struct ParamTraits<mozilla::gfx::PaintFragment> {
   typedef mozilla::gfx::PaintFragment paramType;
   static void Write(IPC::MessageWriter* aWriter, paramType&& aParam) {
@@ -1341,4 +1324,4 @@ struct ParamTraits<mozilla::gfx::FileHandleWrapper*> {
 
 }  // namespace IPC
 
-#endif /* __GFXMESSAGEUTILS_H__ */
+#endif /* GFXMESSAGEUTILS_H_ */

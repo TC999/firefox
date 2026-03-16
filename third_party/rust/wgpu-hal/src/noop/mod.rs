@@ -88,7 +88,7 @@ impl core::borrow::Borrow<dyn crate::DynTexture> for Resource {
 impl crate::Instance for Context {
     type A = Api;
 
-    unsafe fn init(desc: &crate::InstanceDescriptor) -> Result<Self, crate::InstanceError> {
+    unsafe fn init(desc: &crate::InstanceDescriptor<'_>) -> Result<Self, crate::InstanceError> {
         let crate::InstanceDescriptor {
             backend_options:
                 wgt::BackendOptions {
@@ -98,6 +98,8 @@ impl crate::Instance for Context {
             name: _,
             flags: _,
             memory_budget_thresholds: _,
+            telemetry: _,
+            display: _,
         } = *desc;
         if enable {
             Ok(Context)
@@ -141,6 +143,8 @@ pub fn adapter_info() -> wgt::AdapterInfo {
         driver: String::from("wgpu"),
         driver_info: String::new(),
         backend: wgt::Backend::Noop,
+        subgroup_min_size: wgt::MINIMUM_SUBGROUP_MIN_SIZE,
+        subgroup_max_size: wgt::MAXIMUM_SUBGROUP_MAX_SIZE,
         transient_saves_memory: false,
     }
 }
@@ -153,6 +157,9 @@ pub const CAPABILITIES: crate::Capabilities = {
     /// Guaranteed to be no bigger than isize::MAX which is the maximum size of an allocation,
     /// except on 16-bit platforms which we certainly don’t fit in.
     const ALLOC_MAX_U32: u32 = i32::MAX as u32;
+    /// Guaranteed to be no bigger than isize::MAX which is the maximum size of an allocation,
+    /// except on 16-bit platforms which we certainly don’t fit in.
+    const ALLOC_MAX_U64: u64 = i32::MAX as u64;
 
     crate::Capabilities {
         limits: wgt::Limits {
@@ -172,15 +179,15 @@ pub const CAPABILITIES: crate::Capabilities = {
             max_uniform_buffers_per_shader_stage: ALLOC_MAX_U32,
             max_binding_array_elements_per_shader_stage: ALLOC_MAX_U32,
             max_binding_array_sampler_elements_per_shader_stage: ALLOC_MAX_U32,
-            max_uniform_buffer_binding_size: ALLOC_MAX_U32,
-            max_storage_buffer_binding_size: ALLOC_MAX_U32,
+            max_uniform_buffer_binding_size: ALLOC_MAX_U64,
+            max_storage_buffer_binding_size: ALLOC_MAX_U64,
             max_vertex_buffers: ALLOC_MAX_U32,
-            max_buffer_size: ALLOC_MAX_U32 as u64,
+            max_buffer_size: ALLOC_MAX_U64,
             max_vertex_attributes: ALLOC_MAX_U32,
             max_vertex_buffer_array_stride: ALLOC_MAX_U32,
+            max_inter_stage_shader_variables: ALLOC_MAX_U32,
             min_uniform_buffer_offset_alignment: 1,
             min_storage_buffer_offset_alignment: 1,
-            max_inter_stage_shader_components: ALLOC_MAX_U32,
             max_color_attachments: ALLOC_MAX_U32,
             max_color_attachment_bytes_per_sample: ALLOC_MAX_U32,
             max_compute_workgroup_storage_size: ALLOC_MAX_U32,
@@ -189,15 +196,20 @@ pub const CAPABILITIES: crate::Capabilities = {
             max_compute_workgroup_size_y: ALLOC_MAX_U32,
             max_compute_workgroup_size_z: ALLOC_MAX_U32,
             max_compute_workgroups_per_dimension: ALLOC_MAX_U32,
-            min_subgroup_size: 1,
-            max_subgroup_size: ALLOC_MAX_U32,
-            max_push_constant_size: ALLOC_MAX_U32,
+            max_immediate_size: ALLOC_MAX_U32,
             max_non_sampler_bindings: ALLOC_MAX_U32,
 
-            max_task_workgroup_total_count: ALLOC_MAX_U32,
-            max_task_workgroups_per_dimension: ALLOC_MAX_U32,
-            max_mesh_multiview_view_count: ALLOC_MAX_U32,
+            max_task_mesh_workgroup_total_count: ALLOC_MAX_U32,
+            max_task_mesh_workgroups_per_dimension: ALLOC_MAX_U32,
+            max_task_invocations_per_workgroup: ALLOC_MAX_U32,
+            max_task_invocations_per_dimension: ALLOC_MAX_U32,
+            max_mesh_invocations_per_workgroup: ALLOC_MAX_U32,
+            max_mesh_invocations_per_dimension: ALLOC_MAX_U32,
+            max_task_payload_size: ALLOC_MAX_U32,
+            max_mesh_output_vertices: ALLOC_MAX_U32,
+            max_mesh_output_primitives: ALLOC_MAX_U32,
             max_mesh_output_layers: ALLOC_MAX_U32,
+            max_mesh_multiview_view_count: ALLOC_MAX_U32,
 
             max_blas_primitive_count: ALLOC_MAX_U32,
             max_blas_geometry_count: ALLOC_MAX_U32,
@@ -219,6 +231,7 @@ pub const CAPABILITIES: crate::Capabilities = {
             limits: wgt::DownlevelLimits {},
             shader_model: wgt::ShaderModel::Sm5,
         },
+        cooperative_matrix_properties: Vec::new(),
     }
 };
 
@@ -237,10 +250,10 @@ impl crate::Surface for Context {
 
     unsafe fn acquire_texture(
         &self,
-        timeout: Option<Duration>,
-        fence: &Fence,
-    ) -> Result<Option<crate::AcquiredSurfaceTexture<Api>>, crate::SurfaceError> {
-        Ok(None)
+        _timeout: Option<Duration>,
+        _fence: &Fence,
+    ) -> Result<crate::AcquiredSurfaceTexture<Api>, crate::SurfaceError> {
+        Err(crate::SurfaceError::Timeout)
     }
     unsafe fn discard_texture(&self, texture: Resource) {}
 }

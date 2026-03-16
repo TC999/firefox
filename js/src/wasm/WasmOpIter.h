@@ -146,6 +146,8 @@ enum class OpKind {
   Nop,
   Unary,
   Binary,
+  BinaryI128,
+  BinaryI64Wide,
   Ternary,
   Comparison,
   Conversion,
@@ -474,11 +476,14 @@ class MOZ_STACK_CLASS OpIter : private Policy {
   // Check that the top of the value stack has type `expected`, bearing in
   // mind that it may be a block type, hence involving multiple values.
   //
-  // If the block's stack contains polymorphic values at its base (because we
-  // are in unreachable code) then suitable extra values are inserted into the
-  // value stack, as controlled by `rewriteStackTypes`: if this is true,
-  // polymorphic values have their types created/updated from `expected`.  If
-  // it is false, such values are left as `StackType::bottom()`.
+  // If `rewriteStackTypes` is true, then stack values will have their types
+  // updated to exactly match the expected type. This is used for control
+  // instructions that specify their own types, e.g. blocks. This prevents
+  // subtypes from leaking - for example, returning `(ref null none)` from a
+  // `block (result anyref)` should result in an `anyref` on the stack, not a
+  // `noneref`. This parameter also controls the types of polymorphic values -
+  // if true, polymorphic values will have their types created/updated from
+  // `expected`; otherwise they will be left as `StackType::bottom()`.
   //
   // If `values` is non-null, it is filled in with Value components of the
   // relevant stack entries, including those of any new entries created.
@@ -679,6 +684,11 @@ class MOZ_STACK_CLASS OpIter : private Policy {
                                     Value* rhs);
   [[nodiscard]] bool readTernary(ValType operandType, Value* v0, Value* v1,
                                  Value* v2);
+
+  [[nodiscard]] bool readBinaryI128(Value* lhsLo, Value* lhsHi, Value* rhsLo,
+                                    Value* rhsHi);
+  [[nodiscard]] bool readBinaryI64Wide(Value* lhs, Value* rhs);
+
   [[nodiscard]] bool readLoad(ValType resultType, uint32_t byteSize,
                               LinearMemoryAddress<Value>* addr);
   [[nodiscard]] bool readStore(ValType resultType, uint32_t byteSize,
@@ -703,7 +713,7 @@ class MOZ_STACK_CLASS OpIter : private Policy {
   [[nodiscard]] bool readF64Const(double* f64);
   [[nodiscard]] bool readRefFunc(uint32_t* funcIndex);
   [[nodiscard]] bool readRefNull(RefType* type);
-  [[nodiscard]] bool readRefIsNull(Value* input);
+  [[nodiscard]] bool readRefIsNull(Value* input, RefType* sourceType);
   [[nodiscard]] bool readRefAsNonNull(Value* input);
   [[nodiscard]] bool readBrOnNull(uint32_t* relativeDepth, ResultType* type,
                                   ValueVector* values, Value* condition);
@@ -1138,7 +1148,6 @@ inline bool OpIter<Policy>::checkTopTypeMatches(ResultType expected,
         if (!checkIsSubtypeOf(observed.type().valType(), expectedType)) {
           return false;
         }
-
         collectValue(observed.value());
       }
 
@@ -1967,6 +1976,49 @@ inline bool OpIter<Policy>::readTernary(ValType operandType, Value* v0,
 }
 
 template <typename Policy>
+inline bool OpIter<Policy>::readBinaryI128(Value* lhsLo, Value* lhsHi,
+                                           Value* rhsLo, Value* rhsHi) {
+  MOZ_ASSERT(Classify(op_) == OpKind::BinaryI128);
+
+  if (!popWithType(ValType::I64, rhsHi)) {
+    return false;
+  }
+  if (!popWithType(ValType::I64, rhsLo)) {
+    return false;
+  }
+
+  if (!popWithType(ValType::I64, lhsHi)) {
+    return false;
+  }
+  if (!popWithType(ValType::I64, lhsLo)) {
+    return false;
+  }
+
+  infalliblePush(ValType::I64);
+  infalliblePush(ValType::I64);
+
+  return true;
+}
+
+template <typename Policy>
+inline bool OpIter<Policy>::readBinaryI64Wide(Value* lhs, Value* rhs) {
+  MOZ_ASSERT(Classify(op_) == OpKind::BinaryI64Wide);
+
+  if (!popWithType(ValType::I64, rhs)) {
+    return false;
+  }
+
+  if (!popWithType(ValType::I64, lhs)) {
+    return false;
+  }
+
+  infalliblePush(ValType::I64);
+  infalliblePush(ValType::I64);
+
+  return true;
+}
+
+template <typename Policy>
 inline bool OpIter<Policy>::readLinearMemoryAddress(
     uint32_t byteSize, LinearMemoryAddress<Value>* addr) {
   uint32_t flags;
@@ -2394,13 +2446,15 @@ inline bool OpIter<Policy>::readRefNull(RefType* type) {
 }
 
 template <typename Policy>
-inline bool OpIter<Policy>::readRefIsNull(Value* input) {
+inline bool OpIter<Policy>::readRefIsNull(Value* input, RefType* sourceType) {
   MOZ_ASSERT(Classify(op_) == OpKind::RefIsNull);
 
-  StackType type;
-  if (!popWithRefType(input, &type)) {
+  StackType inputType;
+  if (!popWithRefType(input, &inputType)) {
     return false;
   }
+  *sourceType = inputType.valTypeOr(RefType::any()).refType();
+
   return push(ValType::I32);
 }
 
@@ -2595,7 +2649,7 @@ inline bool OpIter<Policy>::readCallIndirect(uint32_t* funcTypeIndex,
     }
     return fail("table index out of range for call_indirect");
   }
-  if (!codeMeta_.tables[*tableIndex].elemType.isFuncHierarchy()) {
+  if (!codeMeta_.tables[*tableIndex].elemType().isFuncHierarchy()) {
     return fail("indirect calls must go through a table of 'funcref'");
   }
 
@@ -2644,7 +2698,7 @@ inline bool OpIter<Policy>::readReturnCallIndirect(uint32_t* funcTypeIndex,
     }
     return fail("table index out of range for return_call_indirect");
   }
-  if (!codeMeta_.tables[*tableIndex].elemType.isFuncHierarchy()) {
+  if (!codeMeta_.tables[*tableIndex].elemType().isFuncHierarchy()) {
     return fail("indirect calls must go through a table of 'funcref'");
   }
 
@@ -2944,8 +2998,8 @@ inline bool OpIter<Policy>::readMemOrTableCopy(bool isMem,
         *srcMemOrTableIndex >= codeMeta_.tables.length()) {
       return fail("table index out of range for table.copy");
     }
-    ValType dstElemType = codeMeta_.tables[*dstMemOrTableIndex].elemType;
-    ValType srcElemType = codeMeta_.tables[*srcMemOrTableIndex].elemType;
+    ValType dstElemType = codeMeta_.tables[*dstMemOrTableIndex].elemType();
+    ValType srcElemType = codeMeta_.tables[*srcMemOrTableIndex].elemType();
     if (!checkIsSubtypeOf(srcElemType, dstElemType)) {
       return false;
     }
@@ -3070,7 +3124,7 @@ inline bool OpIter<Policy>::readMemOrTableInit(bool isMem, uint32_t* segIndex,
       return fail("table.init segment index out of range");
     }
     if (!checkIsSubtypeOf(codeMeta_.elemSegmentTypes[*segIndex],
-                          codeMeta_.tables[*dstMemOrTableIndex].elemType)) {
+                          codeMeta_.tables[*dstMemOrTableIndex].elemType())) {
       return false;
     }
   }
@@ -3106,7 +3160,7 @@ inline bool OpIter<Policy>::readTableFill(uint32_t* tableIndex, Value* start,
   if (!popWithType(ToValType(table.addressType()), len)) {
     return false;
   }
-  if (!popWithType(table.elemType, val)) {
+  if (!popWithType(table.elemType(), val)) {
     return false;
   }
   return popWithType(ToValType(table.addressType()), start);
@@ -3150,7 +3204,7 @@ inline bool OpIter<Policy>::readTableGet(uint32_t* tableIndex, Value* address) {
     return false;
   }
 
-  infalliblePush(table.elemType);
+  infalliblePush(table.elemType());
   return true;
 }
 
@@ -3171,7 +3225,7 @@ inline bool OpIter<Policy>::readTableGrow(uint32_t* tableIndex,
   if (!popWithType(ToValType(table.addressType()), delta)) {
     return false;
   }
-  if (!popWithType(table.elemType, initValue)) {
+  if (!popWithType(table.elemType(), initValue)) {
     return false;
   }
 
@@ -3193,7 +3247,7 @@ inline bool OpIter<Policy>::readTableSet(uint32_t* tableIndex, Value* address,
 
   const TableDesc& table = codeMeta_.tables[*tableIndex];
 
-  if (!popWithType(table.elemType, value)) {
+  if (!popWithType(table.elemType(), value)) {
     return false;
   }
 

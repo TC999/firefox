@@ -1301,7 +1301,7 @@
     "record_in_processes": ["main"],
     "products": ["firefox", "fennec"],
     "alert_emails": ["seceng-telemetry@mozilla.com"],
-    "expires_in_version": "150",
+    "expires_in_version": "160",
     "keyed": true,
     "keys": ["known_text", "unknown", "unknown_matched", "known_text_matched"],
     "kind": "enumerated",
@@ -1314,7 +1314,7 @@
     "record_in_processes": ["main"],
     "products": ["firefox", "fennec"],
     "alert_emails": ["seceng-telemetry@mozilla.com"],
-    "expires_in_version": "150",
+    "expires_in_version": "160",
     "kind": "boolean",
     "releaseChannelCollection": "opt-out",
     "description": "Whether a probable font fingerprinting attempt was detected",
@@ -3239,17 +3239,6 @@
     "n_buckets": 50,
     "description": "Time for an unsuccessful DNS OS resolution (msec)"
   },
-  "DNS_BLACKLIST_COUNT": {
-    "record_in_processes": ["main", "socket"],
-    "products": ["firefox", "fennec"],
-    "expires_in_version": "never",
-    "releaseChannelCollection": "opt-out",
-    "alert_emails": ["necko@mozilla.com"],
-    "kind": "linear",
-    "high": 21,
-    "n_buckets": 20,
-    "description": "The number of unusable addresses reported for each record"
-  },
   "DNS_HTTPSSVC_RECORD_RECEIVING_STAGE": {
     "record_in_processes": ["main", "socket"],
     "products": ["firefox", "fennec"],
@@ -3304,221 +3293,6 @@
     "kind": "exponential",
     "high": 1000,
     "n_buckets": 50
-  },
-  "PREDICTOR_LEARN_ATTEMPTS": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [881804],
-    "expires_in_version": "never",
-    "kind": "exponential",
-    "high": 1000000,
-    "n_buckets": 50,
-    "description": "Number of times nsINetworkPredictor::Learn is called and attempts to learn"
-  },
-  "PREDICTOR_WAIT_TIME": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [881804],
-    "expires_in_version": "never",
-    "kind": "exponential",
-    "high": 3000,
-    "n_buckets": 10,
-    "description": "Amount of time a predictor event waits in the queue (ms)"
-  },
-  "PREDICTOR_PREDICT_WORK_TIME": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "bug_numbers": [881804],
-    "expires_in_version": "never",
-    "kind": "exponential",
-    "high": 3000,
-    "n_buckets": 10,
-    "description": "Amount of time spent doing the work for predict (ms)",
-    "alert_emails": ["necko@mozilla.com"]
-  },
-  "PREDICTOR_LEARN_WORK_TIME": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [881804],
-    "expires_in_version": "never",
-    "kind": "exponential",
-    "high": 3000,
-    "n_buckets": 10,
-    "description": "Amount of time spent doing the work for learn (ms)"
-  },
-  "PREDICTOR_TOTAL_PREDICTIONS": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [881804],
-    "expires_in_version": "never",
-    "kind": "exponential",
-    "high": 1000000,
-    "n_buckets": 50,
-    "description": "How many actual predictions (preresolves, preconnects, ...) happen"
-  },
-  "PREDICTOR_TOTAL_PREFETCHES": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "expires_in_version": "never",
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [1016628],
-    "kind": "exponential",
-    "high": 1000000,
-    "n_buckets": 50,
-    "description": "How many actual prefetches happen"
-  },
-  "PREDICTOR_PREFETCH_USE_STATUS": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "expires_in_version": "never",
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [1016628, 1312057],
-    "kind": "categorical",
-    "labels": [
-      "Used",
-      "Not200",
-      "Expired",
-      "WouldVary",
-      "WaitedTooLong",
-      "Etag",
-      "Auth",
-      "Redirect"
-    ],
-    "description": "If and why prefetches are used/unused."
-  },
-  "PREDICTOR_PREFETCH_TIME": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "expires_in_version": "never",
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [1016628],
-    "kind": "exponential",
-    "high": 3000,
-    "n_buckets": 10,
-    "description": "How long it takes from OnStartRequest to OnStopRequest for a prefetch"
-  },
-  "PREDICTOR_TOTAL_PRECONNECTS": {
-    "record_in_processes": ["main", "socket"],
-    "products": ["firefox", "fennec"],
-    "expires_in_version": "never",
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [881804],
-    "kind": "exponential",
-    "high": 1000000,
-    "n_buckets": 50,
-    "description": "How many actual preconnects happen"
-  },
-  "PREDICTOR_TOTAL_PRERESOLVES": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [881804],
-    "expires_in_version": "never",
-    "kind": "exponential",
-    "high": 1000000,
-    "n_buckets": 50,
-    "description": "How many actual preresolves happen"
-  },
-  "PREDICTOR_PREDICTIONS_CALCULATED": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [881804],
-    "expires_in_version": "never",
-    "kind": "exponential",
-    "high": 1000000,
-    "n_buckets": 50,
-    "description": "How many prediction calculations are performed"
-  },
-  "PREDICTOR_GLOBAL_DEGRADATION": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [881804],
-    "expires_in_version": "never",
-    "kind": "linear",
-    "high": 100,
-    "n_buckets": 50,
-    "description": "The global degradation calculated"
-  },
-  "PREDICTOR_SUBRESOURCE_DEGRADATION": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [881804],
-    "expires_in_version": "never",
-    "kind": "linear",
-    "high": 100,
-    "n_buckets": 50,
-    "description": "The degradation calculated for a subresource"
-  },
-  "PREDICTOR_BASE_CONFIDENCE": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [881804],
-    "expires_in_version": "never",
-    "kind": "linear",
-    "high": 100,
-    "n_buckets": 50,
-    "description": "The base confidence calculated for a subresource"
-  },
-  "PREDICTOR_CONFIDENCE": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [881804],
-    "expires_in_version": "never",
-    "kind": "linear",
-    "high": 100,
-    "n_buckets": 50,
-    "description": "The final confidence calculated for a subresource"
-  },
-  "PREDICTOR_PREDICT_TIME_TO_ACTION": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "bug_numbers": [881804],
-    "expires_in_version": "never",
-    "kind": "exponential",
-    "high": 3000,
-    "n_buckets": 10,
-    "description": "How long it takes from the time Predict() is called to the time we take action",
-    "alert_emails": ["necko@mozilla.com"]
-  },
-  "PREDICTOR_PREDICT_TIME_TO_INACTION": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [881804],
-    "expires_in_version": "never",
-    "kind": "exponential",
-    "high": 3000,
-    "n_buckets": 10,
-    "description": "How long it takes from the time Predict() is called to the time we figure out there's nothing to do"
-  },
-  "PREDICTOR_PREFETCH_DECISION_REASON": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "expires_in_version": "never",
-    "kind": "enumerated",
-    "n_values": 15,
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [1409542, 1430322, 1312057],
-    "description": "Why the predictor determined a particular resource was eligible for future prefetch (or not). See PrefetchDecisionReason in Predictor.cpp for value meanings"
-  },
-  "PREDICTOR_PREFETCH_IGNORE_REASON": {
-    "record_in_processes": ["main"],
-    "products": ["firefox", "fennec"],
-    "expires_in_version": "never",
-    "kind": "enumerated",
-    "n_values": 15,
-    "alert_emails": ["necko@mozilla.com"],
-    "bug_numbers": [1409542, 1430322, 1312057],
-    "description": "Why the predictor determined a particular resource that was marked eligible for prefetch should not be prefetched. See PrefetchIgnoreReason in Predictor.cpp for value meanings"
   },
   "TAB_COUNT": {
     "record_in_processes": ["main"],
@@ -3863,15 +3637,6 @@
     "bug_numbers": [1364235, 1590385, 1623098, 1649954, 1689257, 1754639],
     "releaseChannelCollection": "opt-out",
     "description": "Time spent waiting for off-thread compiles in the script preloader."
-  },
-  "NETWORK_DISK_CACHE_SHUTDOWN_V2": {
-    "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec"],
-    "expires_in_version": "never",
-    "kind": "exponential",
-    "high": 10000,
-    "n_buckets": 10,
-    "description": "Total Time spent (ms) during disk cache showdown [cache2]"
   },
   "NETWORK_DISK_CACHE2_SHUTDOWN_CLEAR_PRIVATE": {
     "record_in_processes": ["main", "content"],
@@ -5870,9 +5635,9 @@
   "PWMGR_IMPORT_LOGINS_FROM_FILE_CATEGORICAL": {
     "record_in_processes": ["main"],
     "products": ["firefox"],
-    "bug_numbers": [1688653, 1749882, 1777397, 1850888, 1978988],
+    "bug_numbers": [1688653, 1749882, 1777397, 1850888, 1978988, 2010472],
     "alert_emails": ["passwords-dev@mozilla.org"],
-    "expires_in_version": "150",
+    "expires_in_version": "160",
     "kind": "categorical",
     "labels": ["added", "modified", "error", "no_change"],
     "releaseChannelCollection": "opt-out",
@@ -6161,22 +5926,6 @@
     "expires_in_version": "never",
     "kind": "boolean",
     "description": "Type of XMLHttpRequest, async or sync"
-  },
-  "LOCALDOMSTORAGE_SHUTDOWN_DATABASE_MS": {
-    "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec"],
-    "expires_in_version": "default",
-    "kind": "exponential",
-    "high": 3000,
-    "n_buckets": 10,
-    "description": "Time to flush and close the localStorage database (ms)"
-  },
-  "LOCALDOMSTORAGE_PRELOAD_PENDING_ON_FIRST_ACCESS": {
-    "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec"],
-    "expires_in_version": "default",
-    "kind": "boolean",
-    "description": "True when we had to wait for a pending preload on first access to localStorage data, false otherwise"
   },
   "TELEMETRY_ARCHIVE_DIRECTORIES_COUNT": {
     "record_in_processes": ["main"],
@@ -11016,7 +10765,8 @@
       "reset_streamfilter",
       "reset_parentapicall",
       "permissions_request",
-      "launchWebAuthFlow"
+      "launchWebAuthFlow",
+      "downloads_saveAs"
     ],
     "releaseChannelCollection": "opt-out",
     "description": "The number of times an event page hit the idle timeout and results in one of the categories, keyed by addon id."
@@ -11037,7 +10787,8 @@
       "reset_streamfilter",
       "reset_parentapicall",
       "permissions_request",
-      "launchWebAuthFlow"
+      "launchWebAuthFlow",
+      "downloads_saveAs"
     ],
     "releaseChannelCollection": "opt-out",
     "description": "The number of times an event page hit the idle timeout and results in one of the categories, keyed by addon id.",

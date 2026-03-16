@@ -114,7 +114,7 @@ unsafe impl Send for Instance {}
 impl crate::Instance for Instance {
     type A = super::Api;
 
-    unsafe fn init(desc: &crate::InstanceDescriptor) -> Result<Self, crate::InstanceError> {
+    unsafe fn init(desc: &crate::InstanceDescriptor<'_>) -> Result<Self, crate::InstanceError> {
         profiling::scope!("Init OpenGL (WebGL) Backend");
         Ok(Instance {
             options: desc.backend_options.gl.clone(),
@@ -424,7 +424,7 @@ impl crate::Surface for Surface {
         &self,
         _timeout_ms: Option<core::time::Duration>, //TODO
         _fence: &super::Fence,
-    ) -> Result<Option<crate::AcquiredSurfaceTexture<super::Api>>, crate::SurfaceError> {
+    ) -> Result<crate::AcquiredSurfaceTexture<super::Api>, crate::SurfaceError> {
         let swapchain = self.swapchain.read();
         let sc = swapchain.as_ref().unwrap();
         let texture = super::Texture {
@@ -443,10 +443,10 @@ impl crate::Surface for Surface {
                 depth: 1,
             },
         };
-        Ok(Some(crate::AcquiredSurfaceTexture {
+        Ok(crate::AcquiredSurfaceTexture {
             texture,
             suboptimal: false,
-        }))
+        })
     }
 
     unsafe fn discard_texture(&self, _texture: super::Texture) {}

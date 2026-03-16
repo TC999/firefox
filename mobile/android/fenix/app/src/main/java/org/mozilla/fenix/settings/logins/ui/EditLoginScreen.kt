@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -34,22 +35,22 @@ import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
-import mozilla.components.compose.base.annotation.FlexibleWindowLightDarkPreview
+import kotlinx.coroutines.flow.map
+import mozilla.components.compose.base.annotation.FlexibleWindowPreview
 import mozilla.components.compose.base.button.IconButton
 import mozilla.components.compose.base.text.Text
 import mozilla.components.compose.base.textfield.TextField
-import mozilla.components.compose.base.theme.AcornTheme
-import mozilla.components.lib.state.ext.observeAsState
 import org.mozilla.fenix.R
 import org.mozilla.fenix.theme.FirefoxTheme
+import org.mozilla.fenix.theme.PreviewThemeProvider
 import org.mozilla.fenix.theme.Theme
 import mozilla.components.ui.icons.R as iconsR
 
 @Composable
 internal fun EditLoginScreen(store: LoginsStore) {
-    val state by store.observeAsState(store.state) { it }
+    val state by store.stateFlow.collectAsState()
     val editState = state.loginsEditLoginState ?: return
 
     Scaffold(
@@ -80,11 +81,17 @@ internal fun EditLoginScreen(store: LoginsStore) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun EditLoginTopBar(store: LoginsStore, loginItem: LoginItem) {
-    val state by store.observeAsState(store.state.loginsEditLoginState) { it.loginsEditLoginState }
+    val state by remember {
+        store.stateFlow.map { it.loginsEditLoginState }
+    }.collectAsState(initial = store.state.loginsEditLoginState)
+    val updateState by remember {
+        store.stateFlow.map { it.updateLoginState }
+    }.collectAsState(initial = store.state.updateLoginState)
     val username = state?.newUsername ?: loginItem.username
     val password = state?.newPassword ?: loginItem.password
 
-    val validModifiedUser = username.isNotBlank() && username != loginItem.username
+    val validModifiedUser =
+        username.isNotBlank() && username != loginItem.username && updateState != UpdateLoginState.Duplicate
     val validModifiedPassword = password.isNotBlank() && password != loginItem.password
     val isLoginValid = validModifiedUser || validModifiedPassword
 
@@ -137,8 +144,7 @@ internal fun EditLoginTopBar(store: LoginsStore, loginItem: LoginItem) {
 private fun EditLoginUrl(url: String) {
     Text(
         text = stringResource(R.string.preferences_passwords_saved_logins_site),
-        style = AcornTheme.typography.caption,
-        color = AcornTheme.colors.textPrimary,
+        style = FirefoxTheme.typography.caption,
         modifier = Modifier
             .padding(horizontal = FirefoxTheme.layout.space.static200)
             .width(FirefoxTheme.layout.size.containerMaxWidth),
@@ -146,7 +152,7 @@ private fun EditLoginUrl(url: String) {
 
     Text(
         text = url,
-        style = AcornTheme.typography.subtitle1,
+        style = FirefoxTheme.typography.subtitle1,
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
         modifier = Modifier
             .padding(
@@ -159,7 +165,12 @@ private fun EditLoginUrl(url: String) {
 
 @Composable
 private fun EditLoginUsername(store: LoginsStore, user: String) {
-    val editState by store.observeAsState(store.state.loginsEditLoginState) { it.loginsEditLoginState }
+    val editState by remember {
+        store.stateFlow.map { it.loginsEditLoginState }
+    }.collectAsState(initial = store.state.loginsEditLoginState)
+    val updateLoginState by remember {
+        store.stateFlow.map { it.updateLoginState }
+    }.collectAsState(initial = store.state.updateLoginState)
     val username = editState?.newUsername ?: user
 
     TextField(
@@ -168,8 +179,12 @@ private fun EditLoginUsername(store: LoginsStore, user: String) {
             store.dispatch(EditLoginAction.UsernameChanged(newUsername))
         },
         placeholder = "",
-        errorText = stringResource(R.string.saved_login_username_required_2),
-        isError = username.isBlank(),
+        errorText = if (username.isBlank()) {
+            stringResource(R.string.saved_login_username_required_2)
+        } else {
+            stringResource(R.string.saved_login_duplicate)
+        },
+        isError = username.isBlank() || updateLoginState == UpdateLoginState.Duplicate,
         modifier = Modifier
             .padding(
                 horizontal = FirefoxTheme.layout.space.static200,
@@ -194,7 +209,9 @@ private fun EditLoginUsername(store: LoginsStore, user: String) {
 
 @Composable
 private fun EditLoginPassword(store: LoginsStore, pass: String) {
-    val editState by store.observeAsState(store.state.loginsEditLoginState) { it.loginsEditLoginState }
+    val editState by remember {
+        store.stateFlow.map { it.loginsEditLoginState }
+    }.collectAsState(initial = store.state.loginsEditLoginState)
     val isPasswordVisible = editState?.isPasswordVisible ?: true
     val password = editState?.newPassword ?: pass
 
@@ -272,20 +289,12 @@ private fun createStore() = LoginsStore(
     ),
 )
 
+@FlexibleWindowPreview
 @Composable
-@FlexibleWindowLightDarkPreview
-private fun EditLoginScreenPreview() {
-    FirefoxTheme {
-        Surface {
-            EditLoginScreen(store = createStore())
-        }
-    }
-}
-
-@Composable
-@Preview
-private fun EditLoginScreenPrivatePreview() {
-    FirefoxTheme(theme = Theme.Private) {
+private fun EditLoginScreenPreview(
+    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
+) {
+    FirefoxTheme(theme) {
         Surface {
             EditLoginScreen(store = createStore())
         }

@@ -241,29 +241,33 @@ ffi::RawNumberFormatter* FluentBuiltInNumberFormatterCreate(
   NumberFormatOptions options;
   switch (aOptions->style) {
     case ffi::FluentNumberStyleRaw::Decimal:
+      options.mStyle = NumberFormatOptions::Style::Decimal;
       break;
     case ffi::FluentNumberStyleRaw::Currency: {
+      options.mStyle = NumberFormatOptions::Style::Currency;
+
       std::string currency = aOptions->currency.get();
+      NumberFormatOptions::CurrencyDisplay display;
       switch (aOptions->currency_display) {
         case ffi::FluentNumberCurrencyDisplayStyleRaw::Symbol:
-          options.mCurrency = Some(std::make_pair(
-              currency, NumberFormatOptions::CurrencyDisplay::Symbol));
+          display = NumberFormatOptions::CurrencyDisplay::Symbol;
           break;
         case ffi::FluentNumberCurrencyDisplayStyleRaw::Code:
-          options.mCurrency = Some(std::make_pair(
-              currency, NumberFormatOptions::CurrencyDisplay::Code));
+          display = NumberFormatOptions::CurrencyDisplay::Code;
           break;
         case ffi::FluentNumberCurrencyDisplayStyleRaw::Name:
-          options.mCurrency = Some(std::make_pair(
-              currency, NumberFormatOptions::CurrencyDisplay::Name));
+          display = NumberFormatOptions::CurrencyDisplay::Name;
           break;
         default:
           MOZ_ASSERT_UNREACHABLE();
           break;
       }
+
+      options.mCurrency = Some(std::make_tuple(
+          currency, display, NumberFormatOptions::CurrencySign::Standard));
     } break;
     case ffi::FluentNumberStyleRaw::Percent:
-      options.mPercent = true;
+      options.mStyle = NumberFormatOptions::Style::Percent;
       break;
     default:
       MOZ_ASSERT_UNREACHABLE();

@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef _JSEPSESSION_H_
-#define _JSEPSESSION_H_
+#ifndef JSEPSESSION_H_
+#define JSEPSESSION_H_
 
 #include <string>
 #include <vector>
@@ -180,8 +180,14 @@ class JsepSession {
    public:
     Result() = default;
     MOZ_IMPLICIT Result(dom::PCError aError) : mError(Some(aError)) {}
-    // TODO(bug 1527916): Need c'tor and members for handling RTCError.
+    Result(dom::PCError aError, const std::string& aErrorDetail,
+           Maybe<size_t> aSdpLineNumber = Nothing())
+        : mError(Some(aError)),
+          mErrorDetail(Some(aErrorDetail)),
+          mSdpLineNumber(aSdpLineNumber) {}
     Maybe<dom::PCError> mError;
+    Maybe<std::string> mErrorDetail;
+    Maybe<size_t> mSdpLineNumber;
   };
 
   // Basic JSEP operations.

@@ -65,7 +65,6 @@ const PREFS_FOR_DISPLAY = [
   "extensions.eventPages.enabled",
   "extensions.formautofill.",
   "extensions.lastAppVersion",
-  "extensions.manifestV3.enabled",
   "extensions.quarantinedDomains.enabled",
   "extensions.InstallTrigger.enabled",
   "fission.autostart",
@@ -474,16 +473,14 @@ var dataProviders = {
   },
 
   async environmentVariables(done) {
-    let Subprocess;
-    try {
-      // Subprocess is not available in all builds
-      Subprocess = ChromeUtils.importESModule(
-        "resource://gre/modules/Subprocess.sys.mjs"
-      ).Subprocess;
-    } catch (ex) {
+    if (AppConstants.platform == "android") {
+      // Subprocess is not available.
       done({});
       return;
     }
+    const { Subprocess } = ChromeUtils.importESModule(
+      "resource://gre/modules/Subprocess.sys.mjs"
+    );
 
     let environment = Subprocess.getEnvironment();
     let filteredEnvironment = {};
@@ -513,9 +510,30 @@ var dataProviders = {
   },
 
   places: async function places(done) {
-    const data = AppConstants.MOZ_PLACES
-      ? await lazy.PlacesDBUtils.getEntitiesStatsAndCounts()
-      : [];
+    const data = {};
+
+    if (AppConstants.MOZ_PLACES) {
+      data.prefs = await lazy.PlacesDBUtils.getEntitiesStatsAndCounts();
+
+      data.lastMaintenanceDate =
+        Services.prefs.getIntPref("places.database.lastMaintenance", 0) * 1000;
+      data.lastVacuumDate =
+        Services.prefs.getIntPref("storage.vacuum.last.places.sqlite", 0) *
+        1000;
+
+      try {
+        const corruptFilePath = PathUtils.join(
+          PathUtils.profileDir,
+          "places.sqlite.corrupt"
+        );
+        const fileInfo = await IOUtils.stat(corruptFilePath);
+        data.lastIntegrityCorruptionDate = fileInfo.lastModified;
+      } catch (e) {
+        // Set 0 if failed such the file not found error.
+        data.lastIntegrityCorruptionDate = 0;
+      }
+    }
+
     done(data);
   },
 

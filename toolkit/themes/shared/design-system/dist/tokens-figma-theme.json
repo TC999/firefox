@@ -1,9 +1,4 @@
 {
-  "attention/dot/color": {
-    "light": "#2ac3a2",
-    "dark": "#54ffbd",
-    "forcedColors": "{HCM Theme$AccentColor}"
-  },
   "background/color/box": {
     "light": "{Colors$color/white}",
     "dark": "{Colors$color/gray/80}",
@@ -39,6 +34,11 @@
     "dark": "{Colors$color/yellow/90}",
     "forcedColors": "{Theme$background/color/canvas}"
   },
+  "background/color/list/item/hover": {
+    "light": "color-mix(in srgb, {Theme$color/accent/primary} 20%, transparent)",
+    "dark": "color-mix(in srgb, {Theme$color/accent/primary} 20%, transparent)",
+    "forcedColors": "{HCM Theme$SelectedItem}"
+  },
   "border/color": {
     "light": "{Colors$color/gray/50}",
     "dark": "{Colors$color/gray/70}",
@@ -47,11 +47,6 @@
   "border/color/transparent": {
     "light": "transparent",
     "dark": "transparent",
-    "forcedColors": "{HCM Theme$CanvasText}"
-  },
-  "border/color/card": {
-    "light": "color-mix(in srgb, currentColor 10%, transparent)",
-    "dark": "color-mix(in srgb, currentColor 10%, transparent)",
     "forcedColors": "{HCM Theme$CanvasText}"
   },
   "border/color/deemphasized": {
@@ -83,6 +78,134 @@
     "light": "{Theme$color/accent/primary}",
     "dark": "{Theme$color/accent/primary}",
     "forcedColors": "{HCM Theme$SelectedItem}"
+  },
+  "border/color/error": {
+    "light": "{Colors$color/red/70}",
+    "dark": "{Colors$color/red/20}",
+    "forcedColors": "{Theme$border/color}"
+  },
+  "box/shadow/level-1/shadow-1/color": "{Theme$box/shadow/color/darker/layer-1}",
+  "box/shadow/level-1/shadow-2/color": "{Theme$box/shadow/color/darker/layer-2}",
+  "box/shadow/level-2/shadow-1/color": "{Theme$box/shadow/color/lighter/layer-1}",
+  "box/shadow/level-2/shadow-2/color": "{Theme$box/shadow/color/lighter/layer-2}",
+  "box/shadow/level-3/shadow-1/color": "{Theme$box/shadow/color/lighter/layer-1}",
+  "box/shadow/level-3/shadow-2/color": "{Theme$box/shadow/color/lighter/layer-2}",
+  "box/shadow/level-4/shadow-1/color": "{Theme$box/shadow/color/lighter/layer-1}",
+  "box/shadow/level-4/shadow-2/color": "{Theme$box/shadow/color/lighter/layer-2}",
+  "box/shadow/color/darker/layer-1": {
+    "light": "rgba(0, 0, 0, 0.15)",
+    "dark": "rgba(0, 0, 0, 0.2)",
+    "forcedColors": "transparent"
+  },
+  "box/shadow/color/darker/layer-2": {
+    "light": "rgba(0, 0, 0, 0.2)",
+    "dark": "rgba(0, 0, 0, 0.4)",
+    "forcedColors": "transparent"
+  },
+  "box/shadow/color/lighter/layer-1": {
+    "light": "rgba(0, 0, 0, 0.05)",
+    "dark": "rgba(0, 0, 0, 0.2)",
+    "forcedColors": "transparent"
+  },
+  "box/shadow/color/lighter/layer-2": {
+    "light": "rgba(0, 0, 0, 0.1)",
+    "dark": "rgba(0, 0, 0, 0.4)",
+    "forcedColors": "transparent"
+  },
+  "color/accent/primary": {
+    "light": "{Colors$color/blue/60}",
+    "dark": "{Colors$color/cyan/30}",
+    "forcedColors": "{HCM Theme$ButtonText}"
+  },
+  "color/accent/primary/hover": {
+    "light": "{Colors$color/blue/70}",
+    "dark": "{Colors$color/cyan/20}",
+    "forcedColors": "{HCM Theme$SelectedItem}"
+  },
+  "color/accent/primary/active": {
+    "light": "{Colors$color/blue/80}",
+    "dark": "{Colors$color/cyan/10}",
+    "forcedColors": "{Theme$color/accent/primary/hover}"
+  },
+  "color/accent/primary/selected": {
+    "light": "{Colors$color/blue/60}",
+    "dark": "{Colors$color/cyan/30}",
+    "forcedColors": "{HCM Theme$SelectedItem}"
+  },
+  "focus/outline": {
+    "light": "{Primitives$focus/outline/width} solid {Theme$focus/outline/color}",
+    "dark": "{Primitives$focus/outline/width} solid {Theme$focus/outline/color}",
+    "forcedColors": "{Primitives$focus/outline/width} solid {Theme$focus/outline/color}"
+  },
+  "focus/outline/color": {
+    "light": "{Theme$color/accent/primary}",
+    "dark": "{Theme$color/accent/primary}",
+    "forcedColors": "{Theme$text/color}"
+  },
+  "text/color": {
+    "light": "{Colors$color/gray/100}",
+    "dark": "{Colors$color/gray/05}",
+    "forcedColors": "{HCM Theme$CanvasText}"
+  },
+  "text/color/deemphasized": {
+    "light": "color-mix(in srgb, currentColor 69%, transparent)",
+    "dark": "color-mix(in srgb, currentColor 69%, transparent)",
+    "forcedColors": "inherit"
+  },
+  "text/color/disabled": {
+    "light": "color-mix(in srgb, currentColor 40%, transparent)",
+    "dark": "color-mix(in srgb, currentColor 40%, transparent)",
+    "forcedColors": "{HCM Theme$GrayText}"
+  },
+  "text/color/error": {
+    "light": "{Colors$color/red/70}",
+    "dark": "{Colors$color/red/20}",
+    "forcedColors": "inherit"
+  },
+  "text/color/accent/primary/selected": {
+    "light": "{Colors$color/white}",
+    "dark": "{Colors$color/gray/100}",
+    "forcedColors": "{HCM Theme$SelectedItemText}"
+  },
+  "text/color/list/item/hover": {
+    "light": "{Theme$text/color}",
+    "dark": "{Theme$text/color}",
+    "forcedColors": "{HCM Theme$SelectedItemText}"
+  },
+  "attention/dot/color": {
+    "light": "#2ac3a2",
+    "dark": "#54ffbd",
+    "forcedColors": "{HCM Theme$AccentColor}"
+  },
+  "badge/text/color": {
+    "light": "{Theme$text/color}",
+    "dark": "{Theme$text/color}",
+    "forcedColors": "{HCM Theme$CanvasText}"
+  },
+  "badge/text/color/filled": {
+    "light": "{Colors$color/white}",
+    "dark": "{Colors$color/gray/100}",
+    "forcedColors": "{HCM Theme$AccentColorText}"
+  },
+  "badge/background/color": {
+    "light": "transparent",
+    "dark": "transparent",
+    "forcedColors": "{HCM Theme$Canvas}"
+  },
+  "badge/background/color/filled": {
+    "light": "{Colors$color/green/70}",
+    "dark": "{Colors$color/green/40}",
+    "forcedColors": "{HCM Theme$AccentColor}"
+  },
+  "badge/border/color": {
+    "light": "{Theme$border/color}",
+    "dark": "{Theme$border/color}",
+    "forcedColors": "{Theme$border/color}"
+  },
+  "badge/border/color/filled": {
+    "light": "rgba(251, 251, 254, 0.4)",
+    "dark": "rgba(21, 20, 26, 0.4)",
+    "forcedColors": "{HCM Theme$CanvasText}"
   },
   "button/background/color": {
     "light": "color-mix(in srgb, currentColor 7%, transparent)",
@@ -178,6 +301,26 @@
     "light": "{Theme$button/background/color/ghost/active}",
     "dark": "{Theme$button/background/color/ghost/active}",
     "forcedColors": "{Theme$button/background/color/ghost/active}"
+  },
+  "button/background/color/menu": {
+    "light": "{Theme$button/background/color/ghost}",
+    "dark": "{Theme$button/background/color/ghost}",
+    "forcedColors": "{Theme$button/background/color/ghost}"
+  },
+  "button/background/color/menu/active": {
+    "light": "{Theme$button/background/color/ghost/active}",
+    "dark": "{Theme$button/background/color/ghost/active}",
+    "forcedColors": "{Theme$button/background/color/primary}"
+  },
+  "button/background/color/menu/disabled": {
+    "light": "{Theme$button/background/color/ghost/disabled}",
+    "dark": "{Theme$button/background/color/ghost/disabled}",
+    "forcedColors": "{Theme$button/background/color/ghost/disabled}"
+  },
+  "button/background/color/menu/hover": {
+    "light": "{Theme$button/background/color/ghost/hover}",
+    "dark": "{Theme$button/background/color/ghost/hover}",
+    "forcedColors": "{Theme$button/background/color/primary}"
   },
   "button/background/color/selected": {
     "light": "{Theme$button/background/color/active}",
@@ -366,6 +509,26 @@
     "dark": "{Theme$button/text/color}",
     "forcedColors": "{HCM Theme$SelectedItem}"
   },
+  "button/text/color/menu": {
+    "light": "{Theme$button/text/color/ghost}",
+    "dark": "{Theme$button/text/color/ghost}",
+    "forcedColors": "{Theme$button/text/color/ghost}"
+  },
+  "button/text/color/menu/active": {
+    "light": "{Theme$button/text/color/ghost/active}",
+    "dark": "{Theme$button/text/color/ghost/active}",
+    "forcedColors": "{Theme$button/text/color/primary}"
+  },
+  "button/text/color/menu/disabled": {
+    "light": "{Theme$button/text/color/ghost/disabled}",
+    "dark": "{Theme$button/text/color/ghost/disabled}",
+    "forcedColors": "{Theme$button/text/color/ghost/disabled}"
+  },
+  "button/text/color/menu/hover": {
+    "light": "{Theme$button/text/color/ghost/hover}",
+    "dark": "{Theme$button/text/color/ghost/hover}",
+    "forcedColors": "{Theme$button/text/color/primary}"
+  },
   "button/text/color/primary": {
     "light": "{Colors$color/white}",
     "dark": "{Colors$color/gray/100}",
@@ -396,35 +559,10 @@
     "dark": "{Theme$button/text/color/active}",
     "forcedColors": "{Theme$button/text/color/active}"
   },
-  "color/accent/primary": {
-    "light": "{Colors$color/blue/60}",
-    "dark": "{Colors$color/cyan/30}",
-    "forcedColors": "{HCM Theme$ButtonText}"
-  },
-  "color/accent/primary/hover": {
-    "light": "{Colors$color/blue/70}",
-    "dark": "{Colors$color/cyan/20}",
-    "forcedColors": "{HCM Theme$SelectedItem}"
-  },
-  "color/accent/primary/active": {
-    "light": "{Colors$color/blue/80}",
-    "dark": "{Colors$color/cyan/10}",
-    "forcedColors": "{Theme$color/accent/primary/hover}"
-  },
-  "color/accent/primary/selected": {
-    "light": "{Colors$color/blue/60}",
-    "dark": "{Colors$color/cyan/30}",
-    "forcedColors": "{HCM Theme$SelectedItem}"
-  },
-  "focus/outline": {
-    "light": "{Primitives$focus/outline/width} solid {Theme$focus/outline/color}",
-    "dark": "{Primitives$focus/outline/width} solid {Theme$focus/outline/color}",
-    "forcedColors": "{Primitives$focus/outline/width} solid {Theme$focus/outline/color}"
-  },
-  "focus/outline/color": {
-    "light": "{Theme$color/accent/primary}",
-    "dark": "{Theme$color/accent/primary}",
-    "forcedColors": "{Theme$text/color}"
+  "card/border/color": {
+    "light": "color-mix(in srgb, currentColor 10%, transparent)",
+    "dark": "color-mix(in srgb, currentColor 10%, transparent)",
+    "forcedColors": "{HCM Theme$CanvasText}"
   },
   "icon/color": {
     "light": "{Colors$color/gray/70}",
@@ -471,43 +609,25 @@
     "dark": "{Theme$link/color}",
     "forcedColors": "{Theme$link/color}"
   },
-  "outline/color/error": {
-    "light": "{Colors$color/red/70}",
-    "dark": "{Colors$color/red/20}",
-    "forcedColors": "{Theme$border/color}"
+  "table/background/color": {
+    "light": "#f8f8fa",
+    "dark": "rgb(35, 34, 43)",
+    "forcedColors": "{HCM Theme$Canvas}"
   },
-  "promo/background/color": {
-    "light": "{Theme$background/color/box/info}",
-    "dark": "{Theme$background/color/box/info}",
-    "forcedColors": "{Theme$background/color/box/info}"
+  "table/border/color": {
+    "light": "color-mix(in srgb, currentColor 41%, transparent)",
+    "dark": "color-mix(in srgb, currentColor 41%, transparent)",
+    "forcedColors": "{HCM Theme$CanvasText}"
   },
-  "box/shadow/level-1/shadow-1/color": "{Theme$box/shadow/color/darker/layer-1}",
-  "box/shadow/level-1/shadow-2/color": "{Theme$box/shadow/color/darker/layer-2}",
-  "box/shadow/level-2/shadow-1/color": "{Theme$box/shadow/color/lighter/layer-1}",
-  "box/shadow/level-2/shadow-2/color": "{Theme$box/shadow/color/lighter/layer-2}",
-  "box/shadow/level-3/shadow-1/color": "{Theme$box/shadow/color/lighter/layer-1}",
-  "box/shadow/level-3/shadow-2/color": "{Theme$box/shadow/color/lighter/layer-2}",
-  "box/shadow/level-4/shadow-1/color": "{Theme$box/shadow/color/lighter/layer-1}",
-  "box/shadow/level-4/shadow-2/color": "{Theme$box/shadow/color/lighter/layer-2}",
-  "box/shadow/color/darker/layer-1": {
-    "light": "rgba(0, 0, 0, 0.15)",
-    "dark": "rgba(0, 0, 0, 0.2)",
-    "forcedColors": "transparent"
+  "table/header/background/color": {
+    "light": "{Theme$color/accent/primary}",
+    "dark": "{Theme$color/accent/primary}",
+    "forcedColors": "{HCM Theme$AccentColor}"
   },
-  "box/shadow/color/darker/layer-2": {
-    "light": "rgba(0, 0, 0, 0.2)",
-    "dark": "rgba(0, 0, 0, 0.4)",
-    "forcedColors": "transparent"
-  },
-  "box/shadow/color/lighter/layer-1": {
-    "light": "rgba(0, 0, 0, 0.05)",
-    "dark": "rgba(0, 0, 0, 0.2)",
-    "forcedColors": "transparent"
-  },
-  "box/shadow/color/lighter/layer-2": {
-    "light": "rgba(0, 0, 0, 0.1)",
-    "dark": "rgba(0, 0, 0, 0.4)",
-    "forcedColors": "transparent"
+  "table/header/text/color": {
+    "light": "{Colors$color/white}",
+    "dark": "{Colors$color/gray/100}",
+    "forcedColors": "{HCM Theme$AccentColorText}"
   },
   "table/row/background/color": {
     "light": "{Theme$background/color/canvas}",
@@ -518,30 +638,5 @@
     "light": "#f0f0f4",
     "dark": "{Colors$color/gray/80}",
     "forcedColors": "{Theme$background/color/canvas}"
-  },
-  "text/color": {
-    "light": "{Colors$color/gray/100}",
-    "dark": "{Colors$color/gray/05}",
-    "forcedColors": "{HCM Theme$CanvasText}"
-  },
-  "text/color/deemphasized": {
-    "light": "color-mix(in srgb, currentColor 69%, transparent)",
-    "dark": "color-mix(in srgb, currentColor 69%, transparent)",
-    "forcedColors": "inherit"
-  },
-  "text/color/disabled": {
-    "light": "color-mix(in srgb, currentColor 40%, transparent)",
-    "dark": "color-mix(in srgb, currentColor 40%, transparent)",
-    "forcedColors": "{HCM Theme$GrayText}"
-  },
-  "text/color/error": {
-    "light": "{Colors$color/red/70}",
-    "dark": "{Colors$color/red/20}",
-    "forcedColors": "inherit"
-  },
-  "text/color/accent/primary/selected": {
-    "light": "{Colors$color/white}",
-    "dark": "{Colors$color/gray/100}",
-    "forcedColors": "{HCM Theme$SelectedItemText}"
   }
 }

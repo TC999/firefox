@@ -15,6 +15,7 @@
 #include "mozilla/RangeBoundary.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/WeakPtr.h"
+#include "mozilla/dom/RangeBinding.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsISupports.h"
 #include "nsWrapperCache.h"
@@ -25,7 +26,10 @@ class nsINode;
 class nsRange;
 struct JSContext;
 
-namespace mozilla::dom {
+namespace mozilla {
+class RectCallback;
+
+namespace dom {
 class Document;
 class Selection;
 class StaticRange;
@@ -44,6 +48,9 @@ class AbstractRange : public nsISupports,
   explicit AbstractRange(nsINode* aNode, bool aIsDynamicRange,
                          TreeKind aBoundaryTreeKind);
   virtual ~AbstractRange();
+
+  using DOMRect = mozilla::dom::DOMRect;
+  using DOMRectList = mozilla::dom::DOMRectList;
 
  public:
   enum class IsUnlinking : bool { No, Yes };
@@ -123,6 +130,33 @@ class AbstractRange : public nsISupports,
 
   bool MayCrossShadowBoundary() const;
 
+  already_AddRefed<DOMRect> GetBoundingClientRect(bool aClampToEdge = true,
+                                                  bool aFlushLayout = true);
+  already_AddRefed<DOMRectList> GetClientRects(bool aClampToEdge = true,
+                                               bool aFlushLayout = true);
+  // ChromeOnly
+  already_AddRefed<DOMRectList> GetAllowCrossShadowBoundaryClientRects(
+      bool aClampToEdge = true, bool aFlushLayout = true);
+
+  void GetClientRectsAndTexts(mozilla::dom::ClientRectsAndTexts& aResult,
+                              ErrorResult& aErr);
+  /**
+   * Invokes aCallback.AddRect() for each client rect of this range.
+   * Layout must have been flushed by the caller.
+   */
+  void CollectClientRects(mozilla::RectCallback& aCallback,
+                          bool aClampToEdge = true) const;
+
+  /**
+   * This helper function gets rects and correlated text for the given range.
+   * @param aTextList optional where nullptr = don't retrieve text
+   */
+  static void CollectClientRectsAndText(
+      mozilla::RectCallback* aCollector,
+      mozilla::dom::Sequence<nsString>* aTextList, AbstractRange* aRange,
+      nsINode* aStartContainer, uint32_t aStartOffset, nsINode* aEndContainer,
+      uint32_t aEndOffset, bool aClampToEdge, bool aFlushLayout);
+
   Document* GetComposedDocOfContainers() const {
     return mStart.GetComposedDoc();
   }
@@ -188,6 +222,13 @@ class AbstractRange : public nsISupports,
    */
   static bool IsRootUAWidget(const nsINode* aRoot);
 
+  /**
+   * Return a shrunken range computed by
+   * SelectionMoveUtils::GetFirstVisiblePointAtLeaf() and
+   * SelectionMoveUtils::GetLastVisiblePointAtLeaf().
+   */
+  already_AddRefed<StaticRange> GetShrunkenRangeToVisibleLeaves() const;
+
  protected:
   template <typename SPT, typename SRT, typename EPT, typename ERT,
             typename RangeType>
@@ -239,6 +280,10 @@ class AbstractRange : public nsISupports,
   friend void mozilla::SlotAssignedNodeRemoved(dom::HTMLSlotElement* aSlot,
                                                nsIContent& aUnassignedNode);
 
+  already_AddRefed<DOMRectList> GetClientRectsInner(
+      AllowRangeCrossShadowBoundary = AllowRangeCrossShadowBoundary::No,
+      bool aClampToEdge = true, bool aFlushLayout = true);
+
  private:
   void ClearForReuse();
 
@@ -268,6 +313,7 @@ class AbstractRange : public nsISupports,
   static bool sHasShutDown;
 };
 
-}  // namespace mozilla::dom
+}  // namespace dom
+}  // namespace mozilla
 
 #endif  // #ifndef mozilla_dom_AbstractRange_h

@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef HttpTransactionParent_h__
-#define HttpTransactionParent_h__
+#ifndef HttpTransactionParent_h_
+#define HttpTransactionParent_h_
 
 #include "mozilla/Atomics.h"
 #include "mozilla/Mutex.h"
@@ -60,7 +60,7 @@ class HttpTransactionParent final : public PHttpTransactionParent,
       const int64_t& aProgressMax,
       Maybe<NetworkAddressArg>&& aNetworkAddressArg);
   mozilla::ipc::IPCResult RecvOnDataAvailable(
-      const nsCString& aData, const uint64_t& aOffset, const uint32_t& aCount,
+      const nsCString& aData, const uint64_t& aOffset,
       const TimeStamp& aOnDataAvailableStartTime);
   mozilla::ipc::IPCResult RecvOnStopRequest(
       const nsresult& aStatus, const bool& aResponseIsComplete,
@@ -115,7 +115,6 @@ class HttpTransactionParent final : public PHttpTransactionParent,
       nsHttpConnectionInfo* aConnInfo,
       const nsILoadInfo::IPAddressSpace& aTargetIPAddressSpace);
   void DoOnDataAvailable(const nsCString& aData, const uint64_t& aOffset,
-                         const uint32_t& aCount,
                          const TimeStamp& aOnDataAvailableStartTime);
   void DoOnStopRequest(
       const nsresult& aStatus, const bool& aResponseIsComplete,
@@ -186,4 +185,4 @@ class HttpTransactionParent final : public PHttpTransactionParent,
 
 }  // namespace mozilla::net
 
-#endif  // nsHttpTransactionParent_h__
+#endif  // nsHttpTransactionParent_h_

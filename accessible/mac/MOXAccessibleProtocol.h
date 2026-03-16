@@ -5,6 +5,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#ifndef ACCESSIBLE_MAC_MOXACCESSIBLEPROTOCOL_H_
+#define ACCESSIBLE_MAC_MOXACCESSIBLEPROTOCOL_H_
+
 @protocol MOXTextMarkerSupport;
 @protocol mozAccessible;
 
@@ -203,6 +206,9 @@
 
 // AXMaxValue
 - (id _Nullable)moxMaxValue;
+
+// AXBrailleRoleDescription
+- (NSString* _Nullable)moxARIABrailleRoleDescription;
 
 // Webkit also implements the following:
 // // AXCaretBrowsingEnabled
@@ -556,3 +562,5 @@
 - (void)moxSetSelectedTextMarkerRange:(id _Nullable)textMarkerRange;
 
 @end
+
+#endif  // ACCESSIBLE_MAC_MOXACCESSIBLEPROTOCOL_H_

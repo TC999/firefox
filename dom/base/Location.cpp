@@ -41,6 +41,28 @@
 
 namespace mozilla::dom {
 
+nsTArray<nsString> ProduceAncestorOriginsList(
+    const nsTArray<nsCOMPtr<nsIPrincipal>>& aPrincipals) {
+  nsTArray<nsString> result;
+
+  for (const auto& principal : aPrincipals) {
+    nsString origin;
+    if (principal == nullptr) {
+      origin.AssignLiteral(u"null");
+    } else {
+      nsAutoCString originNoSuffix;
+      if (NS_WARN_IF(NS_FAILED(principal->GetOriginNoSuffix(originNoSuffix)))) {
+        origin.AssignLiteral(u"null");
+      } else {
+        CopyUTF8toUTF16(originNoSuffix, origin);
+      }
+    }
+    result.AppendElement(std::move(origin));
+  }
+
+  return result;
+}
+
 Location::Location(nsPIDOMWindowInner* aWindow)
     : mCachedHash(VoidCString()), mInnerWindow(aWindow) {
   BrowsingContext* bc = GetBrowsingContext();
@@ -163,6 +185,12 @@ void Location::SetHash(const nsACString& aHash, nsIPrincipal& aSubjectPrincipal,
     return;
   }
 
+  nsAutoCString currentHash;
+  aRv = uri->GetRef(currentHash);
+  if (NS_WARN_IF(aRv.Failed())) {
+    return;
+  }
+
   if (aHash.IsEmpty() || aHash.First() != '#') {
     aRv = NS_MutateURI(uri).SetRef("#"_ns + aHash).Finalize(uri);
   } else {
@@ -172,7 +200,38 @@ void Location::SetHash(const nsACString& aHash, nsIPrincipal& aSubjectPrincipal,
     return;
   }
 
+  // If the new hash is the same as the current hash, then return without
+  // navigating to the anchor again. This bailout is necessary for
+  // compatibility with deployed content, which redundantly sets
+  // location.hash on scroll. https://github.com/whatwg/html/issues/7386
+  nsAutoCString newHash;
+  aRv = uri->GetRef(newHash);
+  if (NS_WARN_IF(aRv.Failed()) || newHash == currentHash) {
+    return;
+  }
+
   Navigate(uri, aSubjectPrincipal, aRv);
+}
+
+// https://html.spec.whatwg.org/#dom-location-ancestororigins
+RefPtr<DOMStringList> Location::GetAncestorOrigins(
+    nsIPrincipal& aSubjectPrincipal, ErrorResult& aRv) {
+  Document* doc = mInnerWindow->GetExtantDoc();
+  // Step 1. If this's relevant Document is null, then return an empty list.
+  if (!doc || !doc->IsActive()) {
+    return MakeRefPtr<DOMStringList>();
+  }
+
+  // Step 2. If this's relevant Document's origin is not same origin-domain with
+  // the entry settings object's origin, then throw a "SecurityError"
+  // DOMException.
+  if (!CallerSubsumes(&aSubjectPrincipal)) {
+    aRv.Throw(NS_ERROR_DOM_SECURITY_ERR);
+    return nullptr;
+  }
+
+  // Step 3. Otherwise, return this's ancestor origins list.
+  return doc->AncestorOrigins();
 }
 
 void Location::GetHost(nsACString& aHost, nsIPrincipal& aSubjectPrincipal,

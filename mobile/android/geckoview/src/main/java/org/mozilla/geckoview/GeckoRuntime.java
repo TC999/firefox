@@ -52,6 +52,8 @@ import org.mozilla.gecko.GeckoSystemStateListener;
 import org.mozilla.gecko.GeckoThread;
 import org.mozilla.gecko.annotation.WrapForJNI;
 import org.mozilla.gecko.crashhelper.CrashHelper;
+import org.mozilla.gecko.process.GeckoProcessManager;
+import org.mozilla.gecko.process.GeckoProcessType;
 import org.mozilla.gecko.process.MemoryController;
 import org.mozilla.gecko.util.BundleEventListener;
 import org.mozilla.gecko.util.DebugConfig;
@@ -247,6 +249,7 @@ public final class GeckoRuntime implements Parcelable {
   }
 
   private static GeckoRuntime sRuntime;
+  private static boolean sHasWarmedUpChildProcesses = false;
   private GeckoRuntimeSettings mSettings;
   private Delegate mDelegate;
   private ServiceWorkerDelegate mServiceWorkerDelegate;
@@ -415,6 +418,12 @@ public final class GeckoRuntime implements Parcelable {
   }
 
   private int[] startCrashHelper() {
+    // The crashhelper is only available if we were built with
+    // `--enable-crash-reporter`.
+    if (!BuildConfig.MOZ_CRASHREPORTER) {
+      return new int[] {-1, -1};
+    }
+
     final Context context = GeckoAppShell.getApplicationContext();
     final CrashHelper.Pipes pipes = CrashHelper.createCrashHelperPipes(context);
 
@@ -445,7 +454,7 @@ public final class GeckoRuntime implements Parcelable {
     if (DEBUG) {
       Log.d(LOGTAG, "init");
     }
-    int flags = GeckoThread.FLAG_PRELOAD_CHILD;
+    int flags = 0;
 
     if (settings.getPauseForDebuggerEnabled()) {
       flags |= GeckoThread.FLAG_DEBUGGING;
@@ -453,14 +462,6 @@ public final class GeckoRuntime implements Parcelable {
 
     if (!settings.getLowMemoryDetection()) {
       flags |= GeckoThread.FLAG_DISABLE_LOW_MEMORY_DETECTION;
-    }
-
-    if (settings.getIsolatedProcessEnabled()) {
-      flags |= GeckoThread.FLAG_CONTENT_ISOLATED;
-    }
-
-    if (settings.getAppZygoteProcessEnabled()) {
-      flags |= GeckoThread.FLAG_CONTENT_ISOLATED_HAS_ZYGOTE;
     }
 
     final Class<?> crashHandler = settings.getCrashHandler();
@@ -517,6 +518,10 @@ public final class GeckoRuntime implements Parcelable {
       } catch (final FileNotFoundException e) {
       }
     }
+
+    final GeckoProcessManager pm = GeckoProcessManager.getInstance();
+    pm.setIsolatedProcessEnabled(settings.getIsolatedProcessEnabled());
+    pm.setAppZygoteEnabled(settings.getAppZygoteProcessEnabled());
 
     final int[] fds = startCrashHelper();
 
@@ -576,6 +581,9 @@ public final class GeckoRuntime implements Parcelable {
       mScreenChangeListener.enable();
     }
 
+    // Warm up window context of default display.
+    GeckoAppShell.maybeInitScreen();
+
     ProfilerController.addMarker(
         "GeckoView Initialization START", ProfilerController.getProfilerTime());
     return true;
@@ -611,6 +619,21 @@ public final class GeckoRuntime implements Parcelable {
   public static @NonNull GeckoRuntime create(final @NonNull Context context) {
     ThreadUtils.assertOnUiThread();
     return create(context, new GeckoRuntimeSettings());
+  }
+
+  /**
+   * Do warm-up work like launching child processes which will speed up the first page load. Safe to
+   * call multiple times (idempotent).
+   */
+  @UiThread
+  public void warmUp() {
+    ThreadUtils.assertOnUiThread();
+    if (sHasWarmedUpChildProcesses) {
+      return;
+    }
+
+    GeckoProcessManager.getInstance().preload(GeckoProcessType.CONTENT);
+    sHasWarmedUpChildProcesses = true;
   }
 
   /**

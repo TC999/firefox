@@ -763,8 +763,7 @@ class NavigationRegistry extends EventEmitter {
     const { download } = data;
 
     const contextId = download.source.browsingContextId;
-    const browsingContext =
-      lazy.NavigableManager.getBrowsingContextById(contextId);
+    const browsingContext = BrowsingContext.get(contextId);
     if (!browsingContext) {
       return;
     }
@@ -773,8 +772,26 @@ class NavigationRegistry extends EventEmitter {
       lazy.NavigableManager.getIdForBrowsingContext(browsingContext);
     const url = download.source.url;
 
-    const navigation = this.#navigations.get(navigableId);
+    let navigation = this.#navigations.get(navigableId);
     let navigationId = null;
+
+    // If there is no started navigation for the download triggered
+    // by `Content-Disposition` header, it means that the navigation
+    // is happening in the temporary browsing context. To align with other
+    // scenarios generate the navigation in the same context where the download
+    // takes place.
+    if (
+      (!navigation || navigation.state !== NavigationState.Started) &&
+      download.source.triggeredByContentDispositionHeader
+    ) {
+      navigation = notifyNavigationStarted({
+        contextDetails: {
+          context: browsingContext,
+        },
+        url,
+      });
+    }
+
     if (navigation && navigation.state === NavigationState.Started) {
       // navigationId is optional and should only be set if there is an ongoing
       // navigation.
@@ -801,8 +818,7 @@ class NavigationRegistry extends EventEmitter {
     const { download } = data;
 
     const contextId = download.source.browsingContextId;
-    const browsingContext =
-      lazy.NavigableManager.getBrowsingContextById(contextId);
+    const browsingContext = BrowsingContext.get(contextId);
     if (!browsingContext) {
       return;
     }
@@ -829,13 +845,11 @@ class NavigationRegistry extends EventEmitter {
   };
 
   #onPromptClosed = (eventName, data) => {
-    const { contentBrowser, detail } = data;
-    const { accepted, promptType } = detail;
+    const { detail } = data;
+    const { accepted, browsingContext, promptType } = detail;
 
     // Send navigation failed event if beforeunload prompt was rejected.
     if (promptType === "beforeunload" && accepted === false) {
-      const browsingContext = contentBrowser.browsingContext;
-
       notifyNavigationFailed({
         contextDetails: {
           context: browsingContext,
@@ -847,13 +861,11 @@ class NavigationRegistry extends EventEmitter {
   };
 
   #onPromptOpened = (eventName, data) => {
-    const { contentBrowser, prompt } = data;
+    const { browsingContext, prompt } = data;
     const { promptType } = prompt;
 
     // We should start the navigation when beforeunload prompt is open.
     if (promptType === "beforeunload") {
-      const browsingContext = contentBrowser.browsingContext;
-
       notifyNavigationStarted({
         contextDetails: {
           context: browsingContext,

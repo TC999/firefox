@@ -9,23 +9,33 @@
 
 /**
  * @import {Query} from "UrlbarProvidersManager.sys.mjs"
+ * @import {SearchEngine} from "moz-src:///toolkit/components/search/SearchEngine.sys.mjs"
+ * @import {SmartbarInput} from "chrome://browser/content/urlbar/SmartbarInput.mjs"
  * @import {UrlbarSearchStringTokenData} from "UrlbarTokenizer.sys.mjs"
  */
 
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
-const lazy = {};
-
-ChromeUtils.defineESModuleGetters(lazy, {
+const lazy = XPCOMUtils.declareLazy({
+  AIWindow:
+    "moz-src:///browser/components/aiwindow/ui/modules/AIWindow.sys.mjs",
+  BrowserUIUtils: "resource:///modules/BrowserUIUtils.sys.mjs",
   ContextualIdentityService:
     "resource://gre/modules/ContextualIdentityService.sys.mjs",
   DEFAULT_FORM_HISTORY_PARAM:
     "moz-src:///toolkit/components/search/SearchSuggestionController.sys.mjs",
+  FaviconUtils: "moz-src:///toolkit/modules/FaviconUtils.sys.mjs",
   FormHistory: "resource://gre/modules/FormHistory.sys.mjs",
   KeywordUtils: "resource://gre/modules/KeywordUtils.sys.mjs",
+  parserUtils: {
+    service: "@mozilla.org/parserutils;1",
+    iid: Ci.nsIParserUtils,
+  },
   PlacesUIUtils: "moz-src:///browser/components/places/PlacesUIUtils.sys.mjs",
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
+  SearchEngine: "moz-src:///toolkit/components/search/SearchEngine.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   SearchSuggestionController:
     "moz-src:///toolkit/components/search/SearchSuggestionController.sys.mjs",
   UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
@@ -39,16 +49,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/urlbar/UrlbarSearchUtils.sys.mjs",
   UrlbarTokenizer:
     "moz-src:///browser/components/urlbar/UrlbarTokenizer.sys.mjs",
-  BrowserUIUtils: "resource:///modules/BrowserUIUtils.sys.mjs",
   UrlUtils: "resource://gre/modules/UrlUtils.sys.mjs",
 });
-
-XPCOMUtils.defineLazyServiceGetter(
-  lazy,
-  "parserUtils",
-  "@mozilla.org/parserutils;1",
-  Ci.nsIParserUtils
-);
 
 export var UrlbarUtils = {
   // Results are categorized into groups to help the muxer compose them.  See
@@ -59,10 +61,12 @@ export var UrlbarUtils = {
   // because we don't want to make downgrades unnecessarily hard.
   RESULT_GROUP: Object.freeze({
     ABOUT_PAGES: "aboutPages",
+    AI: "ai",
     GENERAL: "general",
     GENERAL_PARENT: "generalParent",
     FORM_HISTORY: "formHistory",
     HEURISTIC_AUTOFILL: "heuristicAutofill",
+    HEURISTIC_AI_CHAT: "heuristicAiChat",
     HEURISTIC_ENGINE_ALIAS: "heuristicEngineAlias",
     HEURISTIC_EXTENSION: "heuristicExtension",
     HEURISTIC_FALLBACK: "heuristicFallback",
@@ -119,6 +123,8 @@ export var UrlbarUtils = {
     DYNAMIC: 8,
     // A restrict keyword result, could be @bookmarks, @history, or @tabs.
     RESTRICT: 9,
+    // An AI chat result.
+    AI_CHAT: 10,
 
     // When you add a new type, also add its schema to
     // UrlbarUtils.RESULT_PAYLOAD_SCHEMA below.  Also consider checking if
@@ -183,9 +189,9 @@ export var UrlbarUtils = {
   // Whether a result should be highlighted up to the point the user has typed
   // or after that point.
   HIGHLIGHT: Object.freeze({
-    NONE: 0,
     TYPED: 1,
     SUGGESTED: 2,
+    ALL: 3,
   }),
 
   // UrlbarProviderPlaces's autocomplete results store their titles and tags
@@ -238,7 +244,24 @@ export var UrlbarUtils = {
   // Search mode objects corresponding to the local shortcuts in the view, in
   // order they appear.  Pref names are relative to the `browser.urlbar` branch.
   get LOCAL_SEARCH_MODES() {
-    return [
+    /**
+     * @typedef {object} LocalSearchMode
+     * @property {Values<typeof this.RESULT_SOURCE>} source
+     *   The source which the search mode will search.
+     * @property {Values<typeof lazy.UrlbarTokenizer.RESTRICT>} restrict
+     *   The restrict token that is associated with the search (*, %, $ etc).
+     * @property {string} icon
+     *   The URL of the icon associated with the search mode in preferences.
+     * @property {string} pref
+     *   The suffix of the preference associated with if the mode is displayed
+     *   in the lists or not (prefix with `browser.urlbar.`).
+     * @property {string} telemetryLabel
+     *   The telemetry label for recording searches in this mode.
+     * @property {string} uiLabel
+     *   The string to use for the UI label.
+     */
+
+    return /** @type {LocalSearchMode[]} */ ([
       {
         source: this.RESULT_SOURCE.BOOKMARKS,
         restrict: lazy.UrlbarTokenizer.RESTRICT.BOOKMARK,
@@ -271,7 +294,7 @@ export var UrlbarUtils = {
         telemetryLabel: "actions",
         uiLabel: "urlbar-searchmode-actions",
       },
-    ];
+    ]);
   },
 
   /**
@@ -324,8 +347,8 @@ export var UrlbarUtils = {
       return { url, postData, mayInheritPrincipal };
     }
 
-    /** @type {nsISearchEngine} */
-    let engine = await Services.search.getEngineByAlias(keyword);
+    /** @type {SearchEngine} */
+    let engine = await lazy.SearchService.getEngineByAlias(keyword);
     if (engine) {
       let submission = engine.getSubmission(param, null);
       return {
@@ -407,6 +430,7 @@ export var UrlbarUtils = {
    *     TYPED: match ranges matching the tokens; or
    *     SUGGESTED: match ranges for words not matching the tokens and the
    *                endings of words that start with a token.
+   *     ALL: match all ranges of str.
    * @returns {Array} An array: [
    *            [matchIndex_0, matchLength_0],
    *            [matchIndex_1, matchLength_1],
@@ -416,6 +440,14 @@ export var UrlbarUtils = {
    *          The array is sorted by match indexes ascending.
    */
   getTokenMatches(tokens, str, highlightType) {
+    if (highlightType == this.HIGHLIGHT.ALL) {
+      return [[0, str.length]];
+    }
+
+    if (!tokens?.length) {
+      return [];
+    }
+
     // Only search a portion of the string, because not more than a certain
     // amount of characters are visible in the UI, matching over what is visible
     // would be expensive and pointless.
@@ -542,6 +574,8 @@ export var UrlbarUtils = {
     }
     if (result.heuristic) {
       switch (result.providerName) {
+        case "UrlbarProviderAiChat":
+          return this.RESULT_GROUP.HEURISTIC_AI_CHAT;
         case "UrlbarProviderAliasEngines":
           return this.RESULT_GROUP.HEURISTIC_ENGINE_ALIAS;
         case "UrlbarProviderAutofill":
@@ -607,6 +641,8 @@ export var UrlbarUtils = {
         return this.RESULT_GROUP.REMOTE_TAB;
       case this.RESULT_TYPE.RESTRICT:
         return this.RESULT_GROUP.RESTRICT_SEARCH_KEYWORD;
+      case this.RESULT_TYPE.AI_CHAT:
+        return this.RESULT_GROUP.AI;
     }
     return this.RESULT_GROUP.GENERAL;
   },
@@ -638,7 +674,9 @@ export var UrlbarUtils = {
         result.payload.suggestion ||
         result.payload.query;
       if (query) {
-        const engine = Services.search.getEngineByName(result.payload.engine);
+        const engine = lazy.SearchService.getEngineByName(
+          result.payload.engine
+        );
         let [url, postData] = this.getSearchQueryUrl(engine, query);
         return { url, postData };
       }
@@ -655,7 +693,7 @@ export var UrlbarUtils = {
   /**
    * Get the url to load for the search query.
    *
-   * @param {nsISearchEngine} engine
+   * @param {SearchEngine} engine
    *   The engine to generate the query for.
    * @param {string} query
    *   The query string to search for.
@@ -735,20 +773,53 @@ export var UrlbarUtils = {
   },
 
   /**
+   * Converts a given icon URL to a remote icon URL if it's not a trusted
+   * protocol.
+   *
+   * @param {string} iconUrl The URL of the icon.
+   * @param {number} size The desired size of the icon.
+   * @param {Window} win The window context.
+   * @returns {string|null} The URL of the remote icon or null if not available.
+   */
+  getRemoteIconUrl(iconUrl, size, win) {
+    let url = URL.parse(iconUrl);
+    if (!url) {
+      return null;
+    }
+    if (!lazy.FaviconUtils.TRUSTED_FAVICON_SCHEMES.includes(url.protocol)) {
+      if (Services.env.exists("XPCSHELL_TEST_PROFILE_DIR")) {
+        // XPCShell tests don't have a real window, just use fallback values.
+        return lazy.FaviconUtils.getMozRemoteImageURL(iconUrl, {
+          size,
+          colorScheme: "light",
+        });
+      }
+      return lazy.FaviconUtils.getMozRemoteImageURL(iconUrl, {
+        size: Math.floor(size * win.devicePixelRatio),
+        colorScheme: win.matchMedia("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light",
+      });
+    }
+    return iconUrl;
+  },
+
+  /**
    * Tries to initiate a speculative connection to a given url.
    *
    * Note: This is not infallible, if a speculative connection cannot be
    *       initialized, it will be a no-op.
    *
-   * @param {nsISearchEngine|nsIURI|URL|string} urlOrEngine entity to initiate
-   *        a speculative connection for.
-   * @param {window} window the window from where the connection is initialized.
+   * @param {SearchEngine|nsIURI|URL|string} urlOrEngine
+   *   The entity to initiate a speculative connection for.
+   * @param {window} window
+   *   The window from where the connection is initialized.
    */
   setupSpeculativeConnection(urlOrEngine, window) {
     if (!lazy.UrlbarPrefs.get("speculativeConnect.enabled")) {
       return;
     }
-    if (urlOrEngine instanceof Ci.nsISearchEngine) {
+    if (urlOrEngine instanceof lazy.SearchEngine) {
       try {
         urlOrEngine.speculativeConnect({
           window,
@@ -879,6 +950,49 @@ export var UrlbarUtils = {
       }
     }
     return host;
+  },
+
+  /**
+   * Sanitize and process data retrieved from the clipboard
+   *
+   * @param {string} clipboardData
+   *   The original data retrieved from the clipboard.
+   * @returns {string}
+   *   The sanitized paste data, ready to use.
+   */
+  sanitizeTextFromClipboard(clipboardData) {
+    let fixedURI, keywordAsSent;
+    try {
+      ({ fixedURI, keywordAsSent } = Services.uriFixup.getFixupURIInfo(
+        clipboardData,
+        Ci.nsIURIFixup.FIXUP_FLAG_FIX_SCHEME_TYPOS |
+          Ci.nsIURIFixup.FIXUP_FLAG_ALLOW_KEYWORD_LOOKUP
+      ));
+    } catch (e) {}
+
+    let pasteData;
+    if (keywordAsSent) {
+      // For performance reasons, we don't want to beautify a long string.
+      if (clipboardData.length < 500) {
+        // For only keywords, replace any white spaces including line break
+        // with white space.
+        pasteData = clipboardData.replace(/\s/g, " ");
+      } else {
+        pasteData = clipboardData;
+      }
+    } else if (
+      fixedURI?.scheme == "data" &&
+      !fixedURI.spec.match(/^data:.+;base64,/)
+    ) {
+      // For data url without base64, replace line break with white space.
+      pasteData = clipboardData.replace(/[\r\n]/g, " ");
+    } else {
+      // For normal url or data url having basic64, or if fixup failed, just
+      // remove line breaks.
+      pasteData = clipboardData.replace(/[\r\n]/g, "");
+    }
+
+    return this.stripUnsafeProtocolOnPaste(pasteData);
   },
 
   /**
@@ -1329,6 +1443,9 @@ export var UrlbarUtils = {
         if (result.payload.keyword === lazy.UrlbarTokenizer.RESTRICT.ACTION) {
           return "restrict_keyword_actions";
         }
+        break;
+      case this.RESULT_TYPE.AI_CHAT:
+        return "ai_chat";
     }
     return "unknown";
   },
@@ -1469,6 +1586,9 @@ export var UrlbarUtils = {
       case this.RESULT_GROUP.RESTRICT_SEARCH_KEYWORD: {
         return "restrict_keyword";
       }
+      case this.RESULT_GROUP.AI: {
+        return "ai";
+      }
     }
 
     return result.heuristic ? "heuristic" : "unknown";
@@ -1501,11 +1621,14 @@ export var UrlbarUtils = {
 
     // Appends subtype to certain result types.
     function checkForSubType(type, res) {
-      if (res.providerName == "UrlbarProviderSemanticHistorySearch") {
+      if (res.providerName == "UrlbarProviderInputHistory") {
+        type += "_adaptive";
+      } else if (res.providerName == "UrlbarProviderSemanticHistorySearch") {
         type += "_semantic";
       }
       if (
         lazy.UrlbarSearchUtils.resultIsSERP(res, [
+          UrlbarUtils.RESULT_SOURCE.BOOKMARKS,
           UrlbarUtils.RESULT_SOURCE.HISTORY,
           UrlbarUtils.RESULT_SOURCE.TABS,
         ])
@@ -1602,7 +1725,7 @@ export var UrlbarUtils = {
           return "clipboard";
         }
         if (result.source === this.RESULT_SOURCE.BOOKMARKS) {
-          return "bookmark";
+          return checkForSubType("bookmark", result);
         }
         return checkForSubType("history", result);
       case this.RESULT_TYPE.RESTRICT:
@@ -1618,6 +1741,9 @@ export var UrlbarUtils = {
         if (result.payload.keyword === lazy.UrlbarTokenizer.RESTRICT.ACTION) {
           return "restrict_keyword_actions";
         }
+        break;
+      case this.RESULT_TYPE.AI_CHAT:
+        return "ai_chat";
     }
 
     return "unknown";
@@ -1732,7 +1858,7 @@ export var UrlbarUtils = {
    *   The text content to give the node.
    * @param {Array} highlights
    *   Array of highlights as returned by `UrlbarUtils.getTokenMatches()` or
-   *   `UrlbarResult.payloadAndSimpleHighlights()`.
+   *   `UrlbarResult.getDisplayableValueAndHighlights()`.
    */
   addTextContentWithHighlights(parentNode, textContent, highlights) {
     parentNode.textContent = "";
@@ -1763,6 +1889,32 @@ export var UrlbarUtils = {
   },
 
   /**
+   * Gets the URL bar element that should be focused for the given window.
+   * Returns window.gURLBar for regular browser windows, or the smartbar
+   * for AI windows in immersive view.
+   *
+   * @param {Window} window
+   *   The window to get the URL bar for.
+   * @returns {UrlbarInput | SmartbarInput }
+   *   The URL bar element that should be focused.
+   */
+  getURLBarForFocus(window) {
+    /** @type {UrlbarInput | SmartbarInput} */
+    let urlbar = window.gURLBar;
+    // Check if we're in an AI window with immersive view (no address bar visible)
+    if (
+      lazy.AIWindow.isAIWindowActive(window) &&
+      lazy.AIWindow.shouldUseImmersiveView(window.gBrowser.currentURI)
+    ) {
+      let smartbar = lazy.AIWindow.getSmartbarForWindow(window);
+      if (smartbar) {
+        urlbar = smartbar;
+      }
+    }
+    return urlbar;
+  },
+
+  /**
    * Formats the numerical portion of unit conversion results.
    *
    * @param {number} result
@@ -1773,6 +1925,7 @@ export var UrlbarUtils = {
     const MAX_SIG_FIGURES = 10;
     const FULL_NUMBER_MAX_THRESHOLD = 1 * 10 ** 10;
     const FULL_NUMBER_MIN_THRESHOLD = 10 ** -5;
+    const MAX_FLOAT_PRECISION = 15;
 
     let locale = Services.locale.appLocaleAsBCP47;
 
@@ -1793,6 +1946,8 @@ export var UrlbarUtils = {
       return new Intl.NumberFormat(locale, {
         style: "decimal",
         maximumFractionDigits: DECIMAL_PRECISION,
+        maximumSignificantDigits: MAX_FLOAT_PRECISION,
+        roundingPriority: "lessPrecision",
         numberingSystem: "latn",
       }).format(result);
     }
@@ -1869,9 +2024,6 @@ UrlbarUtils.RESULT_PAYLOAD_SCHEMA = {
           },
         },
       },
-      displayUrl: {
-        type: "string",
-      },
       frecency: {
         type: "number",
       },
@@ -1909,9 +2061,6 @@ UrlbarUtils.RESULT_PAYLOAD_SCHEMA = {
         type: "string",
       },
       descriptionL10n: L10N_SCHEMA,
-      displayUrl: {
-        type: "string",
-      },
       engine: {
         type: "string",
       },
@@ -1996,14 +2145,8 @@ UrlbarUtils.RESULT_PAYLOAD_SCHEMA = {
       dismissalKey: {
         type: "string",
       },
-      displayUrl: {
-        type: "string",
-      },
       dupedHeuristic: {
         type: "boolean",
-      },
-      fallbackTitle: {
-        type: "string",
       },
       frecency: {
         type: "number",
@@ -2037,9 +2180,6 @@ UrlbarUtils.RESULT_PAYLOAD_SCHEMA = {
         type: "string",
       },
       provider: {
-        type: "string",
-      },
-      qsSuggestion: {
         type: "string",
       },
       requestId: {
@@ -2091,6 +2231,10 @@ UrlbarUtils.RESULT_PAYLOAD_SCHEMA = {
         type: "string",
       },
       titleL10n: L10N_SCHEMA,
+      subtitle: {
+        type: "string",
+      },
+      subtitleL10n: L10N_SCHEMA,
       url: {
         type: "string",
       },
@@ -2103,9 +2247,6 @@ UrlbarUtils.RESULT_PAYLOAD_SCHEMA = {
     type: "object",
     required: ["keyword", "url"],
     properties: {
-      displayUrl: {
-        type: "string",
-      },
       icon: {
         type: "string",
       },
@@ -2153,9 +2294,6 @@ UrlbarUtils.RESULT_PAYLOAD_SCHEMA = {
     required: ["device", "url", "lastUsed"],
     properties: {
       device: {
-        type: "string",
-      },
-      displayUrl: {
         type: "string",
       },
       icon: {
@@ -2295,6 +2433,21 @@ UrlbarUtils.RESULT_PAYLOAD_SCHEMA = {
       },
       providesSearchMode: {
         type: "boolean",
+      },
+    },
+  },
+  [UrlbarUtils.RESULT_TYPE.AI_CHAT]: {
+    type: "object",
+    required: ["icon", "query", "title"],
+    properties: {
+      icon: {
+        type: "string",
+      },
+      query: {
+        type: "string",
+      },
+      title: {
+        type: "string",
       },
     },
   },
@@ -2474,7 +2627,7 @@ export class UrlbarQueryContext {
   /**
    * @type {string[]}
    *   List of registered provider names. Providers can be registered through
-   *   the UrlbarProvidersManager.
+   *   the ProvidersManager.
    */
   providers;
 
@@ -2787,10 +2940,12 @@ export class UrlbarProvider {
    *   The query context object
    * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} _addCallback
    *   Callback invoked by the provider to add a new result.
+   * @param {UrlbarController} _controller
+   *   The current controller.
    * @returns {void|Promise<void>}
    * @abstract
    */
-  startQuery(_queryContext, _addCallback) {
+  startQuery(_queryContext, _addCallback, _controller) {
     throw new Error("Trying to access the base class, must be overridden");
   }
 
@@ -3394,7 +3549,7 @@ export class L10nCache {
    *   If this is set, apply substring highlighting to the corresponding l10n
    *   arguments in `args`. Each value in this object should be an array of
    *   highlights as returned by `UrlbarUtils.getTokenMatches()` or
-   *   `UrlbarResult.payloadAndSimpleHighlights()`.
+   *   `UrlbarResult.getDisplayableValueAndHighlights()`.
    * @param {string} [options.attribute]
    *   If the string applies to an attribute on the element, pass the name of
    *   the attribute. The string in the Fluent file should define a value for

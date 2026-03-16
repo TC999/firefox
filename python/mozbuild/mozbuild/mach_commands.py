@@ -22,6 +22,7 @@ from os import path
 from pathlib import Path
 
 import mozpack.path as mozpath
+import mozshellutil
 from gtest.reports import AggregatedGTestReport
 from gtest.suites import get_gtest_suites, suite_filters
 from mach.decorators import (
@@ -30,7 +31,12 @@ from mach.decorators import (
     CommandArgumentGroup,
     SubCommand,
 )
+from mozdebug import prepend_debugger_args
 from mozfile import load_source
+from mozlog.formatters import MachFormatter
+from mozlog.handlers import ResourceHandler, StreamHandler
+from mozlog.structuredlog import StructuredLogger
+from mozlog.structuredlog import log_actions as get_log_actions
 
 from mozbuild.base import (
     BinaryNotFoundException,
@@ -42,6 +48,7 @@ from mozbuild.util import (
     MOZBUILD_METRICS_PATH,
     ForwardingArgumentParser,
     ensure_l10n_central,
+    get_latest_file,
 )
 
 here = os.path.abspath(os.path.dirname(__file__))
@@ -125,36 +132,34 @@ def _cargo_config_yaml_schema():
         else:
             raise ValueError
 
-    return Schema(
-        {
-            # The name of the command (not checked for now, but maybe
-            #  later)
-            Required("command"): All(str, starts_with_cargo),
-            # Whether `make` should stop immediately in case
-            # of error returned by the command. Default: False
-            "continue_on_error": Boolean,
-            # Whether this command requires pre_export and export build
-            # targets to have run. Defaults to bool(cargo_build_flags).
-            "requires_export": Boolean,
-            # Build flags to use.  If this variable is not
-            # defined here, the build flags are generated automatically and are
-            # the same as for `cargo build`. See available substitutions at the
-            # end.
-            "cargo_build_flags": [str],
-            # Extra build flags to use. These flags are added
-            # after the cargo_build_flags both when they are provided or
-            # automatically generated. See available substitutions at the end.
-            "cargo_extra_flags": [str],
-            # Available substitutions for `cargo_*_flags`:
-            # * {arch}: architecture target
-            # * {crate}: current crate name
-            # * {directory}: Directory of the current crate within the source tree
-            # * {features}: Rust features (for `--features`)
-            # * {manifest}: full path of `Cargo.toml` file
-            # * {target}: `--lib` for library, `--bin CRATE` for executables
-            # * {topsrcdir}: Top directory of sources
-        }
-    )
+    return Schema({
+        # The name of the command (not checked for now, but maybe
+        #  later)
+        Required("command"): All(str, starts_with_cargo),
+        # Whether `make` should stop immediately in case
+        # of error returned by the command. Default: False
+        "continue_on_error": Boolean,
+        # Whether this command requires pre_export and export build
+        # targets to have run. Defaults to bool(cargo_build_flags).
+        "requires_export": Boolean,
+        # Build flags to use.  If this variable is not
+        # defined here, the build flags are generated automatically and are
+        # the same as for `cargo build`. See available substitutions at the
+        # end.
+        "cargo_build_flags": [str],
+        # Extra build flags to use. These flags are added
+        # after the cargo_build_flags both when they are provided or
+        # automatically generated. See available substitutions at the end.
+        "cargo_extra_flags": [str],
+        # Available substitutions for `cargo_*_flags`:
+        # * {arch}: architecture target
+        # * {crate}: current crate name
+        # * {directory}: Directory of the current crate within the source tree
+        # * {features}: Rust features (for `--features`)
+        # * {manifest}: full path of `Cargo.toml` file
+        # * {target}: `--lib` for library, `--bin CRATE` for executables
+        # * {topsrcdir}: Top directory of sources
+    })
 
 
 @Command(
@@ -472,7 +477,7 @@ def doctor(command_context, fix=False, verbose=False):
     )
 
 
-CLOBBER_CHOICES = {"objdir", "python", "gradle", "artifacts"}
+CLOBBER_CHOICES = {"objdir", "python", "gradle", "artifacts", "mach_func_cache"}
 
 
 @Command(
@@ -485,8 +490,9 @@ CLOBBER_CHOICES = {"objdir", "python", "gradle", "artifacts"}
     "what",
     default=["objdir", "python"],
     nargs="*",
-    help="Target to clobber, must be one of {{{}}} (default "
-    "objdir and python).".format(", ".join(CLOBBER_CHOICES)),
+    help="Target to clobber, must be one of {{{}}} (default objdir and python).".format(
+        ", ".join(CLOBBER_CHOICES)
+    ),
 )
 @CommandArgument("--full", action="store_true", help="Perform a full clobber")
 def clobber(command_context, what, full=False):
@@ -510,6 +516,9 @@ def clobber(command_context, what, full=False):
 
     The `artifacts` target will remove cached artifact files from
     ~/.mozbuild/package-frontend or $MOZBUILD_STATE_PATH/package-frontend.
+
+    The `mach_func_cache` target will remove cached results from mach's
+    function cache (used to speed up configure and other operations).
 
     By default, the command clobbers the `objdir` and `python` targets.
     """
@@ -548,6 +557,15 @@ def clobber(command_context, what, full=False):
                     )
                     return 1
             raise
+
+        if full:
+            what.add("mach_func_cache")
+
+    if "mach_func_cache" in what:
+        from mach.func_cache import _cache_dir
+
+        if _cache_dir.exists():
+            shutil.rmtree(_cache_dir, ignore_errors=True)
 
     if "python" in what:
         topsrcdir = Path(command_context.topsrcdir)
@@ -638,8 +656,28 @@ def show_log(command_context, log_file=None):
     (https://man7.org/linux/man-pages/man1/less.1.html)
     """
     if not log_file:
-        path = command_context._get_state_filename("last_log.json")
-        log_file = open(path, "rb")
+        latest_file = Path(command_context._get_state_filename("latest-command"))
+        if not latest_file.exists():
+            command_context.log(
+                logging.WARNING,
+                "show_log",
+                {},
+                "Could not locate latest log file. You may need to run a command first.",
+            )
+            return
+        command_name = latest_file.read_text().strip()
+        subdir = f"logs/{command_name}"
+        log_dir = Path(command_context._get_state_filename("", subdir=subdir))
+        log_path = get_latest_file(log_dir, command_name)
+        if not log_path:
+            command_context.log(
+                logging.WARNING,
+                "show_log",
+                {},
+                f"No log files found for latest '{command_name}' command. They may have been deleted.",
+            )
+            return
+        log_file = log_path.open("rb")
 
     if os.isatty(sys.stdout.fileno()):
         env = dict(os.environ)
@@ -710,21 +748,19 @@ def show_log(command_context, log_file=None):
 def handle_log_file(command_context, log_file):
     start_time = 0
     for line in log_file:
-        created, action, params = json.loads(line)
+        created, action, params, msg = json.loads(line)
         if not start_time:
             start_time = created
             command_context.log_manager.terminal_handler.formatter.start_time = created
         if "line" in params:
-            record = logging.makeLogRecord(
-                {
-                    "created": created,
-                    "name": command_context._logger.name,
-                    "levelno": logging.INFO,
-                    "msg": "{line}",
-                    "params": params,
-                    "action": action,
-                }
-            )
+            record = logging.makeLogRecord({
+                "created": created,
+                "name": command_context._logger.name,
+                "levelno": logging.INFO,
+                "msg": msg,
+                "params": params,
+                "action": action,
+            })
             command_context._logger.handle(record)
 
 
@@ -732,7 +768,7 @@ def handle_log_file(command_context, log_file):
 
 
 def database_path(command_context):
-    return command_context._get_state_filename("warnings.json")
+    return get_latest_file(command_context._build_log_dir(), "warnings")
 
 
 def get_warnings_database(command_context):
@@ -742,8 +778,8 @@ def get_warnings_database(command_context):
 
     database = WarningsDatabase()
 
-    if os.path.exists(path):
-        database.load_from_file(path)
+    if path and path.exists():
+        database.load_from_file(str(path))
 
     return database
 
@@ -892,12 +928,6 @@ def join_ensure_dir(dir1, dir2):
     "to the default behavior of running one process per test suite).",
 )
 @CommandArgument(
-    "--tbpl-parser",
-    "-t",
-    action="store_true",
-    help="Output test results in a format that can be parsed by TBPL.",
-)
-@CommandArgument(
     "--shuffle",
     "-s",
     action="store_true",
@@ -998,7 +1028,6 @@ def gtest(
     combine_suites,
     gtest_filter,
     list_tests,
-    tbpl_parser,
     enable_webrender,
     enable_inc_origin_init,
     filter_set,
@@ -1095,7 +1124,7 @@ def gtest(
     is_debugging = debug or debugger or debugger_args
 
     if is_debugging:
-        args = _prepend_debugger_args(args, debugger, debugger_args)
+        args = prepend_debugger_args(args, debugger, debugger_args)
         if not args:
             return 1
 
@@ -1121,9 +1150,6 @@ def gtest(
 
     if shuffle:
         gtest_env["GTEST_SHUFFLE"] = "True"
-
-    if tbpl_parser:
-        gtest_env["MOZ_TBPL_PARSER"] = "True"
 
     if enable_webrender:
         gtest_env["MOZ_WEBRENDER"] = "1"
@@ -1153,18 +1179,55 @@ def gtest(
             gtest_filter_sets.list()
             return 1
 
+    log_actions = get_log_actions()
+    formatter = MachFormatter(
+        start_time=command_context.log_manager.start_time,
+    )
+    gtest_log = StructuredLogger("gtest")
+    gtest_log.add_handler(StreamHandler(sys.stdout, formatter))
+    gtest_log.add_handler(ResourceHandler(command_context))
+
+    def format_gtest_line(line, prefix=None):
+        line = line.rstrip()
+        try:
+            data = json.loads(line)
+            if (
+                isinstance(data, dict)
+                and "action" in data
+                and data["action"] in log_actions
+            ):
+                if "time" not in data:
+                    data["time"] = int(time.time() * 1000)
+                gtest_log.log_raw(data)
+                return
+        except (ValueError, KeyError):
+            pass
+        gtest_log.process_output(prefix or "gtest", line)
+
     # Don't bother with multiple processes if:
     # - listing tests
     # - running the debugger
     # - combining suites with one job
     if list_tests or is_debugging or (combine_suites and jobs == 1):
-        return command_context.run_process(
+        if is_debugging:
+            result = command_context.run_process(
+                args=args,
+                append_env=gtest_env,
+                cwd=cwd,
+                ensure_exit_code=False,
+                pass_thru=True,
+            )
+            gtest_log.shutdown()
+            return result
+        result = command_context.run_process(
             args=args,
             append_env=gtest_env,
             cwd=cwd,
             ensure_exit_code=False,
-            pass_thru=True,
+            line_handler=lambda line: format_gtest_line(line),
         )
+        gtest_log.shutdown()
+        return result
 
     report = AggregatedGTestReport()
 
@@ -1175,13 +1238,7 @@ def gtest(
 
         def add_process(job_id, append_env, **kwargs):
             def log_line(line):
-                # Prepend the job identifier to output
-                command_context.log(
-                    logging.INFO,
-                    "GTest",
-                    {"job_id": job_id, "line": line.strip()},
-                    "[{job_id}] {line}",
-                )
+                format_gtest_line(line, prefix=job_id)
 
             env = os.environ.copy()
             # Allow the new environment to overwrite system environment variables.
@@ -1314,6 +1371,7 @@ def gtest(
                 "{test} failed {failure_count} check(s):\n{failures}",
             )
 
+    gtest_log.shutdown()
     return exit_code
 
 
@@ -1374,6 +1432,33 @@ def android_gtest(
     tester.cleanup()
 
     return exit_code
+
+
+@Command(
+    "source-package",
+    category="misc",
+    description="Package source for distribution.",
+)
+def source_package(command_context, verbose=False):
+    if conditions.is_jsshell(command_context):
+        js_src = os.path.join(command_context.topsrcdir, "js", "src")
+        command_context.run_process(
+            [sys.executable, os.path.join(js_src, "make-source-package.py")],
+            cwd=js_src,
+            append_env={
+                "DIST": command_context.substs["DIST"],
+                "MOZJS_MAJOR_VERSION": command_context.substs["MOZJS_MAJOR_VERSION"],
+                "MOZJS_MINOR_VERSION": command_context.substs["MOZJS_MINOR_VERSION"],
+                "MOZJS_PATCH_VERSION": command_context.substs["MOZJS_PATCH_VERSION"],
+                "MOZJS_ALPHA": command_context.substs["MOZJS_ALPHA"],
+            },
+            ensure_exit_code=0,
+        )
+    else:
+        command_context._run_make(
+            directory=".", target="source-package", ensure_exit_code=True
+        )
+    command_context.notify("Packaging complete")
 
 
 @Command(
@@ -1514,6 +1599,10 @@ def install(command_context, **kwargs):
 
         return 0
 
+    elif conditions.is_ios(command_context):
+        from mozrunner.devices.ios_device import verify_ios_device
+
+        ret = verify_ios_device(command_context, install=True, **kwargs) == 0
     else:
         ret = command_context._run_make(
             directory=".", target="install", ensure_exit_code=False
@@ -1576,8 +1665,7 @@ def _get_android_run_parser():
         "--no-wait",
         action="store_true",
         default=False,
-        help="Do not wait for application to start before returning "
-        "(default: False)",
+        help="Do not wait for application to start before returning (default: False)",
     )
     group.add_argument(
         "--enable-fission",
@@ -1730,8 +1818,7 @@ def _get_desktop_run_parser():
     group.add_argument(
         "--temp-profile",
         action="store_true",
-        help="Run the program using a new temporary profile created inside "
-        "the objdir.",
+        help="Run the program using a new temporary profile created inside the objdir.",
     )
     group.add_argument(
         "--macos-open",
@@ -2161,13 +2248,13 @@ process attach {continue_flag}-p {pid!s}
                     )
                 )
 
-            our_debugger_args = "-s %s" % tmp_lldb_start_script
+            our_debugger_args = mozshellutil.quote("-s", tmp_lldb_start_script)
             if debugger_args:
                 full_debugger_args = " ".join([debugger_args, our_debugger_args])
             else:
                 full_debugger_args = our_debugger_args
 
-            args = _prepend_debugger_args([], debugger, full_debugger_args)
+            args = prepend_debugger_args([], debugger, full_debugger_args)
             if not args:
                 return 1
 
@@ -2181,6 +2268,38 @@ process attach {continue_flag}-p {pid!s}
         device.shell("pkill -f lldb-server", enable_run_as=True)
         if not use_existing_process:
             device.shell("am clear-debug-app")
+
+
+def _run_ios(command_context, no_install=None, debug=False):
+    from mozdevice.ios import IosDevice
+    from mozrunner.devices.ios_device import (
+        verify_ios_device,
+    )
+
+    app = "org.mozilla.ios.GeckoTestBrowser"
+
+    # `verify_ios_device` respects sets `DEVICE_UUID`
+    verify_ios_device(
+        command_context,
+        app=app,
+        install=not no_install,
+    )
+    device_serial = os.environ.get("DEVICE_UUID")
+    if not device_serial:
+        print("No iOS devices connected.")
+        return 1
+
+    device = IosDevice.select_device(conditions.is_ios_simulator(command_context))
+    if debug:
+        print("Application will pause after starting until a debugger is connected...")
+    proc = device.launch_process(
+        app,
+        wait_for_debugger=debug,
+        stdout=None,
+        stderr=None,
+    )
+    proc.run()
+    proc.wait()
 
 
 def _run_jsshell(command_context, params, debug, debugger, debugger_args):
@@ -2202,24 +2321,9 @@ def _run_jsshell(command_context, params, debug, debugger, debugger_args):
         if "INSIDE_EMACS" in os.environ:
             command_context.log_manager.terminal_handler.setLevel(logging.WARNING)
 
-        import mozdebug
-
-        if not debugger:
-            # No debugger name was provided. Look for the default ones on
-            # current OS.
-            debugger = mozdebug.get_default_debugger_name(
-                mozdebug.DebuggerSearch.KeepLooking
-            )
-
-        if debugger:
-            debuggerInfo = mozdebug.get_debugger_info(debugger, debugger_args)
-
-        if not debugger or not debuggerInfo:
-            print("Could not find a suitable debugger in your PATH.")
+        args = prepend_debugger_args(args, debugger, debugger_args)
+        if not args:
             return 1
-
-        # Prepend the debugger args.
-        args = [debuggerInfo.path] + debuggerInfo.args + args
 
     return command_context.run_process(
         args=args, ensure_exit_code=False, pass_thru=True, append_env=extra_env
@@ -2429,38 +2533,9 @@ def _run_desktop(
         if "INSIDE_EMACS" in os.environ:
             command_context.log_manager.terminal_handler.setLevel(logging.WARNING)
 
-        import mozdebug
-
-        if not debugger:
-            # No debugger name was provided. Look for the default ones on
-            # current OS.
-            debugger = mozdebug.get_default_debugger_name(
-                mozdebug.DebuggerSearch.KeepLooking
-            )
-
-        if debugger:
-            debuggerInfo = mozdebug.get_debugger_info(debugger, debugger_args)
-
-        if not debugger or not debuggerInfo:
-            print("Could not find a suitable debugger in your PATH.")
+        args = prepend_debugger_args(args, debugger, debugger_args)
+        if not args:
             return 1
-
-        # Parameters come from the CLI. We need to convert them before
-        # their use.
-        if debugger_args:
-            from mozbuild import shellutil
-
-            try:
-                debugger_args = shellutil.split(debugger_args)
-            except shellutil.MetaCharacterException as e:
-                print(
-                    "The --debugger-args you passed require a real shell to parse them."
-                )
-                print("(We can't handle the %r character.)" % e.char)
-                return 1
-
-        # Prepend the debugger args.
-        args = [debuggerInfo.path] + debuggerInfo.args + args
 
     if dmd:
         dmd_params = []
@@ -3103,8 +3178,7 @@ def repackage_msi(
     "--unsigned",
     default=False,
     action="store_true",
-    help="Support `Add-AppxPackage ... -AllowUnsigned` on Windows 11."
-    "(Default: false)",
+    help="Support `Add-AppxPackage ... -AllowUnsigned` on Windows 11.(Default: false)",
 )
 def repackage_msix(
     command_context,
@@ -3547,8 +3621,7 @@ def repackage_snap_install(command_context, snap_file, snap_name, sudo=None):
             logging.ERROR,
             "repackage-snap-install-no-sudo",
             {},
-            "Couldn't find a command to run snap as root; please use the"
-            " --sudo option",
+            "Couldn't find a command to run snap as root; please use the --sudo option",
         )
 
     if not snap_file:
@@ -3916,49 +3989,6 @@ def repackage_single_locales(command_context, verbose=False, locales=[], dest=No
         )
 
     return 0
-
-
-def _prepend_debugger_args(args, debugger, debugger_args):
-    """
-    Given an array with program arguments, prepend arguments to run it under a
-    debugger.
-
-    :param args: The executable and arguments used to run the process normally.
-    :param debugger: The debugger to use, or empty to use the default debugger.
-    :param debugger_args: Any additional parameters to pass to the debugger.
-    """
-
-    import mozdebug
-
-    if not debugger:
-        # No debugger name was provided. Look for the default ones on
-        # current OS.
-        debugger = mozdebug.get_default_debugger_name(
-            mozdebug.DebuggerSearch.KeepLooking
-        )
-
-    if debugger:
-        debuggerInfo = mozdebug.get_debugger_info(debugger, debugger_args)
-
-    if not debugger or not debuggerInfo:
-        print("Could not find a suitable debugger in your PATH.")
-        return None
-
-    # Parameters come from the CLI. We need to convert them before
-    # their use.
-    if debugger_args:
-        from mozbuild import shellutil
-
-        try:
-            debugger_args = shellutil.split(debugger_args)
-        except shellutil.MetaCharacterException as e:
-            print("The --debugger_args you passed require a real shell to parse them.")
-            print("(We can't handle the %r character.)" % e.char)
-            return None
-
-    # Prepend the debugger args.
-    args = [debuggerInfo.path] + debuggerInfo.args + args
-    return args
 
 
 @SubCommand(

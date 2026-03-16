@@ -55,14 +55,13 @@ pub enum SurfaceError {
 
 impl WebGpuError for SurfaceError {
     fn webgpu_error_type(&self) -> ErrorType {
-        let e: &dyn WebGpuError = match self {
-            Self::Device(e) => e,
+        match self {
+            Self::Device(e) => e.webgpu_error_type(),
             Self::Invalid
             | Self::NotConfigured
             | Self::AlreadyAcquired
-            | Self::TextureDestroyed => return ErrorType::Validation,
-        };
-        e.webgpu_error_type()
+            | Self::TextureDestroyed => ErrorType::Validation,
+        }
     }
 }
 
@@ -125,9 +124,9 @@ impl From<WaitIdleError> for ConfigureSurfaceError {
 
 impl WebGpuError for ConfigureSurfaceError {
     fn webgpu_error_type(&self) -> ErrorType {
-        let e: &dyn WebGpuError = match self {
-            Self::Device(e) => e,
-            Self::MissingDownlevelFlags(e) => e,
+        match self {
+            Self::Device(e) => e.webgpu_error_type(),
+            Self::MissingDownlevelFlags(e) => e.webgpu_error_type(),
             Self::InvalidSurface
             | Self::InvalidViewFormat(..)
             | Self::PreviousOutputExists
@@ -138,9 +137,8 @@ impl WebGpuError for ConfigureSurfaceError {
             | Self::UnsupportedFormat { .. }
             | Self::UnsupportedPresentMode { .. }
             | Self::UnsupportedAlphaMode { .. }
-            | Self::UnsupportedUsage { .. } => return ErrorType::Validation,
-        };
-        e.webgpu_error_type()
+            | Self::UnsupportedUsage { .. } => ErrorType::Validation,
+        }
     }
 }
 
@@ -173,7 +171,7 @@ impl Surface {
                 fence.as_ref(),
             )
         } {
-            Ok(Some(ast)) => {
+            Ok(ast) => {
                 drop(fence);
 
                 let texture_desc = wgt::TextureDescriptor {
@@ -254,10 +252,11 @@ impl Surface {
                 };
                 (Some(texture), status)
             }
-            Ok(None) => (None, Status::Timeout),
             Err(err) => (
                 None,
                 match err {
+                    hal::SurfaceError::Timeout => Status::Timeout,
+                    hal::SurfaceError::Occluded => Status::Occluded,
                     hal::SurfaceError::Lost => Status::Lost,
                     hal::SurfaceError::Device(err) => {
                         return Err(device.handle_hal_error(err).into());
@@ -293,11 +292,16 @@ impl Surface {
             .take()
             .ok_or(SurfaceError::AlreadyAcquired)?;
 
-        let result = match texture.inner.snatch(&mut device.snatchable_lock.write()) {
+        let mut exclusive_snatch_guard = device.snatchable_lock.write();
+        let inner = texture.inner.snatch(&mut exclusive_snatch_guard);
+        drop(exclusive_snatch_guard);
+
+        let result = match inner {
             None => return Err(SurfaceError::TextureDestroyed),
             Some(resource::TextureInner::Surface { raw }) => {
                 let raw_surface = self.raw(device.backend()).unwrap();
                 let raw_queue = queue.raw();
+                let _fence_lock = device.fence.write();
                 unsafe { raw_queue.present(raw_surface, raw) }
             }
             _ => unreachable!(),
@@ -306,13 +310,15 @@ impl Surface {
         match result {
             Ok(()) => Ok(Status::Good),
             Err(err) => match err {
+                hal::SurfaceError::Timeout => Ok(Status::Timeout),
+                hal::SurfaceError::Occluded => Ok(Status::Occluded),
                 hal::SurfaceError::Lost => Ok(Status::Lost),
                 hal::SurfaceError::Device(err) => {
                     Err(SurfaceError::from(device.handle_hal_error(err)))
                 }
                 hal::SurfaceError::Outdated => Ok(Status::Outdated),
                 hal::SurfaceError::Other(msg) => {
-                    log::error!("acquire error: {msg}");
+                    log::error!("present error: {msg}");
                     Err(SurfaceError::Invalid)
                 }
             },
@@ -337,7 +343,11 @@ impl Surface {
             .take()
             .ok_or(SurfaceError::AlreadyAcquired)?;
 
-        match texture.inner.snatch(&mut device.snatchable_lock.write()) {
+        let mut exclusive_snatch_guard = device.snatchable_lock.write();
+        let inner = texture.inner.snatch(&mut exclusive_snatch_guard);
+        drop(exclusive_snatch_guard);
+
+        match inner {
             None => return Err(SurfaceError::TextureDestroyed),
             Some(resource::TextureInner::Surface { raw }) => {
                 let raw_surface = self.raw(device.backend()).unwrap();
@@ -360,6 +370,8 @@ impl Global {
 
         let fid = self.hub.textures.prepare(texture_id_in);
 
+        let output = surface.get_current_texture()?;
+
         #[cfg(feature = "trace")]
         if let Some(present) = surface.presentation.lock().as_ref() {
             if let Some(ref mut trace) = *present.device.trace.lock() {
@@ -371,8 +383,6 @@ impl Global {
                 }
             }
         }
-
-        let output = surface.get_current_texture()?;
 
         let status = output.status;
         let texture_id = output

@@ -94,6 +94,12 @@ option(
 )
 set_config("MOZ_DISTRIBUTION_ID", depends("--with-distribution-id")(lambda v: v[0]))
 
+option(
+    "--built-by-mozilla",
+    help="Enable Mozilla official build designation",
+)
+set_config("BUILT_BY_MOZILLA", depends("--built-by-mozilla")(lambda v: bool(v) or None))
+set_define("BUILT_BY_MOZILLA", depends("--built-by-mozilla")(lambda v: bool(v) or None))
 
 @depends("MOZ_APP_VENDOR", build_project)
 def check_moz_app_vendor(moz_app_vendor, build_project):
@@ -104,7 +110,7 @@ def check_moz_app_vendor(moz_app_vendor, build_project):
 # Set the MOZ_CONFIGURE_OPTIONS variable with all the options that
 # were passed somehow (environment, command line, mozconfig)
 @dependable
-@imports(_from="mozbuild.shellutil", _import="quote")
+@imports(_from="mozshellutil", _import="quote")
 @imports(_from="mozbuild.util", _import="ensure_unicode")
 @imports(_from="mozbuild.util", _import="system_encoding")
 @imports("__sandbox__")
@@ -166,47 +172,20 @@ set_config("MOZ_FOLD_LIBS", fold_libs)
 # Some of the options here imply an option from js/moz.configure,
 # so, need to be declared before the include.
 
-option("--disable-gecko-profiler", help="Disable the Gecko profiler")
-
-
-@depends("--disable-gecko-profiler", target)
-def gecko_profiler(enable_gecko_profiler, target):
-    if not enable_gecko_profiler:
-        return False
-
-    if target.os == "Android":
-        return target.cpu in ("aarch64", "arm", "x86", "x86_64")
-    elif target.kernel == "Linux":
-        return target.cpu in ("aarch64", "arm", "x86", "x86_64", "mips64")
-    elif target.kernel == "FreeBSD":
-        return target.cpu in ("aarch64", "x86_64")
-    return target.kernel in ("Darwin", "WINNT")
-
-
-@depends(gecko_profiler)
-def gecko_profiler_define(value):
-    if value:
-        return True
-
-
-set_config("MOZ_GECKO_PROFILER", gecko_profiler_define)
-set_define("MOZ_GECKO_PROFILER", gecko_profiler_define)
-
-
 # Enable perfetto on Android if gecko profiling is enabled and only for
 # nightly builds. Linux support requires at least linux-headers-3.18 for <linux/vm_sockets.h>
 set_config(
-    "MOZ_PERFETTO", gecko_profiler_define, when=target_is_android & milestone.is_nightly
+    "MOZ_PERFETTO", True, when=target_is_android & milestone.is_nightly
 )
 set_define(
-    "MOZ_PERFETTO", gecko_profiler_define, when=target_is_android & milestone.is_nightly
+    "MOZ_PERFETTO", True, when=target_is_android & milestone.is_nightly
 )
 
 
 # Whether code to parse ELF binaries should be compiled for the Gecko profiler
 # (for symbol table dumping).
-@depends(gecko_profiler, target)
-def gecko_profiler_parse_elf(value, target):
+@depends(target)
+def gecko_profiler_parse_elf(target):
     # Currently we only want to build this code on Linux (including Android) and BSD.
     # For Android, this is in order to dump symbols from Android system, where
     # on other platforms there exist alternatives that don't require bloating
@@ -216,7 +195,7 @@ def gecko_profiler_parse_elf(value, target):
     # MozDescribeCodeAddress to call into some Rust crates that parse ELF and
     # DWARF data, but build system issues currently prevent Rust from being
     # used in mozglue.)
-    if value and (target.kernel == "Linux" or target.kernel == "FreeBSD"):
+    if target.kernel == "Linux" or target.kernel == "FreeBSD":
         return True
 
 
@@ -224,8 +203,8 @@ set_config("MOZ_GECKO_PROFILER_PARSE_ELF", gecko_profiler_parse_elf)
 
 # enable this by default if the profiler is enabled
 # Note: also requires jemalloc
-set_config("MOZ_PROFILER_MEMORY", gecko_profiler_define)
-set_define("MOZ_PROFILER_MEMORY", gecko_profiler_define)
+set_config("MOZ_PROFILER_MEMORY", True)
+set_define("MOZ_PROFILER_MEMORY", True)
 
 
 @depends(
@@ -746,27 +725,7 @@ def gl_provider_define(provider):
 
 
 set_define("MOZ_GL_PROVIDER", gl_provider_define)
-
-
-@depends(gl_provider, toolkit_gtk)
-def gl_default_provider(value, toolkit_gtk):
-    if value:
-        return value
-    elif toolkit_gtk:
-        return "EGL"
-
-
 set_config("MOZ_GL_PROVIDER", gl_provider)
-set_config("MOZ_GL_DEFAULT_PROVIDER", gl_default_provider)
-
-
-@depends(gl_default_provider)
-def gl_provider_define(provider):
-    if provider:
-        return "GL_PROVIDER_%s" % provider
-
-
-set_define(gl_provider_define, True)
 
 
 # PDF printing
@@ -1054,7 +1013,7 @@ set_config("MOZ_PACKAGER_FORMAT", packager_format)
 @depends(target_is_android, "--enable-debug", milestone.is_nightly)
 def enable_minify_default(is_android, debug, is_nightly):
     if is_android and not debug and not is_nightly:
-        return ("properties", "js")
+        return ("properties",)
     return ("properties",)
 
 
@@ -1079,6 +1038,21 @@ def enable_minify(value):
 
 set_config("MOZ_PACKAGER_MINIFY", True, when=enable_minify.properties)
 set_config("MOZ_PACKAGER_MINIFY_JS", True, when=enable_minify.js)
+
+
+@depends(target_is_android, "--enable-debug", milestone.is_nightly)
+def enable_minify_pdfjs_default(is_android, debug, is_nightly):
+    return is_android and not debug and not is_nightly
+
+
+option(
+    name="--enable-minify-pdfjs",
+    help="Enable minification of PDF.js JavaScript files during packaging",
+    default=enable_minify_pdfjs_default,
+)
+
+
+set_config("MOZ_PACKAGER_MINIFY_PDFJS", True, when="--enable-minify-pdfjs")
 
 
 @depends(host, build_project)
@@ -1188,7 +1162,8 @@ include("../build/moz.configure/keyfiles.configure")
 
 simple_keyfile("Mozilla API")
 
-simple_keyfile("Google Location Service API")
+with only_when(depends(target.os)(lambda os: os != "Android")):
+    simple_keyfile("Google Location Service API")
 
 simple_keyfile("Google Safebrowsing API")
 
@@ -1259,7 +1234,6 @@ def printing(value):
 
 set_config("NS_PRINTING", printing)
 set_define("NS_PRINTING", printing)
-set_define("NS_PRINT_PREVIEW", printing)
 
 
 # Speech-dispatcher support
@@ -1755,7 +1729,7 @@ with only_when("--enable-compile-environment"):
                     "int main() { return 0; }\nint (*ptr)() = main;",
                     pack_rel_relocs
                     + ["-pie", "-o", path]
-                    + (extra_toolchain_flags or [])
+                    + extra_toolchain_flags
                     + linker_ldflags,
                     wrapper=c_compiler.wrapper,
                     onerror=lambda: None,
@@ -2758,7 +2732,7 @@ with only_when(target_is_windows):
         dxc_dll_path,
         when=dxc_supports_target,
     )
-    @checking("for dxcompiler.dll")
+    @checking("for dxcompiler.dll", lambda x: x.dxc_path if x.enabled else "not found")
     @imports("os.path")
     def dxcompiler(target, artifact, windows_sdk_dir, dxc_path):
         if not windows_sdk_dir and not artifact:
@@ -3512,6 +3486,7 @@ def crashreporter_default(target, developer_options, artifacts):
         # The crash reporter prevents crash stacktraces to be logged in the
         # logs on Android, so we leave it out by default in developer builds.
         return target.os != "Android" or not developer_options or artifacts
+    return False
 
 
 option(
@@ -3704,6 +3679,17 @@ option(env="MOZ_PKG_SPECIAL", nargs=1, help="Name of special moz flavor")
 set_config("MOZ_PKG_SPECIAL", depends_if("MOZ_PKG_SPECIAL")(lambda x: x[0]))
 
 
+# Smart card support
+# ==============================================================
+@depends(target)
+def disable_smart_cards(target):
+    return target.os == "Android"
+
+
+set_config("MOZ_NO_SMART_CARDS", True, when=disable_smart_cards)
+set_define("MOZ_NO_SMART_CARDS", True, when=disable_smart_cards)
+
+
 # OSX Packaging
 # ==============================================================
 
@@ -3802,6 +3788,47 @@ with only_when(target_is_osx):
         return f"{distribution_id[0]}.{gpu_process_bundle_id}-{gpu_process_name}"
 
     set_config("MOZ_GPU_PROCESS_BUNDLEID", moz_gpu_process_bundle_id)
+
+    with only_when(milestone.is_nightly & ~disable_smart_cards):
+        # Security Module Helper
+        #
+        # Set up configuration strings for building and referencing the PKCS#11
+        # utility process executable. For a local developer build where the
+        # display name is "Nightly", the strings will be as follows.
+        #
+        # MOZ_PKCS11_PROCESS_NAME = security-module-helper
+        # MOZ_PKCS11_PROCESS_NAME_BRANDED = Nightly Security Module Helper
+        # MOZ_PKCS11_PROCESS_NAME_BUNDLENAME = security-module-helper.app
+        # MOZ_PKCS11_PROCESS_BUNDLEID = org.mozilla.nightly-security-module-helper
+        moz_pkcs11_process_name = dependable("security-module-helper")
+
+        set_config("MOZ_PKCS11_PROCESS_NAME", moz_pkcs11_process_name)
+        set_config(
+            "MOZ_PKCS11_PROCESS_NAME_BRANDED",
+            depends_if(moz_app_displayname)(
+                lambda name: f"{name} Security Module Helper"
+            ),
+        )
+        set_config(
+            "MOZ_PKCS11_PROCESS_BUNDLENAME",
+            depends(moz_pkcs11_process_name)(lambda name: f"{name}.app"),
+        )
+
+        # Generate a lower case string with no spaces to be used as the bundle ID
+        # for the PKCS11 helper .app of the form org.mozilla.<executable-name>.
+        @depends(moz_app_displayname, moz_pkcs11_process_name, "--with-distribution-id")
+        def moz_pkcs11_process_bundle_id(
+            app_displayname, pkcs11_process_name, distribution_id
+        ):
+            if not app_displayname:
+                return
+
+            pkcs11_process_bundle_id = app_displayname.replace(" ", "-").lower()
+            return (
+                f"{distribution_id[0]}.{pkcs11_process_bundle_id}-{pkcs11_process_name}"
+            )
+
+        set_config("MOZ_PKCS11_PROCESS_BUNDLEID", moz_pkcs11_process_bundle_id)
 
 
 # JS Packaging
@@ -4005,16 +4032,6 @@ with only_when(target_has_linux_kernel & compile_environment):
     )
 
 
-# Smart card support
-# ==============================================================
-@depends(build_project)
-def disable_smart_cards(build_project):
-    return build_project == "mobile/android"
-
-
-set_config("MOZ_NO_SMART_CARDS", True, when=disable_smart_cards)
-set_define("MOZ_NO_SMART_CARDS", True, when=disable_smart_cards)
-
 # Enable UniFFI fixtures
 # ==============================================================
 # These are used to test the uniffi-bindgen-gecko-js code generation.  They
@@ -4036,6 +4053,17 @@ option(
 )
 
 set_config("MOZ_SYSTEM_POLICIES", True, when="--enable-system-policies")
+
+# System preferences
+# ==============================================================
+
+option(
+    "--disable-system-preferences",
+    help="Disable reading preferences from /etc/firefox",
+)
+
+set_config("MOZ_SYSTEM_PREFERENCES", True, when="--enable-system-preferences")
+set_define("MOZ_SYSTEM_PREFERENCES", True, when="--enable-system-preferences")
 
 # Allow disabling the creation a legacy profile
 # ==============================================================

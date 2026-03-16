@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "IdleTaskRunner.h"
+#include "mozilla/AppShutdown.h"
 #include "mozilla/TaskController.h"
 #include "nsRefreshDriver.h"
 
@@ -285,17 +286,15 @@ void IdleTaskRunner::ResetTimer(TimeDuration aDelay) {
   if (mTimer) {
     // We rely on timers that target the main thread to be infallible (except
     // for very late shutdown edge cases that should not occur, normally).
-    DebugOnly<nsresult> rv = mTimer->InitWithNamedFuncCallback(
+    nsresult rv = mTimer->InitWithNamedFuncCallback(
         TimedOut, this, aDelay.ToMilliseconds(), nsITimer::TYPE_ONE_SHOT,
         mName);
-#ifdef DEBUG
-    if (NS_FAILED(rv)) {
-      NS_WARNING(nsCString("Failed to set IdleTaskRunner timer for:"_ns + mName)
-                     .get());
+    if (NS_WARN_IF(NS_FAILED(rv))) {
+      MOZ_ASSERT(
+          AppShutdown::IsInOrBeyond(ShutdownPhase::XPCOMShutdownThreads));
+    } else {
+      mTimerActive = true;
     }
-#endif
-    MOZ_ASSERT(NS_SUCCEEDED(rv));
-    mTimerActive = true;
   }
 }
 

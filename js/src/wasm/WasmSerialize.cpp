@@ -914,13 +914,20 @@ CoderResult CodeNameSection(Coder<mode>& coder,
 }
 
 template <CoderMode mode>
+CoderResult CodeTableType(Coder<mode>& coder, CoderArg<mode, TableType> type) {
+  WASM_VERIFY_SERIALIZATION_FOR_SIZE(wasm::TableType, 48);
+  MOZ_TRY(CodeRefType(coder, &type->elemType));
+  MOZ_TRY(CodePod(coder, &type->limits));
+  return Ok();
+}
+
+template <CoderMode mode>
 CoderResult CodeTableDesc(Coder<mode>& coder, CoderArg<mode, TableDesc> item) {
   WASM_VERIFY_SERIALIZATION_FOR_SIZE(wasm::TableDesc, 144);
-  MOZ_TRY(CodeRefType(coder, &item->elemType));
+  MOZ_TRY(CodeTableType(coder, &item->type));
   MOZ_TRY(CodePod(coder, &item->isImported));
   MOZ_TRY(CodePod(coder, &item->isExported));
   MOZ_TRY(CodePod(coder, &item->isAsmJS));
-  MOZ_TRY(CodePod(coder, &item->limits));
   MOZ_TRY(
       (CodeMaybe<mode, InitExpr, &CodeInitExpr<mode>>(coder, &item->initExpr)));
   return Ok();
@@ -990,7 +997,7 @@ CoderResult CodeBuiltinModuleIds(Coder<mode>& coder,
 template <CoderMode mode>
 CoderResult CodeFeatureArgs(Coder<mode>& coder,
                             CoderArg<mode, FeatureArgs> item) {
-  WASM_VERIFY_SERIALIZATION_FOR_SIZE(FeatureArgs, 32);
+  WASM_VERIFY_SERIALIZATION_FOR_SIZE(FeatureArgs, 40);
 #define WASM_FEATURE(NAME, LOWER_NAME, ...) \
   MOZ_TRY(CodePod(coder, &item->LOWER_NAME));
   JS_FOR_WASM_FEATURES(WASM_FEATURE)
@@ -1005,7 +1012,7 @@ CoderResult CodeFeatureArgs(Coder<mode>& coder,
 template <CoderMode mode>
 CoderResult CodeCompileArgs(Coder<mode>& coder,
                             CoderArg<mode, CompileArgs> item) {
-  WASM_VERIFY_SERIALIZATION_FOR_SIZE(wasm::CompileArgs, 72);
+  WASM_VERIFY_SERIALIZATION_FOR_SIZE(wasm::CompileArgs, 80);
   MOZ_TRY((CodeScriptedCaller(coder, &item->scriptedCaller)));
   MOZ_TRY((CodeUniqueChars(coder, &item->sourceMapURL)));
   MOZ_TRY((CodePod(coder, &item->baselineEnabled)));
@@ -1319,7 +1326,7 @@ CoderResult CodeCodeBlock(Coder<MODE_DECODE>& coder,
   uint32_t allocationLength;
   CodeSource codeSource(codeBytes, codeBytesLength, linkData, nullptr);
   (*item)->segment =
-      CodeSegment::allocate(codeSource, nullptr, /* allowLastDitchGC */ true,
+      CodeSegment::allocate(codeSource, nullptr, /* allowLastDitchGC = */ true,
                             &codeStart, &allocationLength);
   if (!(*item)->segment) {
     return Err(OutOfMemory());

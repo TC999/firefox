@@ -1326,6 +1326,7 @@ class DatabaseConnection::UpdateRefcountFunction::FileInfoEntry final {
     }
   }
   void DecBySavepointDelta() { mDelta -= mSavepointDelta; }
+  void ResetSavepointDelta() { mSavepointDelta = 0; }
   SafeRefPtr<DatabaseFileInfo> ReleaseFileInfo() {
     return std::move(mFileInfo);
   }
@@ -1521,10 +1522,6 @@ class ConnectionPool final {
   ~ConnectionPool();
 
   static void IdleTimerCallback(nsITimer* aTimer, void* aClosure);
-
-  static uint32_t SerialNumber() { return ++sSerialNumber; }
-
-  static uint32_t sSerialNumber;
 
   void Cleanup();
 
@@ -5450,18 +5447,16 @@ class EncryptedFileBlobImpl final : public FileBlobImpl {
     SetFileId(aId);
   }
 
+  // The size of the blob is stored in the metadata where EncryptedFileBlobImpl
+  // is used, allowing a child process to set the size lazily. Therefore, the
+  // parent process is allowed to return a dummy value to avoid sync I/O. In a
+  // child process, the size should already be set beforehand and GetSize should
+  // only accesses it. And the reason why 0 is returned, even when the size is
+  // not set in a child process, is is because the spec doesn't allow Blob.size
+  // to throw.
   uint64_t GetSize(ErrorResult& aRv) override {
-    nsCOMPtr<nsIInputStream> inputStream;
-    CreateInputStream(getter_AddRefs(inputStream), aRv);
-
-    if (aRv.Failed()) {
-      return 0;
-    }
-
-    MOZ_ASSERT(inputStream);
-
-    QM_TRY_RETURN(MOZ_TO_RESULT_INVOKE_MEMBER(inputStream, Available), 0,
-                  [&aRv](const nsresult rv) { aRv = rv; });
+    MOZ_DIAGNOSTIC_ASSERT(XRE_IsParentProcess() || mLength.isSome());
+    return mLength.valueOr(0);
   }
 
   void CreateInputStream(nsIInputStream** aInputStream,
@@ -7630,6 +7625,7 @@ void DatabaseConnection::UpdateRefcountFunction::RollbackSavepoint() {
 
   for (const auto& entry : mSavepointEntriesIndex.Values()) {
     entry->DecBySavepointDelta();
+    entry->ResetSavepointDelta();
   }
 
   mInSavepoint = false;
@@ -8226,14 +8222,9 @@ bool ConnectionPool::ScheduleTransaction(TransactionInfo& aTransactionInfo,
   }
 
   if (!dbInfo.mEventTarget) {
-    const uint32_t serialNumber = SerialNumber();
-    const nsCString serialName =
-        nsPrintfCString("IndexedDB #%" PRIu32, serialNumber);
-
-    dbInfo.mEventTarget =
-        TaskQueue::Create(do_AddRef(mIOTarget), serialName.get());
+    dbInfo.mEventTarget = TaskQueue::Create(do_AddRef(mIOTarget), "IndexedDB");
     MOZ_ASSERT(dbInfo.mEventTarget);
-    IDB_DEBUG_LOG(("ConnectionPool created task queue %" PRIu32, serialNumber));
+    IDB_DEBUG_LOG(("ConnectionPool created task queue IndexedDB"));
   }
 
   // The number of active operations equals the number of databases minus idle
@@ -8730,8 +8721,6 @@ nsresult ConnectionPool::FinishCallbackWrapper::Run() {
 
   return NS_OK;
 }
-
-uint32_t ConnectionPool::sSerialNumber = 0u;
 
 #ifdef DEBUG
 
@@ -10639,8 +10628,8 @@ already_AddRefed<PBackgroundIDBCursorParent> TransactionBase::AllocCursor(
   if (NS_AUUF_OR_WARN_IF(!objectStoreMetadata)) {
     return nullptr;
   }
-  if (aTrustParams && NS_AUUF_OR_WARN_IF(!VerifyRequestParams(
-                          commonParams.optionalKeyRange()))) {
+  if (!aTrustParams && NS_AUUF_OR_WARN_IF(!VerifyRequestParams(
+                           commonParams.optionalKeyRange()))) {
     return nullptr;
   }
   direction = commonParams.direction();
@@ -15086,6 +15075,12 @@ nsresult FactoryOp::DirectoryWorkDone() {
   MOZ_ASSERT(gFactoryOps);
 
   // See if this FactoryOp needs to wait.
+  // FactoryOps are stored in gFactoryOps in the order they are created,
+  // and currently there are three different FactoryOps that gets stored
+  // i.e. OpenDatabaseOp, DeleteDatabaseOp, and GetDatabasesOp.
+  // We iterate over the gFactoryOps list here and put this operation
+  // into a waiting state if there is any existing operation that it needs
+  // to wait for as done by MustWaitFor().
   const bool blocked = [&self = *this] {
     bool foundThis = false;
     bool blocked = false;
@@ -15259,13 +15254,15 @@ bool FactoryOp::MustWaitFor(const FactoryOp& aExistingOp) {
     return false;
   }
 
-  // If the database ids don't overlap, the op can proceed.
-  if (!aExistingOp.mDatabaseId.isNothing() && !mDatabaseId.isNothing() &&
+  // If the database ids don't overlap, the op doesn't need to wait.
+  if (aExistingOp.mDatabaseId.isSome() && mDatabaseId.isSome() &&
       aExistingOp.mDatabaseId.ref() != mDatabaseId.ref()) {
     return false;
   }
 
-  return true;
+  // mDatabaseId being nothing means that this is GetDatabasesOp which
+  // must be serialized with other GetDatabaseOps.
+  return aExistingOp.mDatabaseId.isNothing() == mDatabaseId.isNothing();
 }
 
 // Run() assumes that the caller holds a strong reference to the object that
@@ -15976,22 +15973,11 @@ nsresult OpenDatabaseOp::BeginVersionChange() {
   MOZ_ASSERT(!info->mWaitingFactoryOp);
   MOZ_ASSERT(info->mMetadata == mMetadata);
 
-  auto transaction = MakeSafeRefPtr<VersionChangeTransaction>(this);
-
-  if (NS_WARN_IF(!transaction->CopyDatabaseMetadata())) {
-    return NS_ERROR_OUT_OF_MEMORY;
-  }
-
-  MOZ_ASSERT(info->mMetadata != mMetadata);
-  mMetadata = info->mMetadata.clonePtr();
-
   const Maybe<uint64_t> newVersion = Some(mRequestedVersion);
 
   QM_TRY(MOZ_TO_RESULT(SendVersionChangeMessages(
       info, mDatabase.maybeDeref(), mMetadata->mCommonMetadata.version(),
       newVersion)));
-
-  mVersionChangeTransaction = std::move(transaction);
 
   if (mMaybeBlockedDatabases.IsEmpty()) {
     // We don't need to wait on any databases, just jump to the transaction
@@ -16027,16 +16013,37 @@ void OpenDatabaseOp::SendBlockedNotification() {
 nsresult OpenDatabaseOp::DispatchToWorkThread() {
   AssertIsOnOwningThread();
   MOZ_ASSERT(mState == State::WaitingForTransactionsToComplete);
-  MOZ_ASSERT(mVersionChangeTransaction);
-  MOZ_ASSERT(mVersionChangeTransaction->GetMode() ==
-             IDBTransaction::Mode::VersionChange);
   MOZ_ASSERT(mMaybeBlockedDatabases.IsEmpty());
+  // There's no other place which creates a version change transaction
+  // and sets mVersionChangeTransaction.
+  MOZ_ASSERT(!mVersionChangeTransaction);
 
   if (NS_WARN_IF(QuotaClient::IsShuttingDownOnBackgroundThread()) ||
       IsActorDestroyed() || mDatabase->IsInvalidated()) {
     IDB_REPORT_INTERNAL_ERR();
     return NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR;
   }
+
+  DatabaseActorInfo* info;
+  MOZ_ALWAYS_TRUE(gLiveDatabaseHashtable->Get(mDatabaseId.ref(), &info));
+
+  MOZ_ASSERT(info->mLiveDatabases.contains(mDatabase.unsafeGetRawPtr()));
+  MOZ_ASSERT(!info->mWaitingFactoryOp);
+  MOZ_ASSERT(info->mMetadata == mMetadata);
+
+  auto transaction = MakeSafeRefPtr<VersionChangeTransaction>(this);
+
+  if (NS_WARN_IF(!transaction->CopyDatabaseMetadata())) {
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+
+  MOZ_ASSERT(info->mMetadata != mMetadata);
+  mMetadata = info->mMetadata.clonePtr();
+
+  mVersionChangeTransaction = std::move(transaction);
+
+  MOZ_ASSERT(mVersionChangeTransaction->GetMode() ==
+             IDBTransaction::Mode::VersionChange);
 
   mState = State::DatabaseWorkVersionChange;
 
@@ -18892,6 +18899,14 @@ mozilla::ipc::IPCResult NormalTransactionOp::RecvContinue(
     const PreprocessResponse& aResponse) {
   AssertIsOnOwningThread();
 
+  // mWaitingForContinue is only touched on the owning thread. If it is not
+  // set, either we never sent Preprocess (child is misbehaving) or the op is
+  // still running on the connection thread. Calling NoteContinueReceived()
+  // in either case would race Cleanup() with DoDatabaseWork().
+  if (NS_WARN_IF(!IsWaitingForContinue())) {
+    return IPC_FAIL(this, "Continue received when not waiting for continue");
+  }
+
   switch (aResponse.type()) {
     case PreprocessResponse::Tnsresult:
       SetFailureCode(aResponse.get_nsresult());
@@ -19145,7 +19160,8 @@ nsresult ObjectStoreAddOrPutRequestOp::DoDatabaseWork(
 
         // Update index keys if primary key is preserved in child.
         for (auto& updateInfo : mParams.indexUpdateInfos()) {
-          updateInfo.value().MaybeUpdateAutoIncrementKey(autoIncrementNum);
+          QM_TRY(
+              updateInfo.value().MaybeUpdateAutoIncrementKey(autoIncrementNum));
         }
       } else if (key.IsFloat()) {
         double numericKey = key.ToFloat();

@@ -23,14 +23,13 @@
 #include <stdarg.h>
 #include <string.h>
 
-#include "jsexn.h"
 #include "jsfriendapi.h"
-#include "jsmath.h"
 #include "jstypes.h"
 
 #include "builtin/AtomicsObject.h"
 #include "builtin/Eval.h"
 #include "builtin/JSON.h"
+#include "builtin/Math.h"
 #include "builtin/Promise.h"
 #include "builtin/Symbol.h"
 #include "frontend/FrontendContext.h"  // AutoReportFrontendContext
@@ -1677,8 +1676,7 @@ JS_PUBLIC_API bool JS_InstanceOf(JSContext* cx, HandleObject obj,
   CHECK_THREAD(cx);
 #ifdef DEBUG
   if (args) {
-    cx->check(obj);
-    cx->check(args->thisv(), args->calleev());
+    cx->check(obj, args->thisv(), args->calleev());
   }
 #endif
   if (!obj || obj->getClass() != clasp) {
@@ -2648,6 +2646,22 @@ JS::InstantiateOptions::InstantiateOptions() {
   }
 }
 
+#ifdef DEBUG
+void JS::InstantiateOptions::assertDefault() const {
+  MOZ_ASSERT(skipFilenameValidation == false);
+  MOZ_ASSERT(hideScriptFromDebugger == false);
+  MOZ_ASSERT(deferDebugMetadata == false);
+  if (coverage::IsLCovEnabled()) {
+    MOZ_ASSERT(eagerDelazificationStrategy_ ==
+               DelazificationOption::ParseEverythingEagerly);
+  } else {
+    MOZ_ASSERT(eagerDelazificationStrategy_ ==
+               DelazificationOption::OnDemandOnly);
+  }
+  MOZ_ASSERT(eagerBaselineStrategy_ == EagerBaselineOption::None);
+}
+#endif
+
 CompileOptions& CompileOptions::setIntroductionInfoToCaller(
     JSContext* cx, const char* introductionType,
     MutableHandle<JSScript*> introductionScript) {
@@ -3095,7 +3109,7 @@ JS_PUBLIC_API bool JS::AddPromiseReactionsIgnoringUnhandledRejection(
 }
 
 JS_PUBLIC_API JS::PromiseUserInputEventHandlingState
-JS::GetPromiseUserInputEventHandlingState(JS::HandleObject promiseObj_) {
+JS::GetPromiseUserInputEventHandlingState(JSObject* promiseObj_) {
   PromiseObject* promise = promiseObj_->maybeUnwrapIf<PromiseObject>();
   if (!promise) {
     return JS::PromiseUserInputEventHandlingState::DontCare;
@@ -3180,11 +3194,18 @@ JS_PUBLIC_API JSObject* JS::GetWaitForAllPromise(
   return js::GetWaitForAllPromise(cx, promises);
 }
 
-JS_PUBLIC_API void JS::InitDispatchsToEventLoop(
-    JSContext* cx, JS::DispatchToEventLoopCallback callback,
-    JS::DelayedDispatchToEventLoopCallback delayCallback, void* closure) {
-  cx->runtime()->offThreadPromiseState.ref().init(callback, delayCallback,
-                                                  closure);
+JS_PUBLIC_API void JS::InitAsyncTaskCallbacks(
+    JSContext* cx, JS::DispatchToEventLoopCallback dispatchCallback,
+    JS::DelayedDispatchToEventLoopCallback delayedDispatchCallback,
+    JS::AsyncTaskStartedCallback asyncTaskStartedCallback,
+    JS::AsyncTaskFinishedCallback asyncTaskFinishedCallback, void* closure) {
+  cx->runtime()->offThreadPromiseState.ref().init(
+      dispatchCallback, delayedDispatchCallback, asyncTaskStartedCallback,
+      asyncTaskFinishedCallback, closure);
+}
+
+JS_PUBLIC_API void JS::CancelAsyncTasks(JSContext* cx) {
+  cx->runtime()->offThreadPromiseState.ref().cancelTasks(cx);
 }
 
 JS_PUBLIC_API void JS::ShutdownAsyncTasks(JSContext* cx) {
@@ -4116,12 +4137,12 @@ JS::AutoSaveExceptionState::~AutoSaveExceptionState() {
   }
 }
 
-JS_PUBLIC_API JSErrorReport* JS_ErrorFromException(JSContext* cx,
-                                                   HandleObject obj) {
+JS_PUBLIC_API bool JS_ErrorFromException(JSContext* cx, HandleObject obj,
+                                         JS::BorrowedErrorReport& errorReport) {
   AssertHeapIsIdle();
   CHECK_THREAD(cx);
   cx->check(obj);
-  return ErrorFromException(cx, obj);
+  return ErrorFromException(cx, obj, errorReport);
 }
 
 void JSErrorReport::initBorrowedLinebuf(const char16_t* linebufArg,
@@ -4980,16 +5001,6 @@ JS_PUBLIC_API void JS::SetOutOfMemoryCallback(JSContext* cx,
                                               void* data) {
   cx->runtime()->oomCallback = cb;
   cx->runtime()->oomCallbackData = data;
-}
-
-JS_PUBLIC_API void JS::SetShadowRealmInitializeGlobalCallback(
-    JSContext* cx, JS::GlobalInitializeCallback callback) {
-  cx->runtime()->shadowRealmInitializeGlobalCallback = callback;
-}
-
-JS_PUBLIC_API void JS::SetShadowRealmGlobalCreationCallback(
-    JSContext* cx, JS::GlobalCreationCallback callback) {
-  cx->runtime()->shadowRealmGlobalCreationCallback = callback;
 }
 
 JS_PUBLIC_API bool JS::SetLoggingInterface(LoggingInterface& iface) {

@@ -8,6 +8,7 @@ interface nsIDocShell;
 interface nsIDOMGeoPosition;
 interface nsISecureBrowserUI;
 interface nsISHEntry;
+interface nsIScopedPrefs;
 interface nsIPrintSettings;
 interface nsIWebProgress;
 
@@ -43,6 +44,7 @@ enum DisplayMode {
   "minimal-ui",
   "standalone",
   "fullscreen",
+  "picture-in-picture"
 };
 
 /**
@@ -242,6 +244,9 @@ interface BrowsingContext {
   // Forced-colors simulation, for DevTools
   [SetterThrows] attribute ForcedColorsOverride forcedColorsOverride;
 
+  // Animation playbackRate multiplier, for Devtools
+  [SetterThrows] attribute double animationsPlayBackRateMultiplier;
+
   /**
    * A unique identifier for the browser element that is hosting this
    * BrowsingContext tree. Every BrowsingContext in the element's tree will
@@ -300,6 +305,12 @@ interface BrowsingContext {
   undefined resetNavigationRateLimit();
 
   readonly attribute long childOffset;
+
+  // https://wicg.github.io/document-picture-in-picture/
+  // This is true both for the top-level BC of the content and chrome window
+  // of a Document Picture-in-Picture window.
+  [BinaryName="GetIsDocumentPiP"]
+  readonly attribute boolean isDocumentPiP;
 };
 
 BrowsingContext includes LoadContextMixin;
@@ -457,6 +468,12 @@ interface CanonicalBrowsingContext : BrowsingContext {
                               unsigned long aPresShellId);
 
   readonly attribute nsISHEntry? mostRecentLoadingSessionHistoryEntry;
+
+  /**
+   * Prefs that are stored in the top-level browsing context which persist for
+   * the lifetime of the tab
+   */
+  readonly attribute nsIScopedPrefs? scopedPrefs;
 
   /**
    * Indicates if the embedder element or an ancestor has hidden

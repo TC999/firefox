@@ -8,8 +8,10 @@
  */
 [Func="Navigation::IsAPIEnabled", Exposed=Window]
 interface NavigationPrecommitController {
-  [Throws]
+  [Throws, UseCounter]
   undefined redirect(USVString url, optional NavigationNavigateOptions options = {});
+  [Throws, UseCounter]
+  undefined addHandler(NavigationInterceptHandler handler);
 };
 
 callback NavigationPrecommitHandler = Promise<undefined>(NavigationPrecommitController controller);

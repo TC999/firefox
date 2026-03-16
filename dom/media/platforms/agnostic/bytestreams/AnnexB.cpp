@@ -177,7 +177,8 @@ Result<Ok, nsresult> AnnexB::ConvertHVCCSampleToAnnexB(
 }
 
 already_AddRefed<mozilla::MediaByteBuffer> AnnexB::ConvertAVCCExtraDataToAnnexB(
-    const mozilla::MediaByteBuffer* aExtraData) {
+    const mozilla::MediaByteBuffer* aExtraData,
+    size_t* aSPSLength /* = nullptr */) {
   // AVCC 6 byte header looks like:
   //     +------+------+------+------+------+------+------+------+
   // [0] |   0  |   0  |   0  |   0  |   0  |   0  |   0  |   1  |
@@ -201,6 +202,9 @@ already_AddRefed<mozilla::MediaByteBuffer> AnnexB::ConvertAVCCExtraDataToAnnexB(
     // Append SPS then PPS
     (void)reader.ReadU8().map(
         [&](uint8_t x) { return ConvertSPSOrPPS(reader, x & 31, annexB); });
+    if (aSPSLength) {
+      *aSPSLength = annexB->Length();
+    }
     (void)reader.ReadU8().map(
         [&](uint8_t x) { return ConvertSPSOrPPS(reader, x, annexB); });
     // MP4Box adds extra bytes that we ignore. I don't know what they do.
@@ -334,6 +338,19 @@ void AnnexB::ParseNALEntries(const Span<const uint8_t>& aSpan,
 }
 
 /* static */
+size_t AnnexB::FindNalType(const Span<const uint8_t>& aSpan,
+                           const nsTArray<AnnexB::NALEntry>& aNalEntries,
+                           NAL_TYPES aType, size_t aStartIndex) {
+  for (size_t i = aStartIndex; i < aNalEntries.Length(); ++i) {
+    uint8_t nalUnitType = aSpan[aNalEntries[i].mOffset] & 0x1f;
+    if (nalUnitType == aType) {
+      return i;
+    }
+  }
+  return SIZE_MAX;
+}
+
+/* static */
 bool AnnexB::FindAllNalTypes(const Span<const uint8_t>& aSpan,
                              const nsTArray<NAL_TYPES>& aTypes) {
   nsTArray<AnnexB::NALEntry> nalEntries;
@@ -382,12 +399,77 @@ static Result<mozilla::Ok, nsresult> ParseNALUnits(ByteWriter<BigEndian>& aBw,
   return Ok();
 }
 
+/* static */
+RefPtr<MediaByteBuffer> AnnexB::ExtractExtraData(
+    const Span<const uint8_t>& aSpan) {
+  if (!IsAnnexB(aSpan)) {
+    return nullptr;
+  }
+
+  nsTArray<NALEntry> paramSets;
+  ParseNALEntries(aSpan, paramSets);
+
+  size_t spsIndex =
+      FindNalType(aSpan, paramSets, H264_NAL_SPS, /* aStartIndex */ 0);
+  if (spsIndex == SIZE_MAX) {
+    return nullptr;
+  }
+
+  size_t ppsIndex =
+      FindNalType(aSpan, paramSets, H264_NAL_PPS, /* aStartIndex */ 0);
+  if (ppsIndex == SIZE_MAX) {
+    return nullptr;
+  }
+
+  auto annexb = MakeRefPtr<MediaByteBuffer>();
+  const auto& spsEntry = paramSets.ElementAt(spsIndex);
+  const auto& ppsEntry = paramSets.ElementAt(ppsIndex);
+  const auto sps = aSpan.Subspan(spsEntry.mOffset, spsEntry.mSize);
+  const auto pps = aSpan.Subspan(ppsEntry.mOffset, ppsEntry.mSize);
+  annexb->AppendElements(kAnnexBDelimiter, std::size(kAnnexBDelimiter));
+  annexb->AppendElements(sps);
+  annexb->AppendElements(kAnnexBDelimiter, std::size(kAnnexBDelimiter));
+  annexb->AppendElements(pps);
+  return annexb;
+}
+
+/* static */
+RefPtr<MediaByteBuffer> AnnexB::ExtractExtraDataForAVCC(
+    const Span<const uint8_t>& aSpan) {
+  if (!IsAnnexB(aSpan)) {
+    return nullptr;
+  }
+
+  nsTArray<NALEntry> paramSets;
+  ParseNALEntries(aSpan, paramSets);
+
+  size_t spsIndex =
+      FindNalType(aSpan, paramSets, H264_NAL_SPS, /* aStartIndex */ 0);
+  if (spsIndex == SIZE_MAX) {
+    return nullptr;
+  }
+
+  size_t ppsIndex =
+      FindNalType(aSpan, paramSets, H264_NAL_PPS, /* aStartIndex */ 0);
+  if (ppsIndex == SIZE_MAX) {
+    return nullptr;
+  }
+
+  auto avcc = MakeRefPtr<MediaByteBuffer>();
+  const auto& spsEntry = paramSets.ElementAt(spsIndex);
+  const auto& ppsEntry = paramSets.ElementAt(ppsIndex);
+  const auto sps = aSpan.Subspan(spsEntry.mOffset, spsEntry.mSize);
+  const auto pps = aSpan.Subspan(ppsEntry.mOffset, ppsEntry.mSize);
+  H264::WriteExtraData(avcc, sps[1], sps[2], sps[3], sps, pps);
+  return avcc;
+}
+
 bool AnnexB::ConvertSampleToAVCC(mozilla::MediaRawData* aSample,
                                  const RefPtr<MediaByteBuffer>& aAVCCHeader) {
   if (IsAVCC(aSample)) {
     return ConvertAVCCTo4BytesAVCC(aSample).isOk();
   }
-  if (!IsAnnexB(aSample)) {
+  if (!IsAnnexB(*aSample)) {
     // Not AnnexB, nothing to convert.
     return true;
   }
@@ -433,7 +515,7 @@ Result<mozilla::Ok, nsresult> AnnexB::ConvertSampleToHVCC(
   if (IsHVCC(aSample)) {
     return ConvertHVCCTo4BytesHVCC(aSample);
   }
-  if (!IsAnnexB(aSample)) {
+  if (!IsAnnexB(*aSample)) {
     // Not AnnexB, nothing to convert.
     return Ok();
   }
@@ -489,11 +571,11 @@ bool AnnexB::IsHVCC(const mozilla::MediaRawData* aSample) {
 }
 
 /* static */
-bool AnnexB::IsAnnexB(const mozilla::MediaRawData* aSample) {
-  if (aSample->Size() < 4) {
+bool AnnexB::IsAnnexB(const Span<const uint8_t>& aSpan) {
+  if (aSpan.Length() < 4) {
     return false;
   }
-  uint32_t header = mozilla::BigEndian::readUint32(aSample->Data());
+  uint32_t header = mozilla::BigEndian::readUint32(aSpan.Elements());
   return header == 0x00000001 || (header >> 8) == 0x000001;
 }
 

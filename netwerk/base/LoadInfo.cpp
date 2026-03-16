@@ -293,25 +293,25 @@ LoadInfo::LoadInfo(
     mHttpsOnlyStatus |= nsHTTPSOnlyUtils::GetStatusForSubresourceLoad(
         aLoadingContext->OwnerDoc()->HttpsOnlyStatus());
 
-    // When the element being loaded is a frame, we choose the frame's window
-    // for the window ID and the frame element's window as the parent
-    // window. This is the behavior that Chrome exposes to add-ons.
+    // When a document is loaded for a frame, we choose the frame's window
+    // for the window ID and the frame element's window as the parent window.
+    // This is the behavior that Chrome exposes to add-ons.
     // NB: If the frameLoaderOwner doesn't have a frame loader, then the load
     // must be coming from an object (such as a plugin) that's loaded into it
     // instead of a document being loaded. In that case, treat this object like
     // any other non-document-loading element.
-    RefPtr<nsFrameLoaderOwner> frameLoaderOwner =
-        do_QueryObject(aLoadingContext);
-    RefPtr<nsFrameLoader> fl =
-        frameLoaderOwner ? frameLoaderOwner->GetFrameLoader() : nullptr;
-    if (fl) {
-      nsCOMPtr<nsIDocShell> docShell = fl->GetDocShell(IgnoreErrors());
-      if (docShell) {
-        nsCOMPtr<nsPIDOMWindowOuter> outerWindow = do_GetInterface(docShell);
-        if (outerWindow) {
-          RefPtr<dom::BrowsingContext> bc = outerWindow->GetBrowsingContext();
-          mFrameBrowsingContextID = bc ? bc->Id() : 0;
-        }
+    if (externalType == ExtContentPolicy::TYPE_SUBDOCUMENT) {
+      RefPtr<nsFrameLoaderOwner> frameLoaderOwner =
+          do_QueryObject(aLoadingContext);
+      RefPtr<nsFrameLoader> fl =
+          frameLoaderOwner ? frameLoaderOwner->GetFrameLoader() : nullptr;
+      nsCOMPtr<nsIDocShell> docShell =
+          fl ? fl->GetDocShell(IgnoreErrors()) : nullptr;
+      nsCOMPtr<nsPIDOMWindowOuter> outerWindow = do_GetInterface(docShell);
+      RefPtr<dom::BrowsingContext> bc =
+          outerWindow ? outerWindow->GetBrowsingContext() : nullptr;
+      if (bc) {
+        mFrameBrowsingContextID = bc->Id();
       }
     }
 
@@ -725,10 +725,7 @@ LoadInfo::LoadInfo(const LoadInfo& rhs)
 #define DEFINE_INIT(_t, name, _n, _d) m##name(rhs.m##name),
       LOADINFO_FOR_EACH_FIELD(DEFINE_INIT, LOADINFO_DUMMY_SETTER)
 #undef DEFINE_INIT
-
-          mWorkerAssociatedBrowsingContextID(
-              rhs.mWorkerAssociatedBrowsingContextID),
-      mInitialSecurityCheckDone(rhs.mInitialSecurityCheckDone),
+          mInitialSecurityCheckDone(rhs.mInitialSecurityCheckDone),
       mIsThirdPartyContext(rhs.mIsThirdPartyContext),
       mIsThirdPartyContextToTopWindow(rhs.mIsThirdPartyContextToTopWindow),
       mOriginAttributes(rhs.mOriginAttributes),
@@ -758,6 +755,7 @@ LoadInfo::LoadInfo(
     nsIPrincipal* aPrincipalToInherit, nsIPrincipal* aTopLevelPrincipal,
     nsIURI* aResultPrincipalURI, nsICookieJarSettings* aCookieJarSettings,
     nsIPolicyContainer* aPolicyContainerToInherit,
+    const Maybe<dom::FeaturePolicyInfo>& aContainerFeaturePolicyInfo,
     const nsACString& aTriggeringRemoteType,
     const nsID& aSandboxedNullPrincipalID, const Maybe<ClientInfo>& aClientInfo,
     const Maybe<ClientInfo>& aReservedClientInfo,
@@ -792,6 +790,7 @@ LoadInfo::LoadInfo(
       mResultPrincipalURI(aResultPrincipalURI),
       mCookieJarSettings(aCookieJarSettings),
       mPolicyContainerToInherit(aPolicyContainerToInherit),
+      mContainerFeaturePolicyInfo(aContainerFeaturePolicyInfo),
       mTriggeringRemoteType(aTriggeringRemoteType),
       mSandboxedNullPrincipalID(aSandboxedNullPrincipalID),
       mClientInfo(aClientInfo),
@@ -1284,18 +1283,6 @@ LOADINFO_FOR_EACH_FIELD(DEFINE_GETTER, DEFINE_SETTER);
 #undef DEFINE_SETTER
 
 NS_IMETHODIMP
-LoadInfo::GetWorkerAssociatedBrowsingContextID(uint64_t* aResult) {
-  *aResult = mWorkerAssociatedBrowsingContextID;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-LoadInfo::SetWorkerAssociatedBrowsingContextID(uint64_t aID) {
-  mWorkerAssociatedBrowsingContextID = aID;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
 LoadInfo::GetTargetBrowsingContextID(uint64_t* aResult) {
   return (nsILoadInfo::GetExternalContentPolicyType() ==
           ExtContentPolicy::TYPE_SUBDOCUMENT)
@@ -1310,8 +1297,8 @@ LoadInfo::GetBrowsingContext(dom::BrowsingContext** aResult) {
 }
 
 NS_IMETHODIMP
-LoadInfo::GetWorkerAssociatedBrowsingContext(dom::BrowsingContext** aResult) {
-  *aResult = BrowsingContext::Get(mWorkerAssociatedBrowsingContextID).take();
+LoadInfo::GetAssociatedBrowsingContext(dom::BrowsingContext** aResult) {
+  *aResult = BrowsingContext::Get(mAssociatedBrowsingContextID).take();
   return NS_OK;
 }
 
@@ -1345,7 +1332,7 @@ LoadInfo::ResetPrincipalToInheritToNullPrincipal() {
   nsCOMPtr<nsIPrincipal> newNullPrincipal =
       NullPrincipal::Create(mOriginAttributes);
 
-  mPrincipalToInherit = newNullPrincipal;
+  mPrincipalToInherit = std::move(newNullPrincipal);
 
   // setting SEC_FORCE_INHERIT_PRINCIPAL_OVERRULE_OWNER will overrule
   // any non null owner set on the channel and will return the principal
@@ -1363,7 +1350,7 @@ LoadInfo::SetScriptableOriginAttributes(
     return NS_ERROR_INVALID_ARG;
   }
 
-  mOriginAttributes = attrs;
+  mOriginAttributes = std::move(attrs);
   return NS_OK;
 }
 
@@ -1765,6 +1752,14 @@ LoadInfo::GetIsTopLevelLoad(bool* aResult) {
 
 void LoadInfo::SetIsFromProcessingFrameAttributes() {
   mIsFromProcessingFrameAttributes = true;
+}
+
+dom::ReferrerPolicy LoadInfo::GetFrameReferrerPolicySnapshot() const {
+  return mFrameReferrerPolicySnapshot;
+}
+
+void LoadInfo::SetFrameReferrerPolicySnapshot(dom::ReferrerPolicy aPolicy) {
+  mFrameReferrerPolicySnapshot = aPolicy;
 }
 
 NS_IMETHODIMP

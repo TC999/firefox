@@ -170,7 +170,11 @@ class ScriptLoadRequest : public nsISupports,
 
   // Convert a CheckingCache ScriptLoadRequest into a Ready one, by populating
   // the script data from cached script.
-  void CacheEntryFound(LoadedScript* aLoadedScript);
+  //
+  // aFetchOptions is the current request's fetch option, which can have
+  // different nonce value.
+  void CacheEntryFound(LoadedScript* aLoadedScript,
+                       ScriptFetchOptions* aFetchOptions);
 
   void CacheEntryRevived(LoadedScript* aLoadedScript);
 
@@ -181,7 +185,8 @@ class ScriptLoadRequest : public nsISupports,
                          ScriptFetchOptions* aFetchOptions, nsIURI* aURI);
 
  private:
-  void SetCacheEntry(LoadedScript* aLoadedScript);
+  void SetCacheEntry(LoadedScript* aLoadedScript,
+                     ScriptFetchOptions* aFetchOptions);
 
  public:
   bool PassedConditionForDiskCache() const {
@@ -268,6 +273,9 @@ class ScriptLoadRequest : public nsISupports,
   bool HasDirtyCache() const { return mHasDirtyCache_; }
   void SetHasDirtyCache() { mHasDirtyCache_ = true; }
 
+  bool HadPostponed() const { return mHadPostponed_; }
+  void SetHadPostponed() { mHadPostponed_ = true; }
+
  public:
   // Fields.
 
@@ -292,6 +300,9 @@ class ScriptLoadRequest : public nsISupports,
   // This request should go to necko, and when the response is received,
   // the cache should be either revived or evicted.
   bool mHasDirtyCache_ : 1;
+
+  // Set to true if this script had already been postponed in the scheduling.
+  bool mHadPostponed_ : 1;
 
   enum class CachingPlan : uint8_t {
     // This is not yet considered for caching.

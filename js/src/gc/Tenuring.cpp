@@ -10,6 +10,8 @@
 
 #include "gc/Tenuring.h"
 
+#include <bit>
+
 #include "gc/Cell.h"
 #include "gc/GCInternals.h"
 #include "gc/GCProbes.h"
@@ -337,8 +339,8 @@ void js::gc::StoreBuffer::MonoTypeBuffer<T>::trace(TenuringTracer& mover,
     last_.trace(mover);
   }
 
-  for (typename StoreSet::Range r = stores_.all(); !r.empty(); r.popFront()) {
-    r.front().trace(mover);
+  for (auto iter = stores_.iter(); !iter.done(); iter.next()) {
+    iter.get().trace(mover);
   }
 }
 
@@ -444,8 +446,12 @@ template <typename T>
 bool TenuringTracer::traceBufferedCells(Arena* arena, ArenaCellSet* cells) {
   for (size_t i = 0; i < MaxArenaCellIndex; i += cells->BitsPerWord) {
     ArenaCellSet::WordT bitset = cells->getWord(i / cells->BitsPerWord);
+    static_assert(std::is_same_v<ArenaCellSet::WordT, uint32_t> ||
+                      std::is_same_v<ArenaCellSet::WordT, uint64_t>,
+                  "unexpected word size");
+
     while (bitset) {
-      size_t bit = i + js::detail::CountTrailingZeroes(bitset);
+      size_t bit = i + std::countr_zero(bitset);
       bitset &= bitset - 1;  // Clear the low bit.
 
       auto cell =
@@ -704,8 +710,15 @@ void JSLinearString::maybeCloneCharsOnPromotionTyped(JSLinearString* str) {
   }
   js_memcpy(data, chars, nbytes);
 
+  // The dependent string will be overwritten with a new non-dependent linear
+  // string with a fresh set of flags appropriate for its new type. Preserve
+  // flags that still apply to the new string.
+  uint32_t saved_flags = str->flags() & PRESERVE_LINEAR_NONATOM_BITS_ON_REPLACE;
+
   // Overwrite the dest string with a new linear string.
   new (str) JSLinearString(data, len, false /* hasBuffer */);
+  MOZ_ASSERT((str->flags() & PRESERVE_LINEAR_NONATOM_BITS_ON_REPLACE) == 0);
+  str->setHeaderLengthAndFlags(len, str->flags() | saved_flags);
   if (str->isTenured()) {
     str->zone()->addCellMemory(str, nbytes, js::MemoryUse::StringContents);
   } else {
@@ -1548,7 +1561,7 @@ void TenuringTracer::printPromotionReport(
   fprintf(stderr, "  Reason: %s\n", ExplainGCReason(reason));
   fprintf(stderr, "  Nursery size: %4.1f MB used of %4.1f MB\n", usedMB,
           capacityMB);
-  fprintf(stderr, "  Promotion rate: %5.1f%%\n", fractionPromoted);
+  fprintf(stderr, "  Promotion rate: %5.1f%%\n", 100 * fractionPromoted);
 
   promotionStats->printReport(cx, nogc);
 }
@@ -1613,13 +1626,13 @@ void PromotionStats::printObjectCounts(JSContext* cx,
                                        const JS::AutoRequireNoGC& nogc) {
   CountsVector counts;
 
-  for (auto r = objectCountByBaseShape.all(); !r.empty(); r.popFront()) {
-    size_t count = r.front().value();
+  for (auto iter = objectCountByBaseShape.iter(); !iter.done(); iter.next()) {
+    size_t count = iter.get().value();
     if (count < AttentionThreshold) {
       continue;
     }
 
-    BaseShape* baseShape = r.front().key();
+    BaseShape* baseShape = iter.get().key();
 
     const char* className = baseShape->clasp()->name;
 

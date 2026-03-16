@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef TlsHandshaker_h__
-#define TlsHandshaker_h__
+#ifndef TlsHandshaker_h_
+#define TlsHandshaker_h_
 
 #include "nsITlsHandshakeListener.h"
 
@@ -60,6 +60,7 @@ class TlsHandshaker : public nsITlsHandshakeCallbackListener {
   void SetNPNComplete() { mNPNComplete = true; }
   void NotifyClose() {
     mTlsHandshakeComplitionPending = false;
+    mNPNComplete = true;
     mOwner = nullptr;
   }
 
@@ -97,4 +98,4 @@ class TlsHandshaker : public nsITlsHandshakeCallbackListener {
 
 }  // namespace mozilla::net
 
-#endif  // TlsHandshaker_h__
+#endif  // TlsHandshaker_h_

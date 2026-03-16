@@ -35,6 +35,7 @@
 #include <string>
 #include <vector>
 
+#include "mozilla/ProfilerMarkers.h"
 #include "mozilla/PublicSSL.h"  // For psm::InitializeCipherSuite
 #include "mozilla/dom/RTCStatsReportBinding.h"
 #include "nsDNSService2.h"
@@ -42,18 +43,10 @@
 #include "nss.h"  // For NSS_NoDB_Init
 #include "sdp/SdpAttribute.h"
 #include "transport/runnable_utils.h"
-
-#ifdef MOZ_GECKO_PROFILER
-#  include "mozilla/ProfilerMarkers.h"
-
-#  define MEDIA_TRANSPORT_HANDLER_PACKET_RECEIVED(aPacket) \
-    PROFILER_MARKER_TEXT(                                  \
-        "WebRTC Packet Received", MEDIA_RT, {},            \
-        ProfilerString8View::WrapNullTerminatedString(     \
-            MediaPacket::EnumValueToString((aPacket).type())));
-#else
-#  define MEDIA_TRANSPORT_HANDLER_PACKET_RECEIVED(aPacket)
-#endif
+#define MEDIA_TRANSPORT_HANDLER_PACKET_RECEIVED(aPacket)              \
+  PROFILER_MARKER_TEXT("WebRTC Packet Received", MEDIA_RT, {},        \
+                       ProfilerString8View::WrapNullTerminatedString( \
+                           MediaPacket::EnumValueToString((aPacket).type())));
 
 namespace mozilla {
 
@@ -144,6 +137,7 @@ class MediaTransportHandlerSTS : public MediaTransportHandler,
 
   using MediaTransportHandler::OnAlpnNegotiated;
   using MediaTransportHandler::OnCandidate;
+  using MediaTransportHandler::OnCandidateError;
   using MediaTransportHandler::OnConnectionStateChange;
   using MediaTransportHandler::OnEncryptedSending;
   using MediaTransportHandler::OnGatheringStateChange;
@@ -159,6 +153,9 @@ class MediaTransportHandlerSTS : public MediaTransportHandler,
                         const std::string& aCandidate,
                         const std::string& aUfrag, const std::string& aMDNSAddr,
                         const std::string& aActualAddr);
+  void OnCandidateError(NrIceMediaStream* aStream, const std::string& aAddress,
+                        uint16_t aPort, const std::string& aUrl,
+                        uint16_t aErrorCode, const std::string& aErrorText);
   void OnStateChange(TransportLayer* aLayer, TransportLayer::State);
   void OnRtcpStateChange(TransportLayer* aLayer, TransportLayer::State);
   void PacketReceived(TransportLayer* aLayer, MediaPacket& aPacket);
@@ -529,7 +526,7 @@ static Maybe<NrIceCtx::NatSimulatorConfig> GetNatConfig() {
 void MediaTransportHandlerSTS::CreateIceCtx(const std::string& aName) {
   mInitPromise = InvokeAsync(
       GetMainThreadSerialEventTarget(), __func__,
-      [=, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
+      [=, this, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
         CSFLogDebug(LOGTAG, "%s starting", __func__);
         if (!NSS_IsInitialized()) {
           if (NSS_NoDB_Init(nullptr) != SECSuccess) {
@@ -581,7 +578,7 @@ void MediaTransportHandlerSTS::CreateIceCtx(const std::string& aName) {
 
         return InvokeAsync(
             mStsThread, __func__,
-            [=, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
+            [=, this, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
               mIceCtx = NrIceCtx::Create(aName);
               if (!mIceCtx) {
                 return InitPromise::CreateAndReject("NrIceCtx::Create failed",
@@ -628,7 +625,7 @@ nsresult MediaTransportHandlerSTS::SetIceConfig(
 
   mInitPromise->Then(
       mStsThread, __func__,
-      [=, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
+      [=, this, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
         if (!mIceCtx) {
           CSFLogError(LOGTAG, "%s: mIceCtx is null", __FUNCTION__);
           return;
@@ -746,7 +743,7 @@ void MediaTransportHandlerSTS::EnsureProvisionalTransport(
 
   mInitPromise->Then(
       mStsThread, __func__,
-      [=, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
+      [=, this, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
         if (!mIceCtx) {
           return;  // Probably due to XPCOM shutdown
         }
@@ -769,6 +766,8 @@ void MediaTransportHandlerSTS::EnsureProvisionalTransport(
 
           stream->SignalCandidate.connect(
               this, &MediaTransportHandlerSTS::OnCandidateFound);
+          stream->SignalCandidateError.connect(
+              this, &MediaTransportHandlerSTS::OnCandidateError);
           stream->SignalGatheringStateChange.connect(
               this, &MediaTransportHandlerSTS::OnGatheringStateChange);
         }
@@ -793,7 +792,7 @@ void MediaTransportHandlerSTS::ActivateTransport(
 
   mInitPromise->Then(
       mStsThread, __func__,
-      [=, keyDer = aKeyDer.Clone(), certDer = aCertDer.Clone(),
+      [=, this, keyDer = aKeyDer.Clone(), certDer = aCertDer.Clone(),
        self = RefPtr<MediaTransportHandlerSTS>(this)]() {
         if (!mIceCtx) {
           return;  // Probably due to XPCOM shutdown
@@ -880,7 +879,7 @@ void MediaTransportHandlerSTS::SetTargetForDefaultLocalAddressLookup(
 
   mInitPromise->Then(
       mStsThread, __func__,
-      [=, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
+      [=, this, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
         if (!mIceCtx) {
           return;  // Probably due to XPCOM shutdown
         }
@@ -897,7 +896,7 @@ void MediaTransportHandlerSTS::StartIceGathering(
 
   mInitPromise->Then(
       mStsThread, __func__,
-      [=, stunAddrs = aStunAddrs.Clone(),
+      [=, this, stunAddrs = aStunAddrs.Clone(),
        self = RefPtr<MediaTransportHandlerSTS>(this)]() {
         if (!mIceCtx) {
           return;  // Probably due to XPCOM shutdown
@@ -929,7 +928,7 @@ void MediaTransportHandlerSTS::StartIceChecks(
 
   mInitPromise->Then(
       mStsThread, __func__,
-      [=, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
+      [=, this, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
         if (!mIceCtx) {
           return;  // Probably due to XPCOM shutdown
         }
@@ -976,7 +975,7 @@ void MediaTransportHandlerSTS::AddIceCandidate(
 
   mInitPromise->Then(
       mStsThread, __func__,
-      [=, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
+      [=, this, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
         if (!mIceCtx) {
           return;  // Probably due to XPCOM shutdown
         }
@@ -1017,7 +1016,7 @@ void MediaTransportHandlerSTS::UpdateNetworkState(bool aOnline) {
 
   mInitPromise->Then(
       mStsThread, __func__,
-      [=, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
+      [=, this, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
         if (!mIceCtx) {
           return;  // Probably due to XPCOM shutdown
         }
@@ -1033,7 +1032,7 @@ void MediaTransportHandlerSTS::RemoveTransportsExcept(
 
   mInitPromise->Then(
       mStsThread, __func__,
-      [=, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
+      [=, this, self = RefPtr<MediaTransportHandlerSTS>(this)]() {
         if (!mIceCtx) {
           return;  // Probably due to XPCOM shutdown
         }
@@ -1141,6 +1140,11 @@ void MediaTransportHandler::OnCandidate(const std::string& aTransportId,
   mCandidateGathered.Notify(aTransportId, std::move(aCandidateInfo));
 }
 
+void MediaTransportHandler::OnCandidateError(
+    IceCandidateErrorInfo&& aErrorInfo) {
+  mCandidateError.Notify(std::move(aErrorInfo));
+}
+
 void MediaTransportHandler::OnAlpnNegotiated(const std::string& aAlpn) {
   const bool privacyRequested = aAlpn == "c-webrtc";
   mAlpnNegotiated.Notify(aAlpn, privacyRequested);
@@ -1212,17 +1216,19 @@ RefPtr<dom::RTCStatsPromise> MediaTransportHandlerSTS::GetIceStats(
     const std::string& aTransportId, DOMHighResTimeStamp aNow) {
   MOZ_RELEASE_ASSERT(mInitPromise);
 
-  return mInitPromise->Then(mStsThread, __func__, [=, self = RefPtr(this)]() {
-    UniquePtr<dom::RTCStatsCollection> stats(new dom::RTCStatsCollection);
-    if (mIceCtx) {
-      for (const auto& stream : mIceCtx->GetStreams()) {
-        if (aTransportId.empty() || aTransportId == stream->GetId()) {
-          GetIceStats(*stream, aNow, stats.get());
+  return mInitPromise->Then(
+      mStsThread, __func__, [=, this, self = RefPtr(this)]() {
+        UniquePtr<dom::RTCStatsCollection> stats(new dom::RTCStatsCollection);
+        if (mIceCtx) {
+          for (const auto& stream : mIceCtx->GetStreams()) {
+            if (aTransportId.empty() || aTransportId == stream->GetId()) {
+              GetIceStats(*stream, aNow, stats.get());
+            }
+          }
         }
-      }
-    }
-    return dom::RTCStatsPromise::CreateAndResolve(std::move(stats), __func__);
-  });
+        return dom::RTCStatsPromise::CreateAndResolve(std::move(stats),
+                                                      __func__);
+      });
 }
 
 RefPtr<MediaTransportHandler::IceLogPromise>
@@ -1606,6 +1612,21 @@ void MediaTransportHandlerSTS::OnCandidateFound(
   info.mActualAddress = aActualAddr;
 
   OnCandidate(aStream->GetId(), std::move(info));
+}
+
+void MediaTransportHandlerSTS::OnCandidateError(NrIceMediaStream* aStream,
+                                                const std::string& aAddress,
+                                                uint16_t aPort,
+                                                const std::string& aUrl,
+                                                uint16_t aErrorCode,
+                                                const std::string& aErrorText) {
+  IceCandidateErrorInfo info;
+  info.mAddress = aAddress;
+  info.mPort = aPort;
+  info.mUrl = aUrl;
+  info.mErrorCode = aErrorCode;
+  info.mErrorText = aErrorText;
+  OnCandidateError(std::move(info));
 }
 
 void MediaTransportHandlerSTS::OnStateChange(TransportLayer* aLayer,

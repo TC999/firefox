@@ -85,7 +85,8 @@ class MOZ_STACK_CLASS HTMLEditor::AutoInlineStyleSetter final
    * See comments in the definition what this does.
    */
   Result<EditorRawDOMRange, nsresult> ExtendOrShrinkRangeToApplyTheStyle(
-      const HTMLEditor& aHTMLEditor, const EditorDOMRange& aRange) const;
+      const HTMLEditor& aHTMLEditor, const EditorDOMRange& aRange,
+      const Element& aEditingHost) const;
 
   /**
    * Returns next/previous sibling of aContent or an ancestor of it if it's
@@ -741,7 +742,8 @@ class MOZ_STACK_CLASS HTMLEditor::AutoInsertParagraphHandler final {
    */
   [[nodiscard]] EditorDOMPoint GetBetterPointToSplitParagraph(
       const Element& aBlockElementToSplit,
-      const EditorDOMPoint& aCandidatePointToSplit);
+      const EditorDOMPoint& aCandidatePointToSplit,
+      const Element& aEditingHost);
 
   enum class IgnoreBlockBoundaries : bool { No, Yes };
 
@@ -877,6 +879,8 @@ class MOZ_STACK_CLASS HTMLEditor::AutoDeleteRangesHandler final {
       const Element& aEditingHost);
 
  private:
+  enum class ComputeRangeFor : bool { GetTargetRanges, ToDeleteTheRange };
+
   [[nodiscard]] bool IsHandlingRecursively() const {
     return mParent != nullptr;
   }
@@ -1039,7 +1043,9 @@ class MOZ_STACK_CLASS HTMLEditor::AutoDeleteRangesHandler final {
   [[nodiscard]] Result<EditorRawDOMRange, nsresult> ExtendOrShrinkRangeToDelete(
       const HTMLEditor& aHTMLEditor,
       const LimitersAndCaretData& aLimitersAndCaretData,
-      const EditorDOMRangeType& aRangeToDelete) const;
+      const EditorDOMRangeType& aRangeToDelete,
+      SelectionWasCollapsed aSelectionWasCollapsed,
+      ComputeRangeFor aComputeRangeFor, const Element& aEditingHost) const;
 
   /**
    * Extend the start boundary of aRangeToDelete to contain ancestor inline
@@ -1070,7 +1076,8 @@ class MOZ_STACK_CLASS HTMLEditor::AutoDeleteRangesHandler final {
    */
   [[nodiscard]] static EditorRawDOMRange
   GetRangeToAvoidDeletingAllListItemsIfSelectingAllOverListElements(
-      const EditorRawDOMRange& aRangeToDelete);
+      const EditorRawDOMRange& aRangeToDelete,
+      ComputeRangeFor aComputeRangeFor);
 
   /**
    * DeleteUnnecessaryNodes() removes unnecessary nodes around aRange.
@@ -1346,7 +1353,6 @@ HTMLEditor::AutoDeleteRangesHandler::AutoBlockElementsJoiner final {
                         nsIEditor::EDirection aDirectionAndAmount,
                         const EditorDOMPoint& aCaretPoint,
                         const Element& aEditingHost);
-  enum class ComputeRangeFor : bool { GetTargetRanges, ToDeleteTheRange };
   nsresult ComputeRangeToDeleteLineBreak(
       const HTMLEditor& aHTMLEditor, nsRange& aRangeToDelete,
       const Element& aEditingHost, ComputeRangeFor aComputeRangeFor) const;
@@ -1550,9 +1556,9 @@ class MOZ_STACK_CLASS HTMLEditor::AutoDeleteRangesHandler::
    * boundaries between joining blocks.  If they won't be joined, this
    * collapses the range to aCaretPoint.
    */
-  [[nodiscard]] nsresult ComputeRangeToDelete(const HTMLEditor& aHTMLEditor,
-                                              const EditorDOMPoint& aCaretPoint,
-                                              nsRange& aRangeToDelete) const;
+  [[nodiscard]] nsresult ComputeRangeToDelete(
+      const HTMLEditor& aHTMLEditor, const EditorDOMPoint& aCaretPoint,
+      nsRange& aRangeToDelete, const Element& aEditingHost) const;
 
   /**
    * Join inclusive ancestor block elements which are found by preceding
@@ -1690,8 +1696,8 @@ HTMLEditor::AutoDeleteRangesHandler::AutoEmptyBlockAncestorDeleter final {
    * `mEmptyInclusiveAncestorBlockElement`.
    */
   [[nodiscard]] Result<CaretPoint, nsresult> GetNewCaretPosition(
-      const HTMLEditor& aHTMLEditor,
-      nsIEditor::EDirection aDirectionAndAmount) const;
+      const HTMLEditor& aHTMLEditor, nsIEditor::EDirection aDirectionAndAmount,
+      const Element& aEditingHost) const;
 
   RefPtr<Element> mEmptyInclusiveAncestorBlockElement;
 };

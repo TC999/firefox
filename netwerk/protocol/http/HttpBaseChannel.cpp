@@ -53,6 +53,7 @@
 #include "mozilla/net/OpaqueResponseUtils.h"
 #include "mozilla/net/UrlClassifierCommon.h"
 #include "mozilla/net/UrlClassifierFeatureFactory.h"
+#include "mozilla/StaticPrefs_javascript.h"
 #include "nsBufferedStreams.h"
 #include "nsCOMPtr.h"
 #include "nsCRT.h"
@@ -1610,6 +1611,7 @@ nsresult HttpBaseChannel::DoApplyContentConversionsInternal(
     LOG(("Changing Content-Encoding from '%s' to ''", contentEncoding.get()));
     // Can't use SetHeader; we need to overwrite the current value
     rv = mResponseHead->SetHeaderOverride(nsHttp::Content_Encoding, ""_ns);
+    rv = mResponseHead->SetHeaderOverride(nsHttp::Content_Length, ""_ns);
   }
   *aNewNextListener = do_AddRef(nextListener).take();
   return NS_OK;
@@ -1872,7 +1874,6 @@ HttpBaseChannel::GetThirdPartyClassificationFlags(uint32_t* aFlags) {
 
 NS_IMETHODIMP
 HttpBaseChannel::GetTransferSize(uint64_t* aTransferSize) {
-  MutexAutoLock lock(mOnDataFinishedMutex);
   *aTransferSize = mTransferSize;
   return NS_OK;
 }
@@ -1885,14 +1886,12 @@ HttpBaseChannel::GetRequestSize(uint64_t* aRequestSize) {
 
 NS_IMETHODIMP
 HttpBaseChannel::GetDecodedBodySize(uint64_t* aDecodedBodySize) {
-  MutexAutoLock lock(mOnDataFinishedMutex);
   *aDecodedBodySize = mDecodedBodySize;
   return NS_OK;
 }
 
 NS_IMETHODIMP
 HttpBaseChannel::GetEncodedBodySize(uint64_t* aEncodedBodySize) {
-  MutexAutoLock lock(mOnDataFinishedMutex);
   *aEncodedBodySize = mEncodedBodySize;
   return NS_OK;
 }
@@ -3232,6 +3231,14 @@ nsresult EnsureMIMEOfScript(HttpBaseChannel* aChannel, nsIURI* aURI,
       return NS_OK;
     }
 
+#ifdef NIGHTLY_BUILD
+    if (StaticPrefs::javascript_options_experimental_wasm_esm_integration()) {
+      if (nsContentUtils::HasWasmMimeTypeEssence(typeString)) {
+        return NS_OK;
+      }
+    }
+#endif
+
     ReportMimeTypeMismatch(aChannel, "BlockWorkerWithWrongMimeType", aURI,
                            contentType, Report::Error);
     return NS_ERROR_CORRUPTED_CONTENT;
@@ -3240,6 +3247,14 @@ nsresult EnsureMIMEOfScript(HttpBaseChannel* aChannel, nsIURI* aURI,
   // ES6 modules require a strict MIME type check.
   if (internalType == nsIContentPolicy::TYPE_INTERNAL_MODULE ||
       internalType == nsIContentPolicy::TYPE_INTERNAL_MODULE_PRELOAD) {
+#ifdef NIGHTLY_BUILD
+    if (StaticPrefs::javascript_options_experimental_wasm_esm_integration()) {
+      if (nsContentUtils::HasWasmMimeTypeEssence(typeString)) {
+        return NS_OK;
+      }
+    }
+#endif
+
     ReportMimeTypeMismatch(aChannel, "BlockModuleWithWrongMimeType", aURI,
                            contentType, Report::Error);
     return NS_ERROR_CORRUPTED_CONTENT;
@@ -3279,6 +3294,14 @@ void WarnWrongMIMEOfScript(HttpBaseChannel* aChannel, nsIURI* aURI,
   if (nsContentUtils::IsJavascriptMIMEType(typeString)) {
     return;
   }
+
+#ifdef NIGHTLY_BUILD
+  if (StaticPrefs::javascript_options_experimental_wasm_esm_integration()) {
+    if (nsContentUtils::HasWasmMimeTypeEssence(typeString)) {
+      return;
+    }
+  }
+#endif
 
   ReportMimeTypeMismatch(aChannel, "WarnScriptWithWrongMimeType", aURI,
                          contentType, Report::Warning);
@@ -4542,7 +4565,7 @@ already_AddRefed<nsILoadInfo> HttpBaseChannel::CloneLoadInfoForRedirect(
                "docshell and necko should have the same "
                "geckoViewSessionContextId attribute");
 
-    attrs = docShellAttrs;
+    attrs = std::move(docShellAttrs);
     attrs.SetFirstPartyDomain(true, aNewURI);
     newLoadInfo->SetOriginAttributes(attrs);
 
@@ -6922,3 +6945,4 @@ void HttpBaseChannel::SetFetchPriorityDOM(
 
 }  // namespace net
 }  // namespace mozilla
+#undef LOGORB

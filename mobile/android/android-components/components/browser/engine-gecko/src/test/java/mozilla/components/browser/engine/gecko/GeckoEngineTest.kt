@@ -10,7 +10,6 @@ import android.graphics.Color
 import android.os.Looper.getMainLooper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import mozilla.components.ExperimentalAndroidComponentsApi
-import mozilla.components.browser.engine.gecko.autofill.RuntimeAddressStructureAccessor
 import mozilla.components.browser.engine.gecko.ext.getAntiTrackingPolicy
 import mozilla.components.browser.engine.gecko.mediaquery.toGeckoValue
 import mozilla.components.browser.engine.gecko.preferences.GeckoPreferenceAccessor
@@ -73,6 +72,7 @@ import org.junit.runner.RunWith
 import org.mockito.ArgumentMatchers.anyBoolean
 import org.mockito.ArgumentMatchers.anyFloat
 import org.mockito.ArgumentMatchers.anyInt
+import org.mockito.ArgumentMatchers.anyList
 import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.never
@@ -840,7 +840,7 @@ class GeckoEngineTest {
     }
 
     @Test
-    fun `setEnhancedTrackingProtectionLevel MUST always be set to STRICT unless the tracking protection policy is none`() {
+    fun `setEnhancedTrackingProtectionLevel MUST reflect the tracking protection policy`() {
         val mockRuntime = mock<GeckoRuntime>()
         val settings = spy(ContentBlocking.Settings.Builder().build())
         whenever(mockRuntime.settings).thenReturn(mock())
@@ -851,7 +851,7 @@ class GeckoEngineTest {
         engine.settings.trackingProtectionPolicy = TrackingProtectionPolicy.recommended()
 
         verify(mockRuntime.settings.contentBlocking).setEnhancedTrackingProtectionLevel(
-            ContentBlocking.EtpLevel.STRICT,
+            ContentBlocking.EtpLevel.DEFAULT,
         )
 
         reset(settings)
@@ -859,14 +859,14 @@ class GeckoEngineTest {
         engine.settings.trackingProtectionPolicy = TrackingProtectionPolicy.recommended()
 
         verify(mockRuntime.settings.contentBlocking, never()).setEnhancedTrackingProtectionLevel(
-            ContentBlocking.EtpLevel.STRICT,
+            ContentBlocking.EtpLevel.DEFAULT,
         )
 
         reset(settings)
 
         engine.settings.trackingProtectionPolicy = TrackingProtectionPolicy.strict()
 
-        verify(mockRuntime.settings.contentBlocking, never()).setEnhancedTrackingProtectionLevel(
+        verify(mockRuntime.settings.contentBlocking).setEnhancedTrackingProtectionLevel(
             ContentBlocking.EtpLevel.STRICT,
         )
 
@@ -2799,6 +2799,69 @@ class GeckoEngineTest {
     }
 
     @Test
+    fun `GIVEN a site with social trackers cross-site cookies WHEN these are blocked THEN engine informs about this`() {
+        val runtime = mock<GeckoRuntime>()
+        val engine = GeckoEngine(context, runtime = runtime)
+        val mockSession = mock<GeckoEngineSession>()
+        val mockGeckoSetting = mock<GeckoRuntimeSettings>()
+        val mockGeckoContentBlockingSetting = mock<ContentBlocking.Settings>()
+        var trackersLog: List<TrackerLog>? = null
+
+        val mockContentBlockingController = mock<ContentBlockingController>()
+        var logEntriesResult = GeckoResult<List<ContentBlockingController.LogEntry>>()
+
+        whenever(runtime.settings).thenReturn(mockGeckoSetting)
+        whenever(mockGeckoSetting.contentBlocking).thenReturn(mockGeckoContentBlockingSetting)
+        whenever(runtime.contentBlockingController).thenReturn(mockContentBlockingController)
+        whenever(mockContentBlockingController.getLog(any())).thenReturn(logEntriesResult)
+        engine.settings.trackingProtectionPolicy = TrackingProtectionPolicy.recommended()
+
+        engine.getTrackersLog(mockSession, onSuccess = { trackersLog = it })
+        logEntriesResult.complete(createSocialTrackersLogEntryList() + createBlockedCrossSiteCookiesLogEntryList())
+
+        shadowOf(getMainLooper()).idle()
+
+        assertEquals(3, trackersLog!!.size)
+
+        var trackerLog = trackersLog.first()
+        assertTrue(trackerLog.cookiesHasBeenBlocked)
+        assertEquals("www.tracker.com", trackerLog.url)
+        assertTrue(trackerLog.blockedCategories.contains(TrackingCategory.MOZILLA_SOCIAL))
+
+        var trackerLog2 = trackersLog[1]
+        assertFalse(trackerLog2.cookiesHasBeenBlocked)
+        assertEquals("www.tracker2.com", trackerLog2.url)
+        assertTrue(trackerLog2.loadedCategories.contains(TrackingCategory.MOZILLA_SOCIAL))
+
+        var trackerLog3 = trackersLog.last()
+        assertTrue(trackerLog3.cookiesHasBeenBlocked)
+        assertEquals("www.data-collector.com", trackerLog3.url)
+        assertTrue(trackerLog3.loadedCategories.isEmpty())
+
+        engine.settings.trackingProtectionPolicy = TrackingProtectionPolicy.strict()
+
+        logEntriesResult = GeckoResult()
+        whenever(mockContentBlockingController.getLog(any())).thenReturn(logEntriesResult)
+        engine.getTrackersLog(mockSession, onSuccess = { trackersLog = it })
+        logEntriesResult.complete(createSocialTrackersLogEntryList())
+
+        trackerLog = trackersLog.first()
+        assertTrue(trackerLog.cookiesHasBeenBlocked)
+        assertEquals("www.tracker.com", trackerLog.url)
+        assertTrue(trackerLog.blockedCategories.contains(TrackingCategory.MOZILLA_SOCIAL))
+
+        trackerLog2 = trackersLog[1]
+        assertFalse(trackerLog2.cookiesHasBeenBlocked)
+        assertEquals("www.tracker2.com", trackerLog2.url)
+        assertTrue(trackerLog2.loadedCategories.contains(TrackingCategory.MOZILLA_SOCIAL))
+
+        trackerLog3 = trackersLog.last()
+        assertTrue(trackerLog3.cookiesHasBeenBlocked)
+        assertEquals("www.data-collector.com", trackerLog3.url)
+        assertTrue(trackerLog3.loadedCategories.isEmpty())
+    }
+
+    @Test
     fun `fetch trackers logged of the level 2 list`() {
         val runtime = mock<GeckoRuntime>()
         val engine = GeckoEngine(context, runtime = runtime)
@@ -4148,6 +4211,39 @@ class GeckoEngineTest {
     }
 
     @Test
+    fun `WHEN registerPrefsForObservation is called successfully THEN onSuccess is called`() {
+        val runtime: GeckoRuntime = mock()
+
+        var onSuccessCalled = false
+        var onErrorCalled = false
+
+        val geckoResult = GeckoResult<Void>()
+        val geckoResultValue = null
+
+        val geckoPreferenceAccessor = mock<GeckoPreferenceAccessor>()
+        whenever(geckoPreferenceAccessor.registerGeckoPrefsForObservation(anyList<String>())).thenReturn(geckoResult)
+
+        val engine = GeckoEngine(
+            testContext,
+            runtime = runtime,
+            geckoPreferenceAccessor = geckoPreferenceAccessor,
+        )
+
+        @OptIn(ExperimentalAndroidComponentsApi::class)
+        engine.registerPrefsForObservation(
+            anyList<String>(),
+            onSuccess = { onSuccessCalled = true },
+            onError = { onErrorCalled = true },
+        )
+
+        geckoResult.complete(geckoResultValue)
+        shadowOf(getMainLooper()).idle()
+
+        assert(onSuccessCalled) { "Should have successfully registered." }
+        assert(!onErrorCalled) { "Should not have called onError." }
+    }
+
+    @Test
     fun `WHEN registerPrefForObservation is called unsuccessfully THEN onError is called`() {
         val runtime: GeckoRuntime = mock()
 
@@ -4168,6 +4264,38 @@ class GeckoEngineTest {
         @OptIn(ExperimentalAndroidComponentsApi::class)
         engine.registerPrefForObservation(
             anyString(),
+            onSuccess = { onSuccessCalled = true },
+            onError = { onErrorCalled = true },
+        )
+
+        geckoResult.completeExceptionally(Exception())
+        shadowOf(getMainLooper()).idle()
+
+        assert(!onSuccessCalled) { "Should not have successfully registered." }
+        assert(onErrorCalled) { "Should have called onError." }
+    }
+
+    @Test
+    fun `WHEN registerPrefsForObservations is called unsuccessfully THEN onError is called`() {
+        val runtime: GeckoRuntime = mock()
+
+        var onSuccessCalled = false
+        var onErrorCalled = false
+
+        val geckoResult = GeckoResult<Void>()
+
+        val geckoPreferenceAccessor = mock<GeckoPreferenceAccessor>()
+        whenever(geckoPreferenceAccessor.registerGeckoPrefsForObservation(anyList<String>())).thenReturn(geckoResult)
+
+        val engine = GeckoEngine(
+            testContext,
+            runtime = runtime,
+            geckoPreferenceAccessor = geckoPreferenceAccessor,
+        )
+
+        @OptIn(ExperimentalAndroidComponentsApi::class)
+        engine.registerPrefsForObservation(
+            anyList<String>(),
             onSuccess = { onSuccessCalled = true },
             onError = { onErrorCalled = true },
         )
@@ -4213,6 +4341,39 @@ class GeckoEngineTest {
     }
 
     @Test
+    fun `WHEN unregisterPrefsForObservation is called successfully THEN onSuccess is called`() {
+        val runtime: GeckoRuntime = mock()
+
+        var onSuccessCalled = false
+        var onErrorCalled = false
+
+        val geckoResult = GeckoResult<Void>()
+        val geckoResultValue = null
+
+        val geckoPreferenceAccessor = mock<GeckoPreferenceAccessor>()
+        whenever(geckoPreferenceAccessor.unregisterGeckoPrefsForObservation(anyList<String>())).thenReturn(geckoResult)
+
+        val engine = GeckoEngine(
+            testContext,
+            runtime = runtime,
+            geckoPreferenceAccessor = geckoPreferenceAccessor,
+        )
+
+        @OptIn(ExperimentalAndroidComponentsApi::class)
+        engine.unregisterPrefsForObservation(
+            anyList<String>(),
+            onSuccess = { onSuccessCalled = true },
+            onError = { onErrorCalled = true },
+        )
+
+        geckoResult.complete(geckoResultValue)
+        shadowOf(getMainLooper()).idle()
+
+        assert(onSuccessCalled) { "Should have successfully registered." }
+        assert(!onErrorCalled) { "Should not have called onError." }
+    }
+
+    @Test
     fun `WHEN unregisterPrefForObservation is called unsuccessfully THEN onError is called`() {
         val runtime: GeckoRuntime = mock()
 
@@ -4233,6 +4394,38 @@ class GeckoEngineTest {
         @OptIn(ExperimentalAndroidComponentsApi::class)
         engine.unregisterPrefForObservation(
             anyString(),
+            onSuccess = { onSuccessCalled = true },
+            onError = { onErrorCalled = true },
+        )
+
+        geckoResult.completeExceptionally(Exception())
+        shadowOf(getMainLooper()).idle()
+
+        assert(!onSuccessCalled) { "Should not have successfully registered." }
+        assert(onErrorCalled) { "Should have called onError." }
+    }
+
+    @Test
+    fun `WHEN unregisterPrefsForObservation is called unsuccessfully THEN onError is called`() {
+        val runtime: GeckoRuntime = mock()
+
+        var onSuccessCalled = false
+        var onErrorCalled = false
+
+        val geckoResult = GeckoResult<Void>()
+
+        val geckoPreferenceAccessor = mock<GeckoPreferenceAccessor>()
+        whenever(geckoPreferenceAccessor.unregisterGeckoPrefsForObservation(anyList<String>())).thenReturn(geckoResult)
+
+        val engine = GeckoEngine(
+            testContext,
+            runtime = runtime,
+            geckoPreferenceAccessor = geckoPreferenceAccessor,
+        )
+
+        @OptIn(ExperimentalAndroidComponentsApi::class)
+        engine.unregisterPrefsForObservation(
+            anyList<String>(),
             onSuccess = { onSuccessCalled = true },
             onError = { onErrorCalled = true },
         )
@@ -4510,6 +4703,17 @@ class GeckoEngineTest {
         ReflectionUtils.setField(loadedLogEntry, "blockingData", listOf(loadedCookieSocialTracker, loadedSocialContent))
 
         return listOf(blockedLogEntry, loadedLogEntry)
+    }
+
+    private fun createBlockedCrossSiteCookiesLogEntryList(): List<ContentBlockingController.LogEntry> {
+        val blockedLogEntry = object : ContentBlockingController.LogEntry() {}
+
+        ReflectionUtils.setField(blockedLogEntry, "origin", "www.data-collector.com")
+        val blockedCrossSiteCookie = createBlockingData(Event.COOKIES_PARTITIONED_TRACKER)
+
+        ReflectionUtils.setField(blockedLogEntry, "blockingData", listOf(blockedCrossSiteCookie))
+
+        return listOf(blockedLogEntry)
     }
 
     private fun createDummyLogEntryList(): List<ContentBlockingController.LogEntry> {

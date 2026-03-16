@@ -7,7 +7,6 @@
 /* import-globals-from home.js */
 /* import-globals-from search.js */
 /* import-globals-from containers.js */
-/* import-globals-from translations.js */
 /* import-globals-from privacy.js */
 /* import-globals-from sync.js */
 /* import-globals-from experimental.js */
@@ -18,8 +17,8 @@
 
 /** @import MozButton from "chrome://global/content/elements/moz-button.mjs" */
 /** @import {SettingConfig, SettingEmitChange} from "chrome://global/content/preferences/Setting.mjs" */
-/** @import {SettingControlConfig} from "chrome://browser/content/preferences/widgets/setting-control.mjs" */
-/** @import {SettingGroup, SettingGroupConfig} from "chrome://browser/content/preferences/widgets/setting-group.mjs" */
+/** @import {SettingControlConfig, SettingOptionConfig} from "chrome://browser/content/preferences/widgets/setting-control.mjs" */
+/** @import {SettingGroup} from "chrome://browser/content/preferences/widgets/setting-group.mjs" */
 /** @import {SettingPane, SettingPaneConfig} from "chrome://browser/content/preferences/widgets/setting-pane.mjs" */
 
 "use strict";
@@ -99,8 +98,6 @@ ChromeUtils.defineESModuleGetters(this, {
   LoginHelper: "resource://gre/modules/LoginHelper.sys.mjs",
   NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
   OSKeyStore: "resource://gre/modules/OSKeyStore.sys.mjs",
-  PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
-  QuickSuggest: "moz-src:///browser/components/urlbar/QuickSuggest.sys.mjs",
   Region: "resource://gre/modules/Region.sys.mjs",
   SelectionChangedMenulist:
     "resource:///modules/SelectionChangedMenulist.sys.mjs",
@@ -109,8 +106,6 @@ ChromeUtils.defineESModuleGetters(this, {
   TransientPrefs: "resource:///modules/TransientPrefs.sys.mjs",
   UIState: "resource://services-sync/UIState.sys.mjs",
   UpdateUtils: "resource://gre/modules/UpdateUtils.sys.mjs",
-  UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
-  UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(this, "gSubDialog", function () {
@@ -176,88 +171,20 @@ function srdSectionEnabled(section) {
   return srdSectionPrefs.all || srdSectionPrefs[section];
 }
 
-var SettingPaneManager = {
-  /** @type {Map<string, SettingPaneConfig>} */
-  _data: new Map(),
-
-  /**
-   * @param {string} id
-   */
-  get(id) {
-    if (!this._data.has(id)) {
-      throw new Error(`Setting pane "${id}" not found`);
+var { SettingPaneManager, friendlyPrefCategoryNameToInternalName } =
+  ChromeUtils.importESModule(
+    "chrome://browser/content/preferences/config/SettingPaneManager.mjs",
+    {
+      global: "current",
     }
-    return this._data.get(id);
-  },
+  );
 
-  /**
-   * @param {string} id
-   * @param {SettingPaneConfig} config
-   */
-  registerPane(id, config) {
-    if (this._data.has(id)) {
-      throw new Error(`Setting pane "${id}" already registered`);
-    }
-    this._data.set(id, config);
-    let subPane = friendlyPrefCategoryNameToInternalName(id);
-    let settingPane = /** @type {SettingPane} */ (
-      document.createElement("setting-pane")
-    );
-    settingPane.name = subPane;
-    settingPane.config = config;
-    settingPane.isSubPane = !!config.parent;
-    document.getElementById("mainPrefPane").append(settingPane);
-    register_module(subPane, {
-      init() {
-        settingPane.init();
-      },
-    });
-  },
-
-  /**
-   * @param {Record<string, SettingPaneConfig>} paneConfigs
-   */
-  registerPanes(paneConfigs) {
-    for (let id in paneConfigs) {
-      this.registerPane(id, paneConfigs[id]);
-    }
-  },
-};
-
-var SettingGroupManager = {
-  /** @type {Map<string, SettingGroupConfig>} */
-  _data: new Map(),
-
-  /**
-   * @param {string} id
-   */
-  get(id) {
-    if (!this._data.has(id)) {
-      throw new Error(`Setting group "${id}" not found`);
-    }
-    return this._data.get(id);
-  },
-
-  /**
-   * @param {string} id
-   * @param {SettingGroupConfig} config
-   */
-  registerGroup(id, config) {
-    if (this._data.has(id)) {
-      throw new Error(`Setting group "${id}" already registered`);
-    }
-    this._data.set(id, config);
-  },
-
-  /**
-   * @param {Record<string, SettingGroupConfig>} groupConfigs
-   */
-  registerGroups(groupConfigs) {
-    for (let id in groupConfigs) {
-      this.registerGroup(id, groupConfigs[id]);
-    }
-  },
-};
+var SettingGroupManager = ChromeUtils.importESModule(
+  "chrome://browser/content/preferences/config/SettingGroupManager.mjs",
+  {
+    global: "current",
+  }
+).SettingGroupManager;
 
 /**
  * Register initial config-based setting panes here. If you need to register a
@@ -266,30 +193,86 @@ var SettingGroupManager = {
  * @type {Record<string, SettingPaneConfig>}
  */
 const CONFIG_PANES = Object.freeze({
-  containers2: {
-    parent: "general",
-    l10nId: "containers-section-header",
-    groupIds: ["containers"],
+  ai: {
+    l10nId: "preferences-ai-controls-header",
+    iconSrc: "chrome://global/skin/icons/highlights.svg",
+    groupIds: ["aiControlsDescription", "aiFeatures", "aiStatesDescription"],
+    module: "chrome://browser/content/preferences/config/aiFeatures.mjs",
+    visible: () =>
+      Services.prefs.getBoolPref("browser.preferences.aiControls", false),
+  },
+  customHomepage: {
+    parent: "home",
+    l10nId: "home-custom-homepage-subpage",
+    groupIds: ["customHomepage"],
+    module: "chrome://browser/content/preferences/config/home-startup.mjs",
   },
   dnsOverHttps: {
     parent: "privacy",
     l10nId: "preferences-doh-header2",
     groupIds: ["dnsOverHttpsAdvanced"],
   },
+  etp: {
+    parent: "privacy",
+    l10nId: "preferences-etp-header",
+    groupIds: ["etpBanner", "etpAdvanced"],
+  },
+  etpCustomize: {
+    parent: "etp",
+    l10nId: "preferences-etp-customize-header",
+    groupIds: ["etpCustomize", "etpReset"],
+  },
+  history: {
+    parent: "privacy",
+    l10nId: "history-header2",
+    groupIds: ["historyAdvanced"],
+  },
+  home: {
+    l10nId: "home-section",
+    iconSrc: "chrome://browser/skin/home.svg",
+    groupIds: ["defaultBrowserHome", "startupHome", "homepage", "home"],
+    module: "chrome://browser/content/preferences/config/home-startup.mjs",
+    replaces: "home",
+  },
+  manageAddresses: {
+    parent: "privacy",
+    l10nId: "autofill-addresses-manage-addresses-title",
+    groupIds: ["manageAddresses"],
+    iconSrc: "chrome://browser/skin/notification-icons/geo.svg",
+  },
+  manageMemories: {
+    parent: "personalizeSmartWindow",
+    l10nId: "ai-window-manage-memories-header",
+    groupIds: ["manageMemories"],
+    module: "chrome://browser/content/preferences/config/aiFeatures.mjs",
+    supportPage: "smart-window-memories",
+  },
   managePayments: {
     parent: "privacy",
     l10nId: "autofill-payment-methods-manage-payments-title",
     groupIds: ["managePayments"],
+    iconSrc: "chrome://browser/skin/payment-methods-16.svg",
   },
   paneProfiles: {
     parent: "general",
     l10nId: "preferences-profiles-group-header",
     groupIds: ["profilePane"],
   },
-  etp: {
-    parent: "privacy",
-    l10nId: "preferences-etp-header",
-    groupIds: ["etpBanner", "etpAdvanced"],
+  personalizeSmartWindow: {
+    parent: "ai",
+    l10nId: "ai-window-personalize-header",
+    iconSrc: "chrome://devtools/skin/images/globe.svg",
+    groupIds: ["assistantModelGroup", "memoriesGroup"],
+    module: "chrome://browser/content/preferences/config/aiFeatures.mjs",
+  },
+  translations: {
+    parent: "general",
+    l10nId: "settings-translations-subpage-header",
+    groupIds: [
+      "translationsAutomaticTranslation",
+      "translationsDownloadLanguages",
+    ],
+    iconSrc: "chrome://browser/skin/translations.svg",
   },
 });
 
@@ -345,13 +328,16 @@ function init_all() {
   register_module("panePrivacy", gPrivacyPane);
   register_module("paneContainers", gContainersPane);
 
+  let redesignEnabled = Services.prefs.getBoolPref(
+    "browser.settings-redesign.enabled"
+  );
   for (let [id, config] of Object.entries(CONFIG_PANES)) {
+    if (!redesignEnabled && config.replaces) {
+      continue;
+    }
     SettingPaneManager.registerPane(id, config);
   }
 
-  if (Services.prefs.getBoolPref("browser.translations.newSettingsUI.enable")) {
-    register_module("paneTranslations", gTranslationsPane);
-  }
   if (ExperimentAPI.labsEnabled) {
     // Set hidden based on previous load's hidden value or if Nimbus is
     // disabled.
@@ -559,14 +545,6 @@ async function gotoPref(
     spotlight(subcategory, category);
   }
 
-  // Handle any visibility changes that are controlled by pref logic.
-  //
-  // Take caution when trying to flip the hidden state to true since the
-  // element might show up unexpectedly on different pages in about:preferences.
-  //
-  // See Bug 1999032 to remove this in favor of config-based prefs.
-  categoryModule.handlePrefControlledSection?.();
-
   // Record which category is shown
   let gleanId = /** @type {"showClick" | "showHash" | "showInitial"} */ (
     "show" + aShowReason
@@ -629,23 +607,20 @@ function spotlight(subcategory, category) {
 }
 
 function scrollAndHighlight(subcategory) {
-  let element = document.querySelector(`[data-subcategory="${subcategory}"]`);
-  if (!element) {
+  let elements = document.querySelectorAll(
+    `[data-subcategory~="${subcategory}"]`
+  );
+  if (!elements.length) {
     return;
   }
 
-  element.scrollIntoView({
+  elements[0].scrollIntoView({
     behavior: "smooth",
     block: "center",
   });
-  element.classList.add("spotlight");
-}
-
-function friendlyPrefCategoryNameToInternalName(aName) {
-  if (aName.startsWith("pane")) {
-    return aName;
+  for (let element of elements) {
+    element.classList.add("spotlight");
   }
-  return "pane" + aName.substring(0, 1).toUpperCase() + aName.substr(1);
 }
 
 // This function is duplicated inside of utilityOverlay.js's openPreferences.

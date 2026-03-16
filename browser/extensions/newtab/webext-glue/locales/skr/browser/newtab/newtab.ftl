@@ -43,7 +43,7 @@ newtab-search-box-input =
     .placeholder = ویب تے ڳولو
     .aria-label = ویب تے ڳولو
 
-## Top Sites - General form dialog.
+## Clear text button for the URL and image URL input fields in the Top Sites form.
 
 newtab-topsites-add-search-engine-header = ڳولݨ انجݨ دا اضافہ کرو
 newtab-topsites-add-shortcut-header = نواں شارٹ کٹ
@@ -399,6 +399,11 @@ newtab-weather-menu-hide-weather = نویں ٹیب تے موسم لکاؤ
 newtab-weather-menu-learn-more = ٻیا سِکھو
 # This message is shown if user is working offline
 newtab-weather-error-not-available = عیں ایں ویلے موسم ڈیٹا دستیاب کائنی۔
+# Variables:
+#   $provider (string) - Service provider for weather data
+newtab-weather-see-forecast-description =
+    .title = { $provider } وچ پیش گوئی ݙیکھو
+    .aria-description = { $provider } ∙سپانسر تھیا
 
 ## Topic Labels
 

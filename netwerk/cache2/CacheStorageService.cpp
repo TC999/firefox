@@ -19,7 +19,6 @@
 #include "nsIObserverService.h"
 #include "nsIFile.h"
 #include "nsIURI.h"
-#include "nsINetworkPredictor.h"
 #include "nsCOMPtr.h"
 #include "nsContentUtils.h"
 #include "nsNetCID.h"
@@ -159,8 +158,16 @@ void CacheStorageService::ShutdownBackground() {
   }
 
 #ifdef NS_FREE_PERMANENT_DATA
-  Pool(MemoryPool::EType::DISK).mManagedEntries.clear();
-  Pool(MemoryPool::EType::MEMORY).mManagedEntries.clear();
+  // Properly unregister entries before clearing the lists to maintain
+  // the invariant that IsRegistered() reflects actual list membership.
+  // This prevents crashes if pending UNREGISTER operations run after shutdown.
+  RefPtr<CacheEntry> entry;
+  while ((entry = Pool(MemoryPool::EType::DISK).mManagedEntries.popFirst())) {
+    entry->SetRegistered(false);
+  }
+  while ((entry = Pool(MemoryPool::EType::MEMORY).mManagedEntries.popFirst())) {
+    entry->SetRegistered(false);
+  }
 #endif
 
   LOG(("CacheStorageService::ShutdownBackground - done"));
@@ -1170,11 +1177,6 @@ bool CacheStorageService::IsForcedValidEntry(
   // Entry timeout has been reached
   mForcedValidEntries.Remove(aContextEntryKey);
 
-  if (!data.viewed) {
-    glean::predictor::prefetch_use_status
-        .EnumGet(glean::predictor::PrefetchUseStatusLabel::eWaitedtoolong)
-        .Add();
-  }
   return false;
 }
 
@@ -1215,13 +1217,6 @@ void CacheStorageService::RemoveEntryForceValid(nsACString const& aContextKey,
 
   LOG(("CacheStorageService::RemoveEntryForceValid context='%s' entryKey=%s",
        aContextKey.BeginReading(), aEntryKey.BeginReading()));
-  ForcedValidData data;
-  bool ok = mForcedValidEntries.Get(aContextKey + aEntryKey, &data);
-  if (ok && !data.viewed) {
-    glean::predictor::prefetch_use_status
-        .EnumGet(glean::predictor::PrefetchUseStatusLabel::eWaitedtoolong)
-        .Add();
-  }
   mForcedValidEntries.Remove(aContextKey + aEntryKey);
 }
 
@@ -1233,11 +1228,6 @@ void CacheStorageService::ForcedValidEntriesPrune(TimeStamp& now) {
 
   for (auto iter = mForcedValidEntries.Iter(); !iter.Done(); iter.Next()) {
     if (iter.Data().validUntil < now) {
-      if (!iter.Data().viewed) {
-        glean::predictor::prefetch_use_status
-            .EnumGet(glean::predictor::PrefetchUseStatusLabel::eWaitedtoolong)
-            .Add();
-      }
       iter.Remove();
     }
   }
@@ -2456,6 +2446,38 @@ CacheStorageService::Flush(nsIObserver* aObserver) {
                                                        CacheEntry::PURGE_WHOLE);
 
   return thread->Dispatch(r, CacheIOThread::WRITE);
+}
+
+NS_IMETHODIMP
+CacheStorageService::ClearDictionaryCacheMemory() {
+  LOG(("CacheStorageService::ClearDictionaryCacheMemory"));
+  RefPtr<DictionaryCache> cache = DictionaryCache::GetInstance();
+  if (cache) {
+    cache->Clear();
+  }
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+CacheStorageService::CorruptDictionaryHash(const nsACString& aURI) {
+  LOG(("CacheStorageService::CorruptDictionaryHash [uri=%s]",
+       PromiseFlatCString(aURI).get()));
+  RefPtr<DictionaryCache> cache = DictionaryCache::GetInstance();
+  if (cache) {
+    cache->CorruptHashForTesting(aURI);
+  }
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+CacheStorageService::ClearDictionaryDataForTesting(const nsACString& aURI) {
+  LOG(("CacheStorageService::ClearDictionaryDataForTesting [uri=%s]",
+       PromiseFlatCString(aURI).get()));
+  RefPtr<DictionaryCache> cache = DictionaryCache::GetInstance();
+  if (cache) {
+    cache->ClearDictionaryDataForTesting(aURI);
+  }
+  return NS_OK;
 }
 
 }  // namespace mozilla::net

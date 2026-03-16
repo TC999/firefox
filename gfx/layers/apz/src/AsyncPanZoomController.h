@@ -296,8 +296,8 @@ class AsyncPanZoomController {
    * A WebRender scroll data has arrived. |aScrollMetdata| is the new
    * ScrollMetadata for the scroll container corresponding to this APZC.
    */
-  void NotifyLayersUpdated(const ScrollMetadata& aScrollMetadata,
-                           LayersUpdateFlags aLayersUpdateFlags);
+  void NotifyMainThreadTransaction(const ScrollMetadata& aScrollMetadata,
+                                   LayersUpdateFlags aLayersUpdateFlags);
 
   /**
    * The platform implementation must set the compositor controller so that we
@@ -565,6 +565,10 @@ class AsyncPanZoomController {
   // Return whether or not a scroll delta will be able to scroll in either
   // direction.
   bool CanScroll(const ParentLayerPoint& aDelta) const;
+
+  // Return whether or not a scroll delta will be able to scroll or overscroll
+  // in either direction
+  bool CanScrollOrOverscroll(const ParentLayerPoint& aDelta) const;
 
   // Return whether or not a scroll delta will be able to scroll in either
   // direction with wheel.

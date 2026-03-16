@@ -32,6 +32,7 @@ namespace InspectorUtils {
   sequence<DOMString> getCSSPropertyNames(optional PropertyNamesOptions options = {});
   sequence<PropertyPref> getCSSPropertyPrefs();
   [Throws] sequence<DOMString> getCSSValuesForProperty(UTF8String property);
+  sequence<DOMString> getCSSWideKeywords();
   UTF8String rgbToColorName(octet r, octet g, octet b);
   InspectorNearestColor rgbToNearestColorName(float r, float g, float b);
   sequence<float> rgbToHsv(float r, float g, float b);
@@ -147,6 +148,21 @@ namespace InspectorUtils {
   // Returns a set of GRID_* flags based on whether the element is a grid
   // container or not.
   unsigned short getGridContainerType(Element aElement);
+
+  // Given a DOM element, return the anchor named `anchorName`, or the default
+  // anchor otherwise.
+  InspectorAnchorElement? getAnchorFor(Element element, optional DOMString? anchorName = null);
+};
+
+enum InspectorAnchorType {
+  "explicit",
+  "popover",
+  "pseudo-element",
+};
+
+dictionary InspectorAnchorElement {
+  required Element element;
+  required InspectorAnchorType type;
 };
 
 enum DeclarationOrigin {

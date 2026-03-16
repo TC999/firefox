@@ -9,8 +9,11 @@ import android.os.Build
 import androidx.annotation.VisibleForTesting
 import mozilla.components.support.base.log.logger.Logger
 import mozilla.components.support.utils.ext.PackageManagerWrapper
+import org.mozilla.fenix.Config
 import org.mozilla.fenix.GleanMetrics.Metrics
 import org.mozilla.fenix.GleanMetrics.Partnerships
+import org.mozilla.fenix.components.metrics.MetricController
+import org.mozilla.fenix.components.metrics.MetricServiceType
 import org.mozilla.fenix.components.metrics.UTMParams
 import java.io.File
 import java.util.Locale
@@ -41,6 +44,7 @@ private val logger = Logger(DistributionIdManager::class.simpleName)
  * @param browserStoreProvider used to update and fetch the stored distribution Id
  * @param distributionProviderChecker used for checking content providers for a distribution provider
  * @param distributionSettings used to persist and retrieve the distribution ID
+ * @param metricController a controller used to start Adjust.
  * @param appPreinstalledOnVivoDevice checks if the vivo preinstalled file exists.
  * @param isDtTelefonicaInstalled checks if the DT telefonica app is installed on the device
  * @param isDtUsaInstalled checks if one of the DT USA carrier apps is installed on the device
@@ -50,6 +54,7 @@ class DistributionIdManager(
     private val browserStoreProvider: DistributionBrowserStoreProvider,
     private val distributionProviderChecker: DistributionProviderChecker,
     private val distributionSettings: DistributionSettings,
+    private val metricController: MetricController,
     private val appPreinstalledOnVivoDevice: () -> Boolean = { wasAppPreinstalledOnVivoDevice() },
     private val isDtTelefonicaInstalled: () -> Boolean = { isDtTelefonicaInstalled(packageManager) },
     private val isDtUsaInstalled: () -> Boolean = { isDtUsaInstalled(packageManager) },
@@ -63,7 +68,7 @@ class DistributionIdManager(
      *
      * @return the distribution ID if one exists.
      */
-    fun getDistributionId(): String {
+    suspend fun getDistributionId(): String {
         distribution?.let { return it.id }
 
         val provider = distributionProviderChecker.queryProvider()
@@ -99,6 +104,7 @@ class DistributionIdManager(
                 setDistribution(Distribution.VIVO_001)
                 Metrics.distributionId.set(Distribution.VIVO_001.id)
             }
+
             utmParams.campaign.contains(Distribution.XIAOMI_001.id) -> {
                 setDistribution(Distribution.XIAOMI_001)
                 Metrics.distributionId.set(Distribution.XIAOMI_001.id)
@@ -111,17 +117,43 @@ class DistributionIdManager(
      *
      * @return true if the marketing consent screen can be skipped during onboarding
      */
-    fun shouldSkipMarketingConsentScreen(): Boolean {
+    suspend fun shouldSkipMarketingConsentScreen(): Boolean {
+        val adjustStartupStrategy = getDistributionAdjustStartupStrategy()
+
+        return when (adjustStartupStrategy) {
+            DistributionAdjustStartupStrategy.NONE,
+            DistributionAdjustStartupStrategy.SHOW_CONSENT_SCREEN,
+                -> false
+
+            DistributionAdjustStartupStrategy.IMMEDIATE_WITH_COPPA,
+            DistributionAdjustStartupStrategy.IMMEDIATE_WITH_PLAY_STORE_KIDS,
+                -> true
+        }
+    }
+
+    /**
+     * Get the Adjust startup strategy for the current distribution.
+     *
+     * @return the Adjust startup strategy.
+     */
+    suspend fun getDistributionAdjustStartupStrategy(): DistributionAdjustStartupStrategy {
         val id = Distribution.fromId(getDistributionId())
 
         return when (id) {
-            Distribution.DEFAULT -> false
-            Distribution.VIVO_001 -> true
-            Distribution.DT_001 -> false
-            Distribution.DT_002 -> false
-            Distribution.DT_003 -> false
-            Distribution.AURA_001 -> false
-            Distribution.XIAOMI_001 -> false
+            Distribution.DEFAULT -> DistributionAdjustStartupStrategy.NONE
+
+            Distribution.VIVO_001,
+            Distribution.DT_001,
+            Distribution.DT_002,
+            Distribution.DT_003,
+            Distribution.XIAOMI_001,
+                -> DistributionAdjustStartupStrategy.IMMEDIATE_WITH_COPPA
+
+            Distribution.AURA_001 -> if (Config.channel.isNightlyOrDebug) {
+                DistributionAdjustStartupStrategy.IMMEDIATE_WITH_PLAY_STORE_KIDS
+            } else {
+                DistributionAdjustStartupStrategy.SHOW_CONSENT_SCREEN
+            }
         }
     }
 
@@ -130,7 +162,7 @@ class DistributionIdManager(
      *
      * @return true if the distribution is part of a distribution deal
      */
-    fun isPartnershipDistribution(): Boolean {
+    suspend fun isPartnershipDistribution(): Boolean {
         val id = Distribution.fromId(getDistributionId())
 
         return when (id) {
@@ -144,8 +176,21 @@ class DistributionIdManager(
         }
     }
 
+    /**
+     * Sets the proper marketing telemetry preferences and starts Adjust if the
+     * current distribution is one that should skip the marketing data sharing
+     * consent screen.
+     */
+    suspend fun startAdjustIfSkippingConsentScreen() {
+        if (shouldSkipMarketingConsentScreen()) {
+            distributionSettings.setMarketingTelemetryPreferences()
+            metricController.start(MetricServiceType.Marketing)
+        }
+    }
+
     private fun isDeviceVivo(): Boolean {
-        return Build.MANUFACTURER?.lowercase(Locale.getDefault())?.contains(VIVO_MANUFACTURER) ?: false
+        return Build.MANUFACTURER?.lowercase(Locale.getDefault())?.contains(VIVO_MANUFACTURER)
+            ?: false
     }
 
     private fun isProviderDigitalTurbine(provider: String?): Boolean = provider == DT_PROVIDER
@@ -182,6 +227,25 @@ class DistributionIdManager(
 }
 
 /**
+ * This enum represents how / when adjust starts up for distributions.
+ */
+enum class DistributionAdjustStartupStrategy {
+    NONE,
+
+    // Show the adjust data collection consent screen during onboarding and start
+    // adjust after the user has consented.
+    SHOW_CONSENT_SCREEN,
+
+    // Start adjust immediately but enabled COPPA mode in adjust. COPPA mode will prevent
+    // adjust from collecting personal identifiers and sharing data with third parties.
+    IMMEDIATE_WITH_COPPA,
+
+    // Start adjust immediately but enable Play Store Kids mode in adjust. This mode will prevent
+    // adjust from collecting personal identifiers.
+    IMMEDIATE_WITH_PLAY_STORE_KIDS,
+}
+
+/**
  * Checks for a file in the device that indicates if the app was preinstalled on a vivo device
  */
 private fun wasAppPreinstalledOnVivoDevice(): Boolean {
@@ -210,7 +274,7 @@ private fun isDtUsaInstalled(packageManager: PackageManagerWrapper): Boolean {
     return packages.any {
         val packageName = it.packageName.lowercase()
         packageName == DT_VERIZON_PACKAGE ||
-            packageName == DT_CRICKET_PACKAGE ||
-            packageName == DT_TRACFONE_PACKAGE
+                packageName == DT_CRICKET_PACKAGE ||
+                packageName == DT_TRACFONE_PACKAGE
     }
 }

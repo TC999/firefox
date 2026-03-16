@@ -6,8 +6,6 @@
 
 #include "PoisonIOInterposer.h"
 
-#include <stdio.h>
-
 #include <io.h>
 #include <windows.h>
 #include <winternl.h>
@@ -114,7 +112,7 @@ typedef NTSTATUS(NTAPI* NtQueryFullAttributesFileFn)(
 // resolved with the first entry (best case), and 32 entries cover >95% of
 // cases, reducing the average `Filename()` cost by 5-10x.
 using HandleToFilenameCache = mozilla::SmallArrayLRUCache<HANDLE, nsString, 32>;
-MOZ_RUNINIT static mozilla::UniquePtr<HandleToFilenameCache>
+constinit static mozilla::UniquePtr<HandleToFilenameCache>
     sHandleToFilenameCache;
 
 /**

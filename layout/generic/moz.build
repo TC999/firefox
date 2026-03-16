@@ -177,12 +177,10 @@ UNIFIED_SOURCES += [
     "CSSOrderAwareFrameIterator.cpp",
     "MathMLTextRunFactory.cpp",
     "MiddleCroppingBlockFrame.cpp",
-    "nsBackdropFrame.cpp",
     "nsBlockFrame.cpp",
     "nsBlockReflowContext.cpp",
     "nsCanvasFrame.cpp",
     "nsColumnSetFrame.cpp",
-    "nsContainerFrame.cpp",
     "nsFirstLetterFrame.cpp",
     "nsFlexContainerFrame.cpp",
     "nsFloatManager.cpp",
@@ -193,7 +191,6 @@ UNIFIED_SOURCES += [
     "nsFrameState.cpp",
     "nsGridContainerFrame.cpp",
     "nsHTMLCanvasFrame.cpp",
-    "nsIFrame.cpp",
     "nsILineIterator.cpp",
     "nsImageFrame.cpp",
     "nsImageMap.cpp",
@@ -243,10 +240,14 @@ UNIFIED_SOURCES += [
 # overflows (see bug 1827428)
 if CONFIG["OS_ARCH"] == "WINNT" and CONFIG["TARGET_CPU"] == "x86":
     SOURCES += [
+        "nsContainerFrame.cpp",
+        "nsIFrame.cpp",
         "TextOverflow.cpp",
     ]
 else:
     UNIFIED_SOURCES += [
+        "nsContainerFrame.cpp",
+        "nsIFrame.cpp",
         "TextOverflow.cpp",
     ]
 

@@ -2,6 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import functools
 import logging
 import os
 import sys
@@ -16,7 +17,7 @@ from mach.mixin.logging import LoggingMixin
 from mozpack.chrome.manifest import Manifest
 
 from mozbuild.base import ExecutionSummary
-from mozbuild.util import HierarchicalStringList, memoize
+from mozbuild.util import HierarchicalStringList
 
 from ..testing import REFTEST_FLAVORS, TEST_MANIFESTS, SupportFilesConverter
 from .context import Context, ObjDirPath, Path, SourcePath, SubContext
@@ -273,7 +274,7 @@ class TreeMetadataEmitter(LoggingMixin):
                     contexts[os.path.normcase(lib.objdir)],
                 )
 
-        @memoize
+        @functools.cache
         def rust_libraries(obj):
             libs = []
             for o in obj.linked_libraries:
@@ -497,7 +498,7 @@ class TreeMetadataEmitter(LoggingMixin):
             self._static_linking_shared.add(obj)
         obj.link_library(candidates[0])
 
-    @memoize
+    @functools.cache
     def _get_external_library(self, dir, name, force_static):
         # Create ExternalStaticLibrary or ExternalSharedLibrary object with a
         # context more or less truthful about where the external library is.
@@ -670,13 +671,11 @@ class TreeMetadataEmitter(LoggingMixin):
             if program:
                 check_unique_binary(program, kind)
                 self._binaries[program] = cls(context, program)
-                self._linkage.append(
-                    (
-                        context,
-                        self._binaries[program],
-                        kind.replace("PROGRAM", "USE_LIBS"),
-                    )
-                )
+                self._linkage.append((
+                    context,
+                    self._binaries[program],
+                    kind.replace("PROGRAM", "USE_LIBS"),
+                ))
                 add_program(self._binaries[program], kind)
 
         all_rust_programs = []
@@ -710,14 +709,21 @@ class TreeMetadataEmitter(LoggingMixin):
                         )
 
                     check_unique_binary(program, kind)
-                    self._binaries[program] = cls(context, program, cargo_file)
-                    self._linkage.append(
-                        (
+                    features = context.get(cls.FEATURES_VAR, [])
+                    unique_features = set(features)
+                    if len(features) != len(unique_features):
+                        raise SandboxValidationError(
+                            f"features for {program} should not contain duplicates: {features}",
                             context,
-                            self._binaries[program],
-                            kind.replace("RUST_PROGRAMS", "USE_LIBS"),
                         )
+                    self._binaries[program] = cls(
+                        context, program, cargo_file, features
                     )
+                    self._linkage.append((
+                        context,
+                        self._binaries[program],
+                        kind.replace("RUST_PROGRAMS", "USE_LIBS"),
+                    ))
                     add_program(self._binaries[program], kind)
 
         for kind, cls in [
@@ -736,17 +742,11 @@ class TreeMetadataEmitter(LoggingMixin):
                 self._binaries[program] = cls(
                     context, program, is_unit_test=kind == "CPP_UNIT_TESTS"
                 )
-                self._linkage.append(
-                    (
-                        context,
-                        self._binaries[program],
-                        (
-                            "HOST_USE_LIBS"
-                            if kind == "HOST_SIMPLE_PROGRAMS"
-                            else "USE_LIBS"
-                        ),
-                    )
-                )
+                self._linkage.append((
+                    context,
+                    self._binaries[program],
+                    ("HOST_USE_LIBS" if kind == "HOST_SIMPLE_PROGRAMS" else "USE_LIBS"),
+                ))
                 add_program(self._binaries[program], kind)
 
         host_libname = context.get("HOST_LIBRARY_NAME")
@@ -795,19 +795,17 @@ class TreeMetadataEmitter(LoggingMixin):
         if final_lib:
             if static_lib:
                 raise SandboxValidationError(
-                    "FINAL_LIBRARY implies FORCE_STATIC_LIB. "
-                    "Please remove the latter.",
+                    "FINAL_LIBRARY implies FORCE_STATIC_LIB. Please remove the latter.",
                     context,
                 )
             if shared_lib:
                 raise SandboxValidationError(
-                    "FINAL_LIBRARY conflicts with FORCE_SHARED_LIB. "
-                    "Please remove one.",
+                    "FINAL_LIBRARY conflicts with FORCE_SHARED_LIB. Please remove one.",
                     context,
                 )
             if is_framework:
                 raise SandboxValidationError(
-                    "FINAL_LIBRARY conflicts with IS_FRAMEWORK. " "Please remove one.",
+                    "FINAL_LIBRARY conflicts with IS_FRAMEWORK. Please remove one.",
                     context,
                 )
             static_args["link_into"] = final_lib
@@ -817,7 +815,7 @@ class TreeMetadataEmitter(LoggingMixin):
             if is_framework:
                 if soname:
                     raise SandboxValidationError(
-                        "IS_FRAMEWORK conflicts with SONAME. " "Please remove one.",
+                        "IS_FRAMEWORK conflicts with SONAME. Please remove one.",
                         context,
                     )
                 shared_lib = True
@@ -961,7 +959,7 @@ class TreeMetadataEmitter(LoggingMixin):
             if lib_defines:
                 if not libname:
                     raise SandboxValidationError(
-                        "LIBRARY_DEFINES needs a " "LIBRARY_NAME to take effect",
+                        "LIBRARY_DEFINES needs a LIBRARY_NAME to take effect",
                         context,
                     )
                 lib.lib_defines.update(lib_defines)
@@ -1040,8 +1038,7 @@ class TreeMetadataEmitter(LoggingMixin):
             for f in context_srcs:
                 if f in seen_sources:
                     raise SandboxValidationError(
-                        "Source file should only "
-                        "be added to %s once: %s" % (symbol, f),
+                        "Source file should only be added to %s once: %s" % (symbol, f),
                         context,
                     )
                 seen_sources.add(f)
@@ -1058,8 +1055,7 @@ class TreeMetadataEmitter(LoggingMixin):
 
                 if isinstance(f, SourcePath) and not os.path.exists(full_path):
                     raise SandboxValidationError(
-                        "File listed in %s does not "
-                        "exist: '%s'" % (symbol, full_path),
+                        "File listed in %s does not exist: '%s'" % (symbol, full_path),
                         context,
                     )
 
@@ -1089,7 +1085,7 @@ class TreeMetadataEmitter(LoggingMixin):
         if no_pgo:
             if no_pgo_sources:
                 raise SandboxValidationError(
-                    "NO_PGO and SOURCES[...].no_pgo " "cannot be set at the same time",
+                    "NO_PGO and SOURCES[...].no_pgo cannot be set at the same time",
                     context,
                 )
             passthru.variables["NO_PROFILE_GUIDED_OPTIMIZE"] = no_pgo
@@ -1261,16 +1257,14 @@ class TreeMetadataEmitter(LoggingMixin):
             and context["DELAYLOAD_DLLS"]
         ):
             if context.config.substs.get("CC_TYPE") != "clang":
-                context["LDFLAGS"].extend(
-                    [("-DELAYLOAD:%s" % dll) for dll in context["DELAYLOAD_DLLS"]]
-                )
+                context["LDFLAGS"].extend([
+                    ("-DELAYLOAD:%s" % dll) for dll in context["DELAYLOAD_DLLS"]
+                ])
             else:
-                context["LDFLAGS"].extend(
-                    [
-                        ("-Wl,-Xlink=-DELAYLOAD:%s" % dll)
-                        for dll in context["DELAYLOAD_DLLS"]
-                    ]
-                )
+                context["LDFLAGS"].extend([
+                    ("-Wl,-Xlink=-DELAYLOAD:%s" % dll)
+                    for dll in context["DELAYLOAD_DLLS"]
+                ])
             context["OS_LIBS"].append("delayimp")
 
         for v in ["CMFLAGS", "CMMFLAGS"]:
@@ -1448,12 +1442,10 @@ class TreeMetadataEmitter(LoggingMixin):
         for obj in self._handle_linkables(context, passthru, generated_files):
             yield obj
 
-        generated_files.update(
-            [
-                "%s%s" % (k, self.config.substs.get("BIN_SUFFIX", ""))
-                for k in self._binaries.keys()
-            ]
-        )
+        generated_files.update([
+            "%s%s" % (k, self.config.substs.get("BIN_SUFFIX", ""))
+            for k in self._binaries.keys()
+        ])
 
         processed_moz_src_files = None
         if "MOZ_SRC_FILES" in context:
@@ -1587,7 +1579,7 @@ class TreeMetadataEmitter(LoggingMixin):
                 context.get("DIST_SUBDIR") or context.get("XPI_NAME")
             ):
                 raise SandboxValidationError(
-                    "RESOURCES_FILES cannot be used with DIST_SUBDIR or " "XPI_NAME.",
+                    "RESOURCES_FILES cannot be used with DIST_SUBDIR or XPI_NAME.",
                     context,
                 )
 
@@ -1673,14 +1665,14 @@ class TreeMetadataEmitter(LoggingMixin):
         if not xpidl_module:
             if context["XPIDL_SOURCES"]:
                 raise SandboxValidationError(
-                    "XPIDL_MODULE must be defined if " "XPIDL_SOURCES is defined.",
+                    "XPIDL_MODULE must be defined if XPIDL_SOURCES is defined.",
                     context,
                 )
             return
 
         if not context["XPIDL_SOURCES"]:
             raise SandboxValidationError(
-                "XPIDL_MODULE cannot be defined " "unless there are XPIDL_SOURCES",
+                "XPIDL_MODULE cannot be defined unless there are XPIDL_SOURCES",
                 context,
             )
 
@@ -1695,7 +1687,7 @@ class TreeMetadataEmitter(LoggingMixin):
         for idl in context["XPIDL_SOURCES"]:
             if not os.path.exists(idl.full_path):
                 raise SandboxValidationError(
-                    "File %s from XPIDL_SOURCES " "does not exist" % idl.full_path,
+                    "File %s from XPIDL_SOURCES does not exist" % idl.full_path,
                     context,
                 )
 
@@ -1839,15 +1831,13 @@ class TreeMetadataEmitter(LoggingMixin):
                     obj.installs[source] = (dest, False)
                 obj.external_installs |= install_info.external_installs
                 for install_path in install_info.deferred_installs:
-                    if all(
-                        [
-                            "*" not in install_path,
-                            not os.path.isfile(
-                                mozpath.join(context.config.topsrcdir, install_path[2:])
-                            ),
-                            install_path not in install_info.external_installs,
-                        ]
-                    ):
+                    if all([
+                        "*" not in install_path,
+                        not os.path.isfile(
+                            mozpath.join(context.config.topsrcdir, install_path[2:])
+                        ),
+                        install_path not in install_info.external_installs,
+                    ]):
                         raise SandboxValidationError(
                             "Error processing test "
                             "manifest %s: entry in support-files not present "
@@ -1934,8 +1924,7 @@ class TreeMetadataEmitter(LoggingMixin):
         jar_manifests = context.get("JAR_MANIFESTS", [])
         if len(jar_manifests) > 1:
             raise SandboxValidationError(
-                "While JAR_MANIFESTS is a list, "
-                "it is currently limited to one value.",
+                "While JAR_MANIFESTS is a list, it is currently limited to one value.",
                 context,
             )
 

@@ -891,27 +891,11 @@ bool MIonToWasmCall::isConsistentFloat32Use(MUse* use) const {
 }
 #endif
 
-bool MWasmShiftSimd128::congruentTo(const MDefinition* ins) const {
-  if (!ins->isWasmShiftSimd128()) {
-    return false;
-  }
-  return ins->toWasmShiftSimd128()->simdOp() == simdOp_ &&
-         congruentIfOperandsEqual(ins);
-}
-
 bool MWasmShuffleSimd128::congruentTo(const MDefinition* ins) const {
   if (!ins->isWasmShuffleSimd128()) {
     return false;
   }
   return ins->toWasmShuffleSimd128()->shuffle().equals(&shuffle_) &&
-         congruentIfOperandsEqual(ins);
-}
-
-bool MWasmUnarySimd128::congruentTo(const MDefinition* ins) const {
-  if (!ins->isWasmUnarySimd128()) {
-    return false;
-  }
-  return ins->toWasmUnarySimd128()->simdOp() == simdOp_ &&
          congruentIfOperandsEqual(ins);
 }
 

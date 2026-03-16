@@ -12,6 +12,7 @@ import {
 } from "chrome://global/content/vendor/lit.all.mjs";
 import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
 import { escapeRegExp } from "./search-helpers.mjs";
+import { escapeHtmlEntities } from "./helpers.mjs";
 // eslint-disable-next-line import/no-unassigned-import
 import "chrome://global/content/elements/moz-button.mjs";
 
@@ -345,7 +346,7 @@ export class FxviewTabListBase extends MozLitElement {
     return html` <fxview-empty-state
       class="search-results"
       headerLabel="firefoxview-search-results-empty"
-      .headerArgs=${{ query: this.searchQuery }}
+      .headerArgs=${{ query: escapeHtmlEntities(this.searchQuery) }}
       isInnerCard
     >
     </fxview-empty-state>`;
@@ -593,6 +594,21 @@ export class FxviewTabRowBase extends MozLitElement {
           detail: { originalEvent: event, item: this },
         })
       );
+    }
+  }
+
+  auxActionHandler(event) {
+    if (event.type == "auxclick" && event.button == 1) {
+      event.preventDefault();
+      if (!window.IS_STORYBOOK) {
+        this.dispatchEvent(
+          new CustomEvent("fxview-tab-list-middleclick-action", {
+            bubbles: true,
+            composed: true,
+            detail: { originalEvent: event, item: this },
+          })
+        );
+      }
     }
   }
 

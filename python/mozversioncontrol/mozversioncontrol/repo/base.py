@@ -8,7 +8,7 @@ import re
 import subprocess
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 from mach.util import to_optional_path
 from mozfile import which
@@ -185,6 +185,10 @@ class Repository(abc.ABC):
         """
 
     @abc.abstractmethod
+    def get_remote_url(self, remote=None, push=False):
+        """Return the URL for the specified remote."""
+
+    @abc.abstractmethod
     def get_changed_files(self, diff_filter, mode="unstaged", rev=None):
         """Return a list of files that are changed in this repository's
         working copy.
@@ -263,6 +267,14 @@ class Repository(abc.ABC):
     def clean_directory(self, path: Union[str, Path]):
         """Undo all changes (including removing new untracked files) in the
         given `path`.
+        """
+
+    @abc.abstractmethod
+    def push(self, remote: Optional[str] = None, ref: Optional[str] = None):
+        """Push to a remote repository.
+
+        `remote` specifies the remote to push to. If None, the default remote is used.
+        `ref` specifies the branch or ref to push. If None, the current branch/ref is used.
         """
 
     @abc.abstractmethod
@@ -366,6 +378,12 @@ class Repository(abc.ABC):
         `changed_files` may contain a dict of file paths and their contents,
         see `stage_changes`.
         """
+
+    @abc.abstractmethod
+    def prepare_try_push(
+        self, commit_message: str, changed_files: Optional[dict[str, str]] = None
+    ) -> tuple[Optional[str], Callable]:
+        pass
 
     def stage_changes(self, changed_files: dict[str, str]):
         """Stage a set of file changes

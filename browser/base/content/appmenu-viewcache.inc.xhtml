@@ -51,8 +51,13 @@
                      command="cmd_newNavigator"/>
       <toolbarbutton id="appMenu-new-ai-window-button"
                      class="subviewbutton"
-                     data-l10n-id="appmenuitem-new-ai-window"
-                     command="Tools:AIWindow"/>
+                     command="Tools:AIWindow"
+                     aria-describedby="appMenu-new-ai-window-badge">
+        <label class="toolbarbutton-text" crop="end"
+               data-l10n-id="appmenuitem-new-ai-window"/>
+        <html:moz-badge id="appMenu-new-ai-window-badge"
+                        type="beta"/>
+      </toolbarbutton>
       <toolbarbutton id="appMenu-new-classic-window-button"
                      class="subviewbutton"
                      data-l10n-id="appmenuitem-new-classic-window"
@@ -73,6 +78,10 @@
                      data-l10n-id="appmenuitem-history"
                      closemenu="none"
                      />
+      <toolbarbutton id="appMenu-chats-history-button"
+                     class="subviewbutton"
+                     data-l10n-id="menu-history-chats"
+                     command="Tools:ChatsHistory"/>
       <toolbarbutton id="appMenu-downloads-button"
                      class="subviewbutton"
                      data-l10n-id="appmenuitem-downloads"
@@ -497,10 +506,11 @@
               </hbox>
               <label class="PanelUI-remotetabs-instruction-label" data-l10n-id="appmenu-remote-tabs-tabsnotsyncing"></label>
               <hbox pack="center">
-                <toolbarbutton class="PanelUI-remotetabs-button"
-                               id="PanelUI-remotetabs-tabsdisabledpane-button"
-                               data-l10n-id="appmenu-remote-tabs-opensettings"
-                               />
+                <html:moz-button type="primary"
+                                 class="PanelUI-remotetabs-button"
+                                 id="PanelUI-remotetabs-tabsdisabledpane-button"
+                                 data-l10n-id="appmenu-remote-tabs-opensettings"
+                                 />
               </hbox>
             </vbox>
           </hbox>
@@ -511,10 +521,11 @@
                 <image class="fxaSyncIllustrationIssue"/>
               </hbox>
               <label class="PanelUI-remotetabs-instruction-label" data-l10n-id="appmenu-remote-tabs-noclients"></label>
-              <toolbarbutton id="PanelUI-remotetabs-connect-device-button"
-                             class="PanelUI-remotetabs-button"
-                             data-l10n-id="appmenu-remote-tabs-connectdevice"
-                             />
+              <html:moz-button type="primary"
+                               id="PanelUI-remotetabs-connect-device-button"
+                               class="PanelUI-remotetabs-button"
+                               data-l10n-id="appmenu-remote-tabs-connectdevice"
+                               />
             </vbox>
           </hbox>
         </deck>
@@ -529,10 +540,11 @@
               hidden="true">
           <image class="fxaSyncIllustration"/>
           <label class="PanelUI-remotetabs-instruction-label" data-l10n-id="appmenu-remote-tabs-welcome"></label>
-          <toolbarbutton class="PanelUI-remotetabs-button"
-                         id="PanelUI-remotetabs-setupsync-button"
-                         data-l10n-id="appmenu-remote-tabs-sign-into-sync"
-                         />
+          <html:moz-button type="primary"
+                           class="PanelUI-remotetabs-button"
+                           id="PanelUI-remotetabs-setupsync-button"
+                           data-l10n-id="appmenu-remote-tabs-sign-into-sync"
+                           />
         </vbox>
         <!-- When Sync is not enabled -->
         <vbox id="PanelUI-remotetabs-syncdisabled"
@@ -542,10 +554,11 @@
               hidden="true">
           <image class="fxaSyncIllustration"/>
           <label class="PanelUI-remotetabs-instruction-label" data-l10n-id="appmenu-remote-tabs-welcome"></label>
-          <toolbarbutton class="PanelUI-remotetabs-button"
-                         id="PanelUI-remotetabs-syncdisabled-button"
-                         data-l10n-id="appmenu-remote-tabs-turn-on-sync"
-                         />
+          <html:moz-button type="primary"
+                           class="PanelUI-remotetabs-button"
+                           id="PanelUI-remotetabs-syncdisabled-button"
+                           data-l10n-id="appmenu-remote-tabs-turn-on-sync"
+                           />
         </vbox>
         <!-- When Sync needs re-authentication -->
         <vbox id="PanelUI-remotetabs-reauthsync"
@@ -555,10 +568,11 @@
               hidden="true">
           <image class="fxaSyncIllustrationIssue"/>
           <label class="PanelUI-remotetabs-instruction-label" data-l10n-id="appmenu-remote-tabs-welcome"></label>
-          <toolbarbutton class="PanelUI-remotetabs-button"
-                         id="PanelUI-remotetabs-reauthsync-button"
-                         data-l10n-id="appmenu-remote-tabs-sign-into-sync"
-                         />
+          <html:moz-button type="primary"
+                           class="PanelUI-remotetabs-button"
+                           id="PanelUI-remotetabs-reauthsync-button"
+                           data-l10n-id="appmenu-remote-tabs-sign-into-sync"
+                           />
         </vbox>
         <!-- When Sync needs verification -->
         <vbox id="PanelUI-remotetabs-unverified"
@@ -568,10 +582,11 @@
               hidden="true">
           <image class="fxaSyncIllustrationIssue"/>
           <label class="PanelUI-remotetabs-instruction-label" data-l10n-id="appmenu-remote-tabs-unverified"></label>
-          <toolbarbutton class="PanelUI-remotetabs-button"
-                         id="PanelUI-remotetabs-unverified-button"
-                         data-l10n-id="appmenu-remote-tabs-opensettings"
-                         />
+          <html:moz-button type="primary"
+                           class="PanelUI-remotetabs-button"
+                           id="PanelUI-remotetabs-unverified-button"
+                           data-l10n-id="appmenu-remote-tabs-opensettings"
+                           />
         </vbox>
       </hbox>
     </vbox>
@@ -669,7 +684,7 @@
       <!-- My Services panel - visible if the user has any of the listed services below set up on their account-->
       <vbox id="PanelUI-fxa-menu-services" hidden="true">
         <toolbarseparator />
-          <label id="PanelUI-fxa-menu-services-header" crop="end" class="PanelUI-fxa-menu-section-title" data-l10n-id="appmenu-services-header" />
+          <label crop="end" class="subview-subheader" data-l10n-id="appmenu-services-header" />
         <!-- Relay -->
           <vbox>
             <toolbarbutton id="PanelUI-services-menu-relay-button" class="fxa-cta-button subviewbutton subviewbutton-iconic">
@@ -686,7 +701,7 @@
       <!-- updateCTAPanel will control if we show this panel -->
       <vbox id="PanelUI-fxa-cta-menu" hidden="true">
         <toolbarseparator id="PanelUI-products-separator" />
-        <label id="fxa-menu-other-protection-tools-header" crop="end" class="PanelUI-fxa-menu-section-title" data-l10n-id="appmenu-other-protection-header2" />
+        <label crop="end" class="subview-subheader" data-l10n-id="appmenu-other-protection-header2" />
         <toolbarbutton id="PanelUI-fxa-menu-monitor-button" class="fxa-cta-button subviewbutton subviewbutton-iconic">
           <vbox flex="1">
             <hbox align="center">
@@ -711,7 +726,7 @@
               <image class="PanelUI-fxa-menu-vpn-button ctaMenuLogo" role="presentation" />
               <label id="fxa-menu-header-title" crop="end" data-l10n-id="appmenuitem-vpn-title" />
             </hbox>
-            <label id="cta-menu-header-description" crop="end" data-l10n-id="appmenuitem-vpn-description" />
+            <label id="cta-menu-header-description" crop="end" data-l10n-id="appmenuitem-vpn-description-2" />
           </vbox>
         </toolbarbutton>
       </vbox>
@@ -744,10 +759,11 @@
     <vbox id="PanelUI-fxa-sendtab-not-configured" align="center" class="panel-subview-body">
       <image class="fxaSendToDeviceLogo" role="presentation"/>
       <label class="PanelUI-fxa-service-description-label" data-l10n-id="fxa-menu-send-tab-to-device-description"></label>
-      <toolbarbutton id="PanelUI-fxa-menu-sendtab-not-configured-button"
-                     class="PanelUI-fxa-signin-button"
-                     data-l10n-id="appmenuitem-fxa-sign-in"
-                     />
+      <html:moz-button type="primary"
+                       id="PanelUI-fxa-menu-sendtab-not-configured-button"
+                       class="PanelUI-fxa-signin-button"
+                       data-l10n-id="appmenuitem-fxa-sign-in"
+                       />
     </vbox>
   </panelview>
 
@@ -755,10 +771,11 @@
     <vbox id="PanelUI-fxa-sendtab-no-devices" align="center" class="panel-subview-body">
       <image class="fxaSendToDeviceLogo" role="presentation"/>
       <label class="PanelUI-fxa-service-description-label" data-l10n-id="fxa-menu-send-tab-to-device-description"></label>
-      <toolbarbutton id="PanelUI-fxa-menu-sendtab-connect-device-button"
-                     class="PanelUI-fxa-signin-button"
-                     data-l10n-id="appmenu-remote-tabs-connectdevice"
-                     />
+      <html:moz-button type="primary"
+                       id="PanelUI-fxa-menu-sendtab-connect-device-button"
+                       class="PanelUI-fxa-signin-button"
+                       data-l10n-id="appmenu-remote-tabs-connectdevice"
+                       />
     </vbox>
   </panelview>
 
@@ -845,11 +862,23 @@
     <vbox id="PanelUI-ipprotection-content" class="panel-subview-body"/>
   </panelview>
 
-  <panelview id="PanelUI-ipprotection-site-settings"
-             class="PanelUI-subView"
-             data-l10n-id="ipprotection-site-settings-title"
-             data-l10n-attrs="title">
-    <vbox id="PanelUI-ipprotection-site-settings-content" class="panel-subview-body"/>
+  <panelview id="ai-window-toggle-view" class="PanelUI-subView">
+    <vbox class="panel-subview-body">
+      <toolbarbutton id="ai-window-switch-classic"
+                    class="subviewbutton"
+                    data-l10n-id="ai-window-toggleview-switch-classic"
+                    hidden="true"/>
+      <toolbarbutton id="ai-window-switch-ai"
+                    class="subviewbutton"
+                    hidden="true"
+                    aria-describedby="ai-window-switch-ai-badge">
+        <image class="toolbarbutton-icon"/>
+        <label class="toolbarbutton-text" crop="end"
+               data-l10n-id="ai-window-toggleview-switch-ai"/>
+        <html:moz-badge id="ai-window-switch-ai-badge"
+                        type="beta"/>
+      </toolbarbutton>
+    </vbox>
   </panelview>
 
 #include ../../components/reportbrokensite/content/reportBrokenSitePanel.inc.xhtml

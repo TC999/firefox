@@ -254,12 +254,12 @@ class WebRenderAPI final {
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(WebRenderAPI);
 
  public:
-  /// This can be called on the compositor thread only.
-  static already_AddRefed<WebRenderAPI> Create(
-      layers::CompositorBridgeParent* aBridge,
-      RefPtr<widget::CompositorWidget>&& aWidget,
-      const wr::WrWindowId& aWindowId, LayoutDeviceIntSize aSize,
-      layers::WindowKind aWindowKind, nsACString& aError);
+  using CreatePromise = MozPromise<RefPtr<WebRenderAPI>, nsCString, true>;
+  // Dispatches a task to the Renderer thread to create the WebRenderAPI.
+  static RefPtr<CreatePromise> Create(
+      RefPtr<layers::CompositorBridgeParent> aBridge,
+      RefPtr<widget::CompositorWidget> aWidget, const wr::WrWindowId& aWindowId,
+      LayoutDeviceIntSize aSize, layers::WindowKind aWindowKind);
 
   already_AddRefed<WebRenderAPI> Clone();
 
@@ -326,6 +326,16 @@ class WebRenderAPI final {
 
   RefPtr<EndRecordingPromise> EndRecording();
 
+#ifdef MOZ_WIDGET_ANDROID
+  using ScreenPixelsPromise =
+      MozPromise<RefPtr<layers::AndroidHardwareBuffer>, nsresult, true>;
+  // Queues a task to the render thread to capture screen pixels for the next
+  // rendered frame. Returns a promise that resolves once the pixels are
+  // captured.
+  RefPtr<ScreenPixelsPromise> RequestScreenPixels(gfx::IntRect aSourceRect,
+                                                  gfx::IntSize aDestSize);
+#endif
+
   layers::RemoteTextureInfoList* GetPendingRemoteTextureInfoList();
   layers::AsyncImagePipelineOps* GetPendingAsyncImagePipelineOps(
       TransactionBuilder& aTxn);
@@ -334,6 +344,8 @@ class WebRenderAPI final {
   void FlushPendingWrTransactionEventsWithWait();
 
   wr::WebRenderAPI* GetRootAPI();
+
+  bool CheckAndClearDidRasterize();
 
  protected:
   WebRenderAPI(wr::DocumentHandle* aHandle, wr::WindowId aId,
@@ -600,11 +612,12 @@ class DisplayListBuilder final {
 
   Maybe<wr::WrSpatialId> PushStackingContext(
       const StackingContextParams& aParams, const wr::LayoutRect& aBounds,
-      const wr::RasterSpace& aRasterSpace);
+      const wr::RasterSpace& aRasterSpace,
+      wr::SpatialTreeItemKey aSCOriginKey = wr::SpatialTreeItemKey{0, 0});
   void PopStackingContext(bool aIsReferenceFrame);
 
-  wr::WrClipChainId DefineClipChain(const nsTArray<wr::WrClipId>& aClips,
-                                    bool aParentWithCurrentChain = false);
+  wr::WrClipChainId DefineClipChain(Span<const wr::WrClipId> aClips,
+                                    const Maybe<wr::WrClipChainId>& aParent);
 
   wr::WrClipId DefineImageMaskClip(const wr::ImageMask& aMask,
                                    const nsTArray<wr::LayoutPoint>&,
@@ -798,6 +811,7 @@ class DisplayListBuilder final {
                      const wr::ColorF& aColor, const float& aBlurRadius,
                      const float& aSpreadRadius,
                      const wr::BorderRadius& aBorderRadius,
+                     const wr::BorderRadius& aShadowRadius,
                      const wr::BoxShadowClipMode& aClipMode);
 
   void PushDebug(uint32_t aVal);
@@ -831,6 +845,12 @@ class DisplayListBuilder final {
     return mCurrentSpaceAndClipChain.clip_chain;
   }
 
+  Maybe<wr::WrClipChainId> CurrentClipChainIdIfNotRoot() const {
+    return mCurrentSpaceAndClipChain.clip_chain != wr::ROOT_CLIP_CHAIN
+               ? Some(mCurrentSpaceAndClipChain.clip_chain)
+               : Nothing();
+  }
+
   const wr::WrSpaceAndClipChain& CurrentSpaceAndClipChain() const {
     return mCurrentSpaceAndClipChain;
   }
@@ -854,10 +874,6 @@ class DisplayListBuilder final {
 
   // Try to avoid using this when possible.
   wr::WrState* Raw() { return mWrState; }
-
-  void SetClipChainLeaf(const Maybe<wr::LayoutRect>& aClipRect) {
-    mClipChainLeaf = aClipRect;
-  }
 
   // Used for opacity flattening. When we flatten away an opacity item,
   // we push the opacity value onto the builder.
@@ -901,17 +917,6 @@ class DisplayListBuilder final {
   };
 
  protected:
-  wr::LayoutRect MergeClipLeaf(const wr::LayoutRect& aClip) {
-    if (mClipChainLeaf) {
-      return wr::IntersectLayoutRect(*mClipChainLeaf, aClip);
-    }
-    return aClip;
-  }
-
-  // See the implementation of PushShadow for details on these methods.
-  void SuspendClipLeafMerging();
-  void ResumeClipLeafMerging();
-
   wr::WrState* mWrState;
 
   // Track each scroll id that we encountered. We use this structure to
@@ -928,16 +933,6 @@ class DisplayListBuilder final {
       mASRToSpatialIdMap;
 
   wr::WrSpaceAndClipChain mCurrentSpaceAndClipChain;
-
-  // Contains the current leaf of the clip chain to be merged with the
-  // display item's clip rect when pushing an item. May be set to Nothing() if
-  // there is no clip rect to merge with.
-  Maybe<wr::LayoutRect> mClipChainLeaf;
-
-  // Versions of the above that are on hold while SuspendClipLeafMerging is on
-  // (see the implementation of PushShadow for details).
-  Maybe<wr::WrSpaceAndClipChain> mSuspendedSpaceAndClipChain;
-  Maybe<wr::LayoutRect> mSuspendedClipChainLeaf;
 
   RefPtr<layout::TextDrawTarget> mCachedTextDT;
   mozilla::UniquePtr<gfxContext> mCachedContext;

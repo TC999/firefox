@@ -19,8 +19,9 @@ import { Notifications } from "content-src/components/Notifications/Notification
 import { TopicSelection } from "content-src/components/DiscoveryStreamComponents/TopicSelection/TopicSelection";
 import { DownloadMobilePromoHighlight } from "../DiscoveryStreamComponents/FeatureHighlight/DownloadMobilePromoHighlight";
 import { WallpaperFeatureHighlight } from "../DiscoveryStreamComponents/FeatureHighlight/WallpaperFeatureHighlight";
+import { ActivationWindowMessage } from "../ActivationWindowMessage/ActivationWindowMessage";
 import { MessageWrapper } from "content-src/components/MessageWrapper/MessageWrapper";
-import { selectWeatherPlacement } from "../../lib/utils";
+import { ExternalComponentWrapper } from "content-src/components/ExternalComponentWrapper/ExternalComponentWrapper";
 
 const VISIBLE = "visible";
 const VISIBILITY_CHANGE_EVENT = "visibilitychange";
@@ -28,7 +29,8 @@ const PREF_INFERRED_PERSONALIZATION_SYSTEM =
   "discoverystream.sections.personalization.inferred.enabled";
 const PREF_INFERRED_PERSONALIZATION_USER =
   "discoverystream.sections.personalization.inferred.user.enabled";
-
+// @nova-cleanup(remove-pref): Remove PREF_NOVA_ENABLED
+const PREF_NOVA_ENABLED = "nova.enabled";
 // Returns a function will not be continuously triggered when called. The
 // function will be triggered if called again after `wait` milliseconds.
 function debounce(func, wait) {
@@ -112,6 +114,7 @@ export class BaseContent extends React.PureComponent {
     this.handleDismissDownloadHighlight =
       this.handleDismissDownloadHighlight.bind(this);
     this.applyBodyClasses = this.applyBodyClasses.bind(this);
+    this.toggleSectionsMgmtPanel = this.toggleSectionsMgmtPanel.bind(this);
     this.state = {
       fixedSearch: false,
       firstVisibleTimestamp: null,
@@ -120,7 +123,9 @@ export class BaseContent extends React.PureComponent {
       wallpaperTheme: "",
       showDownloadHighlightOverride: null,
       visible: false,
+      showSectionsMgmtPanel: false,
     };
+    this.spocPlaceholderStartTime = null;
   }
 
   setFirstVisibleTimestamp() {
@@ -138,6 +143,10 @@ export class BaseContent extends React.PureComponent {
     this.setFirstVisibleTimestamp();
     this.shouldDisplayTopicSelectionModal();
     this.onVisibilityDispatch();
+
+    if (this.isSpocsOnDemandExpired && !this.spocPlaceholderStartTime) {
+      this.spocPlaceholderStartTime = Date.now();
+    }
   }
 
   onVisibilityDispatch() {
@@ -204,6 +213,7 @@ export class BaseContent extends React.PureComponent {
     global.addEventListener("keydown", this.handleOnKeyDown);
     const prefs = this.props.Prefs.values;
     const wallpapersEnabled = prefs["newtabWallpapers.enabled"];
+
     if (this.props.document.visibilityState === VISIBLE) {
       this.onVisible();
     } else {
@@ -235,6 +245,34 @@ export class BaseContent extends React.PureComponent {
     if (wallpapersEnabled) {
       this.updateWallpaper();
     }
+
+    this._onHashChange = () => {
+      const hash = globalThis.location?.hash || "";
+      if (hash === "#customize" || hash === "#customize-topics") {
+        this.openCustomizationMenu();
+
+        if (hash === "#customize-topics") {
+          this.toggleSectionsMgmtPanel();
+        }
+      } else if (this.props.App.customizeMenuVisible) {
+        this.closeCustomizationMenu();
+      }
+    };
+
+    // Using the Performance API to detect page reload vs fresh navigation.
+    // Only open customize menu on fresh navigation, not on page refresh.
+    // See: https://developer.mozilla.org/en-US/docs/Web/API/Performance/getEntriesByType
+    // See: https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry/entryType#navigation
+    // See: https://developer.mozilla.org/en-US/docs/Web/API/PerformanceNavigationTiming/type
+    const isReload =
+      globalThis.performance?.getEntriesByType("navigation")[0]?.type ===
+      "reload";
+
+    if (!isReload) {
+      this._onHashChange();
+    }
+
+    globalThis.addEventListener("hashchange", this._onHashChange);
   }
 
   componentDidUpdate(prevProps) {
@@ -287,6 +325,36 @@ export class BaseContent extends React.PureComponent {
     }
 
     this.spocsOnDemandUpdated();
+    this.trackSpocPlaceholderDuration(prevProps);
+  }
+
+  trackSpocPlaceholderDuration(prevProps) {
+    // isExpired returns true when the current props have expired spocs (showing placeholders)
+    const isExpired = this.isSpocsOnDemandExpired;
+
+    // Init tracking when placeholders become visible
+    if (isExpired && this.state.visible && !this.spocPlaceholderStartTime) {
+      this.spocPlaceholderStartTime = Date.now();
+    }
+
+    // wasExpired returns true when the previous props had expired spocs (showing placeholders)
+    const wasExpired =
+      prevProps.DiscoveryStream.spocs.onDemand?.enabled &&
+      !prevProps.DiscoveryStream.spocs.onDemand?.loaded &&
+      Date.now() - prevProps.DiscoveryStream.spocs.lastUpdated >=
+        prevProps.DiscoveryStream.spocs.cacheUpdateTime;
+
+    // Record duration telemetry event when placeholders are replaced with real content
+    if (wasExpired && !isExpired && this.spocPlaceholderStartTime) {
+      const duration = Date.now() - this.spocPlaceholderStartTime;
+      this.props.dispatch(
+        ac.OnlyToMain({
+          type: at.DISCOVERY_STREAM_SPOC_PLACEHOLDER_DURATION,
+          data: { duration },
+        })
+      );
+      this.spocPlaceholderStartTime = null;
+    }
   }
 
   handleColorModeChange() {
@@ -309,6 +377,9 @@ export class BaseContent extends React.PureComponent {
         VISIBILITY_CHANGE_EVENT,
         this._onVisibilityChange
       );
+    }
+    if (this._onHashChange) {
+      globalThis.removeEventListener("hashchange", this._onHashChange);
     }
   }
 
@@ -536,7 +607,8 @@ export class BaseContent extends React.PureComponent {
 
   shouldShowOMCHighlight(componentId) {
     const messageData = this.props.Messages?.messageData;
-    if (!messageData || Object.keys(messageData).length === 0) {
+    const isVisible = this.props.Messages?.isVisible;
+    if (!messageData || Object.keys(messageData).length === 0 || !isVisible) {
       return false;
     }
     return messageData?.content?.messageType === componentId;
@@ -584,6 +656,12 @@ export class BaseContent extends React.PureComponent {
 
   isWallpaperColorDark([r, g, b]) {
     return 0.2125 * r + 0.7154 * g + 0.0721 * b <= 110;
+  }
+
+  toggleSectionsMgmtPanel() {
+    this.setState(prevState => ({
+      showSectionsMgmtPanel: !prevState.showSectionsMgmtPanel,
+    }));
   }
 
   shouldDisplayTopicSelectionModal() {
@@ -634,6 +712,9 @@ export class BaseContent extends React.PureComponent {
     const { initialized, customizeMenuVisible } = App;
     const prefs = props.Prefs.values;
 
+    // @nova-cleanup(remove-conditional):
+    const novaEnabled = prefs[PREF_NOVA_ENABLED];
+
     const activeWallpaper = prefs[`newtabWallpapers.wallpaper`];
     const wallpapersEnabled = prefs["newtabWallpapers.enabled"];
     const weatherEnabled = prefs.showWeather;
@@ -653,7 +734,6 @@ export class BaseContent extends React.PureComponent {
       !prefs["feeds.topsites"] &&
       !pocketEnabled &&
       filteredSections.filter(section => section.enabled).length === 0;
-    const searchHandoffEnabled = prefs["improvesearch.handoffToAwesomebar"];
     const enabledSections = {
       topSitesEnabled: prefs["feeds.topsites"],
       pocketEnabled: prefs["feeds.section.topstories"],
@@ -669,10 +749,6 @@ export class BaseContent extends React.PureComponent {
     const mayHaveWeather =
       prefs["system.showWeather"] || prefs.trainhopConfig?.weather?.enabled;
     const supportUrl = prefs["support.url"];
-
-    // Weather can be enabled and not rendered in the top right corner
-    const shouldDisplayWeather =
-      prefs.showWeather && this.props.weatherPlacement === "header";
 
     // Widgets experiment pref check
     const nimbusWidgetsEnabled = prefs.widgetsConfig?.enabled;
@@ -702,6 +778,8 @@ export class BaseContent extends React.PureComponent {
       listsEnabled: prefs["widgets.lists.enabled"],
       timerEnabled: prefs["widgets.focusTimer.enabled"],
       weatherEnabled: prefs.showWeather,
+      widgetsMaximized: prefs["widgets.maximized"],
+      widgetsMayBeMaximized: prefs["widgets.system.maximized"],
     };
 
     // Mobile Download Promo Pref Checks
@@ -719,16 +797,10 @@ export class BaseContent extends React.PureComponent {
     const mobileDownloadPromoWrapperHeightModifier =
       prefs["weather.display"] === "detailed" &&
       weatherEnabled &&
-      shouldDisplayWeather &&
       mayHaveWeather
         ? "is-tall"
         : "";
-
-    const hasThumbsUpDownLayout =
-      prefs["discoverystream.thumbsUpDown.searchTopsitesCompact"];
-    const hasThumbsUpDown = prefs["discoverystream.thumbsUpDown.enabled"];
     const sectionsEnabled = prefs["discoverystream.sections.enabled"];
-    const topicLabelsEnabled = prefs["discoverystream.topicLabels.enabled"];
     const sectionsCustomizeMenuPanelEnabled =
       prefs["discoverystream.sections.customizeMenuPanel.enabled"];
     const sectionsPersonalizationEnabled =
@@ -737,16 +809,17 @@ export class BaseContent extends React.PureComponent {
     // Logic to show follow/block topic mgmt panel in Customize panel
     const mayHavePersonalizedTopicSections =
       sectionsPersonalizationEnabled &&
-      topicLabelsEnabled &&
       sectionsEnabled &&
       sectionsCustomizeMenuPanelEnabled &&
       DiscoveryStream.feeds.loaded;
 
     const featureClassName = [
+      // Nova helper class to target pre-Nova CSS styles
+      "classic-enabled",
       mobileDownloadPromoEnabled &&
         mobileDownloadPromoVariantABorC &&
         "has-mobile-download-promo", // Mobile download promo modal is enabled/visible
-      weatherEnabled && mayHaveWeather && shouldDisplayWeather && "has-weather", // Weather widget is enabled/visible
+      weatherEnabled && mayHaveWeather && "has-weather", // Weather widget is enabled/visible
       prefs.showSearch ? "has-search" : "no-search",
       // layoutsVariantAEnabled ? "layout-variant-a" : "", // Layout experiment variant A
       // layoutsVariantBEnabled ? "layout-variant-b" : "", // Layout experiment variant B
@@ -771,7 +844,6 @@ export class BaseContent extends React.PureComponent {
         "only-topsites",
       noSectionsEnabled && "no-sections",
       prefs["logowordmark.alwaysVisible"] && "visible-logo",
-      hasThumbsUpDownLayout && hasThumbsUpDown && "thumbs-ui-compact",
     ]
       .filter(v => v)
       .join(" ");
@@ -782,10 +854,105 @@ export class BaseContent extends React.PureComponent {
       this.state.showDownloadHighlightOverride ??
       this.shouldShowOMCHighlight("DownloadMobilePromoHighlight");
 
+    // @nova-cleanup(remove-conditional): Remove this conditional and
+    // always render the Nova layout below. The classic render() return
+    // and all its supporting variables (featureClassName, outerClassName,
+    //  mobileDownloadPromo*, etc.) will become dead code and should
+    // be deleted — expect lint errors for unused vars.
+    if (novaEnabled) {
+      // Bug 2016230
+      // If ONLY Search or ONLY Shortcuts or ONLY Search AND Shortcuts or NO features
+      // the logo should be centered instead of left-sidebar
+      const logoShouldBeCentered = false;
+
+      return (
+        <div>
+          <div className="container nova-enabled">
+            <div className="sidebar-inline-start">
+              {/* Logo */}
+              {/* TODO: Bug 2016230 - Add display logic for when to hide / display */}
+              {!logoShouldBeCentered && (
+                <ErrorBoundary>
+                  <Logo />
+                </ErrorBoundary>
+              )}
+              {/* Future: Page Nav  */}
+            </div>
+            <div className="content">
+              {/* Logo */}
+
+              {/* TODO: Bug 2016230 - Add display logic for when to hide / display */}
+              {logoShouldBeCentered && (
+                <ErrorBoundary>
+                  <Logo />
+                </ErrorBoundary>
+              )}
+
+              {/* Search */}
+              {prefs.showSearch && (
+                <ErrorBoundary>
+                  <Search showLogo={false} {...props.Search} />
+                </ErrorBoundary>
+              )}
+              {/* TODO: Break out Topsites, Widgets from DiscoveryStreamBase */}
+              {/* Shortcuts / Topsites */}
+              {/* Widgets */}
+              {/* Content Feed */}
+              {isDiscoveryStream && (
+                <ErrorBoundary className="borderless-error">
+                  <DiscoveryStreamBase
+                    locale={props.App.locale}
+                    firstVisibleTimestamp={this.state.firstVisibleTimestamp}
+                    placeholder={this.isSpocsOnDemandExpired}
+                  />
+                </ErrorBoundary>
+              )}
+            </div>
+            <div className="sidebar-inline-end">
+              {/* Mini Widgets - Weather */}
+              {weatherEnabled && (
+                <ErrorBoundary>
+                  <Weather />
+                </ErrorBoundary>
+              )}
+            </div>
+          </div>
+          <menu className="personalizeButtonWrapper">
+            <CustomizeMenu
+              onClose={this.closeCustomizationMenu}
+              onOpen={this.openCustomizationMenu}
+              openPreferences={this.openPreferences}
+              setPref={this.setPref}
+              enabledSections={enabledSections}
+              enabledWidgets={enabledWidgets}
+              wallpapersEnabled={wallpapersEnabled}
+              activeWallpaper={activeWallpaper}
+              pocketRegion={pocketRegion}
+              mayHaveTopicSections={mayHavePersonalizedTopicSections}
+              mayHaveInferredPersonalization={mayHaveInferredPersonalization}
+              mayHaveWeather={mayHaveWeather}
+              mayHaveWidgets={mayHaveWidgets}
+              mayHaveTimerWidget={mayHaveTimerWidget}
+              mayHaveListsWidget={mayHaveListsWidget}
+              mayHaveWeatherForecast={
+                prefs["widgets.system.weatherForecast.enabled"]
+              }
+              weatherDisplay={prefs["weather.display"]}
+              showing={customizeMenuVisible}
+              toggleSectionsMgmtPanel={this.toggleSectionsMgmtPanel}
+              showSectionsMgmtPanel={this.state.showSectionsMgmtPanel}
+              showWidgetMgmtPanel={this.state.showWidgetMgmtPanel}
+            />
+          </menu>
+        </div>
+      );
+    }
+
+    // @nova-cleanup(remove-conditional): Delete this entire classic return block along with all variables only used here
     return (
       <div className={featureClassName}>
         <div className="weatherWrapper">
-          {shouldDisplayWeather && (
+          {weatherEnabled && (
             <ErrorBoundary>
               <Weather />
             </ErrorBoundary>
@@ -826,7 +993,6 @@ export class BaseContent extends React.PureComponent {
                     showLogo={
                       noSectionsEnabled || prefs["logowordmark.alwaysVisible"]
                     }
-                    handoffEnabled={searchHandoffEnabled}
                     {...props.Search}
                   />
                 </ErrorBoundary>
@@ -835,6 +1001,23 @@ export class BaseContent extends React.PureComponent {
             {/* Bug 1914055: Show logo regardless if search is enabled */}
             {!prefs.showSearch && !noSectionsEnabled && <Logo />}
             <div className={`body-wrapper${initialized ? " on" : ""}`}>
+              {this.shouldShowOMCHighlight("ASRouterNewTabMessage") && (
+                <MessageWrapper dispatch={this.props.dispatch}>
+                  <ExternalComponentWrapper
+                    type="ASROUTER_NEWTAB_MESSAGE"
+                    messageData={this.props.Messages.messageData}
+                    className="asrouter-newtab-message-wrapper"
+                  />
+                </MessageWrapper>
+              )}
+              {this.shouldShowOMCHighlight("ActivationWindowMessage") && (
+                <MessageWrapper dispatch={this.props.dispatch}>
+                  <ActivationWindowMessage
+                    dispatch={this.props.dispatch}
+                    messageData={this.props.Messages.messageData}
+                  />
+                </MessageWrapper>
+              )}
               {isDiscoveryStream ? (
                 <ErrorBoundary className="borderless-error">
                   <DiscoveryStreamBase
@@ -880,7 +1063,13 @@ export class BaseContent extends React.PureComponent {
             mayHaveWidgets={mayHaveWidgets}
             mayHaveTimerWidget={mayHaveTimerWidget}
             mayHaveListsWidget={mayHaveListsWidget}
+            mayHaveWeatherForecast={
+              prefs["widgets.system.weatherForecast.enabled"]
+            }
+            weatherDisplay={prefs["weather.display"]}
             showing={customizeMenuVisible}
+            toggleSectionsMgmtPanel={this.toggleSectionsMgmtPanel}
+            showSectionsMgmtPanel={this.state.showSectionsMgmtPanel}
           />
           {this.shouldShowOMCHighlight("CustomWallpaperHighlight") && (
             <MessageWrapper dispatch={this.props.dispatch}>
@@ -910,5 +1099,4 @@ export const Base = connect(state => ({
   Search: state.Search,
   Wallpapers: state.Wallpapers,
   Weather: state.Weather,
-  weatherPlacement: selectWeatherPlacement(state),
 }))(_Base);

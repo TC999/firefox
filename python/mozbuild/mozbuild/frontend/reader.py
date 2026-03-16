@@ -21,6 +21,7 @@ import functools
 import inspect
 import logging
 import os
+import re
 import sys
 import textwrap
 import time
@@ -41,7 +42,6 @@ from mozbuild.util import (
     HierarchicalStringList,
     ReadOnlyDefaultDict,
     cpu_count,
-    memoize,
 )
 
 from .context import (
@@ -288,7 +288,7 @@ class MozbuildSandbox(Sandbox):
 
         self.templates[name] = TemplateFunction(func, self)
 
-    @memoize
+    @functools.cache
     def _create_subcontext(self, cls):
         """Return a function object that creates SubContext instances."""
 
@@ -297,7 +297,7 @@ class MozbuildSandbox(Sandbox):
 
         return fn
 
-    @memoize
+    @functools.cache
     def _create_function(self, function_def):
         """Returns a function object for use within the sandbox for the given
         function definition.
@@ -320,7 +320,7 @@ class MozbuildSandbox(Sandbox):
 
         return function
 
-    @memoize
+    @functools.cache
     def _create_template_wrapper(self, template):
         """Returns a function object for use within the sandbox for the given
         TemplateFunction instance..
@@ -874,8 +874,7 @@ class BuildReader:
 
     def summary(self):
         return ExecutionSummary(
-            "Finished reading {file_count:d} moz.build files in "
-            "{execution_time:.2f}s",
+            "Finished reading {file_count:d} moz.build files in {execution_time:.2f}s",
             file_count=self._file_count,
             execution_time=self._execution_time,
         )
@@ -996,9 +995,10 @@ class BuildReader:
             <variable name>, <key>, <value>)`. The `key` will only be
             defined if the variable is an object, otherwise it is `None`.
         """
-
         if isinstance(variables, str):
             variables = [variables]
+
+        variables_matcher = re.compile("|".join(variables))
 
         def assigned_variable(node):
             # This is not correct, but we don't care yet.
@@ -1080,12 +1080,17 @@ class BuildReader:
             mozbuild_paths = self.all_mozbuild_paths()
 
         for p in mozbuild_paths:
-            assignments[:] = []
             full = os.path.join(self.config.topsrcdir, p)
 
-            with open(full, "rb") as fh:
+            with open(full) as fh:
                 source = fh.read()
 
+            # No need to do the heavy parsing if there is no literal mention of
+            # the variables
+            if not re.search(variables_matcher, source):
+                continue
+
+            assignments[:] = []
             tree = ast.parse(source, full)
             Visitor().visit(tree)
 
@@ -1210,7 +1215,7 @@ class BuildReader:
             for v in ("input", "variables"):
                 if not getattr(gyp_dir, v):
                     raise SandboxValidationError(
-                        "Missing value for " 'GYP_DIRS["%s"].%s' % (target_dir, v),
+                        'Missing value for GYP_DIRS["%s"].%s' % (target_dir, v),
                         context,
                     )
 
@@ -1304,11 +1309,11 @@ class BuildReader:
         is relevant to that path. Let's say we have the following files on disk::
 
            moz.build
-           foo/moz.build
-           foo/baz/moz.build
-           foo/baz/file1
-           other/moz.build
-           other/file2
+           foo / moz.build
+           foo / baz / moz.build
+           foo / baz / file1
+           other / moz.build
+           other / file2
 
         If ``foo/baz/file1`` is passed in, the relevant moz.build files are
         ``moz.build``, ``foo/moz.build``, and ``foo/baz/moz.build``. For
@@ -1321,7 +1326,7 @@ class BuildReader:
         root = self.config.topsrcdir
         result = {}
 
-        @memoize
+        @functools.cache
         def exists(path):
             return self._relevant_mozbuild_finder.get(path) is not None
 

@@ -16,7 +16,7 @@ const usernameInputSelector = "#form-basic-username";
 requestLongerTimeout(2);
 
 async function task_setup() {
-  Services.logins.removeAllUserFacingLogins();
+  await Services.logins.removeAllUserFacingLoginsAsync();
   LoginTestUtils.resetGeneratedPasswordsCache();
   await cleanupPasswordNotifications();
   await LoginTestUtils.remoteSettings.setupImprovedPasswordRules();
@@ -241,9 +241,9 @@ async function openAndVerifyDoorhanger(browser, type, expected) {
 }
 
 async function appendContentInputvalue(browser, selector, str) {
-  await ContentTask.spawn(
+  await SpecialPowers.spawn(
     browser,
-    { selector, str },
+    [{ selector, str }],
     async function ({ selector, str }) {
       const EventUtils = ContentTaskUtils.getEventUtils(content);
       let input = content.document.querySelector(selector);

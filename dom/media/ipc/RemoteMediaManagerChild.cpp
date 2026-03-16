@@ -65,7 +65,7 @@ static EnumeratedArray<RemoteMediaIn, StaticRefPtr<GenericNonExclusivePromise>,
 // Only modified on the main-thread, read on any thread. While it could be read
 // on the main thread directly, for clarity we force access via the DataMutex
 // wrapper.
-MOZ_RUNINIT static StaticDataMutex<StaticRefPtr<nsIThread>>
+MOZ_RELEASE_CONSTINIT static StaticDataMutex<StaticRefPtr<nsIThread>>
     sRemoteMediaManagerChildThread("sRemoteMediaManagerChildThread");
 
 // Only accessed from sRemoteMediaManagerChildThread
@@ -231,9 +231,9 @@ RemoteMediaManagerChild* RemoteMediaManagerChild::GetSingleton(
 }
 
 /* static */
-nsISerialEventTarget* RemoteMediaManagerChild::GetManagerThread() {
+nsCOMPtr<nsISerialEventTarget> RemoteMediaManagerChild::GetManagerThread() {
   auto remoteDecoderManagerThread = sRemoteMediaManagerChildThread.Lock();
-  return *remoteDecoderManagerThread;
+  return nsCOMPtr<nsISerialEventTarget>(*remoteDecoderManagerThread);
 }
 
 /* static */
@@ -639,6 +639,13 @@ RemoteMediaManagerChild::InitializeEncoder(
         __func__);
   }
 
+  auto managerThread = aEncoder->GetManagerThread();
+  if (!managerThread) {
+    return PlatformEncoderModule::CreateEncoderPromise::CreateAndReject(
+        MediaResult(NS_ERROR_DOM_MEDIA_CANCELED, "Thread shutdown"_ns),
+        __func__);
+  }
+
   MOZ_ASSERT(location != RemoteMediaIn::Unspecified);
 
   RefPtr<GenericNonExclusivePromise> p;
@@ -658,7 +665,6 @@ RemoteMediaManagerChild::InitializeEncoder(
       aConfig.IsAudio() ? "audio" : "video", static_cast<int>(aConfig.mCodec),
       RemoteMediaInToStr(location));
 
-  auto* managerThread = aEncoder->GetManagerThread();
   return p->Then(
       managerThread, __func__,
       [encoder = std::move(aEncoder), aConfig](bool) {

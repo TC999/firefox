@@ -102,6 +102,10 @@ class InspectorUtils {
                                       nsTArray<nsString>& aResult,
                                       ErrorResult& aRv);
 
+  // Get a list of all the CSS wide keywords.
+  static void GetCSSWideKeywords(GlobalObject& aGlobal,
+                                 nsTArray<nsString>& aResult);
+
   // Utilities for working with CSS colors
   static void RgbToColorName(GlobalObject& aGlobal, uint8_t aR, uint8_t aG,
                              uint8_t aB, nsACString& aResult);
@@ -314,6 +318,8 @@ class InspectorUtils {
                                          BrowsingContext* aContext,
                                          mozilla::CSSCoord aHeight);
   static uint16_t GetGridContainerType(GlobalObject&, Element&);
+  static void GetAnchorFor(GlobalObject&, Element&, const nsAString& aName,
+                           Nullable<InspectorAnchorElement>&);
 };
 
 }  // namespace mozilla::dom

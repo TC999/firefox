@@ -15,7 +15,7 @@ var UAHelpers = {
     return `FxQuantum/${UAHelpers.getRunningFirefoxVersion()} `;
   },
   getDeviceAppropriateChromeUA(config = {}) {
-    let { androidVersion, version = "130.0.0.0", phone, tablet, OS } = config;
+    let { androidVersion, version = "143.0.0.0", phone, tablet, OS } = config;
     const key = JSON.stringify(config);
     if (config.noCache || !UAHelpers._deviceAppropriateChromeUAs[key]) {
       const userAgent =
@@ -76,14 +76,14 @@ var UAHelpers = {
   ) {
     return `${ua} Gecko/${version}`;
   },
-  addChrome(ua = navigator.userAgent, version = "130.0.0.0") {
+  addChrome(ua = navigator.userAgent, version = "143.0.0.0") {
     const isMobile =
       navigator.userAgent.includes("Mobile") ||
       navigator.userAgent.includes("Tablet");
     return `${ua} AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version} ${isMobile ? "Mobile " : ""}Safari/537.36`;
   },
   safari(config = {}) {
-    const version = config.version || "18.1";
+    const version = config.version || "26.1";
     const webkitVersion = config.webkitVersion || "605.1.15";
     const osVersion = config.osVersion?.replace(".", "_") || "10_15_7";
     const arch = config.arch || "Intel";

@@ -6,6 +6,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #import <Cocoa/Cocoa.h>
+#import <ApplicationServices/ApplicationServices.h>
 
 #import "MOXTextMarkerDelegate.h"
 
@@ -199,12 +200,23 @@ void PlatformRoleChangedEvent(Accessible* aTarget, const a11y::role& aRole,
   }
 }
 
+void PlatformAnnouncementEvent(Accessible* aTarget,
+                               const nsAString& aAnnouncement,
+                               uint16_t aPriority) {
+  mozAccessible* wrapper = GetNativeFromGeckoAccessible(aTarget);
+  if (wrapper) {
+    [wrapper handleAnnouncementEvent:nsCocoaUtils::ToNSString(aAnnouncement)
+                            priority:aPriority];
+  }
+}
+
 // This enum lists possible assistive technology clients. It's intended for use
 // in an EnumSet since there can be multiple ATs active at once.
 enum class Client : uint64_t {
   Unknown,
   VoiceOver,
   SwitchControl,
+  UAZoom,
   FullKeyboardAccess,
   VoiceControl,
   SpeakSelection,
@@ -215,6 +227,7 @@ enum class Client : uint64_t {
 
 // Get the set of currently-active clients and the client to log.
 // XXX: We should log all clients, but default to the first one encountered.
+// (bug 2021479)
 std::pair<EnumSet<Client>, Client> GetClients() {
   EnumSet<Client> clients;
   std::optional<Client> clientToLog;
@@ -232,6 +245,8 @@ std::pair<EnumSet<Client>, Client> GetClients() {
                  respondsToSelector:@selector(isSwitchControlEnabled)] &&
              [[NSWorkspace sharedWorkspace] isSwitchControlEnabled]) {
     AddClient(Client::SwitchControl);
+  } else if (UAZoomEnabled()) {
+    AddClient(Client::UAZoom);
   } else {
     Boolean foundSpecificClient = false;
 
@@ -303,6 +318,8 @@ constexpr const char* GetStringForClient(Client aClient) {
       return "VoiceOver";
     case Client::SwitchControl:
       return "SwitchControl";
+    case Client::UAZoom:
+      return "UAZoom";
     case Client::FullKeyboardAccess:
       return "FullKeyboardAccess";
     case Client::VoiceControl:
@@ -338,6 +355,10 @@ uint64_t GetCacheDomainsForKnownClients(uint64_t aCacheDomains) {
   }
   if (clients.contains(Client::VoiceControl)) {
     // XXX: Find minimum set of domains required for VoiceControl.
+    return CacheDomain::All;
+  }
+  if (clients.contains(Client::UAZoom)) {
+    // XXX bug 2021474: Find minimum set of domains required for UAZoom.
     return CacheDomain::All;
   }
   return aCacheDomains;

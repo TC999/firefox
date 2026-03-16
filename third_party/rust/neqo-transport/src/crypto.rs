@@ -15,17 +15,18 @@ use std::{
 };
 
 use enum_map::EnumMap;
-use neqo_common::{hex, hex_snip_middle, qdebug, qinfo, qtrace, Buffer, Encoder, Role};
+use neqo_common::{Buffer, Encoder, Role, hex, hex_snip_middle, qdebug, qinfo, qtrace};
 pub use neqo_crypto::Epoch;
 use neqo_crypto::{
-    hkdf, hp, random, Aead, AeadTrait as _, Agent, AntiReplay, Cipher, Error as CryptoError,
-    HandshakeState, PrivateKey, PublicKey, Record, RecordList, ResumptionToken, SymKey,
-    ZeroRttChecker, TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256,
-    TLS_CT_HANDSHAKE, TLS_GRP_EC_SECP256R1, TLS_GRP_EC_SECP384R1, TLS_GRP_EC_SECP521R1,
-    TLS_GRP_EC_X25519, TLS_GRP_KEM_MLKEM768X25519, TLS_VERSION_1_3,
+    Aead, AeadTrait as _, Agent, AntiReplay, Cipher, Error as CryptoError, HandshakeState,
+    PrivateKey, PublicKey, Record, RecordList, ResumptionToken, SymKey, TLS_AES_128_GCM_SHA256,
+    TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256, TLS_CT_HANDSHAKE, TLS_GRP_EC_SECP256R1,
+    TLS_GRP_EC_SECP384R1, TLS_GRP_EC_SECP521R1, TLS_GRP_EC_X25519, TLS_GRP_KEM_MLKEM768X25519,
+    TLS_VERSION_1_3, ZeroRttChecker, hkdf, hp, random,
 };
 
 use crate::{
+    ConnectionParameters, Error, Res,
     cid::ConnectionIdRef,
     frame::{FrameEncoder as _, FrameType},
     packet::{self},
@@ -37,7 +38,6 @@ use crate::{
     tparams::{TpZeroRttChecker, TransportParameters, TransportParametersHandler},
     tracking::PacketNumberSpace,
     version::Version,
-    ConnectionParameters, Error, Res,
 };
 
 /// The number of invocations remaining on a write cipher before we try
@@ -404,7 +404,7 @@ impl Crypto {
     }
 
     #[must_use]
-    pub fn tls_mut(&mut self) -> &mut Agent {
+    pub const fn tls_mut(&mut self) -> &mut Agent {
         &mut self.tls
     }
 
@@ -419,7 +419,7 @@ impl Crypto {
     }
 
     #[must_use]
-    pub fn streams_mut(&mut self) -> &mut CryptoStreams {
+    pub const fn streams_mut(&mut self) -> &mut CryptoStreams {
         &mut self.streams
     }
 
@@ -429,7 +429,7 @@ impl Crypto {
     }
 
     #[must_use]
-    pub fn states_mut(&mut self) -> &mut CryptoStates {
+    pub const fn states_mut(&mut self) -> &mut CryptoStates {
         &mut self.states
     }
 }
@@ -483,7 +483,9 @@ impl CryptoDxState {
         cipher: Cipher,
         min_pn: packet::Number,
     ) -> Res<Self> {
-        qdebug!("Making {direction:?} {epoch:?} CryptoDxState, v={version:?} cipher={cipher} min_pn={min_pn}",);
+        qdebug!(
+            "Making {direction:?} {epoch:?} CryptoDxState, v={version:?} cipher={cipher} min_pn={min_pn}",
+        );
         let hplabel = String::from(version.label_prefix()) + "hp";
         Ok(Self {
             version,
@@ -671,12 +673,12 @@ impl CryptoDxState {
         self.used_pn.end
     }
 
-    pub fn encrypt<'a>(
+    pub fn encrypt(
         &mut self,
         pn: packet::Number,
         hdr: Range<usize>,
-        data: &'a mut [u8],
-    ) -> Res<&'a mut [u8]> {
+        data: &mut [u8],
+    ) -> Res<usize> {
         debug_assert_eq!(self.direction, CryptoDxDirection::Write);
         qtrace!(
             "[{self}] encrypt_in_place pn={pn} hdr={} body={}",
@@ -699,12 +701,12 @@ impl CryptoDxState {
         let (prev, data) = data.split_at_mut(hdr.end);
         // `prev` may have already-encrypted packets this one is being coalesced with.
         // Use only the actual current header for AAD.
-        let data = self.aead.encrypt_in_place(pn, &prev[hdr], data)?;
+        let len = self.aead.encrypt_in_place(pn, &prev[hdr], data)?;
 
-        qtrace!("[{self}] encrypt ct={}", hex(&data));
+        qtrace!("[{self}] encrypt ct={}", hex(&data[..len]));
         debug_assert_eq!(pn, self.next_pn());
         self.used(pn)?;
-        Ok(data)
+        Ok(len)
     }
 
     #[must_use]
@@ -712,12 +714,12 @@ impl CryptoDxState {
         self.aead.expansion()
     }
 
-    pub fn decrypt<'a>(
+    pub fn decrypt(
         &mut self,
         pn: packet::Number,
         hdr: Range<usize>,
-        data: &'a mut [u8],
-    ) -> Res<&'a mut [u8]> {
+        data: &mut [u8],
+    ) -> Res<usize> {
         debug_assert_eq!(self.direction, CryptoDxDirection::Read);
         qtrace!(
             "[{self}] decrypt_in_place pn={pn} hdr={} body={}",
@@ -726,9 +728,9 @@ impl CryptoDxState {
         );
         self.invoked()?;
         let (hdr, data) = data.split_at_mut(hdr.end);
-        let data = self.aead.decrypt_in_place(pn, hdr, data)?;
+        let len = self.aead.decrypt_in_place(pn, hdr, data)?;
         self.used(pn)?;
-        Ok(data)
+        Ok(len)
     }
 
     #[cfg(not(feature = "disable-encryption"))]
@@ -919,10 +921,9 @@ impl CryptoStates {
     /// This only needs to be run once, so run it when getting header protection.
     fn maybe_continue_initial_rx(&mut self, version: Version) {
         // Only do this if this version hasn't been used...
-        // This would be better with `is_none_or`, but that needs MSRV >= 1.82
-        if !self.initials[version]
+        if self.initials[version]
             .as_ref()
-            .is_some_and(|dx| dx.rx.next_pn() == 0)
+            .is_none_or(|dx| dx.rx.next_pn() != 0)
         {
             return;
         }
@@ -1177,10 +1178,10 @@ impl CryptoStates {
         debug_assert!(self.app_write.is_none());
         debug_assert_ne!(self.cipher, 0);
         let mut app = CryptoDxAppData::new(version, CryptoDxDirection::Write, secret, self.cipher)?;
-        if let Some(z) = &self.zero_rtt {
-            if z.direction == CryptoDxDirection::Write {
-                app.dx.continuation(z)?;
-            }
+        if let Some(z) = &self.zero_rtt
+            && z.direction == CryptoDxDirection::Write
+        {
+            app.dx.continuation(z)?;
         }
         self.zero_rtt = None;
         self.app_write = Some(app);
@@ -1250,12 +1251,12 @@ impl CryptoStates {
     /// If that is close, update them if possible.  Failing to update at
     /// this stage is cause for a fatal error.
     pub fn auto_update(&mut self) -> Res<()> {
-        if let Some(app_write) = self.app_write.as_ref() {
-            if app_write.dx.should_update() {
-                qinfo!("[{self}] Initiating automatic key update");
-                if !self.maybe_update_write()? {
-                    return Err(Error::KeysExhausted);
-                }
+        if let Some(app_write) = self.app_write.as_ref()
+            && app_write.dx.should_update()
+        {
+            qinfo!("[{self}] Initiating automatic key update");
+            if !self.maybe_update_write()? {
+                return Err(Error::KeysExhausted);
             }
         }
         Ok(())
@@ -1264,8 +1265,7 @@ impl CryptoStates {
     fn has_0rtt_read(&self) -> bool {
         self.zero_rtt
             .as_ref()
-            .filter(|z| z.direction == CryptoDxDirection::Read)
-            .is_some()
+            .is_some_and(|z| z.direction == CryptoDxDirection::Read)
     }
 
     /// Prepare to update read keys.  This doesn't happen immediately as
@@ -1530,15 +1530,15 @@ impl CryptoStreams {
     /// Resend any Initial or Handshake CRYPTO frames that might be outstanding.
     /// This can help speed up handshake times.
     pub fn resend_unacked(&mut self, space: PacketNumberSpace) {
-        if space != PacketNumberSpace::ApplicationData {
-            if let Some(cs) = self.get_mut(space) {
-                cs.tx.unmark_sent();
-            }
+        if space != PacketNumberSpace::ApplicationData
+            && let Some(cs) = self.get_mut(space)
+        {
+            cs.tx.unmark_sent();
         }
     }
 
     pub fn is_empty(&mut self, space: PacketNumberSpace) -> bool {
-        self.get_mut(space).map_or(true, |cs| cs.tx.is_empty())
+        self.get_mut(space).is_none_or(|cs| cs.tx.is_empty())
     }
 
     const fn get(&self, space: PacketNumberSpace) -> Option<&CryptoStream> {
@@ -1561,7 +1561,7 @@ impl CryptoStreams {
         }
     }
 
-    fn get_mut(&mut self, space: PacketNumberSpace) -> Option<&mut CryptoStream> {
+    const fn get_mut(&mut self, space: PacketNumberSpace) -> Option<&mut CryptoStream> {
         let (initial, hs, app) = match self {
             Self::Initial {
                 initial,
@@ -1727,4 +1727,19 @@ pub struct CryptoRecoveryToken {
     space: PacketNumberSpace,
     offset: u64,
     length: usize,
+}
+
+#[cfg(all(test, not(feature = "disable-encryption")))]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use test_fixture::fixture_init;
+
+    use super::CryptoDxState;
+
+    #[test]
+    fn crypto_dx_state_display() {
+        fixture_init();
+        let dx = CryptoDxState::test_default();
+        assert_eq!(dx.to_string(), "epoch 0 Write");
+    }
 }

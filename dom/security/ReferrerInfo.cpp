@@ -30,6 +30,7 @@
 #include "nsIPipe.h"
 #include "nsIURL.h"
 #include "nsIWebProgressListener.h"
+#include "nsNetUtil.h"
 #include "nsScriptSecurityManager.h"
 #include "nsStreamUtils.h"
 #include "nsWhitespaceTokenizer.h"
@@ -277,16 +278,7 @@ bool ReferrerInfo::ShouldResponseInheritReferrerInfo(nsIChannel* aChannel) {
   nsresult rv = aChannel->GetURI(getter_AddRefs(channelURI));
   NS_ENSURE_SUCCESS(rv, false);
 
-  bool isAbout = channelURI->SchemeIs("about");
-  if (!isAbout) {
-    return false;
-  }
-
-  nsAutoCString aboutSpec;
-  rv = channelURI->GetSpec(aboutSpec);
-  NS_ENSURE_SUCCESS(rv, false);
-
-  return aboutSpec.EqualsLiteral("about:srcdoc");
+  return NS_IsAboutSrcdoc(channelURI);
 }
 
 /* static */
@@ -1408,13 +1400,13 @@ nsresult ReferrerInfo::ComputeReferrer(nsIHttpChannel* aChannel) {
     if (NS_WARN_IF(NS_FAILED(rv))) {
       return rv;
     }
-    referrer = userSpoofReferrer;
+    referrer = std::move(userSpoofReferrer);
   }
 
   // strip away any userpass; we don't want to be giving out passwords ;-)
   // This is required by Referrer Policy stripping algorithm.
   nsCOMPtr<nsIURI> exposableURI = nsIOService::CreateExposableURI(referrer);
-  referrer = exposableURI;
+  referrer = std::move(exposableURI);
 
   // Don't send referrer when the request is cross-origin and policy is
   // "same-origin".

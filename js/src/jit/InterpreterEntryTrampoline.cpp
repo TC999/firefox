@@ -23,18 +23,18 @@ void js::ClearInterpreterEntryMap(JSRuntime* runtime) {
 }
 
 void EntryTrampolineMap::traceTrampolineCode(JSTracer* trc) {
-  for (jit::EntryTrampolineMap::Enum e(*this); !e.empty(); e.popFront()) {
-    EntryTrampoline& trampoline = e.front().value();
+  for (auto iter = modIter(); !iter.done(); iter.next()) {
+    EntryTrampoline& trampoline = iter.get().value();
     trampoline.trace(trc);
   }
 }
 
 void EntryTrampolineMap::updateScriptsAfterMovingGC(void) {
-  for (jit::EntryTrampolineMap::Enum e(*this); !e.empty(); e.popFront()) {
-    BaseScript* script = e.front().key();
+  for (auto iter = modIter(); !iter.done(); iter.next()) {
+    BaseScript* script = iter.get().key();
     if (IsForwarded(script)) {
       script = Forwarded(script);
-      e.rekeyFront(script);
+      iter.rekey(script);
     }
   }
 }
@@ -192,6 +192,9 @@ void JitRuntime::generateInterpreterEntryTrampoline(MacroAssembler& masm) {
   masm.loadPtr(cxAddr, arg0);
   masm.loadPtr(stateAddr, arg1);
 #else
+#  ifdef JS_USE_LINK_REGISTER
+  masm.pushReturnAddress();
+#  endif
   masm.push(FramePointer);
   masm.moveStackPtrTo(FramePointer);
 

@@ -3,8 +3,8 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-#ifndef nsIContent_h___
-#define nsIContent_h___
+#ifndef nsIContent_h_
+#define nsIContent_h_
 
 #include "mozilla/FlushType.h"
 #include "nsINode.h"
@@ -114,7 +114,8 @@ class nsIContent : public nsINode {
    * @note This method is safe to call on nodes that are not bound to a tree.
    */
   virtual void UnbindFromTree(UnbindContext&) = 0;
-  void UnbindFromTree(nsINode* aNewParent = nullptr);
+  void UnbindFromTree(nsINode* aNewParent = nullptr,
+                      const BatchRemovalState* aBatchState = nullptr);
 
   enum {
     /**
@@ -298,23 +299,6 @@ class nsIContent : public nsINode {
    *         native events, but they may be needed by the plug-in.
    */
   virtual IMEState GetDesiredIMEState();
-
-  /**
-   * Gets the ShadowRoot binding for this element.
-   *
-   * @return The ShadowRoot currently bound to this element.
-   */
-  inline mozilla::dom::ShadowRoot* GetShadowRoot() const;
-
-  /**
-   * Gets the root of the node tree for this content if it is in a shadow tree.
-   *
-   * @return The ShadowRoot that is the root of the node tree.
-   */
-  mozilla::dom::ShadowRoot* GetContainingShadow() const {
-    const nsExtendedContentSlots* slots = GetExistingExtendedContentSlots();
-    return slots ? slots->mContainingShadow.get() : nullptr;
-  }
 
   /**
    * Gets the assigned slot associated with this content.
@@ -524,9 +508,7 @@ class nsIContent : public nsINode {
    * In the case of absolutely positioned elements and floated elements, this
    * frame is the out of flow frame, not the placeholder.
    */
-  nsIFrame* GetPrimaryFrame() const {
-    return IsInComposedDoc() ? mPrimaryFrame : nullptr;
-  }
+  nsIFrame* GetPrimaryFrame() const { return mPrimaryFrame; }
 
   /**
    * Get the primary frame for this content with flushing
@@ -653,11 +635,6 @@ class nsIContent : public nsINode {
         mozilla::MallocSizeOf aMallocSizeOf) const;
 
     /**
-     * @see nsIContent::GetContainingShadow
-     */
-    RefPtr<mozilla::dom::ShadowRoot> mContainingShadow;
-
-    /**
      * @see nsIContent::GetAssignedSlot
      */
     RefPtr<mozilla::dom::HTMLSlotElement> mAssignedSlot;
@@ -671,7 +648,11 @@ class nsIContent : public nsINode {
 
     ~nsContentSlots() {
       if (!(mExtendedSlots & sNonOwningExtendedSlotsFlag)) {
-        delete GetExtendedContentSlots();
+        nsExtendedContentSlots* extSlots = GetExtendedContentSlots();
+        if (extSlots) {
+          extSlots->~nsExtendedContentSlots();
+          free(extSlots);
+        }
       }
     }
 
@@ -714,7 +695,7 @@ class nsIContent : public nsINode {
   };
 
   // Override from nsINode
-  nsContentSlots* CreateSlots() override { return new nsContentSlots(); }
+  nsContentSlots* CreateSlots() override;
 
   nsContentSlots* ContentSlots() {
     return static_cast<nsContentSlots*>(Slots());
@@ -728,9 +709,7 @@ class nsIContent : public nsINode {
     return static_cast<nsContentSlots*>(GetExistingSlots());
   }
 
-  virtual nsExtendedContentSlots* CreateExtendedSlots() {
-    return new nsExtendedContentSlots();
-  }
+  virtual nsExtendedContentSlots* CreateExtendedSlots();
 
   const nsExtendedContentSlots* GetExistingExtendedContentSlots() const {
     const nsContentSlots* slots = GetExistingContentSlots();
@@ -788,4 +767,4 @@ class nsIContent : public nsINode {
 
 NON_VIRTUAL_ADDREF_RELEASE(nsIContent)
 
-#endif /* nsIContent_h___ */
+#endif /* nsIContent_h_ */

@@ -93,7 +93,7 @@ SwapChainPresenter::~SwapChainPresenter() {
   auto newFront = SwapBackBuffer(nullptr);
   if (newFront) {
     mSwapChain->mPrevFrontBuffer = mSwapChain->mFrontBuffer;
-    mSwapChain->mFrontBuffer = newFront;
+    mSwapChain->mFrontBuffer = std::move(newFront);
   }
 }
 
@@ -103,7 +103,7 @@ std::shared_ptr<SharedSurface> SwapChainPresenter::SwapBackBuffer(
     mBackBuffer->EndWrite();
   }
   auto old = mBackBuffer;
-  mBackBuffer = back;
+  mBackBuffer = std::move(back);
   if (mBackBuffer) {
     mBackBuffer->BeginWrite();
   }

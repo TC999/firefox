@@ -10,6 +10,9 @@
 
 #include <algorithm>
 
+#include "AnchorPositioningUtils.h"
+#include "NonCustomCSSPropertyId.h"
+#include "PseudoStyleType.h"
 #include "mozilla/AppUnits.h"
 #include "mozilla/ComputedStyle.h"
 #include "mozilla/ComputedStyleInlines.h"
@@ -31,7 +34,6 @@
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/ElementInlines.h"
 #include "nsCSSProps.h"
-#include "nsCSSPseudoElements.h"
 #include "nsContentUtils.h"
 #include "nsDOMCSSDeclaration.h"
 #include "nsDOMCSSValueList.h"
@@ -66,8 +68,7 @@ using namespace mozilla::dom;
 already_AddRefed<nsComputedDOMStyle> NS_NewComputedDOMStyle(
     dom::Element* aElement, const nsAString& aPseudoElt, Document* aDocument,
     nsComputedDOMStyle::StyleType aStyleType, mozilla::ErrorResult&) {
-  auto request = nsCSSPseudoElements::ParsePseudoElement(
-      aPseudoElt, CSSEnabledState::ForAllContent);
+  auto request = PseudoStyleRequest::Parse(aPseudoElt);
   auto returnEmpty = nsComputedDOMStyle::AlwaysReturnEmptyStyle::No;
   if (!request) {
     if (!aPseudoElt.IsEmpty() && aPseudoElt.First() == u':') {
@@ -596,7 +597,7 @@ nsMargin nsComputedDOMStyle::GetAdjustedValuesForBoxSizing() {
   const nsStylePosition* stylePos = StylePosition();
 
   nsMargin adjustment;
-  if (stylePos->mBoxSizing == StyleBoxSizing::Border) {
+  if (stylePos->mBoxSizing == StyleBoxSizing::BorderBox) {
     adjustment = mInnerFrame->GetUsedBorderAndPadding();
   }
 
@@ -758,26 +759,34 @@ void nsComputedDOMStyle::ClearComputedStyle() {
 }
 
 void nsComputedDOMStyle::SetResolvedComputedStyle(
-    RefPtr<const ComputedStyle>&& aContext, uint64_t aGeneration) {
+    RefPtr<const ComputedStyle> aStyle, uint64_t aGeneration) {
   if (!mResolvedComputedStyle) {
     mResolvedComputedStyle = true;
     mElement->AddMutationObserver(this);
   }
-  mComputedStyle = aContext;
+  mComputedStyle = std::move(aStyle);
   mComputedStyleGeneration = aGeneration;
   mPresShellId = mPresShell->GetPresShellId();
 }
 
-void nsComputedDOMStyle::SetFrameComputedStyle(mozilla::ComputedStyle* aStyle,
-                                               uint64_t aGeneration) {
+void nsComputedDOMStyle::SetFrameComputedStyle(
+    RefPtr<const ComputedStyle> aStyle, uint64_t aGeneration) {
   ClearComputedStyle();
-  mComputedStyle = aStyle;
+  mComputedStyle = std::move(aStyle);
   mComputedStyleGeneration = aGeneration;
   mPresShellId = mPresShell->GetPresShellId();
 }
 
 static bool MayNeedToFlushLayout(NonCustomCSSPropertyId aPropId) {
   switch (aPropId) {
+    case eCSSProperty_max_width:
+    case eCSSProperty_max_height:
+    case eCSSProperty_min_width:
+    case eCSSProperty_min_height:
+    case eCSSProperty_max_inline_size:
+    case eCSSProperty_max_block_size:
+    case eCSSProperty_min_inline_size:
+    case eCSSProperty_min_block_size:
     case eCSSProperty_width:
     case eCSSProperty_height:
     case eCSSProperty_block_size:
@@ -788,6 +797,7 @@ static bool MayNeedToFlushLayout(NonCustomCSSPropertyId aPropId) {
     case eCSSProperty_perspective_origin:
     case eCSSProperty_transform_origin:
     case eCSSProperty_transform:
+    case eCSSProperty__webkit_transform:
     case eCSSProperty_top:
     case eCSSProperty_right:
     case eCSSProperty_bottom:
@@ -882,6 +892,11 @@ static bool PaddingNeedsUsedValue(const LengthPercentage& aValue,
   return !aValue.ConvertsToLength() || aStyle.StyleDisplay()->HasAppearance();
 }
 
+static bool HasPositionFallbacks(nsIFrame* aFrame) {
+  return aFrame->HasAnyStateBits(NS_FRAME_OUT_OF_FLOW) &&
+         !aFrame->StylePosition()->mPositionTryFallbacks._0.IsEmpty();
+}
+
 bool nsComputedDOMStyle::NeedsToFlushLayout(
     NonCustomCSSPropertyId aPropId) const {
   MOZ_ASSERT(aPropId != eCSSProperty_UNKNOWN);
@@ -899,6 +914,18 @@ bool nsComputedDOMStyle::NeedsToFlushLayout(
   }
 
   switch (aPropId) {
+    case eCSSProperty_max_width:
+      return HasPositionFallbacks(frame) ||
+             frame->StylePosition()->mMaxWidth.HasAnchorPositioningFunction();
+    case eCSSProperty_max_height:
+      return HasPositionFallbacks(frame) ||
+             frame->StylePosition()->mMaxHeight.HasAnchorPositioningFunction();
+    case eCSSProperty_min_width:
+      return HasPositionFallbacks(frame) ||
+             frame->StylePosition()->mMinWidth.HasAnchorPositioningFunction();
+    case eCSSProperty_min_height:
+      return HasPositionFallbacks(frame) ||
+             frame->StylePosition()->mMinHeight.HasAnchorPositioningFunction();
     case eCSSProperty_width:
     case eCSSProperty_height:
       return !IsNonReplacedInline(frame);
@@ -912,6 +939,7 @@ bool nsComputedDOMStyle::NeedsToFlushLayout(
     case eCSSProperty_transform_origin:
       return style->StyleDisplay()->mTransformOrigin.HasPercent();
     case eCSSProperty_transform:
+    case eCSSProperty__webkit_transform:
       return style->StyleDisplay()->mTransform.HasPercent();
     case eCSSProperty_top:
     case eCSSProperty_right:
@@ -941,7 +969,8 @@ bool nsComputedDOMStyle::NeedsToFlushLayout(
       // NOTE(dshin): Raw margin value access since we want to flush
       // anchor-dependent values here.
       Side side = SideForPaddingOrMarginOrInsetProperty(aPropId);
-      return !style->StyleMargin()->mMargin.Get(side).ConvertsToLength();
+      return !style->StyleMargin()->mMargin.Get(side).ConvertsToLength() ||
+             HasPositionFallbacks(frame);
     }
     default:
       return false;
@@ -977,18 +1006,7 @@ nsIFrame* nsComputedDOMStyle::GetOuterFrame() const {
   if (mPseudo.mType == PseudoStyleType::NotPseudo) {
     return mElement->GetPrimaryFrame();
   }
-  nsAtom* property = nullptr;
-  if (mPseudo.mType == PseudoStyleType::before) {
-    property = nsGkAtoms::beforePseudoProperty;
-  } else if (mPseudo.mType == PseudoStyleType::after) {
-    property = nsGkAtoms::afterPseudoProperty;
-  } else if (mPseudo.mType == PseudoStyleType::marker) {
-    property = nsGkAtoms::markerPseudoProperty;
-  }
-  if (!property) {
-    return nullptr;
-  }
-  auto* pseudo = static_cast<Element*>(mElement->GetProperty(property));
+  auto* pseudo = mElement->GetPseudoElement(mPseudo);
   return pseudo ? pseudo->GetPrimaryFrame() : nullptr;
 }
 
@@ -1068,7 +1086,12 @@ void nsComputedDOMStyle::UpdateCurrentStyleSources(
     mInnerFrame = mOuterFrame;
     if (mOuterFrame) {
       mInnerFrame = nsLayoutUtils::GetStyleFrame(mOuterFrame);
-      SetFrameComputedStyle(mInnerFrame->Style(), currentGeneration);
+      const auto* style = mInnerFrame->Style();
+      if (auto* data = mInnerFrame->GetProperty(
+              nsIFrame::LastSuccessfulPositionFallback())) {
+        style = data->mStyle.get();
+      }
+      SetFrameComputedStyle(std::move(style), currentGeneration);
       NS_ASSERTION(mComputedStyle, "Frame without style?");
     }
   }
@@ -1239,6 +1262,10 @@ already_AddRefed<CSSValue> nsComputedDOMStyle::DoGetPerspectiveOrigin() {
 already_AddRefed<CSSValue> nsComputedDOMStyle::DoGetTransform() {
   const nsStyleDisplay* display = StyleDisplay();
   return GetTransformValue(display->mTransform);
+}
+
+already_AddRefed<CSSValue> nsComputedDOMStyle::DoGetWebkitTransform() {
+  return DoGetTransform();
 }
 
 /* static */

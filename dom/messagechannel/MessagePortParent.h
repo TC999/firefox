@@ -9,6 +9,7 @@
 
 #include "mozilla/WeakPtr.h"
 #include "mozilla/dom/PMessagePortParent.h"
+#include "mozilla/dom/SharedMessageBody.h"
 #include "mozilla/dom/quota/CheckedUnsafePtr.h"
 
 namespace mozilla::dom {
@@ -27,7 +28,7 @@ class MessagePortParent final
 
   bool Entangle(const nsID& aDestinationUUID, const uint32_t& aSequenceID);
 
-  bool Entangled(nsTArray<MessageData>&& aMessages);
+  bool Entangled(nsTArray<NotNull<RefPtr<SharedMessageBody>>>&& aMessages);
 
   void Close();
   void CloseAndDelete();
@@ -40,9 +41,11 @@ class MessagePortParent final
                          const uint32_t& aSequenceID);
 
  private:
-  mozilla::ipc::IPCResult RecvPostMessages(nsTArray<MessageData>&& aMessages);
+  mozilla::ipc::IPCResult RecvPostMessages(
+      nsTArray<NotNull<RefPtr<SharedMessageBody>>>&& aMessages);
 
-  mozilla::ipc::IPCResult RecvDisentangle(nsTArray<MessageData>&& aMessages);
+  mozilla::ipc::IPCResult RecvDisentangle(
+      nsTArray<NotNull<RefPtr<SharedMessageBody>>>&& aMessages);
 
   mozilla::ipc::IPCResult RecvStopSendingData();
 
@@ -54,6 +57,9 @@ class MessagePortParent final
   const nsID mUUID;
   bool mEntangled;
   bool mCanSendData;
+  // Messages received via PostMessages before Entangled() has been called.
+  // Flushed when entangling completes.
+  nsTArray<NotNull<RefPtr<SharedMessageBody>>> mPendingMessages;
 };
 
 }  // namespace mozilla::dom

@@ -287,9 +287,33 @@ nsSocketTransportService::Dispatch(already_AddRefed<nsIRunnable> event,
   SOCKET_LOG(("STS dispatch [%p]\n", event_ref.get()));
 
   nsCOMPtr<nsIThread> thread = GetThreadSafely();
-  nsresult rv = thread ? thread->Dispatch(event_ref.forget(),
-                                          flags | NS_DISPATCH_FALLIBLE)
-                       : NS_ERROR_NOT_INITIALIZED;
+  if (!thread) {
+    return NS_ERROR_NOT_INITIALIZED;
+  }
+
+  nsresult rv = NS_OK;
+  bool isHighPriority = false;
+  if (StaticPrefs::network_socket_prioritize_runnables()) {
+    if (nsCOMPtr<nsIRunnablePriority> p = do_QueryInterface(event_ref)) {
+      uint32_t priority = nsIRunnablePriority::PRIORITY_NORMAL;
+      p->GetPriority(&priority);
+      if (priority > nsIRunnablePriority::PRIORITY_NORMAL) {
+        isHighPriority = true;
+      }
+    }
+  }
+
+  if (isHighPriority) {
+    // Add to priority queue instead of dispatching to thread
+    AutoWriteLock lock(mQueueLock);
+    mPriorityEventQueue.Push(event_ref.forget());
+    // We need to call OnDispatchedEvent to ensure that mPollableEvent
+    // gets signalled when an event is dispatched from another thread.
+    OnDispatchedEvent();
+  } else {
+    rv = thread->Dispatch(event_ref.forget(), flags | NS_DISPATCH_FALLIBLE);
+  }
+
   if (rv == NS_ERROR_UNEXPECTED) {
     // Thread is no longer accepting events. We must have just shut it
     // down on the main thread. Pretend we never saw it.
@@ -314,6 +338,20 @@ NS_IMETHODIMP
 nsSocketTransportService::UnregisterShutdownTask(nsITargetShutdownTask* task) {
   nsCOMPtr<nsIThread> thread = GetThreadSafely();
   return thread ? thread->UnregisterShutdownTask(task) : NS_ERROR_UNEXPECTED;
+}
+
+nsIEventTarget::FeatureFlags nsSocketTransportService::GetFeatures() {
+  nsCOMPtr<nsIThread> thread = GetThreadSafely();
+  nsIEventTarget::FeatureFlags flags = nsIEventTarget::SUPPORTS_BASE;
+  if (thread) {
+    flags = thread->GetFeatures();
+  }
+
+  if (XRE_IsParentProcess()) {
+    flags |= SUPPORTS_PRIORITIZATION;
+  }
+
+  return flags;
 }
 
 NS_IMETHODIMP
@@ -632,6 +670,10 @@ int32_t nsSocketTransportService::Poll(PRIntervalTime ts) {
   // DoPollIteration() should service the network without blocking.
   bool pendingEvents = false;
   mRawThread->HasPendingEvents(&pendingEvents);
+  {
+    AutoReadLock lock(mQueueLock);
+    pendingEvents = pendingEvents || !mPriorityEventQueue.IsEmpty();
+  }
 
   if (mPollList[0].fd) {
     mPollList[0].out_flags = 0;
@@ -670,18 +712,15 @@ int32_t nsSocketTransportService::Poll(PRIntervalTime ts) {
 
   int32_t n;
   {
-#ifdef MOZ_GECKO_PROFILER
     TimeStamp startTime = TimeStamp::Now();
     if (pollTimeout != PR_INTERVAL_NO_WAIT) {
       // There will be an actual non-zero wait, let the profiler know about it
       // by marking thread as sleeping around the polling call.
       profiler_thread_sleep();
     }
-#endif
 
     n = PR_Poll(firstPollEntry, pollCount, pollTimeout);
 
-#ifdef MOZ_GECKO_PROFILER
     if (pollTimeout != PR_INTERVAL_NO_WAIT) {
       profiler_thread_wake();
     }
@@ -698,7 +737,6 @@ int32_t nsSocketTransportService::Poll(PRIntervalTime ts) {
               : nsPrintfCString("Poll count: %u, Poll timeout: %ums", pollCount,
                                 PR_IntervalToMilliseconds(pollTimeout)));
     }
-#endif
   }
 
   SOCKET_LOG(("    ...returned after %i milliseconds\n",
@@ -1040,25 +1078,15 @@ nsSocketTransportService::CreateUnixDomainAbstractAddressTransport(
 
 NS_IMETHODIMP
 nsSocketTransportService::OnDispatchedEvent() {
-#ifndef XP_WIN
-  // On windows poll can hang and this became worse when we introduced the
-  // patch for bug 698882 (see also bug 1292181), therefore we reverted the
-  // behavior on windows to be as before bug 698882, e.g. write to the socket
-  // also if an event dispatch is on the socket thread and writing to the
-  // socket for each event.
+  // This check is redundant to one done inside ::Signal(), but we can do it
+  // here and skip obtaining the lock - given that this is a relatively common
+  // occurrence its worth the redundant code.
   if (OnSocketThread()) {
-    // this check is redundant to one done inside ::Signal(), but
-    // we can do it here and skip obtaining the lock - given that
-    // this is a relatively common occurance its worth the
-    // redundant code
     SOCKET_LOG(("OnDispatchedEvent Same Thread Skip Signal\n"));
     return NS_OK;
   }
-#else
+#ifdef XP_WIN
   if (gIOService->IsNetTearingDown()) {
-    // Poll can hang sometimes. If we are in shutdown, we are going to
-    // start a watchdog. If we do not exit poll within
-    // REPAIR_POLLABLE_EVENT_TIME signal a pollable event again.
     StartPollWatchdog();
   }
 #endif
@@ -1180,8 +1208,23 @@ nsSocketTransportService::Run() {
 
       DoPollIteration();
 
+      bool hadPriorityEvent = false;
+      if (StaticPrefs::network_socket_prioritize_runnables()) {
+        Queue<RefPtr<nsIRunnable>> queue;
+        {
+          AutoWriteLock lock(mQueueLock);
+          queue = std::move(mPriorityEventQueue);
+        }
+
+        while (!queue.IsEmpty()) {
+          RefPtr<nsIRunnable> event = queue.Pop();
+          hadPriorityEvent = true;
+          event->Run();
+        }
+      }
+
       mRawThread->HasPendingEvents(&pendingEvents);
-      if (pendingEvents) {
+      if (!hadPriorityEvent && pendingEvents) {
         if (!mServingPendingQueue) {
           nsresult rv = Dispatch(
               NewRunnableMethod(
@@ -1216,6 +1259,8 @@ nsSocketTransportService::Run() {
                  ((TimeStamp::NowLoRes() - eventQueueStart).ToMilliseconds() <
                   mMaxTimePerPollIter));
       }
+      AutoReadLock lock(mQueueLock);
+      pendingEvents = pendingEvents || !mPriorityEventQueue.IsEmpty();
     } while (pendingEvents);
 
     bool goingOffline = false;
@@ -1244,6 +1289,20 @@ nsSocketTransportService::Run() {
   // We don't clear gSocketThread so that OnSocketThread() won't be a false
   // alarm for events generated by stopping the SSL threads during shutdown.
   psm::StopSSLServerCertVerificationThreads();
+
+  // Drain the priority event queue before final event processing
+  {
+    Queue<RefPtr<nsIRunnable>> queue;
+    {
+      AutoWriteLock lock(mQueueLock);
+      queue = std::move(mPriorityEventQueue);
+    }
+
+    while (!queue.IsEmpty()) {
+      RefPtr<nsIRunnable> event = queue.Pop();
+      event->Run();
+    }
+  }
 
   // Final pass over the event queue. This makes sure that events posted by
   // socket detach handlers get processed.
@@ -1367,13 +1426,12 @@ nsresult nsSocketTransportService::DoPollIteration() {
   }
 
   now = PR_IntervalNow();
-#ifdef MOZ_GECKO_PROFILER
+
   TimeStamp startTime;
   bool profiling = profiler_thread_is_being_profiled_for_markers();
   if (profiling) {
     startTime = TimeStamp::Now();
   }
-#endif
 
   if (n < 0) {
     SOCKET_LOG(("  PR_Poll error [%d] os error [%d]\n", PR_GetError(),
@@ -1430,7 +1488,7 @@ nsresult nsSocketTransportService::DoPollIteration() {
       }
     }
   }
-#ifdef MOZ_GECKO_PROFILER
+
   if (profiling) {
     TimeStamp endTime = TimeStamp::Now();
     if ((endTime - startTime).ToMilliseconds() >= SOCKET_THREAD_LONGTASK_MS) {
@@ -1445,8 +1503,7 @@ nsresult nsSocketTransportService::DoPollIteration() {
         static MarkerSchema MarkerTypeDisplay() {
           using MS = MarkerSchema;
           MS schema{MS::Location::MarkerChart, MS::Location::MarkerTable};
-          schema.AddKeyLabelFormat("category", "Type", MS::Format::String,
-                                   MS::PayloadFlags::Searchable);
+          schema.AddKeyLabelFormat("category", "Type", MS::Format::String);
           return schema;
         }
       };
@@ -1457,8 +1514,6 @@ nsresult nsSocketTransportService::DoPollIteration() {
                           LongTaskMarker{});
     }
   }
-
-#endif
 
   return NS_OK;
 }
@@ -1827,7 +1882,7 @@ void nsSocketTransportService::StartPollWatchdog() {
 void nsSocketTransportService::DoPollRepair() {
   MutexAutoLock lock(mLock);
   if (mPolling && mPollableEvent) {
-    mPollableEvent->Signal();
+    mPollableEvent->Signal(/* aForce = */ true);
   } else if (mPollRepairTimer) {
     mPollRepairTimer->Cancel();
   }

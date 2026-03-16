@@ -738,6 +738,12 @@ export class SpecialPowersChild extends JSWindowActorChild {
     crashDumpFiles.forEach(function (aFilename) {
       self._unexpectedCrashDumpFiles[aFilename] = true;
     });
+    // The value is an Array of strings. Export into the scope of the window to
+    // allow the caller to read its value without wrapper. Callers of
+    // findUnexpectedCrashDumpFiles will automatically get a wrapper; call
+    // SpecialPowers.unwrap() on its return value to access the raw value that
+    // we are returning here (see bug 2007587 for context).
+    crashDumpFiles = Cu.cloneInto(crashDumpFiles, this.contentWindow);
     return crashDumpFiles;
   }
 
@@ -2122,25 +2128,6 @@ export class SpecialPowersChild extends JSWindowActorChild {
       },
     };
     return this._pu;
-  }
-
-  createDOMWalker(node, showAnonymousContent) {
-    node = lazy.WrapPrivileged.unwrap(node);
-    let walker = Cc["@mozilla.org/inspector/deep-tree-walker;1"].createInstance(
-      Ci.inIDeepTreeWalker
-    );
-    walker.showAnonymousContent = showAnonymousContent;
-    walker.init(node.ownerDocument, NodeFilter.SHOW_ALL);
-    walker.currentNode = node;
-    let contentWindow = this.contentWindow;
-    return {
-      get firstChild() {
-        return lazy.WrapPrivileged.wrap(walker.firstChild(), contentWindow);
-      },
-      get lastChild() {
-        return lazy.WrapPrivileged.wrap(walker.lastChild(), contentWindow);
-      },
-    };
   }
 
   /**

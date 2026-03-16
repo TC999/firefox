@@ -81,8 +81,6 @@ skip-if = [
 
 ["test_bug426246.html"]
 
-["test_bug430392.html"]
-
 ["test_bug439808.html"]
 
 ["test_bug442186.html"]
@@ -447,6 +445,8 @@ skip-if = [
 
 ["test_composition_event_created_in_chrome.html"]
 
+["test_composition_modified_as_multiple_text_nodes.html"]
+
 ["test_composition_with_highlight_in_texteditor.html"]
 
 ["test_contenteditable_copy_empty_selection.html"]
@@ -666,6 +666,8 @@ support-files = ["file_sanitizer_on_paste.sjs"]
 
 ["test_select_all_without_body.html"]
 support-files = ["file_select_all_without_body.html"]
+
+["test_selectable_input_event_dispatching_for_compositionend.html"]
 
 ["test_selection_at_beforeinput_insertReplacementText.html"]
 skip-if = [

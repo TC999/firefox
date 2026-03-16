@@ -10,7 +10,6 @@
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/MediaControlKeySource.h"
 #include "mozilla/dom/BrowsingContextWebProgress.h"
-#include "mozilla/dom/EntryList.h"
 #include "mozilla/dom/FeaturePolicy.h"
 #include "mozilla/dom/ProcessIsolation.h"
 #include "mozilla/dom/Promise.h"
@@ -37,6 +36,7 @@ class nsBrowserStatusFilter;
 class nsSecureBrowserUI;
 class CallerWillNotifyHistoryIndexAndLengthChanges;
 class nsITimer;
+class nsIScopedPrefs;
 
 namespace mozilla {
 enum class CallState;
@@ -328,7 +328,14 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   void GetLoadingSessionHistoryInfoFromParent(
       Maybe<LoadingSessionHistoryInfo>& aLoadingInfo);
 
+  MOZ_CAN_RUN_SCRIPT
   void HistoryCommitIndexAndLength();
+
+  void DeactivateDocuments();
+
+  MOZ_CAN_RUN_SCRIPT
+  void ReactivateDocuments(SessionHistoryEntry* aEntry,
+                           SessionHistoryEntry* aPreviousEntryForActivation);
 
   void SynchronizeLayoutHistoryState();
 
@@ -391,16 +398,7 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   void SetIsActiveInternal(bool aIsActive, ErrorResult& aRv) {
     ExplicitActiveStatus newValue = aIsActive ? ExplicitActiveStatus::Active
                                               : ExplicitActiveStatus::Inactive;
-    bool changed = GetExplicitActive() != newValue;
     SetExplicitActive(newValue, aRv);
-    if (changed) {
-      nsCOMPtr<nsIObserverService> observerService =
-          mozilla::services::GetObserverService();
-      if (observerService) {
-        observerService->NotifyObservers(
-            ToSupports(this), "browsing-context-active-change", nullptr);
-      }
-    }
   }
 
   void SetTouchEventsOverride(dom::TouchEventsOverride, ErrorResult& aRv);
@@ -442,18 +440,39 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   void SetForceAppWindowActive(bool, ErrorResult&);
   void RecomputeAppWindowVisibility();
 
+  void IncrementDocumentPiPWindowCount();
+  void DecrementDocumentPiPWindowCount();
+
   already_AddRefed<nsISHEntry> GetMostRecentLoadingSessionHistoryEntry();
 
   already_AddRefed<BounceTrackingState> GetBounceTrackingState();
+  already_AddRefed<nsIScopedPrefs> GetScopedPrefs();
 
   bool CanOpenModalPicker();
 
   static bool ShouldEnforceParentalControls();
 
-  void MaybeReconstructActiveEntryList();
-
   // Get the load listener for the current load in this browsing context.
   already_AddRefed<net::DocumentLoadListener> GetCurrentLoad();
+
+  // https://html.spec.whatwg.org/#concept-internal-location-ancestor-origin-objects-list
+  void CreateRedactedAncestorOriginsList(
+      nsIPrincipal* aThisDocumentPrincipal,
+      ReferrerPolicy aFrameReferrerPolicyAttribute);
+
+  Span<const nsCOMPtr<nsIPrincipal>> GetPossiblyRedactedAncestorOriginsList()
+      const;
+  void SetPossiblyRedactedAncestorOriginsList(
+      nsTArray<nsCOMPtr<nsIPrincipal>> aAncestorOriginsList);
+
+  void SetEmbedderFrameReferrerPolicy(ReferrerPolicy aPolicy);
+
+  // Called when we need to snap shot referrer policy for ancestorOrigins
+  // and also when building the internal ancestor origins list for about:blank
+  // because it needs special handling.
+  ReferrerPolicy GetEmbedderFrameReferrerPolicy() const {
+    return mEmbedderFrameReferrerPolicy;
+  }
 
  protected:
   // Called when the browsing context is being discarded.
@@ -582,12 +601,12 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   }
 
   already_AddRefed<nsDocShellLoadState> CreateLoadInfo(
-      SessionHistoryEntry* aEntry);
+      SessionHistoryEntry* aEntry, NavigationType aNavigationType);
 
   void GetContiguousEntriesForLoad(LoadingSessionHistoryInfo& aLoadingInfo,
                                    const RefPtr<SessionHistoryEntry>& aEntry);
 
-  EntryList* GetActiveEntries();
+  void MaybeReuseNavigationKeyFromActiveEntry(SessionHistoryEntry* aEntry);
 
   // XXX(farre): Store a ContentParent pointer here rather than mProcessId?
   // Indicates which process owns the docshell.
@@ -629,11 +648,14 @@ class CanonicalBrowsingContext final : public BrowsingContext {
     RefPtr<SessionHistoryEntry> mEntry;
   };
   nsTArray<LoadingSessionHistoryEntry> mLoadingEntries;
-  RefPtr<EntryList> mActiveEntryList;
   RefPtr<SessionHistoryEntry> mActiveEntry;
 
   RefPtr<nsSecureBrowserUI> mSecureBrowserUI;
   RefPtr<BrowsingContextWebProgress> mWebProgress;
+
+  // ScopedPrefs is set on all top-level browsing contexts and is shared
+  // across navigation, therefore lifetime of tab.
+  nsCOMPtr<nsIScopedPrefs> mScopedPrefs;
 
   nsCOMPtr<nsIWebProgressListener> mDocShellProgressBridge;
   RefPtr<nsBrowserStatusFilter> mStatusFilter;
@@ -662,6 +684,8 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   // See CanonicalBrowsingContext.forceAppWindowActive.
   bool mForceAppWindowActive = false;
 
+  uint32_t mDocumentPiPWindowCount = 0;
+
   bool mIsReplaced = false;
 
   // A Promise created when cloning documents for printing.
@@ -672,8 +696,14 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   uint32_t mPendingDiscards = 0;
 
   bool mFullyDiscarded = false;
+  // the referrerPolicy attribute of the iframe hosting this browsing context
+  // defaults to the empty string
+  ReferrerPolicy mEmbedderFrameReferrerPolicy = ReferrerPolicy::_empty;
 
   nsTArray<std::function<void(uint64_t)>> mFullyDiscardedListeners;
+
+  // https://html.spec.whatwg.org/#concept-internal-location-ancestor-origin-objects-list
+  nsTArray<nsCOMPtr<nsIPrincipal>> mPossiblyRedactedAncestorOriginsList;
 };
 
 }  // namespace dom

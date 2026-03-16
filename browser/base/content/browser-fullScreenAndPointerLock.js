@@ -290,6 +290,44 @@ var PointerLock = {
   },
 };
 
+/*
+ * So that the PiP doesn't interfere with the fullscreen notification,
+ * move and resize it to a safe place.
+ */
+function moveDocumentPiPForFullscreen(win) {
+  const { availLeft, availTop, availHeight, availWidth } = win.screen;
+
+  // This is less than the limit for documentPictureInPicture.requestWindow(),
+  // but let's limit extent to 50% screen size when in fullscreen.
+  const maxWidth = availWidth * 0.5;
+  const maxHeight = availHeight * 0.5;
+
+  const newWidth = Math.min(win.outerWidth, maxWidth);
+  const newHeight = Math.min(win.outerHeight, maxHeight);
+
+  win.resizeTo(newWidth, newHeight);
+
+  // Move to lower right, see DocumentPictureInPicture::CalcInitialPos
+  // With the difference, that we use the outer size here.
+  const xMost = availLeft + availWidth;
+  const yMost = availTop + availHeight;
+
+  const offset = 100;
+  const newX = Math.max(availLeft, xMost - newWidth - offset);
+  const newY = Math.max(availTop, yMost - newHeight - offset);
+
+  win.moveTo(newX, newY);
+}
+
+function moveAllDocumentPiPForFullscreen() {
+  const windowList = Services.wm.getEnumerator("navigator:browser");
+  for (const win of windowList) {
+    if (win.browsingContext?.isDocumentPiP) {
+      moveDocumentPiPForFullscreen(win);
+    }
+  }
+}
+
 var FullScreen = {
   init() {
     XPCOMUtils.defineLazyPreferenceGetter(
@@ -343,11 +381,7 @@ var FullScreen = {
     // Toggle the View:FullScreen command, which controls elements like the
     // fullscreen menuitem, and menubars.
     let fullscreenCommand = document.getElementById("View:FullScreen");
-    if (enterFS) {
-      fullscreenCommand.setAttribute("checked", enterFS);
-    } else {
-      fullscreenCommand.removeAttribute("checked");
-    }
+    fullscreenCommand.toggleAttribute("checked", enterFS);
 
     if (AppConstants.platform == "macosx") {
       // Make sure the menu items are adjusted.
@@ -388,6 +422,8 @@ var FullScreen = {
       if (!document.fullscreenElement) {
         this.hideNavToolbox(true);
       }
+
+      moveAllDocumentPiPForFullscreen();
     } else {
       this.showNavToolbox(false);
       // This is needed if they use the context menu to quit fullscreen
@@ -422,11 +458,15 @@ var FullScreen = {
     // shiftSize is sent from Cocoa widget code as a very precise double. We
     // don't need that kind of precision in our CSS.
     shiftSize = shiftSize.toFixed(2);
-    gNavToolbox.classList.toggle("fullscreen-with-menubar", shiftSize > 0);
-
-    let transform = shiftSize > 0 ? `translateY(${shiftSize}px)` : "";
-    gNavToolbox.style.transform = transform;
-    gURLBar.style.transform = gURLBar.hasAttribute("breakout") ? transform : "";
+    let translate = shiftSize > 0 ? `0 ${shiftSize}px` : "";
+    document.body.style.translate = translate;
+    gURLBar.style.translate = gURLBar.hasAttribute("breakout") ? translate : "";
+    let searchbar = document.getElementById("searchbar-new");
+    if (searchbar) {
+      searchbar.style.translate = searchbar.hasAttribute("breakout")
+        ? translate
+        : "";
+    }
     if (shiftSize > 0) {
       // If the mouse tracking missed our fullScreenToggler, then the toolbox
       // might not have been shown before the menubar is animated down. Make
@@ -763,7 +803,7 @@ var FullScreen = {
   },
 
   _isRemoteBrowser(aBrowser) {
-    return gMultiProcessBrowser && aBrowser.getAttribute("remote") == "true";
+    return gMultiProcessBrowser && aBrowser.hasAttribute("remote");
   },
 
   getMouseTargetRect() {
@@ -835,7 +875,7 @@ var FullScreen = {
 
   // Autohide helpers for the context menu item
   updateAutohideMenuitem(aItem) {
-    aItem.setAttribute(
+    aItem.toggleAttribute(
       "checked",
       Services.prefs.getBoolPref("browser.fullscreen.autohide")
     );

@@ -18,6 +18,33 @@ add_task(async function urlbar() {
   });
 });
 
+add_task(async function searchbarEnter() {
+  await doSearchbarTest({
+    trigger: () => doEnter(),
+    assert: () =>
+      assertEngagementTelemetry([{ sap: "searchbar" }, { sap: "searchbar" }]),
+  });
+});
+
+add_task(async function searchbarGo() {
+  await doSearchbarTest({
+    trigger: () => document.querySelector("#searchbar-new").goButton.click(),
+    assert: () =>
+      assertEngagementTelemetry([{ sap: "searchbar" }, { sap: "searchbar" }]),
+  });
+});
+
+add_task(async function searchbarClick() {
+  await doSearchbarTest({
+    trigger: () => {
+      let row = SearchbarTestUtils.getRowAt(window, 0);
+      EventUtils.synthesizeMouseAtCenter(row, {});
+    },
+    assert: () =>
+      assertEngagementTelemetry([{ sap: "searchbar" }, { sap: "searchbar" }]),
+  });
+});
+
 add_task(async function handoff() {
   await doHandoffTest({
     trigger: () => doEnter(),

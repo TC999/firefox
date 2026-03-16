@@ -94,10 +94,13 @@ exclude = [
   "LockedNestedDeclarationsRule",
 ]
 include = [
+  "AlignmentBaseline",
   "AnchorName",
-  "AnchorScope",
+  "ScopedName",
   "AnimationName",
   "AnimationTimeline",
+  "AnimationRangeEnd",
+  "AnimationRangeStart",
   "AnimationIterationCount",
   "AnimationDirection",
   "AnimationFillMode",
@@ -115,6 +118,7 @@ include = [
   "OutlineStyle",
   "CaptionSide",
   "ColorGamut",
+  "DominantBaseline",
   "FontSizeAdjust",
   "FontPalette",
   "FontLanguageOverride",
@@ -180,7 +184,7 @@ include = [
   "TransitionBehavior",
   "ViewTimelineInset",
   "OverflowAnchor",
-  "OverflowClipBox",
+  "OverflowClipMargin",
   "Resize",
   "Overflow",
   "LengthPercentage",
@@ -193,6 +197,8 @@ include = [
   "NonNegativeLengthPercentageOrNormal",
   "LengthOrAuto",
   "NonNegativeLengthOrAuto",
+  "TextBoxEdge",
+  "TextBoxTrim",
   "TextDecorationSkipInk",
   "TextDecorationLength",
   "TextDecorationInset",
@@ -206,6 +212,7 @@ include = [
   "Position",
   "PositionOrAuto",
   "BackgroundSize",
+  "BaselineShift",
   "BaselineSource",
   "BorderImageSlice",
   "BorderImageRepeat",
@@ -254,7 +261,6 @@ include = [
   "SystemColorScheme",
   "SystemFont",
   "GradientItem",
-  "VerticalAlign",
   "BasicShape",
   "InsetRect",
   "ShapeRadius",
@@ -396,7 +402,8 @@ renaming_overrides_prefixing = true
 "nsFontFaceRuleContainer" = "nsFontFaceRuleContainer"
 "MediumFeaturesChangedResult" = "MediumFeaturesChangedResult"
 "FontSizePrefs" = "FontSizePrefs"
-"nsCSSFontDesc" = "nsCSSFontDesc"
+"FontFaceDescriptorId" = "FontFaceDescriptorId"
+"CounterStyleDescriptorId" = "CounterStyleDescriptorId"
 "nsresult" = "nsresult"
 "gfxFontFeature" = "gfxFontFeature"
 "gfxFontFeatureValueSet" = "gfxFontFeatureValueSet"
@@ -533,6 +540,7 @@ renaming_overrides_prefixing = true
   inline bool BehavesLikeInitialValue(LogicalAxis) const;
   inline bool HasAnchorPositioningFunction() const;
   inline explicit StyleGenericSize(const LengthPercent &);
+  static inline StyleGenericSize FromAppUnits(nscoord);
 """
 
 "GenericFlexBasis" = """
@@ -1120,15 +1128,21 @@ renaming_overrides_prefixing = true
   StyleAnimationName() : _0(nsGkAtoms::_empty) {}
 """
 
-"TimelineName" = """
+"TimelineIdent" = """
  public:
-  StyleTimelineName() : _0(nsGkAtoms::_empty) {}
+  StyleTimelineIdent() : _0(nsGkAtoms::_empty) {}
   nsAtom* AsAtom() const { return _0.AsAtom(); }
 """
 
 "GenericViewTimelineInset" = """
  public:
   inline StyleGenericViewTimelineInset();
+"""
+
+"GenericAnimationRangeValue" = """
+ public:
+  static StyleGenericAnimationRangeValue<LengthPercent> DefaultStart();
+  static StyleGenericAnimationRangeValue<LengthPercent> DefaultEnd();
 """
 
 "Time" = """
@@ -1254,4 +1268,58 @@ renaming_overrides_prefixing = true
     : first(StylePositionAreaKeyword::None),
       second(StylePositionAreaKeyword::None)
   {}
+"""
+
+"CascadeLevel" = """
+  inline static StyleCascadeLevel Default() {
+    return SAME_TREE_AUTHOR_NORMAL;
+  }
+  inline int8_t ShadowCascadeOrder() const {
+    bool neg(*this & CASCADE_ORDER_SIGN);
+    uint8_t abs = (*this & CASCADE_ORDER_BITS)._0 >> CASCADE_ORDER_SHIFT;
+    return neg ? -abs : abs;
+  }
+"""
+
+"TreeScoped" = """
+  inline StyleTreeScoped()
+    : value(T()),
+      scope(StyleCascadeLevel::Default())
+  {}
+  inline explicit StyleTreeScoped(T&& aValue)
+    : value(std::move(aValue)),
+      scope(StyleCascadeLevel::Default())
+  {}
+  inline bool IsEmpty() const;
+  inline Span<const mozilla::StyleAtom> AsSpan() const;
+"""
+
+"PropertyTypedValue" = """
+  StylePropertyTypedValue(StylePropertyTypedValue&& other)
+      : tag(other.tag) {
+    switch (tag) {
+      case Tag::None:
+        break;
+      case Tag::Unsupported:
+        ::new (&unsupported)
+            StyleUnsupported_Body(std::move(other.unsupported));
+        break;
+      case Tag::Typed:
+        ::new (&typed) StyleTyped_Body(std::move(other.typed));
+        break;
+    }
+  }
+
+  StylePropertyTypedValue& operator=(StylePropertyTypedValue&& other) {
+    if (this != &other) {
+      this->~StylePropertyTypedValue();
+      new (this) StylePropertyTypedValue(std::move(other));
+    }
+    return *this;
+  }
+
+  StyleUnsupportedValue ExtractUnsupported() && {
+    MOZ_DIAGNOSTIC_ASSERT(IsUnsupported());
+    return std::move(unsupported._0);
+  }
 """

@@ -18,6 +18,7 @@ async def is_local_file_option_shown(client, credentials, platform):
         condition="elem.innerText.replaceAll(' ', '').includes('Login')",
         is_displayed=True,
     ).click()
+    await client.stall(1)
     client.await_css(
         "button",
         condition="elem.innerText.includes('Login with Email')",
@@ -59,13 +60,31 @@ async def is_local_file_option_shown(client, credentials, platform):
     return client.find_css(LOCAL_FILE_CSS)
 
 
+@pytest.mark.only_firefox_versions(min=149)
+@pytest.mark.enable_standard_captureStream
 @pytest.mark.asyncio
 @pytest.mark.with_interventions
-async def test_enabled(client, credentials, platform):
+async def test_enabled_on_new_versions(client, credentials, platform):
     assert await is_local_file_option_shown(client, credentials, platform)
 
 
+@pytest.mark.only_firefox_versions(min=149)
+@pytest.mark.disable_standard_captureStream
 @pytest.mark.asyncio
 @pytest.mark.without_interventions
-async def test_disabled(client, credentials, platform):
+async def test_disabled_on_new_versions(client, credentials, platform):
+    assert not await is_local_file_option_shown(client, credentials, platform)
+
+
+@pytest.mark.only_firefox_versions(max=148)
+@pytest.mark.asyncio
+@pytest.mark.with_interventions
+async def test_enabled_on_old_versions(client, credentials, platform):
+    assert await is_local_file_option_shown(client, credentials, platform)
+
+
+@pytest.mark.only_firefox_versions(max=148)
+@pytest.mark.asyncio
+@pytest.mark.without_interventions
+async def test_disabled_on_old_versions(client, credentials, platform):
     assert not await is_local_file_option_shown(client, credentials, platform)

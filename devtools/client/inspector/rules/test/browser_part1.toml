@@ -74,6 +74,8 @@ support-files = [
 
 ["browser_rules_at_starting-style.js"]
 
+["browser_rules_attr.js"]
+
 ["browser_rules_attributes-style.js"]
 
 ["browser_rules_authored.js"]
@@ -81,6 +83,7 @@ support-files = [
 ["browser_rules_authored_color.js"]
 skip-if = [
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && opt", # Bug 1781471
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && opt", # Bug 1781471
 ]
 
 ["browser_rules_authored_override.js"]

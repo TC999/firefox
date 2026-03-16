@@ -9,7 +9,7 @@ import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarInteraction.BrowserToolbarEvent.Source
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarState
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.MiddlewareContext
+import mozilla.components.lib.state.Store
 import org.mozilla.fenix.GleanMetrics.Toolbar
 import org.mozilla.fenix.components.toolbar.DisplayActions.AddBookmarkClicked
 import org.mozilla.fenix.components.toolbar.DisplayActions.EditBookmarkClicked
@@ -22,6 +22,7 @@ import org.mozilla.fenix.components.toolbar.DisplayActions.NavigateForwardLongCl
 import org.mozilla.fenix.components.toolbar.DisplayActions.RefreshClicked
 import org.mozilla.fenix.components.toolbar.DisplayActions.ShareClicked
 import org.mozilla.fenix.components.toolbar.DisplayActions.StopRefreshClicked
+import org.mozilla.fenix.components.toolbar.DisplayActions.TranslateClicked
 import org.mozilla.fenix.components.toolbar.PageEndActionsInteractions.ReaderModeClicked
 import org.mozilla.fenix.components.toolbar.StartPageActions.SiteInfoClicked
 import org.mozilla.fenix.components.toolbar.TabCounterInteractions.AddNewPrivateTab
@@ -40,11 +41,12 @@ import org.mozilla.fenix.telemetry.ACTION_NAVIGATE_FORWARD_CLICKED
 import org.mozilla.fenix.telemetry.ACTION_NAVIGATE_FORWARD_LONG_CLICKED
 import org.mozilla.fenix.telemetry.ACTION_READER_MODE_CLICKED
 import org.mozilla.fenix.telemetry.ACTION_REFRESH_CLICKED
+import org.mozilla.fenix.telemetry.ACTION_SECURITY_INDICATOR_CLICKED
 import org.mozilla.fenix.telemetry.ACTION_SHARE_CLICKED
-import org.mozilla.fenix.telemetry.ACTION_SITE_INFO_CLICKED
 import org.mozilla.fenix.telemetry.ACTION_STOP_CLICKED
 import org.mozilla.fenix.telemetry.ACTION_TAB_COUNTER_CLICKED
 import org.mozilla.fenix.telemetry.ACTION_TAB_COUNTER_LONG_CLICKED
+import org.mozilla.fenix.telemetry.ACTION_TRANSLATE_CLICKED
 import org.mozilla.fenix.telemetry.SOURCE_ADDRESS_BAR
 import org.mozilla.fenix.telemetry.SOURCE_BROWSER_END
 import org.mozilla.fenix.telemetry.SOURCE_BROWSER_START
@@ -58,7 +60,7 @@ import org.mozilla.fenix.telemetry.SOURCE_PAGE_START
 class BrowserToolbarTelemetryMiddleware : Middleware<BrowserToolbarState, BrowserToolbarAction> {
     @Suppress("CyclomaticComplexMethod")
     override fun invoke(
-        context: MiddlewareContext<BrowserToolbarState, BrowserToolbarAction>,
+        store: Store<BrowserToolbarState, BrowserToolbarAction>,
         next: (BrowserToolbarAction) -> Unit,
         action: BrowserToolbarAction,
     ) {
@@ -108,11 +110,14 @@ class BrowserToolbarTelemetryMiddleware : Middleware<BrowserToolbarState, Browse
             is ReaderModeClicked -> {
                 trackToolbarEvent(ToolbarActionRecord.ReaderModeClicked, action.source)
             }
+            is TranslateClicked -> {
+                trackToolbarEvent(ToolbarActionRecord.TranslateClicked, action.source)
+            }
             is HomepageClicked -> {
                 trackToolbarEvent(ToolbarActionRecord.HomepageClicked, action.source)
             }
             is SiteInfoClicked -> {
-                trackToolbarEvent(ToolbarActionRecord.SiteInfoClicked, action.source)
+                trackToolbarEvent(ToolbarActionRecord.SecurityIndicatorClicked, action.source)
             }
             else -> {}
         }
@@ -137,8 +142,9 @@ class BrowserToolbarTelemetryMiddleware : Middleware<BrowserToolbarState, Browse
         data object EditBookmarkClicked : ToolbarActionRecord(ACTION_EDIT_BOOKMARK_CLICKED)
         data object ShareClicked : ToolbarActionRecord(ACTION_SHARE_CLICKED)
         data object ReaderModeClicked : ToolbarActionRecord(ACTION_READER_MODE_CLICKED)
+        data object TranslateClicked : ToolbarActionRecord(ACTION_TRANSLATE_CLICKED)
         data object HomepageClicked : ToolbarActionRecord(ACTION_HOME_CLICKED)
-        data object SiteInfoClicked : ToolbarActionRecord(ACTION_SITE_INFO_CLICKED)
+        data object SecurityIndicatorClicked : ToolbarActionRecord(ACTION_SECURITY_INDICATOR_CLICKED)
     }
 
     private fun trackToolbarEvent(

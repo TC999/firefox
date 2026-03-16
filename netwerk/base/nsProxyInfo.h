@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsProxyInfo_h__
-#define nsProxyInfo_h__
+#ifndef nsProxyInfo_h_
+#define nsProxyInfo_h_
 
 #include "nsIProxyInfo.h"
 #include "nsString.h"
@@ -58,7 +58,7 @@ class nsProxyInfo final : public nsIProxyInfo {
 
   static void SerializeProxyInfo(nsProxyInfo* aProxyInfo,
                                  nsTArray<ProxyInfoCloneArgs>& aResult);
-  static nsProxyInfo* DeserializeProxyInfo(
+  static already_AddRefed<nsProxyInfo> DeserializeProxyInfo(
       const nsTArray<ProxyInfoCloneArgs>& aArgs);
 
   already_AddRefed<nsProxyInfo> CloneProxyInfoWithNewResolveFlags(
@@ -100,4 +100,4 @@ class nsProxyInfo final : public nsIProxyInfo {
 }  // namespace net
 }  // namespace mozilla
 
-#endif  // nsProxyInfo_h__
+#endif  // nsProxyInfo_h_

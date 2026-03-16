@@ -457,8 +457,8 @@ async function doCacheTest({ expectedScore, expectedRust }) {
   );
 }
 
-// Tests the "Not relevant" command: a dismissed suggestion shouldn't be added.
-add_task(async function notRelevant() {
+// Tests the "Dismiss" command: a dismissed suggestion shouldn't be added.
+add_task(async function dismiss() {
   let burgersIntent = { intent: "yelp_intent", subject: "burgers" };
   let waterlooIntent = {
     intent: "yelp_intent",
@@ -483,7 +483,7 @@ add_task(async function notRelevant() {
   );
   triggerCommand({
     result,
-    command: "not_relevant",
+    command: "dismiss",
     feature: QuickSuggest.getFeature("YelpSuggestions"),
     expectedCountsByCall: {
       removeResult: 1,
@@ -559,7 +559,6 @@ function makeExpectedResult({
   source = "ml",
   provider = "yelp_intent",
   originalUrl = undefined,
-  displayUrl = undefined,
   // Expect index -1 for amp results because we test
   // without the search suggestions provider.
   suggestedIndex = -1,
@@ -570,7 +569,6 @@ function makeExpectedResult({
     source,
     provider,
     originalUrl,
-    displayUrl,
     suggestedIndex,
   });
 }

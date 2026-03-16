@@ -402,7 +402,7 @@ AppendEntryToCollectedData(nsINode* aNode, const nsAString& aId,
     nsAutoString xpath;
     aNode->GenerateXPath(xpath);
     aGeneratedCount++;
-    entry->mKey = xpath;
+    entry->mKey = std::move(xpath);
   }
   return entry;
 }
@@ -1660,8 +1660,6 @@ already_AddRefed<Promise> SessionStoreUtils::InitializeRestore(
   if (aError.Failed()) {
     return nullptr;
   }
-
-  aContext.MaybeReconstructActiveEntryList();
 
   nsCOMPtr<nsISHistory> shistory = aContext.GetSessionHistory();
   MOZ_DIAGNOSTIC_ASSERT(shistory);

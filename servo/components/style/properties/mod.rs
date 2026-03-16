@@ -6,10 +6,12 @@
 
 pub mod cascade;
 pub mod declaration_block;
+pub mod shorthands;
 
 pub use self::cascade::*;
 pub use self::declaration_block::*;
 pub use self::generated::*;
+
 /// The CSS properties supported by the style system.
 /// Generated from the properties.mako.rs template by build.rs
 #[macro_use]
@@ -19,8 +21,10 @@ pub mod generated {
     include!(concat!(env!("OUT_DIR"), "/properties.rs"));
 }
 
+use crate::applicable_declarations::RevertKind;
 use crate::custom_properties::{self, ComputedCustomProperties};
-use crate::dom::AttributeProvider;
+use crate::derives::*;
+use crate::dom::AttributeTracker;
 #[cfg(feature = "gecko")]
 use crate::gecko_bindings::structs::{CSSPropertyId, NonCustomCSSPropertyId, RefPtr};
 use crate::logical_geometry::WritingMode;
@@ -30,7 +34,7 @@ use crate::stylesheets::Origin;
 use crate::stylist::Stylist;
 use crate::values::{computed, serialize_atom_name};
 use arrayvec::{ArrayVec, Drain as ArrayVecDrain};
-use cssparser::{Parser, ParserInput};
+use cssparser::{match_ignore_ascii_case, Parser, ParserInput};
 use rustc_hash::FxHashMap;
 use servo_arc::Arc;
 use std::{
@@ -42,6 +46,7 @@ use style_traits::{
     CssString, CssWriter, KeywordsCollectFn, ParseError, ParsingMode, SpecifiedValueInfo, ToCss,
     ToTyped, TypedValue,
 };
+use thin_vec::ThinVec;
 
 bitflags! {
     /// A set of flags for properties.
@@ -92,30 +97,32 @@ pub enum CSSWideKeyword {
     Revert,
     /// The `revert-layer` keyword.
     RevertLayer,
+    /// The `revert-rule` keyword.
+    RevertRule,
 }
 
 impl CSSWideKeyword {
     /// Returns the string representation of the keyword.
     pub fn to_str(&self) -> &'static str {
         match *self {
-            CSSWideKeyword::Initial => "initial",
-            CSSWideKeyword::Inherit => "inherit",
-            CSSWideKeyword::Unset => "unset",
-            CSSWideKeyword::Revert => "revert",
-            CSSWideKeyword::RevertLayer => "revert-layer",
+            Self::Initial => "initial",
+            Self::Inherit => "inherit",
+            Self::Unset => "unset",
+            Self::Revert => "revert",
+            Self::RevertLayer => "revert-layer",
+            Self::RevertRule => "revert-rule",
         }
     }
-}
 
-impl CSSWideKeyword {
     /// Parses a CSS wide keyword from a CSS identifier.
     pub fn from_ident(ident: &str) -> Result<Self, ()> {
         Ok(match_ignore_ascii_case! { ident,
-            "initial" => CSSWideKeyword::Initial,
-            "inherit" => CSSWideKeyword::Inherit,
-            "unset" => CSSWideKeyword::Unset,
-            "revert" => CSSWideKeyword::Revert,
-            "revert-layer" => CSSWideKeyword::RevertLayer,
+            "initial" => Self::Initial,
+            "inherit" => Self::Inherit,
+            "unset" => Self::Unset,
+            "revert" => Self::Revert,
+            "revert-layer" => Self::RevertLayer,
+            "revert-rule" if static_prefs::pref!("layout.css.revert-rule.enabled") => Self::RevertRule,
             _ => return Err(()),
         })
     }
@@ -128,6 +135,16 @@ impl CSSWideKeyword {
         };
         input.expect_exhausted().map_err(|_| ())?;
         Ok(keyword)
+    }
+
+    /// Returns the revert kind for this wide keyword.
+    pub fn revert_kind(self) -> Option<RevertKind> {
+        Some(match self {
+            Self::Initial | Self::Inherit | Self::Unset => return None,
+            Self::Revert => RevertKind::Origin,
+            Self::RevertLayer => RevertKind::Layer,
+            Self::RevertRule => RevertKind::Rule,
+        })
     }
 }
 
@@ -143,8 +160,8 @@ pub struct WideKeywordDeclaration {
 // XXX Switch back to ToTyped derive once it can automatically handle structs
 // Tracking in bug 1991631
 impl ToTyped for WideKeywordDeclaration {
-    fn to_typed(&self) -> Option<TypedValue> {
-        self.keyword.to_typed()
+    fn to_typed(&self, dest: &mut ThinVec<TypedValue>) -> Result<(), ()> {
+        self.keyword.to_typed(dest)
     }
 }
 
@@ -371,7 +388,7 @@ impl PropertyId {
     pub fn is_animatable(&self) -> bool {
         match self {
             Self::NonCustom(id) => id.is_animatable(),
-            Self::Custom(_) => cfg!(feature = "gecko"),
+            Self::Custom(_) => true,
         }
     }
 
@@ -784,7 +801,11 @@ fn parse_non_custom_property_declaration_value_into<'i>(
         return Err(err);
     }
     input.reset(start);
-    let value = custom_properties::VariableValue::parse(input, &context.url_data)?;
+    let value = custom_properties::VariableValue::parse(
+        input,
+        Some(&context.namespaces.prefixes),
+        &context.url_data,
+    )?;
     parsed_custom(declarations, value);
     Ok(())
 }
@@ -879,7 +900,11 @@ impl PropertyDeclaration {
                 let value = match input.try_parse(CSSWideKeyword::parse) {
                     Ok(keyword) => CustomDeclarationValue::CSSWideKeyword(keyword),
                     Err(()) => CustomDeclarationValue::Unparsed(Arc::new(
-                        custom_properties::VariableValue::parse(input, &context.url_data)?,
+                        custom_properties::VariableValue::parse(
+                            input,
+                            Some(&context.namespaces.prefixes),
+                            &context.url_data,
+                        )?,
                     )),
                 };
                 declarations.push(PropertyDeclaration::Custom(CustomDeclaration {
@@ -1115,7 +1140,7 @@ impl<'a> PropertyDeclarationId<'a> {
     pub fn is_animatable(&self) -> bool {
         match self {
             Self::Longhand(id) => id.is_animatable(),
-            Self::Custom(_) => cfg!(feature = "gecko"),
+            Self::Custom(_) => true,
         }
     }
 
@@ -1125,7 +1150,7 @@ impl<'a> PropertyDeclarationId<'a> {
         match self {
             Self::Longhand(longhand) => longhand.is_discrete_animatable(),
             // TODO(bug 1885995): Refine this.
-            Self::Custom(_) => cfg!(feature = "gecko"),
+            Self::Custom(_) => true,
         }
     }
 
@@ -1431,7 +1456,7 @@ impl UnparsedValue {
         stylist: &Stylist,
         computed_context: &computed::Context,
         shorthand_cache: &'cache mut ShorthandsWithPropertyReferencesCache,
-        attr_provider: &dyn AttributeProvider,
+        attribute_tracker: &mut AttributeTracker,
     ) -> Cow<'cache, PropertyDeclaration> {
         let invalid_at_computed_value_time = || {
             let keyword = if longhand_id.inherited() {
@@ -1466,7 +1491,7 @@ impl UnparsedValue {
             custom_properties,
             stylist,
             computed_context,
-            attr_provider,
+            attribute_tracker,
         ) {
             Ok(css) => css,
             Err(..) => return invalid_at_computed_value_time(),
@@ -1622,6 +1647,79 @@ where
             let id = *self.iter.next()?;
             if !self.filter || id.into().enabled_for_all_content() {
                 return Some(id);
+            }
+        }
+    }
+}
+
+/// An iterator over all the properties that transition on a given style.
+pub struct TransitionPropertyIterator<'a> {
+    style: &'a ComputedValues,
+    index_range: core::ops::Range<usize>,
+    longhand_iterator: Option<NonCustomPropertyIterator<LonghandId>>,
+}
+
+impl<'a> TransitionPropertyIterator<'a> {
+    /// Create a `TransitionPropertyIterator` for the given style.
+    pub fn from_style(style: &'a ComputedValues) -> Self {
+        Self {
+            style,
+            index_range: 0..style.get_ui().transition_property_count(),
+            longhand_iterator: None,
+        }
+    }
+}
+
+/// A single iteration of the TransitionPropertyIterator.
+pub struct TransitionPropertyIteration {
+    /// The id of the longhand for this property.
+    pub property: OwnedPropertyDeclarationId,
+    /// The index of this property in the list of transition properties for this iterator's
+    /// style.
+    pub index: usize,
+}
+
+impl<'a> Iterator for TransitionPropertyIterator<'a> {
+    type Item = TransitionPropertyIteration;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        use crate::values::computed::TransitionProperty;
+        loop {
+            if let Some(ref mut longhand_iterator) = self.longhand_iterator {
+                if let Some(longhand_id) = longhand_iterator.next() {
+                    return Some(TransitionPropertyIteration {
+                        property: OwnedPropertyDeclarationId::Longhand(longhand_id),
+                        index: self.index_range.start - 1,
+                    });
+                }
+                self.longhand_iterator = None;
+            }
+
+            let index = self.index_range.next()?;
+            match self.style.get_ui().transition_property_at(index) {
+                TransitionProperty::NonCustom(id) => {
+                    match id.longhand_or_shorthand() {
+                        Ok(longhand_id) => {
+                            return Some(TransitionPropertyIteration {
+                                property: OwnedPropertyDeclarationId::Longhand(longhand_id),
+                                index,
+                            });
+                        },
+                        Err(shorthand_id) => {
+                            // In the other cases, we set up our state so that we are ready to
+                            // compute the next value of the iterator and then loop (equivalent
+                            // to calling self.next()).
+                            self.longhand_iterator = Some(shorthand_id.longhands());
+                        },
+                    }
+                },
+                TransitionProperty::Custom(name) => {
+                    return Some(TransitionPropertyIteration {
+                        property: OwnedPropertyDeclarationId::Custom(name),
+                        index,
+                    })
+                },
+                TransitionProperty::Unsupported(..) => {},
             }
         }
     }

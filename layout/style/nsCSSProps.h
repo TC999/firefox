@@ -9,14 +9,15 @@
  * values they accept
  */
 
-#ifndef nsCSSProps_h___
-#define nsCSSProps_h___
+#ifndef nsCSSProps_h_
+#define nsCSSProps_h_
 
 #include <ostream>
 
 #include "NonCustomCSSPropertyId.h"
 #include "mozilla/CSSEnabledState.h"
 #include "mozilla/CSSPropFlags.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/UseCounter.h"
 #include "nsString.h"
@@ -79,7 +80,10 @@ class nsCSSProps {
   }
 
   // Same but for @font-face descriptors
-  static nsCSSFontDesc LookupFontDesc(const nsACString&);
+  static mozilla::Maybe<mozilla::FontFaceDescriptorId> LookupFontDesc(
+      const nsACString&);
+  static mozilla::Maybe<mozilla::CounterStyleDescriptorId>
+  LookupCounterStyleDesc(const nsACString&);
 
   // The relevant invariants are asserted in Document.cpp
   static mozilla::UseCounter UseCounterFor(NonCustomCSSPropertyId aProperty) {
@@ -100,8 +104,8 @@ class nsCSSProps {
     return nsDependentCSubstring(reinterpret_cast<const char*>(chars), len);
   }
 
-  static const nsCString& GetStringValue(nsCSSFontDesc aFontDesc);
-  static const nsCString& GetStringValue(nsCSSCounterDesc aCounterDesc);
+  static const nsCString& GetStringValue(mozilla::FontFaceDescriptorId);
+  static const nsCString& GetStringValue(mozilla::CounterStyleDescriptorId);
 
   static Flags PropFlags(NonCustomCSSPropertyId);
   static bool PropHasFlags(NonCustomCSSPropertyId aProperty, Flags aFlags) {
@@ -219,6 +223,17 @@ class nsCSSProps {
   };
   static const PropertyPref kPropertyPrefTable[];
 
+  template <typename Id>
+  struct DescriptorTableEntry {
+    Id mId;
+    nsLiteralCString mName;
+  };
+
+  static const DescriptorTableEntry<mozilla::FontFaceDescriptorId>
+      kFontFaceDescs[mozilla::kFontFaceDescriptorCount];
+  static const DescriptorTableEntry<mozilla::CounterStyleDescriptorId>
+      kCounterStyleDescs[mozilla::kCounterStyleDescriptorCount];
+
 // Storing the enabledstate_ value in an NonCustomCSSPropertyId variable is a
 // small hack to avoid needing a separate variable declaration for its real type
 // (CSSEnabledState), which would then require using a block and
@@ -239,4 +254,4 @@ inline std::ostream& operator<<(std::ostream& aOut,
   return aOut << nsCSSProps::GetStringValue(aProperty);
 }
 
-#endif /* nsCSSProps_h___ */
+#endif /* nsCSSProps_h_ */

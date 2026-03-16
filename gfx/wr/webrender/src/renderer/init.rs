@@ -20,7 +20,6 @@ use crate::glyph_cache::GlyphCache;
 use glyph_rasterizer::{GlyphRasterThread, GlyphRasterizer, SharedFontResources};
 use crate::gpu_types::PrimitiveInstanceData;
 use crate::internal_types::{FastHashMap, FastHashSet};
-use crate::picture;
 use crate::profiler::{self, Profiler, TransactionProfile};
 use crate::device::query::{GpuProfiler, GpuDebugMethod};
 use crate::render_backend::RenderBackend;
@@ -210,8 +209,6 @@ pub struct WebRenderOptions {
 
     /// Use a more precise method for sampling gradients.
     pub precise_linear_gradients: bool,
-    pub precise_radial_gradients: bool,
-    pub precise_conic_gradients: bool,
 }
 
 impl WebRenderOptions {
@@ -286,8 +283,6 @@ impl Default for WebRenderOptions {
             max_shared_surface_size: 2048,
             enable_debugger: true,
             precise_linear_gradients: false,
-            precise_radial_gradients: false,
-            precise_conic_gradients: false,
         }
     }
 }
@@ -568,8 +563,6 @@ pub fn create_webrender_instance(
         max_shared_surface_size: options.max_shared_surface_size,
         enable_dithering: options.enable_dithering,
         precise_linear_gradients: options.precise_linear_gradients,
-        precise_radial_gradients: options.precise_radial_gradients,
-        precise_conic_gradients: options.precise_conic_gradients,
     };
     info!("WR {:?}", config);
 
@@ -667,7 +660,7 @@ pub fn create_webrender_instance(
         .map(|handler| handler.create_similar());
 
     let texture_cache_config = options.texture_cache_config.clone();
-    let mut picture_tile_size = options.picture_tile_size.unwrap_or(picture::TILE_SIZE_DEFAULT);
+    let mut picture_tile_size = options.picture_tile_size.unwrap_or(crate::tile_cache::TILE_SIZE_DEFAULT);
     // Clamp the picture tile size to reasonable values.
     picture_tile_size.width = picture_tile_size.width.max(128).min(4096);
     picture_tile_size.height = picture_tile_size.height.max(128).min(4096);

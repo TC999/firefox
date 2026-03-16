@@ -835,11 +835,11 @@ async function assertNetErrorPage({
 
         // Assert Error Card Basics
         Assert.ok(
-          netErrorCard.certErrorBodyTitle,
+          netErrorCard.errorTitle,
           "The error page title should exist."
         );
 
-        const shortDesc = netErrorCard.certErrorIntro;
+        const shortDesc = netErrorCard.errorIntro;
         const shortDescArgs = JSON.parse(shortDesc.dataset.l10nArgs);
         Assert.equal(
           shortDescArgs.hostname,
@@ -894,6 +894,10 @@ async function assertNetErrorPage({
 
         // Assert Error Code
         const certErrorCodeLink = netErrorCard.errorCode;
+        await ContentTaskUtils.waitForCondition(
+          () => certErrorCodeLink.textContent.includes(errorCode),
+          "Wait for Fluent to populate error code text"
+        );
         Assert.equal(
           certErrorCodeLink.textContent,
           `Error Code: ${errorCode}`,
@@ -906,12 +910,7 @@ async function assertNetErrorPage({
         );
 
         certErrorCodeLink.scrollIntoView(true);
-        EventUtils.synthesizeMouseAtCenter(certErrorCodeLink, {}, content);
-        await ContentTaskUtils.waitForMutationCondition(
-          netErrorCard,
-          { attributeFilter: ["certErrorDebugInfoShowing"] },
-          () => netErrorCard.certErrorDebugInfoShowing
-        );
+        await EventUtils.synthesizeMouse(certErrorCodeLink, 2, 2, {}, content);
         Assert.ok(
           netErrorCard.certErrorDebugInfoShowing,
           "The 'certErrorDebugInfoShowing' boolean should be toggled (to true) after Advance button click on assertAdvancedButton."
@@ -1224,10 +1223,7 @@ add_task(async function checkSandboxedIframe_feltPrivacyToTrue() {
     await netErrorCard.getUpdateComplete();
 
     // Assert Error Card Basics
-    Assert.ok(
-      netErrorCard.certErrorBodyTitle,
-      "The error page title should exist."
-    );
+    Assert.ok(netErrorCard.errorTitle, "The error page title should exist.");
     const advancedButton = netErrorCard.advancedButton;
     advancedButton.scrollIntoView(true);
     EventUtils.synthesizeMouseAtCenter(advancedButton, {}, content);
@@ -1248,6 +1244,11 @@ add_task(async function checkSandboxedIframe_feltPrivacyToTrue() {
 
     // Assert Error Code
     const certErrorCodeLink = netErrorCard.errorCode;
+    await ContentTaskUtils.waitForCondition(
+      () =>
+        certErrorCodeLink.textContent.includes("SEC_ERROR_EXPIRED_CERTIFICATE"),
+      "Wait for Fluent to populate error code text"
+    );
     Assert.equal(
       certErrorCodeLink.textContent,
       `Error Code: SEC_ERROR_EXPIRED_CERTIFICATE`,

@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsDocShell_h__
-#define nsDocShell_h__
+#ifndef nsDocShell_h_
+#define nsDocShell_h_
 
 #include "Units.h"
 #include "mozilla/Encoding.h"
@@ -190,8 +190,8 @@ class nsDocShell final : public nsDocLoader,
       mozilla::dom::BrowsingContext* aBrowsingContext,
       uint64_t aContentWindowID = 0);
 
-  bool Initialize(nsIOpenWindowInfo* aOpenWindowInfo,
-                  mozilla::dom::WindowGlobalChild* aWindowActor);
+  nsresult Initialize(nsIOpenWindowInfo* aOpenWindowInfo,
+                      mozilla::dom::WindowGlobalChild* aWindowActor);
 
   nsresult InitWindow(nsIWidget* aParentWidget, int32_t aX, int32_t aY,
                       int32_t aWidth, int32_t aHeight,
@@ -581,8 +581,9 @@ class nsDocShell final : public nsDocLoader,
   // Content Viewer Management
   //
 
-  // Assert the document viewer exists or we are being destroyed
-  // and return true if a viewer exists.
+  // Return whether a viewer exists and assert that we aren't
+  // trying to get a viewer before it's eager creation during docshell
+  // initialization.
   bool VerifyDocumentViewer();
 
   void DestroyDocumentViewer();
@@ -676,8 +677,9 @@ class nsDocShell final : public nsDocLoader,
       bool aNotifiedBeforeUnloadListeners = false);
 
  public:
-  bool IsAboutBlankLoadOntoInitialAboutBlank(nsIURI* aURI,
-                                             nsIPrincipal* aPrincipalToInherit);
+  bool ShouldDoInitialAboutBlankSyncLoad(nsIURI* aURI,
+                                         nsDocShellLoadState* aLoadState,
+                                         nsIPrincipal* aPrincipalToInherit);
 
   void UnsuppressPaintingIfNoNavigationAwayFromAboutBlank(
       mozilla::PresShell* aPresShell);
@@ -1196,6 +1198,7 @@ class nsDocShell final : public nsDocLoader,
    * @param aCurrentURI the current URI we're working with.  Might be null.
    * @param aEqualURIs whether the two URIs involved are equal.
    */
+  MOZ_CAN_RUN_SCRIPT
   nsresult UpdateURLAndHistory(
       mozilla::dom::Document* aDocument, nsIURI* aNewURI,
       nsIStructuredCloneContainer* aData,
@@ -1229,10 +1232,10 @@ class nsDocShell final : public nsDocLoader,
       mozilla::dom::NavigationAPIMethodTracker* aNavigationAPIMethodTracker =
           nullptr);
 
- private:
   MOZ_CAN_RUN_SCRIPT
   void InformNavigationAPIAboutAbortingNavigation();
 
+ private:
   // TODO: Convert this to MOZ_CAN_RUN_SCRIPT (bug 1415230)
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
   void InformNavigationAPIAboutChildNavigableDestruction();
@@ -1487,4 +1490,4 @@ inline nsISupports* ToSupports(nsDocShell* aDocShell) {
   return static_cast<nsIDocumentLoader*>(aDocShell);
 }
 
-#endif /* nsDocShell_h__ */
+#endif /* nsDocShell_h_ */

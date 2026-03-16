@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect } from "react";
 import { useSelector } from "react-redux";
 import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
-import { ThumbUpThumbDownToast } from "./Toasts/ThumbUpThumbDownToast";
+import { HideWidgetsToast } from "./Toasts/HideWidgetsToast";
 import { ReportContentToast } from "./Toasts/ReportContentToast";
 
 function Notifications({ dispatch }) {
@@ -53,10 +53,9 @@ function Notifications({ dispatch }) {
             key={toastCounter}
           />
         );
-      case "thumbsUpToast":
-      case "thumbsDownToast":
+      case "hideWidgetsToast":
         return (
-          <ThumbUpThumbDownToast
+          <HideWidgetsToast
             onDismissClick={syncHiddenToastData}
             onAnimationEnd={syncHiddenToastData}
             key={toastCounter}

@@ -489,26 +489,6 @@ dns:
     expires: never
     telemetry_mirror: h#DNS_LOOKUP_ALGORITHM
 
-  blocklist_count:
-    type: custom_distribution
-    description: >
-      The number of unusable addresses reported for each record
-
-      This metric was generated to correspond to the Legacy Telemetry linear
-      histogram DNS_BLACKLIST_COUNT.
-    range_min: 1
-    range_max: 21
-    bucket_count: 20
-    histogram_type: linear
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1935420
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1935420
-    notification_emails:
-      - necko@mozilla.com
-    expires: never
-    telemetry_mirror: DNS_BLACKLIST_COUNT
-
   trr_http_version:
     type: dual_labeled_counter
     description: >
@@ -689,6 +669,49 @@ dns:
       - vgosu@mozilla.com
     expires: never
     telemetry_mirror: DNS_TRR_SUCCESS3
+
+  trr_http3_0rtt_state:
+    type: labeled_counter
+    description: >
+      Outcome of 0-RTT usage for TRR HTTP/3 connections:
+      - "not_used": 0RTT was not used
+      - "succeeded": 0RTT was used and succeeded
+      - "rejected": 0RTT was used but rejected by the server
+      - "conn_error": 0RTT was used but connection error occurred
+      - "conn_closed_by_necko": 0RTT was used but connection was closed by necko
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2011956
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2011956
+    notification_emails:
+      - necko@mozilla.com
+    expires: never
+    labels:
+      - not_used
+      - succeeded
+      - rejected
+      - conn_error
+      - conn_closed_by_necko
+
+  trr_http3_0rtt_state_duration:
+    type: labeled_timing_distribution
+    time_unit: millisecond
+    description: >
+      The time a TRR HTTP/3 connection was in the 0-RTT state before
+      transitioning to a final outcome.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2011956
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2011956
+    notification_emails:
+      - necko@mozilla.com
+    labels:
+      - succeeded
+      - rejected
+      - conn_error
+      - conn_closed_by_necko
+      - not_used
+    expires: never
 
   lookup_disposition:
     type: dual_labeled_counter

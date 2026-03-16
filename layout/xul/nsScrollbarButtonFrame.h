@@ -11,8 +11,8 @@
 
 **/
 
-#ifndef nsScrollbarButtonFrame_h___
-#define nsScrollbarButtonFrame_h___
+#ifndef nsScrollbarButtonFrame_h_
+#define nsScrollbarButtonFrame_h_
 
 #include "SimpleXULLeafFrame.h"
 #include "mozilla/Attributes.h"
@@ -73,7 +73,7 @@ class nsScrollbarButtonFrame final : public mozilla::SimpleXULLeafFrame {
     nsRepeatService::GetInstance()->Start(Notify, this, mContent->OwnerDoc(),
                                           "nsScrollbarButtonFrame"_ns);
   }
-  void StopRepeat() { nsRepeatService::GetInstance()->Stop(Notify, this); }
+  void StopRepeat();
   void Notify();
   static void Notify(void* aData) {
     static_cast<nsScrollbarButtonFrame*>(aData)->Notify();

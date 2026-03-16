@@ -10,20 +10,25 @@ const SCHEDULED_BACKUPS_ENABLED_PREF = "browser.backup.scheduled.enabled";
  * as expected.
  */
 add_task(async function password_validation() {
-  await SpecialPowers.pushPrefEnv({
-    set: [[SCHEDULED_BACKUPS_ENABLED_PREF, true]],
-  });
-
   await BrowserTestUtils.withNewTab("about:preferences#sync", async browser => {
+    await SpecialPowers.pushPrefEnv({
+      set: [[SCHEDULED_BACKUPS_ENABLED_PREF, true]],
+    });
     let sandbox = sinon.createSandbox();
-    let settings = browser.contentDocument.querySelector("backup-settings");
+    let settings = await waitForBackupSettings(browser);
 
+    settings.backupServiceState.archiveEnabledStatus = true;
+    settings.backupServiceState.scheduledBackupsEnabled = true;
     settings.backupServiceState.encryptionEnabled = true;
     await settings.requestUpdate();
     await settings.updateComplete;
 
     let changePasswordButton = settings.changePasswordButtonEl;
     Assert.ok(changePasswordButton, "Change password button should be found");
+    Assert.ok(
+      !changePasswordButton.disabled,
+      "Change password button should be enabled"
+    );
 
     changePasswordButton.click();
     await settings.updateComplete;

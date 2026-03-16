@@ -31,7 +31,7 @@
 #  include <unistd.h>
 #endif
 
-#ifdef XP_UNIX
+#if defined(XP_UNIX) && !defined(XP_IOS)
 #  define MOZ_SUPPORTS_FIFO 1
 #endif
 
@@ -331,7 +331,7 @@ nsMemoryInfoDumper::DumpGCAndCCLogsToFile(
   if (aDumpAllTraces) {
     nsCOMPtr<nsICycleCollectorListener> allTracesLogger;
     logger->AllTraces(getter_AddRefs(allTracesLogger));
-    logger = allTracesLogger;
+    logger = std::move(allTracesLogger);
   }
 
   nsCOMPtr<nsICycleCollectorLogSink> logSink;
@@ -357,7 +357,7 @@ nsMemoryInfoDumper::DumpGCAndCCLogsToSink(bool aDumpAllTraces,
   if (aDumpAllTraces) {
     nsCOMPtr<nsICycleCollectorListener> allTracesLogger;
     logger->AllTraces(getter_AddRefs(allTracesLogger));
-    logger = allTracesLogger;
+    logger = std::move(allTracesLogger);
   }
 
   logger->SetLogSink(aSink);

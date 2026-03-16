@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
@@ -67,7 +68,6 @@ import mozilla.components.compose.base.badge.BADGE_SIZE_SMALL
 import mozilla.components.compose.base.badge.BadgedIcon
 import mozilla.components.compose.base.modifier.thenConditional
 import mozilla.components.compose.base.theme.information
-import mozilla.components.compose.base.theme.surfaceDimVariant
 import org.mozilla.fenix.compose.Favicon
 import org.mozilla.fenix.compose.button.RadioButton
 import org.mozilla.fenix.theme.FirefoxTheme
@@ -340,21 +340,6 @@ fun IconListItem(
             )
         },
     )
-}
-
-@Composable
-@PreviewLightDark
-private fun IconListItemBeforeIconPreview() {
-    FirefoxTheme {
-        Box(Modifier.background(MaterialTheme.colorScheme.surfaceDimVariant)) {
-            IconListItemBeforeIcon(
-                isHighlighted = false,
-                painter = painterResource(iconsR.drawable.mozac_ic_shield_slash_critical_24),
-                description = "",
-                tint = Color.Unspecified,
-            )
-        }
-    }
 }
 
 @Composable
@@ -945,12 +930,14 @@ private fun ListItemContent(
     enabled: Boolean = true,
     belowListItemContent: @Composable ColumnScope.() -> Unit = {},
 ) {
+    val locale = remember(LocalConfiguration.current) { Locale.getDefault() }
+
     Column(
         modifier = modifier,
     ) {
         overline?.let {
             Text(
-                text = it.uppercase(Locale.getDefault()),
+                text = it.uppercase(locale),
                 color = colors.overlineColor,
                 style = FirefoxTheme.typography.overline.copy(hyphens = Hyphens.Auto),
                 maxLines = 1,
@@ -1542,6 +1529,30 @@ private fun SelectableListItemPreview() {
                 afterListItemAction = {},
                 showSelectableItemAfter = true,
             )
+        }
+    }
+}
+
+@Composable
+@PreviewLightDark
+private fun IconListItemBeforeIconPreview() {
+    FirefoxTheme {
+        Surface {
+            Row(modifier = Modifier.padding(all = FirefoxTheme.layout.space.static100)) {
+                IconListItemBeforeIcon(
+                    isHighlighted = false,
+                    painter = painterResource(iconsR.drawable.mozac_ic_shield_slash_critical_24),
+                    description = "",
+                    tint = Color.Unspecified,
+                )
+
+                IconListItemBeforeIcon(
+                    isHighlighted = true,
+                    painter = painterResource(iconsR.drawable.mozac_ic_shield_slash_critical_24),
+                    description = "",
+                    tint = Color.Unspecified,
+                )
+            }
         }
     }
 }

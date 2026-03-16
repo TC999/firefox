@@ -5,6 +5,7 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
+    alias(libs.plugins.dependency.analysis)
     alias(libs.plugins.python.envs.plugin)
     id 'org.mozilla.nimbus-gradle-plugin'
 }
@@ -21,6 +22,7 @@ dependencies {
 
     implementation project(':components:browser-state')
     implementation project(':components:concept-awesomebar')
+    implementation project(':components:concept-base')
     implementation project(':components:concept-engine')
     implementation project(':components:feature-session')
     implementation project(':components:service-nimbus')
@@ -29,6 +31,7 @@ dependencies {
     implementation project(':components:support-remotesettings')
     implementation project(':components:support-ktx')
 
+    implementation ComponentsDependencies.mozilla_appservices_errorsupport
     implementation ComponentsDependencies.mozilla_appservices_suggest
     implementation libs.androidx.work.runtime
     implementation libs.kotlinx.coroutines

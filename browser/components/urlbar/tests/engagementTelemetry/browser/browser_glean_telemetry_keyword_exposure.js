@@ -409,6 +409,20 @@ add_task(async function privateWindow() {
   await BrowserTestUtils.closeWindow(privateWin);
 });
 
+// Test a different sap. We choose handoff because it's easy to test.
+// More saps are tested in the engagement telemetry tests.
+add_task(async function sapUrlbarHandoff() {
+  // Simulate handoff session.
+  gURLBar._isHandoffSession = true;
+  await doTest({
+    keywords: ["example"],
+    searchStrings: ["example"],
+    expectedEvents: [
+      { extra: { keyword: "example", terminal: true, sap: "handoff" } },
+    ],
+  });
+});
+
 async function doTest({
   keywords,
   searchStrings,
@@ -463,10 +477,9 @@ async function doTest({
       );
     }
   };
-  UrlbarProvidersManager.registerProvider(provider);
-  registerCleanupFunction(() =>
-    UrlbarProvidersManager.unregisterProvider(provider)
-  );
+  let providersManager = ProvidersManager.getInstanceForSap("urlbar");
+  providersManager.registerProvider(provider);
+  registerCleanupFunction(() => providersManager.unregisterProvider(provider));
 
   // Set up the prefs/Nimbus.
   let nimbusCleanup;
@@ -521,7 +534,7 @@ async function doTest({
     await SpecialPowers.popPrefEnv();
   }
   Services.fog.testResetFOG();
-  UrlbarProvidersManager.unregisterProvider(provider);
+  providersManager.unregisterProvider(provider);
 
   Assert.deepEqual(
     [...UrlbarPrefs.get("exposureResults").values()],
@@ -557,6 +570,8 @@ function assertEvents(actual, expected) {
     // Most tasks only use history results, so for convenience set the result
     // type here unless a task already did.
     e.extra.result ??= "history";
+    // Again, for convenience, use urlbar_newtab as the default sap.
+    e.extra.sap ??= "urlbar_newtab";
     return {
       category: "urlbar",
       name: "keyword_exposure",

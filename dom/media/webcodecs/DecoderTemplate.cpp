@@ -316,6 +316,12 @@ void DecoderTemplate<DecoderType>::CloseInternal(const nsresult& aResult) {
   AssertIsOnOwningThread();
   MOZ_ASSERT(aResult != NS_ERROR_DOM_ABORT_ERR, "Use CloseInternalWithAbort");
 
+  // Return early if already closed. This can happen when async error handling
+  // tasks race with user-initiated close().
+  if (mState == CodecState::Closed) {
+    return;
+  }
+
   auto r = ResetInternal(aResult);
   if (r.isErr()) {
     nsCString name;
@@ -442,13 +448,11 @@ void DecoderTemplate<DecoderType>::CancelPendingControlMessagesAndFlushPromises(
   }
 
   // If there are pending flush promises, reject them.
-  mPendingFlushPromises.ForEach(
-      [&](const int64_t& id, const RefPtr<Promise>& p) {
-        LOG("%s %p, reject the promise for flush %" PRId64 " (unique id)",
-            DecoderType::Name.get(), this, id);
-        p->MaybeReject(aResult);
-      });
-  mPendingFlushPromises.Clear();
+  mPendingFlushPromises.Clear([&](const int64_t& id, const RefPtr<Promise>& p) {
+    LOG("%s %p, reject the promise for flush %" PRId64 " (unique id)",
+        DecoderType::Name.get(), this, id);
+    p->MaybeReject(aResult);
+  });
 }
 
 template <typename DecoderType>
@@ -555,7 +559,6 @@ MessageProcessedResult DecoderTemplate<DecoderType>::ProcessConfigureMessage(
                  self->QueueATask(
                      "Error during configure",
                      [self = RefPtr{self}]() MOZ_CAN_RUN_SCRIPT_BOUNDARY {
-                       MOZ_ASSERT(self->mState != CodecState::Closed);
                        self->CloseInternal(
                            NS_ERROR_DOM_ENCODING_NOT_SUPPORTED_ERR);
                      });
@@ -657,7 +660,6 @@ MessageProcessedResult DecoderTemplate<DecoderType>::ProcessDecodeMessage(
                  self->QueueATask(
                      "Error during decode runnable",
                      [self = RefPtr{self}]() MOZ_CAN_RUN_SCRIPT_BOUNDARY {
-                       MOZ_ASSERT(self->mState != CodecState::Closed);
                        self->CloseInternal(
                            NS_ERROR_DOM_ENCODING_NOT_SUPPORTED_ERR);
                      });
@@ -767,7 +769,6 @@ MessageProcessedResult DecoderTemplate<DecoderType>::ProcessFlushMessage(
                        // Otherwise, the promise is going to be rejected by
                        // CloseInternal() below.
                        self->mProcessingMessage.reset();
-                       MOZ_ASSERT(self->mState != CodecState::Closed);
                        self->CloseInternal(
                            NS_ERROR_DOM_ENCODING_NOT_SUPPORTED_ERR);
                      });

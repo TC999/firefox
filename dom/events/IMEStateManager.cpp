@@ -81,7 +81,7 @@ bool IMEStateManager::sInstalledMenuKeyboardListener = false;
 bool IMEStateManager::sIsGettingNewIMEState = false;
 bool IMEStateManager::sCleaningUpForStoppingIMEStateManagement = false;
 bool IMEStateManager::sIsActive = false;
-MOZ_RUNINIT Maybe<IMEStateManager::PendingFocusedBrowserSwitchingData>
+constinit Maybe<IMEStateManager::PendingFocusedBrowserSwitchingData>
     IMEStateManager::sPendingFocusedBrowserSwitchingData;
 
 class PseudoFocusChangeRunnable : public Runnable {
@@ -195,13 +195,12 @@ void IMEStateManager::OnFocusMovedBetweenBrowsers(BrowserParent* aBlur,
     RefPtr<TextComposition> composition =
         sTextCompositions->GetCompositionFor(oldWidget);
     if (composition) {
-      MOZ_LOG(
-          sISMLog, LogLevel::Debug,
-          ("  OnFocusMovedBetweenBrowsers(), requesting to commit "
-           "composition to "
-           "the (previous) focused widget (would request=%s)",
-           TrueOrFalse(
-               !oldWidget->IMENotificationRequestsRef().WantDuringDeactive())));
+      MOZ_LOG(sISMLog, LogLevel::Debug,
+              ("  OnFocusMovedBetweenBrowsers(), requesting to commit "
+               "composition to "
+               "the (previous) focused widget (would request=%s)",
+               TrueOrFalse(!oldWidget->IMENotificationRequestsRef().contains(
+                   IMENotificationRequest::NotifyDuringInactive))));
       NotifyIME(REQUEST_TO_COMMIT_COMPOSITION, oldWidget,
                 composition->GetBrowserParent());
     }
@@ -748,8 +747,8 @@ nsresult IMEStateManager::OnChangeFocusInternal(nsPresContext* aPresContext,
       // such case, sFocusedIMEWidget is perhaps nullptr).  For example, IME
       // may receive only blur notification but still has composition.
       // We need to clean up only the oldWidget's composition state here.
-      if (aPresContext ||
-          !oldWidget->IMENotificationRequestsRef().WantDuringDeactive()) {
+      if (aPresContext || !oldWidget->IMENotificationRequestsRef().contains(
+                              IMENotificationRequest::NotifyDuringInactive)) {
         MOZ_LOG(
             sISMLog, LogLevel::Info,
             ("  OnChangeFocusInternal(), requesting to commit composition to "
@@ -1340,15 +1339,11 @@ void IMEStateManager::OnReFocus(nsPresContext& aPresContext,
       MOZ_ASSERT(textControlElement);
       if (textControlElement &&
           textControlElement->IsSingleLineTextControlOrTextArea()) {
-        nsTextControlFrame* const boundFrame =
-            textControlElement->GetTextControlState()->GetBoundFrame();
-        MOZ_ASSERT(!boundFrame);
         MOZ_LOG(
             sISMLog, LogLevel::Warning,
             ("  OnReFocus(), Temporarily disabling IME for the focused element "
              "because probably the TextControlState could not return "
-             "TextEditor (textControlFrame: %p, textEditor: %p)",
-             boundFrame,
+             "TextEditor (textEditor: %p)",
              textControlElement->GetTextControlState()->GetExtantTextEditor()));
       }
     } else {
@@ -1937,7 +1932,7 @@ MOZ_CAN_RUN_SCRIPT static void GetActionHint(const IMEState& aState,
   // return won't submit the form, use "maybenext".
   bool willSubmit = false;
   bool isLastElement = false;
-  HTMLFormElement* formElement = inputElement->GetForm();
+  HTMLFormElement* formElement = inputElement->GetFormInternal();
   // is this a form and does it have a default submit element?
   if (formElement) {
     if (formElement->IsLastActiveElement(inputElement)) {

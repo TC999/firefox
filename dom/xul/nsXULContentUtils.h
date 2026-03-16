@@ -9,8 +9,8 @@
 
  */
 
-#ifndef nsXULContentUtils_h__
-#define nsXULContentUtils_h__
+#ifndef nsXULContentUtils_h_
+#define nsXULContentUtils_h_
 
 #include "nsISupports.h"
 
@@ -20,26 +20,17 @@ class nsIContent;
 namespace mozilla::dom {
 class Element;
 }
-namespace mozilla::intl {
-class Collator;
-}
 
 class nsXULContentUtils {
  protected:
-  const static mozilla::intl::Collator* gCollator;
-
   static bool gDisableXULCache;
 
   static int DisableXULCacheChangedCallback(const char* aPrefName,
                                             void* aClosure);
 
  public:
-  static nsresult Finish();
-
   static nsresult FindChildByTag(nsIContent* aElement, int32_t aNameSpaceID,
                                  nsAtom* aTag, mozilla::dom::Element** aResult);
-
-  static const mozilla::intl::Collator* GetCollator();
 };
 
-#endif  // nsXULContentUtils_h__
+#endif  // nsXULContentUtils_h_

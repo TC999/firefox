@@ -10,6 +10,9 @@ use crate::applicable_declarations::{
 use crate::computed_value_flags::ComputedValueFlags;
 use crate::context::{CascadeInputs, QuirksMode};
 use crate::custom_properties::ComputedCustomProperties;
+use crate::custom_properties::{parse_name, SpecifiedValue};
+use crate::derives::*;
+use crate::device::Device;
 use crate::dom::TElement;
 #[cfg(feature = "gecko")]
 use crate::gecko_bindings::structs::{ServoStyleSetSizes, StyleRuleInclusion};
@@ -20,22 +23,25 @@ use crate::invalidation::element::invalidation_map::{
 use crate::invalidation::media_queries::{
     EffectiveMediaQueryResults, MediaListKey, ToMediaListKey,
 };
-use crate::invalidation::stylesheets::RuleChangeKind;
-use crate::media_queries::Device;
+use crate::invalidation::stylesheets::{RuleChangeKind, StylesheetInvalidationSet};
+#[cfg(feature = "gecko")]
+use crate::properties::StyleBuilder;
 use crate::properties::{
     self, AnimationDeclarations, CascadeMode, ComputedValues, FirstLineReparenting,
-    PropertyDeclarationBlock, StyleBuilder,
+    PropertyDeclarationBlock,
 };
 use crate::properties_and_values::registry::{
-    PropertyRegistration, PropertyRegistrationData, ScriptRegistry as CustomPropertyScriptRegistry,
+    PropertyRegistration, ScriptRegistry as CustomPropertyScriptRegistry,
 };
+use crate::properties_and_values::rule::{
+    Descriptors as PropertyDescriptors, Inherits, PropertyRegistrationError, PropertyRuleName,
+};
+use crate::properties_and_values::syntax::Descriptor;
 use crate::rule_cache::{RuleCache, RuleCacheConditions};
 use crate::rule_collector::RuleCollector;
-use crate::rule_tree::{CascadeLevel, RuleTree, StrongRuleNode, StyleSource};
+use crate::rule_tree::{CascadeLevel, CascadeOrigin, RuleTree, StrongRuleNode, StyleSource};
 use crate::selector_map::{PrecomputedHashMap, PrecomputedHashSet, SelectorMap, SelectorMapEntry};
-use crate::selector_parser::{
-    NonTSPseudoClass, PerPseudoElementMap, PseudoElement, SelectorImpl, SnapshotMap,
-};
+use crate::selector_parser::{NonTSPseudoClass, PerPseudoElementMap, PseudoElement, SelectorImpl};
 use crate::shared_lock::{Locked, SharedRwLockReadGuard, StylesheetGuards};
 use crate::sharing::{RevalidationResult, ScopeRevalidationResult};
 use crate::stylesheet_set::{DataValidity, DocumentStylesheetSet, SheetRebuildKind};
@@ -48,21 +54,20 @@ use crate::stylesheets::scope_rule::{
     collect_scope_roots, element_is_outside_of_scope, scope_selector_list_is_trivial,
     ImplicitScopeRoot, ScopeRootCandidate, ScopeSubjectMap, ScopeTarget,
 };
-#[cfg(feature = "gecko")]
+use crate::stylesheets::UrlExtraData;
 use crate::stylesheets::{
-    CounterStyleRule, FontFaceRule, FontFeatureValuesRule, FontPaletteValuesRule,
-    PagePseudoClassFlags, PositionTryRule,
-};
-use crate::stylesheets::{
-    CssRule, CssRuleRef, EffectiveRulesIterator, Origin, OriginSet, PageRule, PerOrigin,
-    PerOriginIter, StylesheetContents, StylesheetInDocument,
+    CounterStyleRule, CssRule, CssRuleRef, EffectiveRulesIterator, FontFaceRule,
+    FontFeatureValuesRule, FontPaletteValuesRule, Origin, OriginSet, PagePseudoClassFlags,
+    PageRule, PerOrigin, PerOriginIter, PositionTryRule, StylesheetContents, StylesheetInDocument,
 };
 use crate::stylesheets::{CustomMediaEvaluator, CustomMediaMap};
+#[cfg(feature = "gecko")]
 use crate::values::specified::position::PositionTryFallbacksItem;
 use crate::values::specified::position::PositionTryFallbacksTryTactic;
-use crate::values::{computed, AtomIdent};
+use crate::values::{computed, AtomIdent, Parser, SourceLocation};
 use crate::AllocErr;
 use crate::{Atom, LocalName, Namespace, ShrinkIfNeeded, WeakAtom};
+use cssparser::ParserInput;
 use dom::{DocumentState, ElementState};
 #[cfg(feature = "gecko")]
 use malloc_size_of::MallocUnconditionalShallowSizeOf;
@@ -84,8 +89,8 @@ use servo_arc::{Arc, ArcBorrow, ThinArc};
 use smallvec::SmallVec;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
-use std::sync::Mutex;
-use std::{mem, ops};
+use std::mem;
+use std::sync::{LazyLock, Mutex};
 
 /// The type of the stylesheets that the stylist contains.
 #[cfg(feature = "servo")]
@@ -116,6 +121,52 @@ impl Hash for StylesheetContentsPtr {
 
 type StyleSheetContentList = Vec<StylesheetContentsPtr>;
 
+/// The @position-try rules that have changed.
+#[derive(Default, Debug, MallocSizeOf)]
+pub struct CascadeDataDifference {
+    /// The set of changed @position-try rule names.
+    pub changed_position_try_names: PrecomputedHashSet<Atom>,
+}
+
+impl CascadeDataDifference {
+    /// Merges another difference into `self`.
+    pub fn merge_with(&mut self, other: Self) {
+        self.changed_position_try_names
+            .extend(other.changed_position_try_names.into_iter())
+    }
+
+    /// Returns whether we're empty.
+    pub fn is_empty(&self) -> bool {
+        self.changed_position_try_names.is_empty()
+    }
+
+    fn update(&mut self, old_data: &PositionTryMap, new_data: &PositionTryMap) {
+        let mut any_different_key = false;
+        let different_len = old_data.len() != new_data.len();
+        for (name, rules) in old_data.iter() {
+            let changed = match new_data.get(name) {
+                Some(new_rule) => !Arc::ptr_eq(&rules.last().unwrap().0, new_rule),
+                None => {
+                    any_different_key = true;
+                    true
+                },
+            };
+            if changed {
+                self.changed_position_try_names.insert(name.clone());
+            }
+        }
+
+        if any_different_key || different_len {
+            for name in new_data.keys() {
+                // If the key exists in both, we've already checked it above.
+                if !old_data.contains_key(name) {
+                    self.changed_position_try_names.insert(name.clone());
+                }
+            }
+        }
+    }
+}
+
 /// A key in the cascade data cache.
 #[derive(Debug, Hash, Default, PartialEq, Eq)]
 struct CascadeDataCacheKey {
@@ -135,6 +186,7 @@ trait CascadeDataCacheEntry: Sized {
         collection: SheetCollectionFlusher<S>,
         guard: &SharedRwLockReadGuard,
         old_entry: &Self,
+        difference: &mut CascadeDataDifference,
     ) -> Result<Arc<Self>, AllocErr>
     where
         S: StylesheetInDocument + PartialEq + 'static;
@@ -172,6 +224,7 @@ where
         collection: SheetCollectionFlusher<S>,
         guard: &SharedRwLockReadGuard,
         old_entry: &Entry,
+        difference: &mut CascadeDataDifference,
     ) -> Result<Option<Arc<Entry>>, AllocErr>
     where
         S: StylesheetInDocument + PartialEq + 'static,
@@ -200,7 +253,14 @@ where
         match self.entries.entry(key) {
             HashMapEntry::Vacant(e) => {
                 debug!("> Picking the slow path (not in the cache)");
-                new_entry = Entry::rebuild(device, quirks_mode, collection, guard, old_entry)?;
+                new_entry = Entry::rebuild(
+                    device,
+                    quirks_mode,
+                    collection,
+                    guard,
+                    old_entry,
+                    difference,
+                )?;
                 e.insert(new_entry.clone());
             },
             HashMapEntry::Occupied(mut e) => {
@@ -221,7 +281,14 @@ where
                 }
 
                 debug!("> Picking the slow path due to same entry as old");
-                new_entry = Entry::rebuild(device, quirks_mode, collection, guard, old_entry)?;
+                new_entry = Entry::rebuild(
+                    device,
+                    quirks_mode,
+                    collection,
+                    guard,
+                    old_entry,
+                    difference,
+                )?;
                 e.insert(new_entry.clone());
             },
         }
@@ -276,11 +343,9 @@ pub fn add_size_of_ua_cache(ops: &mut MallocSizeOfOps, sizes: &mut ServoStyleSet
         .add_size_of(ops, sizes);
 }
 
-lazy_static! {
-    /// A cache of computed user-agent data, to be shared across documents.
-    static ref UA_CASCADE_DATA_CACHE: Mutex<UserAgentCascadeDataCache> =
-        Mutex::new(UserAgentCascadeDataCache::new());
-}
+/// A cache of computed user-agent data, to be shared across documents.
+static UA_CASCADE_DATA_CACHE: LazyLock<Mutex<UserAgentCascadeDataCache>> =
+    LazyLock::new(|| Mutex::new(UserAgentCascadeDataCache::new()));
 
 impl CascadeDataCacheEntry for UserAgentCascadeData {
     fn rebuild<S>(
@@ -288,20 +353,21 @@ impl CascadeDataCacheEntry for UserAgentCascadeData {
         quirks_mode: QuirksMode,
         collection: SheetCollectionFlusher<S>,
         guard: &SharedRwLockReadGuard,
-        _old: &Self,
+        old: &Self,
+        difference: &mut CascadeDataDifference,
     ) -> Result<Arc<Self>, AllocErr>
     where
         S: StylesheetInDocument + PartialEq + 'static,
     {
-        // TODO: Maybe we should support incremental rebuilds, though they seem
-        // uncommon and rebuild() doesn't deal with
-        // precomputed_pseudo_element_decls for now so...
-        let mut new_data = Self {
+        // TODO: Maybe we should support incremental rebuilds, though they seem uncommon and
+        // rebuild() doesn't deal with precomputed_pseudo_element_decls for now so...
+        let mut new_data = servo_arc::UniqueArc::new(Self {
             cascade_data: CascadeData::new(),
             precomputed_pseudo_element_decls: PrecomputedPseudoElementDeclarations::default(),
-        };
+        });
 
         for (index, sheet) in collection.sheets().enumerate() {
+            let new_data = &mut *new_data;
             new_data.cascade_data.add_stylesheet(
                 device,
                 quirks_mode,
@@ -310,12 +376,17 @@ impl CascadeDataCacheEntry for UserAgentCascadeData {
                 guard,
                 SheetRebuildKind::Full,
                 Some(&mut new_data.precomputed_pseudo_element_decls),
+                None,
             )?;
         }
 
         new_data.cascade_data.did_finish_rebuild();
+        difference.update(
+            &old.cascade_data.extra_data.position_try_rules,
+            &new_data.cascade_data.extra_data.position_try_rules,
+        );
 
-        Ok(Arc::new(new_data))
+        Ok(new_data.shareable())
     }
 
     #[cfg(feature = "gecko")]
@@ -342,14 +413,12 @@ struct UserAgentCascadeData {
     precomputed_pseudo_element_decls: PrecomputedPseudoElementDeclarations,
 }
 
-lazy_static! {
-    /// The empty UA cascade data for un-filled stylists.
-    static ref EMPTY_UA_CASCADE_DATA: Arc<UserAgentCascadeData> = {
-        let arc = Arc::new(UserAgentCascadeData::default());
-        arc.mark_as_intentionally_leaked();
-        arc
-    };
-}
+/// The empty UA cascade data for un-filled stylists.
+static EMPTY_UA_CASCADE_DATA: LazyLock<Arc<UserAgentCascadeData>> = LazyLock::new(|| {
+    let arc = Arc::new(UserAgentCascadeData::default());
+    arc.mark_as_intentionally_leaked();
+    arc
+});
 
 /// All the computed information for all the stylesheets that apply to the
 /// document.
@@ -431,6 +500,7 @@ impl DocumentCascadeData {
         quirks_mode: QuirksMode,
         mut flusher: DocumentStylesheetFlusher<'a, S>,
         guards: &StylesheetGuards,
+        difference: &mut CascadeDataDifference,
     ) -> Result<(), AllocErr>
     where
         S: StylesheetInDocument + PartialEq + 'static,
@@ -448,13 +518,13 @@ impl DocumentCascadeData {
                     origin_flusher,
                     guards.ua_or_user,
                     &self.user_agent,
+                    difference,
                 )?;
                 if let Some(new_data) = new_data {
                     self.user_agent = new_data;
                 }
                 let _unused_entries = ua_cache.take_unused();
-                // See the comments in take_unused() as for why the following
-                // line.
+                // See the comments in take_unused() as for why the following line.
                 std::mem::drop(ua_cache);
             }
         }
@@ -465,6 +535,7 @@ impl DocumentCascadeData {
             quirks_mode,
             flusher.flush_origin(Origin::User),
             guards.ua_or_user,
+            difference,
         )?;
 
         // And now the author sheets.
@@ -473,6 +544,7 @@ impl DocumentCascadeData {
             quirks_mode,
             flusher.flush_origin(Origin::Author),
             guards.author,
+            difference,
         )?;
 
         Ok(())
@@ -499,6 +571,7 @@ pub enum AuthorStylesEnabled {
 /// A wrapper over a DocumentStylesheetSet that can be `Sync`, since it's only
 /// used and exposed via mutable methods in the `Stylist`.
 #[cfg_attr(feature = "servo", derive(MallocSizeOf))]
+#[derive(Deref, DerefMut)]
 struct StylistStylesheetSet(DocumentStylesheetSet<StylistSheet>);
 // Read above to see why this is fine.
 unsafe impl Sync for StylistStylesheetSet {}
@@ -506,20 +579,6 @@ unsafe impl Sync for StylistStylesheetSet {}
 impl StylistStylesheetSet {
     fn new() -> Self {
         StylistStylesheetSet(DocumentStylesheetSet::new())
-    }
-}
-
-impl ops::Deref for StylistStylesheetSet {
-    type Target = DocumentStylesheetSet<StylistSheet>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl ops::DerefMut for StylistStylesheetSet {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 
@@ -830,16 +889,16 @@ impl Stylist {
 
     /// Returns the custom property registration for this property's name.
     /// https://drafts.css-houdini.org/css-properties-values-api-1/#determining-registration
-    pub fn get_custom_property_registration(&self, name: &Atom) -> &PropertyRegistrationData {
+    pub fn get_custom_property_registration(&self, name: &Atom) -> &PropertyDescriptors {
         if let Some(registration) = self.custom_property_script_registry().get(name) {
-            return &registration.data;
+            return &registration.descriptors;
         }
         for (data, _) in self.iter_origins() {
             if let Some(registration) = data.custom_property_registrations.get(name) {
-                return &registration.data;
+                return &registration.descriptors;
             }
         }
-        PropertyRegistrationData::unregistered()
+        PropertyDescriptors::unregistered()
     }
 
     /// Returns custom properties with their registered initial values.
@@ -870,7 +929,7 @@ impl Stylist {
                 let Ok(value) = v.compute_initial_value(&context) else {
                     continue;
                 };
-                let map = if v.inherits() {
+                let map = if v.descriptors.inherits() {
                     &mut initial_values.inherited
                 } else {
                     &mut initial_values.non_inherited
@@ -884,7 +943,7 @@ impl Stylist {
                         let Ok(value) = last_value.compute_initial_value(&context) else {
                             continue;
                         };
-                        let map = if last_value.inherits() {
+                        let map = if last_value.descriptors.inherits() {
                             &mut initial_values.inherited
                         } else {
                             &mut initial_values.non_inherited
@@ -905,12 +964,19 @@ impl Stylist {
         old_data: &CascadeData,
         collection: SheetCollectionFlusher<S>,
         guard: &SharedRwLockReadGuard,
+        difference: &mut CascadeDataDifference,
     ) -> Result<Option<Arc<CascadeData>>, AllocErr>
     where
         S: StylesheetInDocument + PartialEq + 'static,
     {
-        self.author_data_cache
-            .lookup(&self.device, self.quirks_mode, collection, guard, old_data)
+        self.author_data_cache.lookup(
+            &self.device,
+            self.quirks_mode,
+            collection,
+            guard,
+            old_data,
+            difference,
+        )
     }
 
     /// Iterate over the extra data in origin order.
@@ -974,32 +1040,29 @@ impl Stylist {
 
     /// Flush the list of stylesheets if they changed, ensuring the stylist is
     /// up-to-date.
-    pub fn flush<E>(
-        &mut self,
-        guards: &StylesheetGuards,
-        document_element: Option<E>,
-        snapshots: Option<&SnapshotMap>,
-    ) -> bool
-    where
-        E: TElement,
-    {
+    pub fn flush(&mut self, guards: &StylesheetGuards) -> StylesheetInvalidationSet {
         if !self.stylesheets.has_changed() {
-            return false;
+            return Default::default();
         }
 
         self.num_rebuilds += 1;
 
-        let flusher = self.stylesheets.flush(document_element, snapshots);
-
-        let had_invalidations = flusher.had_invalidations();
+        let (flusher, mut invalidations) = self.stylesheets.flush();
 
         self.cascade_data
-            .rebuild(&self.device, self.quirks_mode, flusher, guards)
-            .unwrap_or_else(|_| warn!("OOM in Stylist::flush"));
+            .rebuild(
+                &self.device,
+                self.quirks_mode,
+                flusher,
+                guards,
+                &mut invalidations.cascade_data_difference,
+            )
+            .unwrap_or_else(|_| {
+                warn!("OOM in Stylist::flush");
+            });
 
         self.rebuild_initial_values_for_custom_properties();
-
-        had_invalidations
+        invalidations
     }
 
     /// Marks a given stylesheet origin as dirty, due to, for example, changes
@@ -1304,6 +1367,7 @@ impl Stylist {
     }
 
     /// Computes a fallback style lazily given the current and parent styles, and name.
+    #[cfg(feature = "gecko")]
     pub fn resolve_position_try<E>(
         &self,
         style: &ComputedValues,
@@ -1321,6 +1385,7 @@ impl Stylist {
                 // a style_resolver::with_default_parent_styles call, as below.
                 let mut builder =
                     StyleBuilder::for_derived_style(&self.device, Some(self), style, None);
+                builder.rules = style.rules.clone();
                 builder.mutate_position().set_position_area(area);
                 return Some(builder.build());
             },
@@ -1348,7 +1413,7 @@ impl Stylist {
             let mut important_rules_changed = false;
             if let Some(fallback_block) = fallback_block {
                 let new_rules = self.rule_tree.update_rule_at_level(
-                    CascadeLevel::PositionFallback,
+                    CascadeLevel::new(CascadeOrigin::PositionFallback),
                     LayerOrder::root(),
                     Some(fallback_block.borrow_arc()),
                     rules,
@@ -1767,15 +1832,11 @@ impl Stylist {
     where
         E: TElement,
     {
-        // NB: `MatchingMode` doesn't really matter, given we don't share style
-        // between pseudos.
-        let mut matching_context = MatchingContext::new(
-            MatchingMode::Normal,
+        let mut matching_context = MatchingContext::new_for_revalidation(
             bloom,
             selector_caches,
             self.quirks_mode,
             needs_selector_flags,
-            MatchingForInvalidation::No,
         );
 
         // Note that, by the time we're revalidating, we're guaranteed that the
@@ -1966,6 +2027,98 @@ impl Stylist {
     }
 }
 
+#[allow(missing_docs)]
+#[repr(u8)]
+pub enum RegisterCustomPropertyResult {
+    SuccessfullyRegistered,
+    InvalidName,
+    AlreadyRegistered,
+    InvalidSyntax,
+    NoInitialValue,
+    InvalidInitialValue,
+    InitialValueNotComputationallyIndependent,
+}
+
+impl Stylist {
+    /// <https://drafts.css-houdini.org/css-properties-values-api-1/#the-registerproperty-function>
+    pub fn register_custom_property(
+        &mut self,
+        url_data: &UrlExtraData,
+        name: &str,
+        syntax: &str,
+        inherits: bool,
+        initial_value: Option<&str>,
+    ) -> RegisterCustomPropertyResult {
+        use RegisterCustomPropertyResult::*;
+
+        // If name is not a custom property name string, throw a SyntaxError and exit this algorithm.
+        let name = match parse_name(name) {
+            Ok(n) => Atom::from(n),
+            Err(()) => return InvalidName,
+        };
+
+        // If property set already contains an entry with name as its property name (compared
+        // codepoint-wise), throw an InvalidModificationError and exit this algorithm.
+        if self.custom_property_script_registry().get(&name).is_some() {
+            return AlreadyRegistered;
+        }
+        // Attempt to consume a syntax definition from syntax. If it returns failure, throw a
+        // SyntaxError. Otherwise, let syntax definition be the returned syntax definition.
+        let Ok(syntax) = Descriptor::from_str(syntax, /* preserve_specified = */ false) else {
+            return InvalidSyntax;
+        };
+
+        let initial_value = match initial_value {
+            Some(v) => {
+                let mut input = ParserInput::new(v);
+                let parsed = Parser::new(&mut input)
+                    .parse_entirely(|input| {
+                        input.skip_whitespace();
+                        SpecifiedValue::parse(input, None, url_data).map(Arc::new)
+                    })
+                    .ok();
+                if parsed.is_none() {
+                    return InvalidInitialValue;
+                }
+                parsed
+            },
+            None => None,
+        };
+
+        if let Err(error) =
+            PropertyRegistration::validate_initial_value(&syntax, initial_value.as_deref())
+        {
+            return match error {
+                PropertyRegistrationError::InitialValueNotComputationallyIndependent => {
+                    InitialValueNotComputationallyIndependent
+                },
+                PropertyRegistrationError::InvalidInitialValue => InvalidInitialValue,
+                PropertyRegistrationError::NoInitialValue => NoInitialValue,
+            };
+        }
+
+        let property_registration = PropertyRegistration {
+            name: PropertyRuleName(name),
+            descriptors: PropertyDescriptors {
+                syntax: Some(syntax),
+                inherits: Some(if inherits {
+                    Inherits::True
+                } else {
+                    Inherits::False
+                }),
+                initial_value,
+            },
+            url_data: url_data.clone(),
+            source_location: SourceLocation { line: 0, column: 0 },
+        };
+        self.custom_property_script_registry_mut()
+            .register(property_registration);
+        self.rebuild_initial_values_for_custom_properties();
+
+        SuccessfullyRegistered
+    }
+}
+
 /// A vector that is sorted in layer order.
 #[derive(Clone, Debug, Deref, MallocSizeOf)]
 pub struct LayerOrderedVec<T>(Vec<(T, LayerId)>);
@@ -1984,7 +2137,6 @@ impl<T> Default for LayerOrderedMap<T> {
     }
 }
 
-#[cfg(feature = "gecko")]
 impl<T: 'static> LayerOrderedVec<T> {
     fn clear(&mut self) {
         self.0.clear();
@@ -2066,7 +2218,6 @@ pub struct PageRuleMap {
     pub rules: PrecomputedHashMap<Atom, SmallVec<[PageRuleData; 1]>>,
 }
 
-#[cfg(feature = "gecko")]
 impl PageRuleMap {
     #[inline]
     fn clear(&mut self) {
@@ -2086,8 +2237,8 @@ impl PageRuleMap {
         pseudos: PagePseudoClassFlags,
     ) {
         let level = match origin {
-            Origin::UserAgent => CascadeLevel::UANormal,
-            Origin::User => CascadeLevel::UserNormal,
+            Origin::UserAgent => CascadeLevel::new(CascadeOrigin::UA),
+            Origin::User => CascadeLevel::new(CascadeOrigin::User),
             Origin::Author => CascadeLevel::same_tree_author_normal(),
         };
         let cascade_data = cascade_data.borrow_for_origin(origin);
@@ -2148,37 +2299,31 @@ impl MallocShallowSizeOf for PageRuleMap {
     }
 }
 
-/// This struct holds data which users of Stylist may want to extract
-/// from stylesheets which can be done at the same time as updating.
+type PositionTryMap = LayerOrderedMap<Arc<Locked<PositionTryRule>>>;
+
+/// This struct holds data which users of Stylist may want to extract from stylesheets which can be
+/// done at the same time as updating.
 #[derive(Clone, Debug, Default)]
-#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 pub struct ExtraStyleData {
     /// A list of effective font-face rules and their origin.
-    #[cfg(feature = "gecko")]
     pub font_faces: LayerOrderedVec<Arc<Locked<FontFaceRule>>>,
 
     /// A list of effective font-feature-values rules.
-    #[cfg(feature = "gecko")]
     pub font_feature_values: LayerOrderedVec<Arc<FontFeatureValuesRule>>,
 
     /// A list of effective font-palette-values rules.
-    #[cfg(feature = "gecko")]
     pub font_palette_values: LayerOrderedVec<Arc<FontPaletteValuesRule>>,
 
     /// A map of effective counter-style rules.
-    #[cfg(feature = "gecko")]
     pub counter_styles: LayerOrderedMap<Arc<Locked<CounterStyleRule>>>,
 
     /// A map of effective @position-try rules.
-    #[cfg(feature = "gecko")]
-    pub position_try_rules: LayerOrderedMap<Arc<Locked<PositionTryRule>>>,
+    pub position_try_rules: PositionTryMap,
 
     /// A map of effective page rules.
-    #[cfg(feature = "gecko")]
     pub pages: PageRuleMap,
 }
 
-#[cfg(feature = "gecko")]
 impl ExtraStyleData {
     /// Add the given @font-face rule.
     fn add_font_face(&mut self, rule: &Arc<Locked<FontFaceRule>>, layer: LayerId) {
@@ -2209,13 +2354,11 @@ impl ExtraStyleData {
     /// Add the given @position-try rule.
     fn add_position_try(
         &mut self,
-        guard: &SharedRwLockReadGuard,
-        rule: &Arc<Locked<PositionTryRule>>,
+        name: Atom,
+        rule: Arc<Locked<PositionTryRule>>,
         layer: LayerId,
     ) -> Result<(), AllocErr> {
-        let name = rule.read_with(guard).name.0.clone();
-        self.position_try_rules
-            .try_insert(name, rule.clone(), layer)
+        self.position_try_rules.try_insert(name, rule, layer)
     }
 
     /// Add the given @page rule.
@@ -2284,7 +2427,6 @@ impl<'a> Iterator for ExtraStyleDataIterator<'a> {
     }
 }
 
-#[cfg(feature = "gecko")]
 impl MallocSizeOf for ExtraStyleData {
     /// Measure heap usage.
     fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
@@ -3181,16 +3323,14 @@ pub struct CascadeData {
     num_declarations: usize,
 }
 
-lazy_static! {
-    static ref IMPLICIT_SCOPE: SelectorList<SelectorImpl> = {
-        // Implicit scope, as per https://github.com/w3c/csswg-drafts/issues/10196
-        // Also, `&` is `:where(:scope)`, as per https://github.com/w3c/csswg-drafts/issues/9740
-        // ``:where(:scope)` effectively behaves the same as the implicit scope.
-        let list = SelectorList::implicit_scope();
-        list.mark_as_intentionally_leaked();
-        list
-    };
-}
+static IMPLICIT_SCOPE: LazyLock<SelectorList<SelectorImpl>> = LazyLock::new(|| {
+    // Implicit scope, as per https://github.com/w3c/csswg-drafts/issues/10196
+    // Also, `&` is `:where(:scope)`, as per https://github.com/w3c/csswg-drafts/issues/9740
+    // ``:where(:scope)` effectively behaves the same as the implicit scope.
+    let list = SelectorList::implicit_scope();
+    list.mark_as_intentionally_leaked();
+    list
+});
 
 fn scope_start_matches_shadow_host(start: &SelectorList<SelectorImpl>) -> bool {
     // TODO(emilio): Should we carry a MatchesFeaturelessHost rather than a bool around?
@@ -3246,14 +3386,14 @@ impl CascadeData {
         }
     }
 
-    /// Rebuild the cascade data from a given SheetCollection, incrementally if
-    /// possible.
+    /// Rebuild the cascade data from a given SheetCollection, incrementally if possible.
     pub fn rebuild<'a, S>(
         &mut self,
         device: &Device,
         quirks_mode: QuirksMode,
         collection: SheetCollectionFlusher<S>,
         guard: &SharedRwLockReadGuard,
+        difference: &mut CascadeDataDifference,
     ) -> Result<(), AllocErr>
     where
         S: StylesheetInDocument + PartialEq + 'static,
@@ -3264,10 +3404,13 @@ impl CascadeData {
 
         let validity = collection.data_validity();
 
-        match validity {
-            DataValidity::Valid => {},
-            DataValidity::CascadeInvalid => self.clear_cascade_data(),
-            DataValidity::FullyInvalid => self.clear(),
+        let mut old_position_try_data = LayerOrderedMap::default();
+        if validity != DataValidity::Valid {
+            old_position_try_data = std::mem::take(&mut self.extra_data.position_try_rules);
+            self.clear_cascade_data();
+            if validity == DataValidity::FullyInvalid {
+                self.clear_invalidation_data();
+            }
         }
 
         let mut result = Ok(());
@@ -3281,11 +3424,22 @@ impl CascadeData {
                 guard,
                 rebuild_kind,
                 /* precomputed_pseudo_element_decls = */ None,
+                if validity == DataValidity::Valid {
+                    Some(difference)
+                } else {
+                    None
+                },
             );
             result.is_ok()
         });
 
         self.did_finish_rebuild();
+
+        // For DataValidity::Valid, we pass the difference down to `add_stylesheet` so that we
+        // populate it with new data. Otherwise we need to diff with the old data.
+        if validity != DataValidity::Valid {
+            difference.update(&old_position_try_data, &self.extra_data.position_try_rules);
+        }
 
         result
     }
@@ -3544,7 +3698,6 @@ impl CascadeData {
                 order.inc();
             }
         }
-        #[cfg(feature = "gecko")]
         self.extra_data.sort_by_layer(&self.layers);
         self.animations
             .sort_with(&self.layers, compare_keyframes_in_same_layer);
@@ -3641,7 +3794,7 @@ impl CascadeData {
                         .push(ApplicableDeclarationBlock::new(
                             StyleSource::from_declarations(declarations.clone()),
                             self.rules_source_order,
-                            CascadeLevel::UANormal,
+                            CascadeLevel::new(CascadeOrigin::UA),
                             selector.specificity(),
                             LayerOrder::root(),
                             ScopeProximity::infinity(),
@@ -3803,6 +3956,7 @@ impl CascadeData {
         rebuild_kind: SheetRebuildKind,
         containing_rule_state: &mut ContainingRuleState,
         mut precomputed_pseudo_element_decls: Option<&mut PrecomputedPseudoElementDeclarations>,
+        mut difference: Option<&mut CascadeDataDifference>,
     ) -> Result<(), AllocErr>
     where
         S: StylesheetInDocument + 'static,
@@ -3820,8 +3974,9 @@ impl CascadeData {
                     let ancestor_selectors = containing_rule_state.ancestor_selector_lists.last();
                     let collect_replaced_selectors =
                         has_nested_rules && ancestor_selectors.is_some();
-                    let mut inner_dependencies: Option<Vec<Dependency>> =
-                        containing_rule_state.scope_is_effective().then(|| Vec::new());
+                    let mut inner_dependencies: Option<Vec<Dependency>> = containing_rule_state
+                        .scope_is_effective()
+                        .then(|| Vec::new());
                     self.add_styles(
                         &style_rule.selectors,
                         &style_rule.block,
@@ -3862,8 +4017,9 @@ impl CascadeData {
                             NestedDeclarationsContext::Style => ancestor_selectors,
                             NestedDeclarationsContext::Scope => &*IMPLICIT_SCOPE,
                         };
-                        let mut inner_dependencies: Option<Vec<Dependency>> =
-                            containing_rule_state.scope_is_effective().then(|| Vec::new());
+                        let mut inner_dependencies: Option<Vec<Dependency>> = containing_rule_state
+                            .scope_is_effective()
+                            .then(|| Vec::new());
                         self.add_styles(
                             selectors,
                             decls,
@@ -3909,7 +4065,6 @@ impl CascadeData {
                         containing_rule_state.layer_id,
                     )?;
                 },
-                #[cfg(feature = "gecko")]
                 CssRule::FontFace(ref rule) => {
                     // NOTE(emilio): We don't care about container_condition_id
                     // because:
@@ -3924,17 +4079,14 @@ impl CascadeData {
                     self.extra_data
                         .add_font_face(rule, containing_rule_state.layer_id);
                 },
-                #[cfg(feature = "gecko")]
                 CssRule::FontFeatureValues(ref rule) => {
                     self.extra_data
                         .add_font_feature_values(rule, containing_rule_state.layer_id);
                 },
-                #[cfg(feature = "gecko")]
                 CssRule::FontPaletteValues(ref rule) => {
                     self.extra_data
                         .add_font_palette_values(rule, containing_rule_state.layer_id);
                 },
-                #[cfg(feature = "gecko")]
                 CssRule::CounterStyle(ref rule) => {
                     self.extra_data.add_counter_style(
                         guard,
@@ -3942,15 +4094,17 @@ impl CascadeData {
                         containing_rule_state.layer_id,
                     )?;
                 },
-                #[cfg(feature = "gecko")]
                 CssRule::PositionTry(ref rule) => {
+                    let name = rule.read_with(guard).name.0.clone();
+                    if let Some(ref mut difference) = difference {
+                        difference.changed_position_try_names.insert(name.clone());
+                    }
                     self.extra_data.add_position_try(
-                        guard,
-                        rule,
+                        name,
+                        rule.clone(),
                         containing_rule_state.layer_id,
                     )?;
                 },
-                #[cfg(feature = "gecko")]
                 CssRule::Page(ref rule) => {
                     self.extra_data
                         .add_page(guard, rule, containing_rule_state.layer_id)?;
@@ -4198,6 +4352,7 @@ impl CascadeData {
                     rebuild_kind,
                     containing_rule_state,
                     precomputed_pseudo_element_decls.as_deref_mut(),
+                    difference.as_deref_mut(),
                 )?;
             }
 
@@ -4255,6 +4410,7 @@ impl CascadeData {
         guard: &SharedRwLockReadGuard,
         rebuild_kind: SheetRebuildKind,
         mut precomputed_pseudo_element_decls: Option<&mut PrecomputedPseudoElementDeclarations>,
+        mut difference: Option<&mut CascadeDataDifference>,
     ) -> Result<(), AllocErr>
     where
         S: StylesheetInDocument + 'static,
@@ -4283,6 +4439,7 @@ impl CascadeData {
             rebuild_kind,
             &mut state,
             precomputed_pseudo_element_decls.as_deref_mut(),
+            difference.as_deref_mut(),
         )?;
 
         Ok(())
@@ -4469,15 +4626,13 @@ impl CascadeData {
             .push(ContainerConditionReference::none());
         self.scope_conditions.clear();
         self.scope_conditions.push(ScopeConditionReference::none());
-        #[cfg(feature = "gecko")]
         self.extra_data.clear();
         self.rules_source_order = 0;
         self.num_selectors = 0;
         self.num_declarations = 0;
     }
 
-    fn clear(&mut self) {
-        self.clear_cascade_data();
+    fn clear_invalidation_data(&mut self) {
         self.invalidation_map.clear();
         self.relative_selector_invalidation_map.clear();
         self.additional_relative_selector_invalidation_map.clear();
@@ -4587,6 +4742,7 @@ impl CascadeDataCacheEntry for CascadeData {
         collection: SheetCollectionFlusher<S>,
         guard: &SharedRwLockReadGuard,
         old: &Self,
+        difference: &mut CascadeDataDifference,
     ) -> Result<Arc<Self>, AllocErr>
     where
         S: StylesheetInDocument + PartialEq + 'static,
@@ -4597,7 +4753,7 @@ impl CascadeDataCacheEntry for CascadeData {
             DataValidity::Valid | DataValidity::CascadeInvalid => old.clone(),
             DataValidity::FullyInvalid => Self::new(),
         };
-        updatable_entry.rebuild(device, quirks_mode, collection, guard)?;
+        updatable_entry.rebuild(device, quirks_mode, collection, guard, difference)?;
         Ok(Arc::new(updatable_entry))
     }
 

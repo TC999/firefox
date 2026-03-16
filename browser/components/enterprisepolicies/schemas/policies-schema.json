@@ -559,6 +559,10 @@
       "type": "boolean"
     },
 
+    "DisableRemoteImprovements": {
+      "type": "boolean"
+    },
+
     "DisableSafeMode": {
       "type": "boolean"
     },
@@ -875,6 +879,9 @@
       "type": "object",
       "properties": {
         "Chatbot": {
+          "type": "boolean"
+        },
+        "SmartWindow": {
           "type": "boolean"
         },
         "LinkPreviews": {
@@ -1610,6 +1617,38 @@
 
     "ShowHomeButton": {
       "type": "boolean"
+    },
+
+    "SitePolicies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "Match": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+
+          "Exceptions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+
+          "Policies": {
+            "type": "object",
+            "properties": {
+              "DisableJit": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "required": ["Policies"]
+      }
     },
 
     "SkipTermsOfUse": {

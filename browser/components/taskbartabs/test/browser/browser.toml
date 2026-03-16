@@ -2,6 +2,7 @@
 support-files = ["head.js"]
 run-if = [
   "os == 'win'",
+  "os == 'linux'",
 ]
 prefs = [
   "browser.taskbarTabs.enabled=true"
@@ -12,6 +13,8 @@ prefs = [
 ["browser_taskbarTabs_cmd.js"]
 
 ["browser_taskbarTabs_content.js"]
+
+["browser_taskbarTabs_icons.js"]
 
 ["browser_taskbarTabs_manifest.js"]
 
@@ -29,5 +32,8 @@ skip-if = [
 ["browser_taskbarTabs_uriTest.js"]
 
 ["browser_taskbarTabs_windowManager.js"]
+support-files = [
+  "../../../places/tests/browser/favicon-normal16.png",
+]
 
 ["browser_taskbarTabs_windowTracker.js"]

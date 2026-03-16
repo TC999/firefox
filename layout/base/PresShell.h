@@ -96,6 +96,7 @@ class nsDisplayListBuilder;
 class OverflowChangedTracker;
 class PresShellWidgetListener;
 class ProfileChunkedBuffer;
+class ScopedNameRef;
 class ScrollContainerFrame;
 class StyleSheet;
 
@@ -763,7 +764,7 @@ class PresShell final : public nsStubDocumentObserver,
   nsIFrame* GetAbsoluteContainingBlock(nsIFrame* aFrame);
 
   // https://drafts.csswg.org/css-anchor-position-1/#target
-  nsIFrame* GetAnchorPosAnchor(const nsAtom* aName,
+  nsIFrame* GetAnchorPosAnchor(const ScopedNameRef& aName,
                                const nsIFrame* aPositionedFrame) const;
   void AddAnchorPosAnchor(const nsAtom* aName, nsIFrame* aFrame);
   void RemoveAnchorPosAnchor(const nsAtom* aName, nsIFrame* aFrame);
@@ -773,7 +774,6 @@ class PresShell final : public nsStubDocumentObserver,
     NeedReflow,
   };
   AnchorPosUpdateResult UpdateAnchorPosLayout();
-  void UpdateAnchorPosForScroll(const ScrollContainerFrame* aScrollContainer);
 
   inline void AddAnchorPosPositioned(nsIFrame* aFrame) {
     if (!mAnchorPosPositioned.Contains(aFrame)) {
@@ -987,13 +987,6 @@ class PresShell final : public nsStubDocumentObserver,
    * only visible if the contents of the view as a whole are translucent.
    */
   nscolor ComputeBackstopColor(nsIFrame* aDisplayRoot);
-
-  void ObserveNativeAnonMutationsForPrint(bool aObserve) {
-    mObservesMutationsForPrint = aObserve;
-  }
-  bool ObservesNativeAnonMutationsForPrint() {
-    return mObservesMutationsForPrint;
-  }
 
   void ActivenessMaybeChanged();
   bool IsActive() const { return mIsActive; }
@@ -1336,6 +1329,15 @@ class PresShell final : public nsStubDocumentObserver,
       ControllerScrollFlags aFlags) override;
   using nsISelectionController::ScrollSelectionIntoView;
   NS_IMETHOD RepaintSelection(RawSelectionType aRawSelectionType) override;
+
+  /**
+   * Repaint highlight pseudo-element selections (::selection, ::target-text,
+   * ::highlight). These pseudos have their styles resolved lazily during
+   * painting, so style changes don't automatically generate repaint hints for
+   * them.
+   */
+  void RepaintPseudoElementStyledSelections();
+
   void SelectionWillTakeFocus() override;
   void SelectionWillLoseFocus() override;
 
@@ -1601,6 +1603,10 @@ class PresShell final : public nsStubDocumentObserver,
   // Returns the visual viewport size during the dynamic toolbar is being
   // shown/hidden.
   nsSize GetVisualViewportSizeUpdatedByDynamicToolbar() const;
+
+  // Returns the fixed viewport size accounted for
+  // a fully shown or fully hidden dynamic toolbar
+  nsSize GetFixedViewportSize() const;
 
   // Trigger refreshing the MobileViewportManager's size metrics.
   void RefreshViewportSize();
@@ -3261,6 +3267,9 @@ class PresShell final : public nsStubDocumentObserver,
   // cannot be determined.
   nsTArray<AnchorPosAnchorChange> mLazyAnchorPosAnchorChanges;
 
+  // Note: Does not store implicit anchors, since many elements can be
+  // potential implicit anchors (e.g. pseudo-elements' implicit anchor
+  // is its originating element).
   nsTHashMap<RefPtr<const nsAtom>, nsTArray<nsIFrame*>> mAnchorPosAnchors;
   nsTArray<nsIFrame*> mAnchorPosPositioned;
 
@@ -3457,7 +3466,6 @@ class PresShell final : public nsStubDocumentObserver,
   bool mIsActive : 1;
   bool mFrozen : 1;
   bool mIsFirstPaint : 1;
-  bool mObservesMutationsForPrint : 1;
 
   // Whether the most recent interruptible reflow was actually interrupted:
   bool mWasLastReflowInterrupted : 1;

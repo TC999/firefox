@@ -146,7 +146,7 @@ void nsFrameLoaderOwner::ChangeRemotenessCommon(
           MOZ_LOG(gSHIPBFCacheLog, LogLevel::Debug,
                   ("nsFrameLoaderOwner::ChangeRemotenessCommon: store the old "
                    "page in bfcache"));
-          (void)bc->SetIsInBFCache(true);
+          bc->Canonical()->DeactivateDocuments();
           bfcacheEntry->SetFrameLoader(mFrameLoader);
           // Session history owns now the frameloader.
           mFrameLoader = nullptr;
@@ -254,7 +254,10 @@ void nsFrameLoaderOwner::ChangeRemoteness(
     const mozilla::dom::RemotenessOptions& aOptions, mozilla::ErrorResult& rv) {
   bool isRemote = !aOptions.mRemoteType.IsEmpty();
 
+  MOZ_RELEASE_ASSERT(mFrameLoader, "Expecting to have mFrameLoader here.");
   std::function<void()> frameLoaderInit = [&] {
+    MOZ_RELEASE_ASSERT(mFrameLoader,
+                       "Expecting still to have mFrameLoader here.");
     if (isRemote) {
       mFrameLoader->ConfigRemoteProcess(aOptions.mRemoteType, nullptr);
     }

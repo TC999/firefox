@@ -43,24 +43,25 @@ use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, ColorDepth, Qu
 use api::{LineOrientation, LineStyle, NinePatchBorderSource, PipelineId, MixBlendMode, StackingContextFlags};
 use api::{PropertyBinding, ReferenceFrameKind, ScrollFrameDescriptor};
 use api::{APZScrollGeneration, HasScrollLinkedEffect, Shadow, SpatialId, StickyFrameDescriptor, ImageMask, ItemTag};
-use api::{ClipMode, PrimitiveKeyKind, TransformStyle, YuvColorSpace, ColorRange, YuvData, TempFilterData};
+use api::{ClipMode, TransformStyle, YuvColorSpace, ColorRange, YuvData, TempFilterData};
 use api::{ReferenceTransformBinding, Rotation, FillRule, SpatialTreeItem, ReferenceFrameDescriptor};
 use api::{FilterOpGraphPictureBufferId, SVGFE_GRAPH_MAX};
 use api::channel::{unbounded_channel, Receiver, Sender};
 use api::units::*;
 use crate::image_tiling::simplify_repeated_primitive;
 use crate::box_shadow::BLUR_SAMPLE_SCALE;
-use crate::clip::{ClipIntern, ClipItemKey, ClipItemKeyKind, ClipStore};
+use crate::clip::{ClipIntern, ClipItemKey, ClipItemKeyKind, ClipItemEntry, ClipStore};
 use crate::clip::{ClipInternData, ClipNodeId, ClipLeafId};
 use crate::clip::{PolygonDataHandle, ClipTreeBuilder};
 use crate::gpu_types::BlurEdgeMode;
-use crate::segment::EdgeAaSegmentMask;
+use crate::segment::EdgeMask;
 use crate::spatial_tree::{SceneSpatialTree, SpatialNodeContainer, SpatialNodeIndex, get_external_scroll_offset};
 use crate::frame_builder::FrameBuilderConfig;
 use glyph_rasterizer::{FontInstance, SharedFontResources};
 use crate::hit_test::HitTestingScene;
 use crate::intern::Interner;
-use crate::internal_types::{FastHashMap, LayoutPrimitiveInfo, Filter, FilterGraphNode, FilterGraphOp, FilterGraphPictureReference, PlaneSplitterIndex, PipelineInstanceId};
+use crate::internal_types::{FastHashMap, LayoutPrimitiveInfo, Filter, PlaneSplitterIndex, PipelineInstanceId};
+use crate::svg_filter::{FilterGraphNode, FilterGraphOp, FilterGraphPictureReference};
 use crate::picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive};
 use crate::picture::{BlitReason, OrderedPictureChild, PrimitiveList, SurfaceInfo, PictureFlags};
 use crate::picture_graph::PictureGraph;
@@ -68,6 +69,7 @@ use crate::prim_store::{PrimitiveInstance, PrimitiveStoreStats};
 use crate::prim_store::{PrimitiveInstanceKind, NinePatchDescriptor, PrimitiveStore};
 use crate::prim_store::{InternablePrimitive, PictureIndex};
 use crate::prim_store::PolygonKey;
+use crate::prim_store::rectangle::RectanglePrim;
 use crate::prim_store::backdrop::{BackdropCapture, BackdropRender};
 use crate::prim_store::borders::{ImageBorder, NormalBorderPrim};
 use crate::prim_store::gradient::{
@@ -77,7 +79,8 @@ use crate::prim_store::gradient::{
 };
 use crate::prim_store::image::{Image, YuvImage};
 use crate::prim_store::line_dec::{LineDecoration, LineDecorationCacheKey, get_line_decoration_size};
-use crate::prim_store::picture::{Picture, PictureCompositeKey, PictureKey};
+use crate::prim_store::picture::{Picture, PictureKey};
+use crate::picture_composite_mode::PictureCompositeKey;
 use crate::prim_store::text_run::TextRun;
 use crate::render_backend::SceneView;
 use crate::resource_cache::ImageRequest;
@@ -984,15 +987,7 @@ impl<'a> SceneBuilder<'a> {
                             continue;
                         }
 
-                        let snapshot = info.snapshot.map(|snapshot| {
-                            // Offset the snapshot area by the stacking context origin
-                            // so that the area is expressed in the same coordinate space
-                            // as the items in the stacking context.
-                            SnapshotInfo {
-                                area: snapshot.area.translate(info.origin.to_vector()),
-                                .. snapshot
-                            }
-                        });
+                        let snapshot = info.snapshot;
 
                         let composition_operations = CompositeOps::new(
                             filter_ops_for_compositing(item.filters()),
@@ -1009,7 +1004,6 @@ impl<'a> SceneBuilder<'a> {
                             info.stacking_context.clip_chain_id,
                             info.stacking_context.raster_space,
                             info.stacking_context.flags,
-                            info.ref_frame_offset + info.origin.to_vector(),
                         );
 
                         let new_context = BuildContext {
@@ -1198,6 +1192,17 @@ impl<'a> SceneBuilder<'a> {
             },
         };
 
+        let snap_origin = match info.reference_frame.kind {
+            ReferenceFrameKind::Transform { should_snap, .. } => should_snap,
+            ReferenceFrameKind::Perspective { .. } => false,
+        };
+
+        let origin = if snap_origin {
+            info.origin.round()
+        } else {
+            info.origin
+        };
+
         let external_scroll_offset = self.current_external_scroll_offset(parent_space);
 
         self.push_reference_frame(
@@ -1207,7 +1212,7 @@ impl<'a> SceneBuilder<'a> {
             info.reference_frame.transform_style,
             transform,
             info.reference_frame.kind,
-            (info.origin + external_scroll_offset).to_vector(),
+            (origin + external_scroll_offset).to_vector(),
             SpatialNodeUid::external(info.reference_frame.key, pipeline_id, instance_id),
         );
     }
@@ -1396,6 +1401,12 @@ impl<'a> SceneBuilder<'a> {
             rect: prim_rect,
             clip_rect,
             flags: common.flags,
+            // TODO: for CSS primitives axis-aligned edges should not get anti-aliased whereas
+            // for SVG primitives, they should. WebRender currently does not apply anti-aliasing
+            // to SVG aligned primitives as it should, which has gone largely unnoticed because
+            // most SVG primitives are rendered via blob-images.
+            aligned_aa_edges: EdgeMask::empty(),
+            transformed_aa_edges: EdgeMask::all(),
         };
 
         (layout, unsnapped_rect, spatial_node_index, clip_node_id)
@@ -1534,7 +1545,6 @@ impl<'a> SceneBuilder<'a> {
                     &info.color,
                     item.glyphs(),
                     info.glyph_options,
-                    info.ref_frame_offset,
                 );
             }
             DisplayItem::Rectangle(ref info) => {
@@ -1550,7 +1560,7 @@ impl<'a> SceneBuilder<'a> {
                     clip_node_id,
                     &layout,
                     Vec::new(),
-                    PrimitiveKeyKind::Rectangle {
+                    RectanglePrim {
                         color: info.color.into(),
                     },
                 );
@@ -1573,6 +1583,8 @@ impl<'a> SceneBuilder<'a> {
                     rect,
                     clip_rect: rect,
                     flags: info.flags,
+                    aligned_aa_edges: EdgeMask::empty(),
+                    transformed_aa_edges: EdgeMask::empty(),
                 };
 
                 let spatial_node = self.spatial_tree.get_node_info(spatial_node_index);
@@ -1638,7 +1650,6 @@ impl<'a> SceneBuilder<'a> {
                 let mut start = info.gradient.start_point;
                 let mut end = info.gradient.end_point;
                 let flags = layout.flags;
-
                 let optimized = optimize_linear_gradient(
                     &mut layout.rect,
                     &mut tile_size,
@@ -1650,7 +1661,13 @@ impl<'a> SceneBuilder<'a> {
                     &mut stops,
                     self.config.enable_dithering,
                     &mut |rect, start, end, stops, edge_aa_mask| {
-                        let layout = LayoutPrimitiveInfo { rect: *rect, clip_rect: *rect, flags };
+                        let layout = LayoutPrimitiveInfo {
+                            rect: *rect,
+                            clip_rect: *rect,
+                            flags,
+                            aligned_aa_edges: EdgeMask::empty(),
+                            transformed_aa_edges: edge_aa_mask,
+                        };
                         if let Some(prim_key_kind) = self.create_linear_gradient_prim(
                             &layout,
                             start,
@@ -1683,7 +1700,7 @@ impl<'a> SceneBuilder<'a> {
                         tile_size,
                         info.tile_spacing,
                         None,
-                        EdgeAaSegmentMask::all(),
+                        EdgeMask::all(),
                     ) {
                         self.add_nonshadowable_primitive(
                             spatial_node_index,
@@ -1719,29 +1736,36 @@ impl<'a> SceneBuilder<'a> {
 
                 let mut prim_rect = layout.rect;
                 let mut tile_spacing = info.tile_spacing;
+                let mut aa_mask = EdgeMask::all();
                 optimize_radial_gradient(
                     &mut prim_rect,
                     &mut tile_size,
                     &mut center,
                     &mut tile_spacing,
+                    &mut aa_mask,
                     &layout.clip_rect,
                     info.gradient.radius,
                     info.gradient.end_offset,
                     info.gradient.extend_mode,
                     &stops,
-                    &mut |solid_rect, color| {
+                    &mut |solid_rect, color, aa_mask| {
                         self.add_nonshadowable_primitive(
                             spatial_node_index,
                             clip_node_id,
                             &LayoutPrimitiveInfo {
                                 rect: *solid_rect,
+                                aligned_aa_edges: layout.aligned_aa_edges & aa_mask,
+                                transformed_aa_edges: layout.transformed_aa_edges & aa_mask,
                                 .. layout
                             },
                             Vec::new(),
-                            PrimitiveKeyKind::Rectangle { color: PropertyBinding::Value(color) },
+                            RectanglePrim { color: PropertyBinding::Value(color) },
                         );
                     }
                 );
+
+                layout.aligned_aa_edges &= aa_mask;
+                layout.transformed_aa_edges &= aa_mask;
 
                 // TODO: create_radial_gradient_prim already calls
                 // this, but it leaves the info variable that is
@@ -1839,8 +1863,8 @@ impl<'a> SceneBuilder<'a> {
                     info.blur_radius,
                     info.spread_radius,
                     info.border_radius,
+                    info.shadow_radius,
                     info.clip_mode,
-                    self.spatial_tree.is_root_coord_system(spatial_node_index),
                 );
             }
             DisplayItem::Border(ref info) => {
@@ -2042,7 +2066,6 @@ impl<'a> SceneBuilder<'a> {
                     spatial_node_index,
                     flags,
                     self.spatial_tree,
-                    self.interners,
                     &self.quality_settings,
                     &mut self.prim_instances,
                     &self.clip_tree_builder,
@@ -2058,7 +2081,7 @@ impl<'a> SceneBuilder<'a> {
         spatial_node_index: SpatialNodeIndex,
         clip_node_id: ClipNodeId,
         info: &LayoutPrimitiveInfo,
-        clip_items: Vec<ClipItemKey>,
+        clip_items: Vec<ClipItemEntry>,
         prim: P,
     )
     where
@@ -2087,7 +2110,7 @@ impl<'a> SceneBuilder<'a> {
         spatial_node_index: SpatialNodeIndex,
         clip_node_id: ClipNodeId,
         info: &LayoutPrimitiveInfo,
-        clip_items: Vec<ClipItemKey>,
+        clip_items: Vec<ClipItemEntry>,
         prim: P,
     )
     where
@@ -2187,7 +2210,6 @@ impl<'a> SceneBuilder<'a> {
         clip_chain_id: Option<api::ClipChainId>,
         requested_raster_space: RasterSpace,
         flags: StackingContextFlags,
-        subregion_offset: LayoutVector2D,
     ) -> StackingContextInfo {
         profile_scope!("push_stacking_context");
 
@@ -2217,7 +2239,6 @@ impl<'a> SceneBuilder<'a> {
                 clip_chain_id,
                 requested_raster_space,
                 flags,
-                LayoutVector2D::zero(),
             );
             info.pop_stacking_context = true;
             self.extra_stacking_context_stack.push(info);
@@ -2350,7 +2371,22 @@ impl<'a> SceneBuilder<'a> {
         // to an off-screen surface.
         if let Some(clip_chain_id) = clip_chain_id {
             if self.clip_tree_builder.clip_chain_has_complex_clips(clip_chain_id, &self.interners) {
-                blit_reason |= BlitReason::CLIP;
+                // At the root level, if all complex clips are fixed-position
+                // rounded rectangles, we can skip the intermediate surface.
+                // The clips will be promoted to compositor clips on the tile
+                // cache slices, which applies them once to the composited
+                // surface — equivalent to the intermediate surface approach.
+                // This allows tile cache barriers to fire normally, enabling
+                // proper picture caching with multiple slices.
+                if !self.sc_stack.is_empty() ||
+                   !self.clip_tree_builder.clip_chain_complex_clips_are_promotable(
+                       clip_chain_id,
+                       &self.interners,
+                       &self.spatial_tree,
+                   )
+                {
+                    blit_reason |= BlitReason::CLIP;
+                }
             }
         }
 
@@ -2434,7 +2470,6 @@ impl<'a> SceneBuilder<'a> {
                 context_3d,
                 flags,
                 raster_space: new_space,
-                subregion_offset,
             });
         }
 
@@ -2670,7 +2705,6 @@ impl<'a> SceneBuilder<'a> {
         let has_filters = stacking_context.composite_ops.has_valid_filters();
 
         let spatial_node_context_offset =
-            stacking_context.subregion_offset +
             self.current_external_scroll_offset(stacking_context.spatial_node_index);
         source = self.wrap_prim_with_filters(
             source,
@@ -2870,7 +2904,6 @@ impl<'a> SceneBuilder<'a> {
 
         let item = ClipItemKey {
             kind: ClipItemKeyKind::image_mask(image_mask, snapped_mask_rect, polygon_handle),
-            spatial_node_index,
         };
 
         let handle = self
@@ -2885,6 +2918,7 @@ impl<'a> SceneBuilder<'a> {
         self.clip_tree_builder.define_image_mask_clip(
             new_node_id,
             handle,
+            spatial_node_index,
         );
     }
 
@@ -2904,7 +2938,6 @@ impl<'a> SceneBuilder<'a> {
 
         let item = ClipItemKey {
             kind: ClipItemKeyKind::rectangle(snapped_clip_rect, ClipMode::Clip),
-            spatial_node_index,
         };
         let handle = self
             .interners
@@ -2918,6 +2951,7 @@ impl<'a> SceneBuilder<'a> {
         self.clip_tree_builder.define_rect_clip(
             new_node_id,
             handle,
+            spatial_node_index,
         );
     }
 
@@ -2940,7 +2974,6 @@ impl<'a> SceneBuilder<'a> {
                 clip.radii,
                 clip.mode,
             ),
-            spatial_node_index,
         };
 
         let handle = self
@@ -2955,6 +2988,7 @@ impl<'a> SceneBuilder<'a> {
         self.clip_tree_builder.define_rounded_rect_clip(
             new_node_id,
             handle,
+            spatial_node_index,
         );
     }
 
@@ -3351,7 +3385,7 @@ impl<'a> SceneBuilder<'a> {
                             LayoutSize::new(border.height as f32, border.width as f32),
                             LayoutSize::zero(),
                             Some(Box::new(nine_patch)),
-                            EdgeAaSegmentMask::all(),
+                            EdgeMask::all(),
                         ) {
                             Some(prim) => prim,
                             None => return,
@@ -3433,7 +3467,7 @@ impl<'a> SceneBuilder<'a> {
         stretch_size: LayoutSize,
         mut tile_spacing: LayoutSize,
         nine_patch: Option<Box<NinePatchDescriptor>>,
-        edge_aa_mask: EdgeAaSegmentMask,
+        edge_aa_mask: EdgeMask,
     ) -> Option<LinearGradient> {
         let mut prim_rect = info.rect;
         simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
@@ -3483,10 +3517,11 @@ impl<'a> SceneBuilder<'a> {
 
         let is_tiled = prim_rect.width() > stretch_size.width
          || prim_rect.height() > stretch_size.height;
-        // SWGL has a fast-path that can render gradients faster than it can sample from the
-        // texture cache so we disable caching in this configuration. Cached gradients are
-        // faster on hardware.
-        let cached = (!self.config.is_software || is_tiled) && !caching_causes_artifacts;
+
+        // Use the brush gradient code path with caching enabled if tiling is enabled.
+        // The other (quad) code path can also cache the gradient in some circumstances
+        // as well.
+        let cached = is_tiled && !caching_causes_artifacts;
 
         Some(LinearGradient {
             extend_mode,
@@ -3579,9 +3614,8 @@ impl<'a> SceneBuilder<'a> {
         text_color: &ColorF,
         glyph_range: ItemRange<GlyphInstance>,
         glyph_options: Option<GlyphOptions>,
-        ref_frame_offset: LayoutVector2D,
     ) {
-        let offset = self.current_external_scroll_offset(spatial_node_index) + ref_frame_offset;
+        let offset = self.current_external_scroll_offset(spatial_node_index);
 
         let text_run = {
             let shared_key = self.fonts.instance_keys.map_key(font_instance_key);
@@ -3645,7 +3679,6 @@ impl<'a> SceneBuilder<'a> {
                 font,
                 shadow: false,
                 requested_raster_space,
-                reference_frame_offset: ref_frame_offset,
             }
         };
 
@@ -3864,7 +3897,6 @@ impl<'a> SceneBuilder<'a> {
                         filter_spatial_node_index,
                         info.flags,
                         self.spatial_tree,
-                        self.interners,
                         &self.quality_settings,
                         &mut self.prim_instances,
                         &self.clip_tree_builder,
@@ -4544,9 +4576,6 @@ struct FlattenedStackingContext {
 
     /// Requested raster space for this stacking context
     raster_space: RasterSpace,
-
-    /// Offset to be applied to any filter sub-regions
-    subregion_offset: LayoutVector2D,
 }
 
 impl FlattenedStackingContext {
@@ -4669,7 +4698,7 @@ pub enum ShadowItem {
     Image(PendingPrimitive<Image>),
     LineDecoration(PendingPrimitive<LineDecoration>),
     NormalBorder(PendingPrimitive<NormalBorderPrim>),
-    Primitive(PendingPrimitive<PrimitiveKeyKind>),
+    Primitive(PendingPrimitive<RectanglePrim>),
     TextRun(PendingPrimitive<TextRun>),
 }
 
@@ -4691,8 +4720,8 @@ impl From<PendingPrimitive<NormalBorderPrim>> for ShadowItem {
     }
 }
 
-impl From<PendingPrimitive<PrimitiveKeyKind>> for ShadowItem {
-    fn from(container: PendingPrimitive<PrimitiveKeyKind>) -> Self {
+impl From<PendingPrimitive<RectanglePrim>> for ShadowItem {
+    fn from(container: PendingPrimitive<RectanglePrim>) -> Self {
         ShadowItem::Primitive(container)
     }
 }

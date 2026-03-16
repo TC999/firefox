@@ -84,7 +84,7 @@ fuzzy(0-8,0-20000) == aja-linear-3a.html aja-linear-3-ref.html
 fuzzy(0-8,0-20000) == aja-linear-3b.html aja-linear-3-ref.html
 fuzzy(0-8,0-20000) == aja-linear-4a.html aja-linear-4-ref.html
 fuzzy(0-8,0-20000) == aja-linear-4b.html aja-linear-4-ref.html
-fuzzy(0-8,0-20000) fuzzy-if(winWidget,1-5,5600-20000) == aja-linear-5a.html aja-linear-5-ref.html
+fuzzy(0-8,0-20000) fuzzy-if(winWidget,0-5,0-20000) == aja-linear-5a.html aja-linear-5-ref.html
 fuzzy-if(Android,0-6,0-10576) == height-dependence-1.html height-dependence-1-ref.html
 fuzzy-if(cocoaWidget,0-1,0-40000) fuzzy-if(Android,0-6,0-10576) == height-dependence-2.html height-dependence-2-ref.html
 fuzzy-if(Android,0-6,0-10576) == height-dependence-3.html height-dependence-3-ref.html
@@ -106,6 +106,6 @@ fuzzy(0-2,0-800000) == large-gradient-5.html large-gradient-5-ref.html
 
 fuzzy(0-4,0-800000) fails-if(useDrawSnapshot) == mask-gradient-translucent-end-color-1.html mask-gradient-translucent-end-color-1-ref.html
 
-== scaled-color-stop-position.html scaled-color-stop-position-ref.html
+fuzzy(0-1,0-100) == scaled-color-stop-position.html scaled-color-stop-position-ref.html
 fuzzy(0-1,0-40000) == color-stop-clamp-interpolation.html color-stop-clamp-interpolation-ref.html
 fuzzy(0-1,0-4896) fuzzy-if(swgl,0-2,0-81000) == linear-gradient-repeated.html linear-gradient-repeated-ref.html

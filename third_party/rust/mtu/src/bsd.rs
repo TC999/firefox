@@ -15,8 +15,8 @@ use std::{
 };
 
 use libc::{
-    freeifaddrs, getifaddrs, getpid, if_indextoname, ifaddrs, in6_addr, in_addr, sockaddr,
-    sockaddr_dl, sockaddr_in, sockaddr_in6, sockaddr_storage, AF_UNSPEC, PF_ROUTE,
+    AF_UNSPEC, PF_ROUTE, freeifaddrs, getifaddrs, getpid, if_indextoname, ifaddrs, in_addr,
+    in6_addr, sockaddr, sockaddr_dl, sockaddr_in, sockaddr_in6, sockaddr_storage,
 };
 use static_assertions::{const_assert, const_assert_eq};
 
@@ -39,7 +39,7 @@ mod bindings {
 use crate::bsd::bindings::RTA_IFP;
 use crate::{
     aligned_by,
-    bsd::bindings::{if_data, rt_msghdr, RTAX_MAX, RTA_DST},
+    bsd::bindings::{RTA_DST, RTAX_MAX, if_data, rt_msghdr},
     default_err,
     routesocket::RouteSocket,
     unlikely_err,
@@ -193,7 +193,7 @@ fn sockaddr_len(af: AddressFamily) -> Result<usize> {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
                 format!("Unsupported address family {af:?}"),
-            ))
+            ));
         }
     };
     Ok(aligned_by(sa_len, ALIGN))
@@ -249,7 +249,7 @@ struct RouteMessage {
 
 #[cfg(target_os = "openbsd")]
 fn getrtable() -> u16 {
-    extern "C" {
+    unsafe extern "C" {
         fn getrtable() -> libc::c_int;
     }
     #[expect(
@@ -382,4 +382,17 @@ pub fn interface_and_mtu_impl(remote: IpAddr) -> Result<(String, usize)> {
     let (if_index, mtu1) = if_index_mtu(remote)?;
     let (if_name, mtu2) = if_name_mtu(if_index.into())?;
     Ok((if_name, mtu1.or(mtu2).ok_or_else(default_err)?))
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod test {
+    use super::*;
+
+    #[test]
+    fn sockaddr_len_valid_and_invalid() {
+        assert!(sockaddr_len(AF_INET).is_ok());
+        assert!(sockaddr_len(AF_INET6).is_ok());
+        assert!(sockaddr_len(AddressFamily::MAX).is_err());
+    }
 }

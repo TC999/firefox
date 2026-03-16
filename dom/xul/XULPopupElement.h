@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef XULPopupElement_h__
-#define XULPopupElement_h__
+#ifndef XULPopupElement_h_
+#define XULPopupElement_h_
 
 #include "XULMenuParentElement.h"
 #include "mozilla/Attributes.h"
@@ -40,20 +40,18 @@ class XULPopupElement : public XULMenuParentElement {
   explicit XULPopupElement(already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo)
       : XULMenuParentElement(std::move(aNodeInfo)) {}
 
-  void GetLabel(DOMString& aValue) const {
-    GetXULAttr(nsGkAtoms::label, aValue);
-  }
+  void GetLabel(DOMString& aValue) const { GetAttr(nsGkAtoms::label, aValue); }
   void SetLabel(const nsAString& aValue, ErrorResult& rv) {
-    SetXULAttr(nsGkAtoms::label, aValue, rv);
+    SetAttr(nsGkAtoms::label, aValue, rv);
   }
 
   bool IsMenu() const { return IsXULElement(nsGkAtoms::menupopup); }
 
   void GetPosition(DOMString& aValue) const {
-    GetXULAttr(nsGkAtoms::position, aValue);
+    GetAttr(nsGkAtoms::position, aValue);
   }
   void SetPosition(const nsAString& aValue, ErrorResult& rv) {
-    SetXULAttr(nsGkAtoms::position, aValue, rv);
+    SetAttr(nsGkAtoms::position, aValue, rv);
   }
 
   void OpenPopup(Element* aAnchorElement,

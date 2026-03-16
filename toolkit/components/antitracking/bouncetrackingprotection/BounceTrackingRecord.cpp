@@ -6,11 +6,14 @@
 
 #include "BounceTrackingRecord.h"
 #include "mozilla/Logging.h"
-#include "nsPrintfCString.h"
 
 namespace mozilla {
 
 extern LazyLogModule gBounceTrackingProtectionLog;
+
+NS_IMPL_ISUPPORTS(BounceTrackingRecord, nsIBounceTrackingRecord);
+
+BounceTrackingRecord::~BounceTrackingRecord() = default;
 
 void BounceTrackingRecord::SetInitialHost(const nsACString& aHost) {
   mInitialHost = aHost;
@@ -32,28 +35,8 @@ void BounceTrackingRecord::AddBounceHost(const nsACString& aHost) {
   MOZ_ASSERT(!aHost.IsEmpty());
 
   mBounceHosts.Insert(aHost);
-  MOZ_LOG(gBounceTrackingProtectionLog, LogLevel::Debug,
-          ("%s: %s", __FUNCTION__, Describe().get()));
-}
-
-// static
-nsCString BounceTrackingRecord::DescribeSet(
-    const nsTHashSet<nsCStringHashKey>& set) {
-  nsAutoCString setStr;
-
-  setStr.AppendLiteral("[");
-
-  if (!set.IsEmpty()) {
-    for (const nsACString& host : set) {
-      setStr.Append(host);
-      setStr.AppendLiteral(",");
-    }
-    setStr.Truncate(setStr.Length() - 1);
-  }
-
-  setStr.AppendLiteral("]");
-
-  return std::move(setStr);
+  MOZ_LOG_FMT(gBounceTrackingProtectionLog, LogLevel::Debug, "{}: {}",
+              __FUNCTION__, *this);
 }
 
 void BounceTrackingRecord::AddStorageAccessHost(const nsACString& aHost) {
@@ -83,13 +66,34 @@ BounceTrackingRecord::GetUserActivationHosts() const {
   return mUserActivationHosts;
 }
 
-nsCString BounceTrackingRecord::Describe() {
-  return nsPrintfCString(
-      "{mInitialHost:%s, mFinalHost:%s, mBounceHosts:%s, "
-      "mStorageAccessHosts:%s, mUserActivationHosts:%s}",
-      mInitialHost.get(), mFinalHost.get(), DescribeSet(mBounceHosts).get(),
-      DescribeSet(mStorageAccessHosts).get(),
-      DescribeSet(mUserActivationHosts).get());
+// nsIBounceTrackingRecord
+
+NS_IMETHODIMP BounceTrackingRecord::GetInitialHost(nsACString& aResult) {
+  aResult = mInitialHost;
+  return NS_OK;
+}
+
+NS_IMETHODIMP BounceTrackingRecord::GetFinalHost(nsACString& aResult) {
+  aResult = mFinalHost;
+  return NS_OK;
+}
+
+NS_IMETHODIMP BounceTrackingRecord::GetBounceHosts(
+    nsTArray<nsCString>& aResult) {
+  for (const auto& host : mBounceHosts) {
+    if (!host.EqualsLiteral("null")) {
+      aResult.AppendElement(host);
+    }
+  }
+  return NS_OK;
+}
+
+NS_IMETHODIMP BounceTrackingRecord::GetStorageAccessHosts(
+    nsTArray<nsCString>& aResult) {
+  for (const auto& host : mStorageAccessHosts) {
+    aResult.AppendElement(host);
+  }
+  return NS_OK;
 }
 
 }  // namespace mozilla

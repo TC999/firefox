@@ -63,14 +63,12 @@ def test_new_package_metadta_is_found():
         pass
 
     with tempfile.TemporaryDirectory() as venv_dir:
-        subprocess.check_call(
-            [
-                sys.executable,
-                "-m",
-                "venv",
-                venv_dir,
-            ]
-        )
+        subprocess.check_call([
+            sys.executable,
+            "-m",
+            "venv",
+            venv_dir,
+        ])
 
         venv = PythonVirtualenv(venv_dir)
         venv.pip_install([f"{pkg}=={version}"])
@@ -315,7 +313,6 @@ def _activation_context():
     required_mach_sys_paths = [
         topsrcdir / "python" / "mach",
         topsrcdir / "testing" / "mozbase" / "mozfile",
-        topsrcdir / "third_party" / "python" / "filelock",
         topsrcdir / "third_party" / "python" / "packaging",
         topsrcdir / "third_party" / "python" / "pip",
     ]

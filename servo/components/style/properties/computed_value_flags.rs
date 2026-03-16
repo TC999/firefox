@@ -12,7 +12,7 @@
 /// we might want to add a function to handle this.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
+#[cfg_attr(feature = "servo", derive(crate::derives::MallocSizeOf))]
 pub struct ComputedValueFlags(u32);
 
 bitflags! {
@@ -137,7 +137,13 @@ bitflags! {
         /// child of an item container or another `display: contents` element, the style of which
         /// has this flag set, marked in order to cascade beyond them to the descendants of the
         /// the item container that do generate a box.
-        const DIPLAY_CONTENTS_IN_ITEM_CONTAINER = 1 << 27;
+        const DISPLAY_CONTENTS_IN_ITEM_CONTAINER = 1 << 27;
+
+        /// Whether there are author-specific rules for `text-shadow`.
+        const HAS_AUTHOR_SPECIFIED_TEXT_SHADOW = 1 << 28;
+
+        /// Whether this style depends on container style query.
+        const DEPENDS_ON_CONTAINER_STYLE_QUERY = 1 << 29;
     }
 }
 
@@ -166,13 +172,15 @@ impl ComputedValueFlags {
     fn maybe_inherited_flags() -> Self {
         Self::inherited_flags()
             | Self::SHOULD_SUPPRESS_LINEBREAK
-            | Self::DIPLAY_CONTENTS_IN_ITEM_CONTAINER
+            | Self::DISPLAY_CONTENTS_IN_ITEM_CONTAINER
     }
 
     /// Flags that are an input to the cascade.
     #[inline]
     fn cascade_input_flags() -> Self {
-        Self::USES_VIEWPORT_UNITS_ON_CONTAINER_QUERIES | Self::CONSIDERED_NONTRIVIAL_SCOPED_STYLE
+        Self::USES_VIEWPORT_UNITS_ON_CONTAINER_QUERIES
+            | Self::CONSIDERED_NONTRIVIAL_SCOPED_STYLE
+            | Self::DEPENDS_ON_CONTAINER_STYLE_QUERY
     }
 
     /// Returns the flags that are always propagated to descendants.

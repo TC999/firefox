@@ -17,8 +17,10 @@
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "nsInputStreamPump.h"
+#include "nsISocketTransport.h"
 #include "nsITransportSecurityInfo.h"
 #include "nsHttpHandler.h"
+#include "nsHttpTransaction.h"
 #include "nsNetUtil.h"
 #include "nsProxyInfo.h"
 #include "nsProxyRelease.h"
@@ -252,8 +254,7 @@ HttpTransactionChild::OnDataAvailable(nsIRequest* aRequest,
     nsHttp::SendFunc<nsCString> sendFunc =
         [self = UnsafePtr<HttpTransactionChild>(this)](
             const nsCString& aData, uint64_t aOffset, uint32_t aCount) {
-          return self->SendOnDataAvailable(aData, aOffset, aCount,
-                                           TimeStamp::Now());
+          return self->SendOnDataAvailable(aData, aOffset, TimeStamp::Now());
         };
 
     LOG(("  ODA to parent process"));
@@ -274,7 +275,7 @@ HttpTransactionChild::OnDataAvailable(nsIRequest* aRequest,
           const nsDependentCSubstring& aData, uint64_t aOffset,
           uint32_t aCount) {
         return self->mDataBridgeParent->SendOnTransportAndData(
-            aOffset, aCount, aData, TimeStamp::Now());
+            aOffset, aData, TimeStamp::Now());
       };
 
   LOG(("  ODA to content process"));
@@ -294,7 +295,7 @@ HttpTransactionChild::OnDataAvailable(nsIRequest* aRequest,
             nsHttp::SendFunc<nsCString> sendFunc =
                 [self](const nsCString& aData, uint64_t aOffset,
                        uint32_t aCount) {
-                  return self->SendOnDataAvailable(aData, aOffset, aCount,
+                  return self->SendOnDataAvailable(aData, aOffset,
                                                    TimeStamp::Now());
                 };
 

@@ -83,7 +83,9 @@ prefs = ["network.xhr.block_sync_system_requests=false"] # Bug 721336
 skip-if = [
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1760081
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1760081
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1760081
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1760081
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 1760081
 ]
 
 ["test_alt-data_stream.js"]
@@ -99,12 +101,15 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1807931
 ]
 
 ["test_altsvc_pref.js"]
 skip-if = [
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix",
 ]
 
 ["test_android_content_uri.js"]
@@ -321,7 +326,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64' && socketprocess_networking",
   "os == 'win' && os_version == '11.26100' && arch == 'x86' && socketprocess_networking",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86' && socketprocess_networking",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && socketprocess_networking",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && socketprocess_networking",
 ]
 
 ["test_bug1725766.js"]
@@ -355,7 +362,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'", # Bug 1622901
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1808048
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1808048
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1808048
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1808048
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 1808048
 ]
 
 ["test_bug1984469.js"]
@@ -523,6 +532,7 @@ skip-if = [
 run-sequentially = ["true"] # http3server
 skip-if = [
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1808049
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1808049
 ]
 
 ["test_compareURIs.js"]
@@ -598,6 +608,9 @@ prefs = ["content.cors.use_triggering_principal=true"] # See bug 1982916.
 ["test_dictionary_compression_dcb.js"]
 run-sequentially = ["true"]
 
+["test_dictionary_replacement.js"]
+run-sequentially = ["true"]
+
 ["test_dictionary_retrieval.js"]
 run-sequentially = ["true"]
 
@@ -639,7 +652,9 @@ run-if = [
 skip-if = [
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && socketprocess_networking", # Bug 1760106
   "os == 'win' && os_version == '11.26100' && arch == 'x86' && socketprocess_networking", # Bug 1760106
+  "os == 'win' && os_version == '11.26200' && arch == 'x86' && socketprocess_networking", # Bug 1760106
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && socketprocess_networking", # Bug 1760106
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && socketprocess_networking", # Bug 1760106
 ]
 
 ["test_dns_service.js"]
@@ -652,7 +667,6 @@ head = "head_channels.js head_cache.js head_cookies.js head_trr.js head_http3.js
 run-if = [
   "!socketprocess_networking",
 ]
-run-sequentially = ["true"] # node server exceptions dont replay well
 
 ["test_doomentry.js"]
 
@@ -697,6 +711,23 @@ run-if = [
 ["test_h2proxy_connection_limit.js"]
 run-sequentially = ["true"] # node server exceptions dont replay well
 
+["test_happy_eyeballs_conn_failure.js"]
+run-sequentially = ["true"] # node server exceptions dont replay well
+skip-if = [
+  "os == 'android'",
+  "os == 'win' && msix",
+]
+
+["test_happy_eyeballs_ip_preference.js"]
+run-sequentially = ["true"] # node server exceptions dont replay well
+
+["test_happy_eyeballs_timings.js"]
+run-sequentially = ["true"] # node server exceptions dont replay well
+skip-if = [
+  "os == 'android'",
+  "os == 'win'",
+]
+
 ["test_head.js"]
 
 ["test_head_request_no_response_body.js"]
@@ -729,7 +760,9 @@ run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1881334
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1881334
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1881334
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1881334
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 1881334
 ]
 
 ["test_http2-proxy.js"]
@@ -757,7 +790,9 @@ skip-if = [
   "os == 'mac' && os_version == '14.70' && arch == 'x86_64'", # Bug 1998062
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1807931
 ]
 
 ["test_http2_with_proxy.js"]
@@ -771,7 +806,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'", # Bug 1982955
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1807931
 ]
 
 ["test_http3_0rtt.js"]
@@ -779,7 +816,19 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'", # Bug 1982955
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'",
+]
+
+["test_http3_0rtt_mitigations.js"]
+skip-if = [
+  "os == 'android'",
+  "os == 'win' && os_version == '10.2009' && arch == 'x86_64'",
+  "os == 'win' && os_version == '11.26100' && arch == 'x86'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'",
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'",
 ]
 
 ["test_http3_421.js"]
@@ -788,7 +837,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1807931
 ]
 
 ["test_http3_alt_svc.js"]
@@ -796,6 +847,7 @@ run-sequentially = ["true"] # http3server
 skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1807931
 ]
 
 ["test_http3_coalescing.js"]
@@ -808,7 +860,9 @@ skip-if = [
   "os == 'mac' && os_version == '15.30' && arch == 'aarch64'", # Bug 1866067
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1808049
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1808049
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1808049
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1808049
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 1808049
   "verify", # Bug 2000787
 ]
 
@@ -818,7 +872,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'", # Bug 1982955
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1808049
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1808049
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1808049
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1808049
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 1808049
 ]
 
 ["test_http3_dns_retry.js"]
@@ -827,7 +883,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'",
 ]
 
 ["test_http3_early_hint_listener.js"]
@@ -836,7 +894,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'", # Bug 1982955
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1808049
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1808049
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1808049
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1808049
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 1808049
 ]
 
 ["test_http3_error_before_connect.js"]
@@ -844,13 +904,15 @@ requesttimeoutfactor = 3  # Slow on Linux and Windows
 run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1807931
 ]
 
 ["test_http3_fallback_anonymous_conn.js"]
 run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'android'",
-  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix'", # Bug 1808049
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1808049
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1808049
 ]
 
 ["test_http3_fast_fallback.js"]
@@ -859,7 +921,9 @@ run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'",
 ]
 
 ["test_http3_fatal_stream_error.js"]
@@ -867,6 +931,7 @@ run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1807931
 ]
 
 ["test_http3_kyber.js"]
@@ -874,7 +939,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'",
 ]
 
 ["test_http3_large_post.js"]
@@ -883,7 +950,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'", # Bug 1982955
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'",
 ]
 
 ["test_http3_network_change.js"]
@@ -896,7 +965,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'",
 ]
 
 ["test_http3_non_ascii_header.js"]
@@ -913,7 +984,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 1807931
 ]
 
 ["test_http3_prio_disabled.js"]
@@ -922,7 +995,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'", # Bug 1982955
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 1807931
 ]
 
 ["test_http3_prio_enabled.js"]
@@ -937,7 +1012,8 @@ run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'android'",
   "os == 'mac' && os_version == '10.15' && arch == 'x86_64'",
-  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix'", # Bug 1808049
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1808049
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1808049
   # Setting dontfragment socket option on MacOS 10.15 fails with -5987. Without
   # dontfragment, PMTUD needs to be disabled. Without PMTUD, the HTTP/3 proxy
   # outer connection can not carry the UDP datagrams of the HTTP/3 proxied inner
@@ -948,7 +1024,7 @@ skip-if = [
 run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'android'",
-  "os == 'win' && msix'", # Bug 1808049
+  "os == 'win' && msix", # Bug 1808049
 ]
 
 ["test_http3_proxy_no_speculative.js"]
@@ -957,7 +1033,8 @@ run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'android'",
   "os == 'mac' && os_version == '10.15' && arch == 'x86_64'",
-  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix'", # Bug 1808049
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1808049
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1808049
   # Setting dontfragment socket option on MacOS 10.15 fails with -5987. Without
   # dontfragment, PMTUD needs to be disabled. Without PMTUD, the HTTP/3 proxy
   # outer connection can not carry the UDP datagrams of the HTTP/3 proxied inner
@@ -969,6 +1046,7 @@ run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1807931
   "verify",
 ]
 
@@ -982,7 +1060,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'",
 ]
 
 ["test_http3_trans_close.js"]
@@ -991,7 +1071,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'", # Bug 1982955
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1807931
 ]
 
 ["test_http3_version1.js"]
@@ -1000,7 +1082,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'", # Bug 1982955
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'",
 ]
 
 ["test_http3_with_proxy.js"]
@@ -1011,7 +1095,9 @@ skip-if = [
   "os == 'mac' && os_version == '10.15' && arch == 'x86_64'",
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1807931
-  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix'", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1807931
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1807931
   # Setting dontfragment socket option on MacOS 10.15 fails with -5987. Without
   # dontfragment, PMTUD needs to be disabled. Without PMTUD, the HTTP/3 proxy
   # outer connection can not carry the UDP datagrams of the HTTP/3 proxied inner
@@ -1024,13 +1110,17 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'",
 ]
 
 ["test_httpResponseTimeout.js"]
 skip-if = [
   "os == 'win' && os_version == '11.26100' && arch == 'x86' && socketprocess_networking",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86' && socketprocess_networking",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && socketprocess_networking",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && socketprocess_networking",
 ]
 
 ["test_http_408_retry.js"]
@@ -1054,30 +1144,31 @@ run-sequentially = ["true"] # node server exceptions dont replay well
 ["test_httpssvc_ech_with_alpn.js"]
 skip-if = [
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1808048
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1808048
 ]
 run-sequentially = ["true"] # node server exceptions dont replay well
 
 ["test_httpssvc_https_upgrade.js"]
 
 ["test_httpssvc_iphint.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
 
 ["test_httpssvc_priority.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
 
 ["test_httpssvc_retry_with_ech.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'", # Bug 1622901
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1808048
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1808048
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1808048
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1808048
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 1808048
 ]
+run-sequentially = ["true"] # uses common port for ECH server
 
 ["test_httpssvc_retry_without_ech.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1808048
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1808048
 ]
 
 ["test_httpsuspend.js"]
@@ -1106,6 +1197,8 @@ run-sequentially = ["true"] # node server exceptions dont replay well
 ["test_ip_space_glean.js"]
 
 ["test_large_port.js"]
+
+["test_lna_captive_portal.js"]
 
 ["test_loadgroup_cancel.js"]
 
@@ -1148,7 +1241,9 @@ skip-if = [
 skip-if = [
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 732363: test fails on windows for unknown reasons.
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 732363: test fails on windows for unknown reasons.
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 732363: test fails on windows for unknown reasons.
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 732363: test fails on windows for unknown reasons.
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 732363: test fails on windows for unknown reasons.
 ]
 
 ["test_network_connectivity_service.js"]
@@ -1212,12 +1307,12 @@ skip-if = [
 ["test_port_remapping.js"]
 skip-if = [
   "os == 'win' && os_version == '11.26100' && arch == 'x86' && socketprocess_networking",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86' && socketprocess_networking",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && socketprocess_networking",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && socketprocess_networking",
 ]
 
 ["test_post.js"]
-
-["test_predictor.js"]
 
 ["test_prio_header_override_forbid.js"]
 
@@ -1233,7 +1328,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'", # Bug 1982955
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'",
 ]
 
 ["test_protocolproxyservice-async-filters.js"]
@@ -1256,7 +1353,9 @@ skip-if = [
 ["test_proxyDNS_leak.js"]
 skip-if = [
   "os == 'win' && os_version == '11.26100' && arch == 'x86' && socketprocess_networking",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86' && socketprocess_networking",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && socketprocess_networking",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && socketprocess_networking",
 ]
 
 ["test_proxy_cancel.js"]
@@ -1280,7 +1379,9 @@ skip-if = [
 skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'", # Bug 1866777
   "os == 'win' && os_version == '11.26100' && arch == 'x86' && opt", # Bug 1866777
+  "os == 'win' && os_version == '11.26200' && arch == 'x86' && opt", # Bug 1866777
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && opt",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && opt",
 ]
 
 ["test_range_requests.js"]
@@ -1348,6 +1449,7 @@ run-sequentially = [
 run-sequentially = ["true"] # tlsserver uses fixed port
 skip-if = [
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1808048
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1808048
 ]
 
 ["test_safeoutputstream.js"]
@@ -1393,6 +1495,7 @@ fail-if = [
 # http2 unit tests require us to have node available to run the spdy and http2 server
 skip-if = [
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1808048
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1808048
 ]
 
 ["test_speculative_connect.js"]
@@ -1444,6 +1547,7 @@ run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'", # Bug 1982955
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1808048
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1808048
 ]
 
 ["test_tls_flags.js"]
@@ -1455,7 +1559,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'",
 ]
 
 ["test_tls_server.js"]
@@ -1474,24 +1580,24 @@ requesttimeoutfactor = 2  # Slow on Linux and Windows
 head = "head_channels.js head_cache.js head_cookies.js head_trr.js head_http3.js trr_common.js"
 
 ["test_trr_additional_section.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
 
 ["test_trr_af_fallback.js"]
 
+["test_trr_bench.js"]
+skip-if = [
+  "verify",
+]
+run-sequentially = ["true"] # We want to check performance
+
 ["test_trr_blocklist.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
 
 ["test_trr_cancel.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
 
 ["test_trr_case_sensitivity.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
 
 ["test_trr_cname_chain.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
 
 ["test_trr_confirmation.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
 run-if = [
   "!socketprocess_networking", # confirmation state isn't passed cross-process
 ]
@@ -1500,8 +1606,9 @@ skip-if = [
 ]
 
 ["test_trr_connection_cycle.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
-run-if = ["!socketprocess_networking"] # confirmation state isn't passed cross-process
+run-if = [
+  "!socketprocess_networking", # confirmation state isn't passed cross-process
+]
 
 ["test_trr_decoding.js"]
 
@@ -1517,31 +1624,37 @@ skip-if = [
 ]
 
 ["test_trr_extended_error.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
 
 ["test_trr_flags.js"]
 
+["test_trr_http3_first.js"]
+skip-if = [
+  "os == 'android'",
+  "os == 'win'",
+]
+
 ["test_trr_https_fallback.js"]
 requesttimeoutfactor = 4  # Slow on Linux
-run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'",
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'",
 ]
 
 ["test_trr_https_rr_with_cname.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1808049
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1808049
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1808049
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1808049
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 1808049
 ]
 
 ["test_trr_httpssvc.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
 
 ["test_trr_idle_time.js"]
 run-if = [
@@ -1552,7 +1665,6 @@ skip-if = [
 ]
 
 ["test_trr_nat64.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
 
 ["test_trr_noPrefetch.js"]
 
@@ -1575,7 +1687,6 @@ run-if = [
 
 ["test_trr_with_proxy.js"]
 head = "head_channels.js head_cache.js head_cookies.js head_trr.js trr_common.js"
-run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && !fission && socketprocess_networking", # Bug 1808233
 ]
@@ -1599,6 +1710,8 @@ skip-if = [
 run-sequentially = ["true"] # node server exceptions dont replay well
 
 ["test_verify_traffic.js"]
+
+["test_wallpaper_protocol.js"]
 
 ["test_websocket_500k.js"]
 skip-if = [
@@ -1627,7 +1740,8 @@ run-sequentially = ["true"] # node server exceptions dont replay well
 run-sequentially = ["true"] # node server exceptions dont replay well
 skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'", # Bug 1982955
-  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix'", # Bug 1808049
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1808049
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1808049
 ]
 
 ["test_webtransport_simple.js"]
@@ -1638,7 +1752,9 @@ skip-if = [
   "os == 'android' && os_version == '14' && arch == 'x86_64'",
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86'", # Bug 1807931
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && msix", # Bug 1807931
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix", # Bug 1807931
 ]
 
 ["test_xmlhttprequest.js"]

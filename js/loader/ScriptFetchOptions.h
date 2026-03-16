@@ -9,6 +9,7 @@
 
 #include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/CORSMode.h"
+#include "mozilla/MemoryReporting.h"
 #include "mozilla/dom/ReferrerPolicyBinding.h"
 #include "mozilla/dom/RequestBinding.h"  // RequestPriority
 #include "nsCOMPtr.h"
@@ -49,8 +50,7 @@ class ScriptFetchOptions {
   ~ScriptFetchOptions();
 
  public:
-  NS_INLINE_DECL_CYCLE_COLLECTING_NATIVE_REFCOUNTING(ScriptFetchOptions)
-  NS_DECL_CYCLE_COLLECTION_NATIVE_CLASS(ScriptFetchOptions)
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(ScriptFetchOptions)
 
   ScriptFetchOptions(mozilla::CORSMode aCORSMode, const nsAString& aNonce,
                      mozilla::dom::RequestPriority aFetchPriority,
@@ -64,7 +64,12 @@ class ScriptFetchOptions {
 
   // Returns true if given fetch option is compatible with this fetch option
   // in term of sharing the server response.
-  inline bool IsCompatible(ScriptFetchOptions* other) {
+  //
+  // Nonce is excluded here because the cached response can have different
+  // nonce, and in that case ScriptLoadRequest is responsible for using the
+  // appropriate one.
+  // See ScriptLoadRequest::SetCacheEntry.
+  inline bool IsCompatibleExcludingNonce(ScriptFetchOptions* other) {
     if (this == other) {
       return true;
     }
@@ -80,8 +85,15 @@ class ScriptFetchOptions {
     }
 
     // NOTE: mParserMetadata can be ignored.
-    return mCORSMode == other->mCORSMode && mNonce == other->mNonce &&
+    return mCORSMode == other->mCORSMode &&
            mFetchPriority == other->mFetchPriority;
+  }
+
+  size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const {
+    return aMallocSizeOf(this) + SizeOfExcludingThis(aMallocSizeOf);
+  }
+  size_t SizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf) const {
+    return mNonce.SizeOfExcludingThisIfUnshared(aMallocSizeOf);
   }
 
  public:

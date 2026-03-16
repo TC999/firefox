@@ -88,7 +88,10 @@ class JUnitTestRunner(MochitestDesktop):
         self.cleanup()
         self.device.clear_logcat()
         self.build_profile()
-        self.startServers(self.options, debuggerInfo=None, public=True)
+        if self.startServers(self.options, debuggerInfo=None, public=True) is False:
+            raise RuntimeError(
+                "Failed to start servers: a required port is already in use"
+            )
         self.log.debug("Servers started")
 
     def collectLogcatForCurrentTest(self):
@@ -636,14 +639,16 @@ class JunitArgumentParser(argparse.ArgumentParser):
             help="Defines an extra user preference.",
         )
         # Additional options for server.
-        self.add_argument(
-            "--certificate-path",
-            action="store",
-            type=str,
-            dest="certPath",
-            default=None,
-            help="Path to directory containing certificate store.",
-        ),
+        (
+            self.add_argument(
+                "--certificate-path",
+                action="store",
+                type=str,
+                dest="certPath",
+                default=None,
+                help="Path to directory containing certificate store.",
+            ),
+        )
         self.add_argument(
             "--http-port",
             action="store",
@@ -689,9 +694,7 @@ def run_test_harness(parser, options):
     if hasattr(options, "log"):
         log = options.log
     else:
-        log = mozlog.commandline.setup_logging(
-            "runjunit", options, {"tbpl": sys.stdout}
-        )
+        log = mozlog.commandline.setup_logging("runjunit", options, {"raw": sys.stdout})
     runner = JUnitTestRunner(log, options)
     result = -1
     try:

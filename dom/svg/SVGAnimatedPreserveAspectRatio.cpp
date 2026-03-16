@@ -185,9 +185,9 @@ DOMSVGAnimatedPreserveAspectRatio::~DOMSVGAnimatedPreserveAspectRatio() {
   sSVGAnimatedPAspectRatioTearoffTable.RemoveTearoff(mVal);
 }
 
-UniquePtr<SMILAttr> SVGAnimatedPreserveAspectRatio::ToSMILAttr(
+std::unique_ptr<SMILAttr> SVGAnimatedPreserveAspectRatio::ToSMILAttr(
     SVGElement* aSVGElement) {
-  return MakeUnique<SMILPreserveAspectRatio>(this, aSVGElement);
+  return std::make_unique<SMILPreserveAspectRatio>(this, aSVGElement);
 }
 
 // typedef for inner class, to make function signatures shorter below:
@@ -203,7 +203,7 @@ nsresult SMILPreserveAspectRatio::ValueFromString(
 
   SMILValue val(SMILEnumType::Singleton());
   val.mU.mUint = PackPreserveAspectRatio(par);
-  aValue = val;
+  aValue = std::move(val);
   return NS_OK;
 }
 

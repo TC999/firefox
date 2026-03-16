@@ -55,6 +55,15 @@ const bool GECKO_IS_NIGHTLY = true;
 const bool GECKO_IS_NIGHTLY = false;
 #endif
 
+template <typename T>
+struct RustSpan {
+  T* begin;
+  size_t length;
+};
+
+template struct RustSpan<const mozilla::dom::Element* const>;
+template struct RustSpan<const nsINode* const>;
+
 #define NS_DECL_THREADSAFE_FFI_REFCOUNTING(class_, name_)  \
   void Gecko_AddRef##name_##ArbitraryThread(class_* aPtr); \
   void Gecko_Release##name_##ArbitraryThread(class_* aPtr);
@@ -83,7 +92,7 @@ const nsINode* Gecko_GetFlattenedTreeParentNode(const nsINode*);
 void Gecko_GetAnonymousContentForElement(const mozilla::dom::Element*,
                                          nsTArray<nsIContent*>*);
 
-const nsTArray<RefPtr<nsINode>>* Gecko_GetAssignedNodes(
+RustSpan<const nsINode* const> Gecko_GetAssignedNodes(
     const mozilla::dom::Element*);
 
 void Gecko_GetQueryContainerSize(const mozilla::dom::Element*,
@@ -135,6 +144,11 @@ void Gecko_LoadStyleSheetAsync(
 uint64_t Gecko_ElementState(const mozilla::dom::Element*);
 bool Gecko_IsRootElement(const mozilla::dom::Element*);
 
+// Fills aArray with the cached lazy pseudo styles from aStyle.
+void Gecko_GetCachedLazyPseudoStyles(
+    const mozilla::ComputedStyle* aStyle,
+    nsTArray<const mozilla::ComputedStyle*>* aArray);
+
 bool Gecko_MatchLang(const mozilla::dom::Element*, nsAtom* override_lang,
                      bool has_override_lang, const char16_t* value);
 
@@ -156,7 +170,8 @@ bool Gecko_HasActiveViewTransitionTypes(
   nsAtom* prefix_##LangValue(implementor_ element);
 
 bool Gecko_LookupAttrValue(const mozilla::dom::Element* aElement,
-                           const nsAtom& aName, nsAString& aResult);
+                           nsAtom& aNamespace, const nsAtom& aName,
+                           nsAString& aResult);
 bool Gecko_AttrEquals(const nsAttrValue*, const nsAtom*, bool aIgnoreCase);
 bool Gecko_AttrDashEquals(const nsAttrValue*, const nsAtom*, bool aIgnoreCase);
 bool Gecko_AttrIncludes(const nsAttrValue*, const nsAtom*, bool aIgnoreCase);
@@ -332,6 +347,12 @@ void Gecko_CopyListStyleImageFrom(nsStyleList* dest, const nsStyleList* src);
 void Gecko_NoteDirtyElement(const mozilla::dom::Element*);
 void Gecko_NoteDirtySubtreeForInvalidation(const mozilla::dom::Element*);
 void Gecko_NoteAnimationOnlyDirtyElement(const mozilla::dom::Element*);
+void Gecko_InvalidatePositionTry(const mozilla::dom::Element*);
+
+// Called when a highlight pseudo-element style (::selection, ::highlight,
+// ::target-text) is invalidated. These pseudos need explicit repaint
+// triggering since their styles are resolved lazily during painting.
+void Gecko_NoteHighlightPseudoStyleInvalidated(const mozilla::dom::Document*);
 
 bool Gecko_AnimationNameMayBeReferencedFromStyle(const nsPresContext*,
                                                  nsAtom* name);
@@ -523,12 +544,6 @@ bool Gecko_DocumentRule_UseForPresentation(
 // Allocator hinting.
 void Gecko_SetJemallocThreadLocalArena(bool enabled);
 
-// Pseudo-element flags.
-#define CSS_PSEUDO_ELEMENT(name_, value_, flags_) \
-  const uint32_t SERVO_CSS_PSEUDO_ELEMENT_FLAGS_##name_ = flags_;
-#include "nsCSSPseudoElementList.h"
-#undef CSS_PSEUDO_ELEMENT
-
 bool Gecko_ErrorReportingEnabled(const mozilla::StyleSheet* sheet,
                                  const mozilla::css::Loader* loader,
                                  uint64_t* aOutWindowId);
@@ -547,10 +562,10 @@ void Gecko_ContentList_AppendAll(nsSimpleContentList* aContentList,
 // FIXME(emilio): These two below should be a single function that takes a
 // `const DocumentOrShadowRoot*`, but that doesn't make MSVC builds happy for a
 // reason I haven't really dug into.
-const nsTArray<mozilla::dom::Element*>* Gecko_Document_GetElementsWithId(
+RustSpan<const mozilla::dom::Element* const> Gecko_Document_GetElementsWithId(
     const mozilla::dom::Document*, nsAtom* aId);
 
-const nsTArray<mozilla::dom::Element*>* Gecko_ShadowRoot_GetElementsWithId(
+RustSpan<const mozilla::dom::Element* const> Gecko_ShadowRoot_GetElementsWithId(
     const mozilla::dom::ShadowRoot*, nsAtom* aId);
 
 bool Gecko_EvalMozPrefFeature(nsAtom*,
@@ -630,6 +645,7 @@ void Gecko_PrintfStderr(const nsCString*);
 
 bool Gecko_GetAnchorPosOffset(
     const AnchorPosOffsetResolutionParams* aParams, const nsAtom* aAnchorName,
+    const mozilla::StyleCascadeLevel* aTreeScope,
     mozilla::StylePhysicalSide aPropSide,
     mozilla::StyleAnchorSideKeyword aAnchorSideKeyword, float aPercentage,
     mozilla::Length* aOut);
@@ -651,6 +667,7 @@ bool Gecko_GetAnchorPosOffset(
  */
 bool Gecko_GetAnchorPosSize(const AnchorPosResolutionParams* aParams,
                             const nsAtom* aAnchorName,
+                            const mozilla::StyleCascadeLevel* aTreeScope,
                             mozilla::StylePhysicalAxis aPropAxis,
                             mozilla::StyleAnchorSizeKeyword aAnchorSizeKeyword,
                             mozilla::Length* aOut);

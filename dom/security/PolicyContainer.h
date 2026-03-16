@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef PolicyContainer_h___
-#define PolicyContainer_h___
+#ifndef PolicyContainer_h_
+#define PolicyContainer_h_
 
 #include "nsCOMPtr.h"
 #include "nsIContentSecurityPolicy.h"
@@ -18,7 +18,8 @@ class PolicyContainerArgs;
 
 namespace mozilla::dom {
 class Document;
-}
+class IntegrityPolicyWAICT;
+}  // namespace mozilla::dom
 
 #define NS_POLICYCONTAINER_CONTRACTID "@mozilla.org/policycontainer;1"
 
@@ -37,7 +38,7 @@ class PolicyContainer : public nsIPolicyContainer {
   NS_DECL_NSISERIALIZABLE
   NS_DECL_NSIPOLICYCONTAINER
 
-  PolicyContainer() = default;
+  PolicyContainer();
 
   static void ToArgs(const PolicyContainer* aPolicy,
                      mozilla::ipc::PolicyContainerArgs& aArgs);
@@ -71,12 +72,20 @@ class PolicyContainer : public nsIPolicyContainer {
   static nsIIntegrityPolicy* GetIntegrityPolicy(
       const nsIPolicyContainer* aPolicyContainer);
 
+  // == WAICT Integrity Policy ===
+  // TODO(Bug 2017658): Support WAICT in workers
+  mozilla::dom::IntegrityPolicyWAICT* GetIntegrityPolicyWAICT() const;
+  void SetIntegrityPolicyWAICT(mozilla::dom::IntegrityPolicyWAICT* aPolicy);
+  static mozilla::dom::IntegrityPolicyWAICT* GetIntegrityPolicyWAICT(
+      const nsIPolicyContainer* aPolicyContainer);
+
  private:
   nsCOMPtr<nsIContentSecurityPolicy> mCSP;
   nsCOMPtr<nsIIntegrityPolicy> mIntegrityPolicy;
+  RefPtr<mozilla::dom::IntegrityPolicyWAICT> mIntegrityPolicyWAICT;
 
  protected:
   virtual ~PolicyContainer();
 };
 
-#endif /* PolicyContainer_h___ */
+#endif /* PolicyContainer_h_ */

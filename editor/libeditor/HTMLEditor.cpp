@@ -100,9 +100,8 @@ using namespace widget;
 LazyLogModule gHTMLEditorFocusLog("HTMLEditorFocus");
 
 using EmptyCheckOption = HTMLEditUtils::EmptyCheckOption;
-using LeafNodeType = HTMLEditUtils::LeafNodeType;
-using LeafNodeTypes = HTMLEditUtils::LeafNodeTypes;
-using WalkTreeOption = HTMLEditUtils::WalkTreeOption;
+using LeafNodeOption = HTMLEditUtils::LeafNodeOption;
+using LeafNodeOptions = HTMLEditUtils::LeafNodeOptions;
 
 // Some utilities to handle overloading of "A" tag for link and named anchor.
 static bool IsLinkTag(const nsAtom& aTagName) {
@@ -1041,8 +1040,8 @@ nsresult HTMLEditor::CollapseSelectionToEndOfLastLeafNodeOfDocument() const {
   }
 
   auto pointToPutCaret = [&]() -> EditorRawDOMPoint {
-    nsCOMPtr<nsIContent> lastLeafContent = HTMLEditUtils::GetLastLeafContent(
-        *bodyOrDocumentElement, {LeafNodeType::OnlyLeafNode});
+    nsCOMPtr<nsIContent> lastLeafContent =
+        HTMLEditUtils::GetLastLeafContent(*bodyOrDocumentElement, {});
     if (!lastLeafContent) {
       return EditorRawDOMPoint::AtEndOf(*bodyOrDocumentElement);
     }
@@ -1136,11 +1135,15 @@ nsresult HTMLEditor::MaybeCollapseSelectionAtFirstEditableNode(
     }
   }
 
+  constexpr LeafNodeOptions leafNodeOptions = {
+      LeafNodeOption::TreatNonEditableNodeAsLeafNode,
+      LeafNodeOption::TreatChildBlockAsLeafNode,
+      // FIXME: Ignore empty inline containers such as <span></span> because we
+      // cannot visually put caret into it.
+  };
   for (nsIContent* leafContent = HTMLEditUtils::GetFirstLeafContent(
-           *editingHost,
-           {LeafNodeType::LeafNodeOrNonEditableNode,
-            LeafNodeType::LeafNodeOrChildBlock},
-           BlockInlineCheck::UseComputedDisplayStyle, editingHost);
+           *editingHost, leafNodeOptions,
+           BlockInlineCheck::UseComputedDisplayStyle);
        leafContent;) {
     // If we meet a non-editable node first, we should move caret to start
     // of the container block or editing host.
@@ -1177,9 +1180,7 @@ nsresult HTMLEditor::MaybeCollapseSelectionAtFirstEditableNode(
         // Chromium collapses selection to start of the editing host when this
         // is the last leaf content.  So, we don't need special handling here.
         leafContent = HTMLEditUtils::GetNextLeafContentOrNextBlockElement(
-            *leafElement,
-            {LeafNodeType::LeafNodeOrNonEditableNode,
-             LeafNodeType::LeafNodeOrChildBlock},
+            *leafElement, leafNodeOptions,
             BlockInlineCheck::UseComputedDisplayStyle, editingHost);
         continue;
       }
@@ -1203,9 +1204,7 @@ nsresult HTMLEditor::MaybeCollapseSelectionAtFirstEditableNode(
       }
       // If it's an invisible text node, keep scanning next leaf.
       leafContent = HTMLEditUtils::GetNextLeafContentOrNextBlockElement(
-          *leafContent,
-          {LeafNodeType::LeafNodeOrNonEditableNode,
-           LeafNodeType::LeafNodeOrChildBlock},
+          *leafContent, leafNodeOptions,
           BlockInlineCheck::UseComputedDisplayStyle, editingHost);
       continue;
     }
@@ -1240,19 +1239,15 @@ nsresult HTMLEditor::MaybeCollapseSelectionAtFirstEditableNode(
              EmptyCheckOption::TreatNonEditableContentAsInvisible}) &&
         !HTMLEditUtils::IsNeverElementContentsEditableByUser(*leafContent)) {
       leafContent = HTMLEditUtils::GetFirstLeafContent(
-          *leafContent,
-          {LeafNodeType::LeafNodeOrNonEditableNode,
-           LeafNodeType::LeafNodeOrChildBlock},
-          BlockInlineCheck::UseComputedDisplayStyle, editingHost);
+          *leafContent, leafNodeOptions,
+          BlockInlineCheck::UseComputedDisplayStyle);
       continue;
     }
 
     // Otherwise, we must meet an empty block element or a data node like
     // comment node.  Let's ignore it.
     leafContent = HTMLEditUtils::GetNextLeafContentOrNextBlockElement(
-        *leafContent,
-        {LeafNodeType::LeafNodeOrNonEditableNode,
-         LeafNodeType::LeafNodeOrChildBlock},
+        *leafContent, leafNodeOptions,
         BlockInlineCheck::UseComputedDisplayStyle, editingHost);
   }
 
@@ -1966,7 +1961,13 @@ nsresult HTMLEditor::InsertElementAtSelectionAsAction(
     if (MOZ_LIKELY(aElement->IsInComposedDoc())) {
       const auto afterElement = EditorDOMPoint::After(*aElement);
       if (MOZ_LIKELY(afterElement.IsInContentNode())) {
-        nsresult rv = EnsureNoFollowingUnnecessaryLineBreak(afterElement);
+        nsresult rv = EnsureNoFollowingUnnecessaryLineBreak(
+            afterElement,
+            // When user inserting content, the web app may expect that nothing
+            // extant content will be deleted. Therefore, we should preserve
+            // preformatted linefeed at least.
+            PreservePreformattedLineBreak::Yes,
+            PaddingForEmptyBlock::Significant, *editingHost);
         if (NS_FAILED(rv)) {
           NS_WARNING(
               "HTMLEditor::EnsureNoFollowingUnnecessaryLineBreak() failed");
@@ -1992,8 +1993,9 @@ nsresult HTMLEditor::InsertElementAtSelectionAsAction(
   // check for inserting a whole table at the end of a block. If so insert
   // a br after it.
   if (!aElement->IsHTMLElement(nsGkAtoms::table) ||
-      !HTMLEditUtils::IsLastChild(*aElement,
-                                  {WalkTreeOption::IgnoreNonEditableNode})) {
+      !HTMLEditUtils::IsLastChild(
+          *aElement, {LeafNodeOption::IgnoreNonEditableNode},
+          BlockInlineCheck::UseComputedDisplayOutsideStyle)) {
     return NS_OK;
   }
 
@@ -3306,7 +3308,9 @@ already_AddRefed<Element> HTMLEditor::GetSelectedElement(const nsAtom* aTagName,
         return nullptr;
       }
       nsIContent* firstEditableLeaf = HTMLEditUtils::GetFirstLeafContent(
-          *nextSibling, {LeafNodeType::OnlyLeafNode});
+          *nextSibling,
+          // XXX Should we ignore invisible inline elements and text nodes?
+          {});
       if (firstEditableLeaf &&
           firstEditableLeaf->IsHTMLElement(nsGkAtoms::br)) {
         return nullptr;
@@ -4321,8 +4325,11 @@ Result<CreateLineBreakResult, nsresult> HTMLEditor::InsertLineBreak(
 }
 
 nsresult HTMLEditor::EnsureNoFollowingUnnecessaryLineBreak(
-    const EditorDOMPoint& aNextOrAfterModifiedPoint) {
+    const EditorDOMPoint& aNextOrAfterModifiedPoint,
+    PreservePreformattedLineBreak aPreservePreformattedLineBreak,
+    PaddingForEmptyBlock aPaddingForEmptyBlock, const Element& aEditingHost) {
   MOZ_ASSERT(aNextOrAfterModifiedPoint.IsInContentNode());
+  MOZ_ASSERT(aNextOrAfterModifiedPoint.IsSetAndValid());
 
   // If the point is in a mailcite in plaintext mail composer (it is a <span>
   // styled as block), we should not treat its padding <br> as unnecessary
@@ -4347,11 +4354,14 @@ nsresult HTMLEditor::EnsureNoFollowingUnnecessaryLineBreak(
       EditorUtils::IsNewLinePreformatted(
           *aNextOrAfterModifiedPoint.ContainerAs<nsIContent>());
 
-  const Maybe<EditorLineBreak> unnecessaryLineBreak =
-      HTMLEditUtils::GetFollowingUnnecessaryLineBreak<EditorLineBreak>(
-          aNextOrAfterModifiedPoint);
-  if (MOZ_LIKELY(unnecessaryLineBreak.isNothing() ||
-                 !unnecessaryLineBreak->IsDeletableFromComposedDoc())) {
+  const WSScanResult nextThing =
+      HTMLEditUtils::ScanInclusiveNextThingWithIgnoringUnnecessaryLineBreak(
+          aNextOrAfterModifiedPoint, aPaddingForEmptyBlock, aEditingHost);
+  const Maybe<EditorLineBreak>& unnecessaryLineBreak =
+      nextThing.MaybeIgnoredLineBreak();
+  if (unnecessaryLineBreak.isNothing() ||
+      !unnecessaryLineBreak->IsInclusiveDescendantOf(aEditingHost) ||
+      !unnecessaryLineBreak->IsDeletableFromComposedDoc()) [[likely]] {
     return NS_OK;
   }
   if (unnecessaryLineBreak->IsHTMLBRElement()) {
@@ -4359,9 +4369,6 @@ nsresult HTMLEditor::EnsureNoFollowingUnnecessaryLineBreak(
     // <span> styled as block, we need to preserve the <br> element for the
     // serializer to cause a line break before the mailcite.
     if (IsPlaintextMailComposer()) {
-      const WSScanResult nextThing =
-          WSRunScanner::ScanInclusiveNextVisibleNodeOrBlockBoundary(
-              {}, unnecessaryLineBreak->After<EditorRawDOMPoint>());
       if (nextThing.ReachedOtherBlockElement() &&
           HTMLEditUtils::IsMailCiteElement(*nextThing.ElementPtr()) &&
           HTMLEditUtils::IsInlineContent(
@@ -4385,6 +4392,16 @@ nsresult HTMLEditor::EnsureNoFollowingUnnecessaryLineBreak(
     return rv;
   }
   MOZ_ASSERT(isNewLinePreformatted);
+  if (aPreservePreformattedLineBreak == PreservePreformattedLineBreak::Yes) {
+    // Do not preserve preformatted linefeed if it's a padding for empty block
+    // even if the caller wants to preserve unnecessary preformatted linefeed
+    // because it's set to "Yes" when the caller inserts new content, but the
+    // other browsers do not preserve the padding linefeed for empty block.
+    if (aPaddingForEmptyBlock == PaddingForEmptyBlock::Significant ||
+        !unnecessaryLineBreak->IsPaddingForEmptyBlock()) {
+      return NS_OK;
+    }
+  }
   const auto IsVisibleChar = [&](char16_t aChar) {
     switch (aChar) {
       case HTMLEditUtils::kNewLine:
@@ -4718,8 +4735,11 @@ nsresult HTMLEditor::SelectAllInternal() {
   MOZ_ASSERT(IsEditActionDataAvailable());
 
   CommitComposition();
-  if (NS_WARN_IF(Destroyed())) {
-    return NS_ERROR_EDITOR_DESTROYED;
+  const RefPtr<Document> doc = GetDocument();
+  if (NS_WARN_IF(!doc)) {
+    // The root caller should not use HTMLEditor in this case (mDocument won't
+    // be cleared except by the cycle collector).
+    return NS_ERROR_NOT_AVAILABLE;
   }
 
   auto GetBodyElementIfElementIsParentOfHTMLBody =
@@ -4734,9 +4754,9 @@ nsresult HTMLEditor::SelectAllInternal() {
                : const_cast<Element*>(&aElement);
   };
 
-  nsCOMPtr<nsIContent> selectionRootContent =
+  const nsCOMPtr<nsIContent> selectionRootContent =
       [&]() MOZ_CAN_RUN_SCRIPT -> nsIContent* {
-    RefPtr<Element> elementToBeSelected = [&]() -> Element* {
+    const RefPtr<Element> elementForComputingSelectionRoot = [&]() -> Element* {
       // If there is at least one selection range, we should compute the
       // selection root from the anchor node.
       if (SelectionRef().RangeCount()) {
@@ -4756,18 +4776,22 @@ nsresult HTMLEditor::SelectAllInternal() {
       if (Element* focusedElement = GetFocusedElement()) {
         return focusedElement;
       }
-      // of the body or document element.
-      Element* bodyOrDocumentElement = GetRoot();
-      NS_WARNING_ASSERTION(bodyOrDocumentElement,
-                           "There was no element in the document");
-      return bodyOrDocumentElement;
+      // Okay, there is no selection range and no focused element, let's select
+      // all of the body or the document element.
+      if (Element* const bodyElement = GetBodyElement()) {
+        return bodyElement;
+      }
+      return doc->GetDocumentElement();
     }();
+    if (MOZ_UNLIKELY(!elementForComputingSelectionRoot)) {
+      return nullptr;
+    }
 
     // Then, compute the selection root content to select all including
     // elementToBeSelected.
     RefPtr<PresShell> presShell = GetPresShell();
     nsIContent* computedSelectionRootContent =
-        elementToBeSelected->GetSelectionRootContent(
+        elementForComputingSelectionRoot->GetSelectionRootContent(
             presShell, nsINode::IgnoreOwnIndependentSelection::Yes,
             nsINode::AllowCrossShadowBoundary::No);
     if (NS_WARN_IF(!computedSelectionRootContent)) {
@@ -4779,8 +4803,14 @@ nsresult HTMLEditor::SelectAllInternal() {
     return GetBodyElementIfElementIsParentOfHTMLBody(
         *computedSelectionRootContent->AsElement());
   }();
-  if (NS_WARN_IF(!selectionRootContent)) {
-    return NS_ERROR_FAILURE;
+  if (MOZ_UNLIKELY(!selectionRootContent)) {
+    // If there is no element in the document, the document node can have
+    // selection range whose container is the document node. However, Chrome
+    // does not handle "Select All" command in this case (if there is no
+    // selection range, no new range is created and if there is a collapsed
+    // range, the range won't be extended to select all children of the
+    // Document).  Let's follow it.
+    return NS_OK;
   }
 
   Maybe<Selection::AutoUserInitiated> userSelection;
@@ -4921,16 +4951,18 @@ HTMLEditor::RemoveBlockContainerWithTransaction(Element& aElement) {
   }
   EditorDOMPoint pointToPutCaret;
   if (HTMLEditUtils::CanNodeContain(*parentElement, *nsGkAtoms::br)) {
-    if (nsCOMPtr<nsIContent> child = HTMLEditUtils::GetFirstChild(
-            aElement, {WalkTreeOption::IgnoreNonEditableNode})) {
+    if (const nsCOMPtr<nsIContent> child = HTMLEditUtils::GetFirstChild(
+            aElement, {LeafNodeOption::IgnoreNonEditableNode},
+            BlockInlineCheck::UseComputedDisplayOutsideStyle)) {
       // The case of aNode not being empty.  We need a br at start unless:
       // 1) previous sibling of aNode is a block, OR
       // 2) previous sibling of aNode is a br, OR
       // 3) first child of aNode is a block OR
       // 4) either is null
 
-      if (nsIContent* previousSibling = HTMLEditUtils::GetPreviousSibling(
-              aElement, {WalkTreeOption::IgnoreNonEditableNode})) {
+      if (nsIContent* const previousSibling = HTMLEditUtils::GetPreviousSibling(
+              aElement, {LeafNodeOption::IgnoreNonEditableNode},
+              BlockInlineCheck::UseComputedDisplayOutsideStyle)) {
         if (!HTMLEditUtils::IsBlockElement(
                 *previousSibling,
                 BlockInlineCheck::UseComputedDisplayOutsideStyle) &&
@@ -4960,14 +4992,15 @@ HTMLEditor::RemoveBlockContainerWithTransaction(Element& aElement) {
       // 3) last child of aNode is a br OR
       // 4) either is null
 
-      if (nsIContent* nextSibling = HTMLEditUtils::GetNextSibling(
-              aElement, {WalkTreeOption::IgnoreNonEditableNode})) {
+      if (nsIContent* const nextSibling = HTMLEditUtils::GetNextSibling(
+              aElement, {LeafNodeOption::IgnoreNonEditableNode},
+              BlockInlineCheck::UseComputedDisplayOutsideStyle)) {
         if (nextSibling &&
             !HTMLEditUtils::IsBlockElement(
                 *nextSibling, BlockInlineCheck::UseComputedDisplayStyle)) {
-          if (nsIContent* lastChild = HTMLEditUtils::GetLastChild(
-                  aElement, {WalkTreeOption::IgnoreNonEditableNode},
-                  BlockInlineCheck::Unused)) {
+          if (nsIContent* const lastChild = HTMLEditUtils::GetLastChild(
+                  aElement, {LeafNodeOption::IgnoreNonEditableNode},
+                  BlockInlineCheck::UseComputedDisplayOutsideStyle)) {
             if (!HTMLEditUtils::IsBlockElement(
                     *lastChild, BlockInlineCheck::UseComputedDisplayStyle) &&
                 !lastChild->IsHTMLElement(nsGkAtoms::br)) {
@@ -4990,8 +5023,10 @@ HTMLEditor::RemoveBlockContainerWithTransaction(Element& aElement) {
           }
         }
       }
-    } else if (nsIContent* previousSibling = HTMLEditUtils::GetPreviousSibling(
-                   aElement, {WalkTreeOption::IgnoreNonEditableNode})) {
+    } else if (nsIContent* const previousSibling =
+                   HTMLEditUtils::GetPreviousSibling(
+                       aElement, {LeafNodeOption::IgnoreNonEditableNode},
+                       BlockInlineCheck::UseComputedDisplayOutsideStyle)) {
       // The case of aNode being empty.  We need a br at start unless:
       // 1) previous sibling of aNode is a block, OR
       // 2) previous sibling of aNode is a br, OR
@@ -5002,7 +5037,8 @@ HTMLEditor::RemoveBlockContainerWithTransaction(Element& aElement) {
               *previousSibling, BlockInlineCheck::UseComputedDisplayStyle) &&
           !previousSibling->IsHTMLElement(nsGkAtoms::br)) {
         if (nsIContent* nextSibling = HTMLEditUtils::GetNextSibling(
-                aElement, {WalkTreeOption::IgnoreNonEditableNode})) {
+                aElement, {LeafNodeOption::IgnoreNonEditableNode},
+                BlockInlineCheck::UseComputedDisplayOutsideStyle)) {
           if (!HTMLEditUtils::IsBlockElement(
                   *nextSibling, BlockInlineCheck::UseComputedDisplayStyle) &&
               !nextSibling->IsHTMLElement(nsGkAtoms::br)) {
@@ -5035,7 +5071,7 @@ HTMLEditor::RemoveBlockContainerWithTransaction(Element& aElement) {
     NS_WARNING("HTMLEditor::RemoveContainerWithTransaction() failed");
     return unwrapBlockElementResult;
   }
-  trackPointToPutCaret.FlushAndStopTracking();
+  trackPointToPutCaret.Flush(StopTracking::Yes);
   if (AllowsTransactionsToChangeSelection() &&
       unwrapBlockElementResult.inspect().IsSet()) {
     pointToPutCaret = unwrapBlockElementResult.unwrap();
@@ -6667,16 +6703,14 @@ HTMLEditor::CopyLastEditableChildStylesWithTransaction(
 
   // Look for the deepest last editable leaf node in aPreviousBlock.
   // Then, if found one is a <br> element, look for non-<br> element.
-  nsIContent* deepestEditableContent = nullptr;
-  for (nsCOMPtr<nsIContent> child = &aPreviousBlock; child;
-       child = HTMLEditUtils::GetLastChild(
-           *child, {WalkTreeOption::IgnoreNonEditableNode})) {
-    deepestEditableContent = child;
-  }
+  nsIContent* deepestEditableContent = HTMLEditUtils::GetPreviousLeafContent(
+      EditorRawDOMPoint::AtEndOf(aPreviousBlock),
+      {LeafNodeOption::IgnoreNonEditableNode},
+      BlockInlineCheck::UseComputedDisplayOutsideStyle);
   while (deepestEditableContent &&
          deepestEditableContent->IsHTMLElement(nsGkAtoms::br)) {
-    deepestEditableContent = HTMLEditUtils::GetPreviousContent(
-        *deepestEditableContent, {WalkTreeOption::IgnoreNonEditableNode},
+    deepestEditableContent = HTMLEditUtils::GetPreviousLeafContent(
+        *deepestEditableContent, {LeafNodeOption::IgnoreNonEditableNode},
         BlockInlineCheck::UseComputedDisplayOutsideStyle, &aEditingHost);
   }
   if (!deepestEditableContent) {

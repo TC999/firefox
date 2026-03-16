@@ -11,22 +11,23 @@ use crate::applicable_declarations::ApplicableDeclarationBlock;
 use crate::context::SharedStyleContext;
 #[cfg(feature = "gecko")]
 use crate::context::UpdateAnimationsTasks;
-use crate::data::ElementData;
-use crate::media_queries::Device;
+use crate::data::{ElementData, ElementDataMut, ElementDataRef};
+use crate::device::Device;
 use crate::properties::{AnimationDeclarations, ComputedValues, PropertyDeclarationBlock};
+use crate::selector_map::PrecomputedHashMap;
 use crate::selector_parser::{AttrValue, Lang, PseudoElement, RestyleDamage, SelectorImpl};
 use crate::shared_lock::{Locked, SharedRwLock};
 use crate::stylesheets::scope_rule::ImplicitScopeRoot;
 use crate::stylist::CascadeData;
 use crate::values::computed::Display;
 use crate::values::AtomIdent;
-use crate::{LocalName, WeakAtom};
-use atomic_refcell::{AtomicRef, AtomicRefMut};
+use crate::{LocalName, Namespace, WeakAtom};
 use dom::ElementState;
 use selectors::matching::{ElementSelectorFlags, QuirksMode, VisitedHandlingMode};
 use selectors::sink::Push;
 use selectors::{Element as SelectorsElement, OpaqueElement};
 use servo_arc::{Arc, ArcBorrow};
+use smallvec::SmallVec;
 use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -734,7 +735,7 @@ pub trait TElement:
     ///
     /// Unsafe because it can race to allocate and leak if not used with
     /// exclusive access to the element.
-    unsafe fn ensure_data(&self) -> AtomicRefMut<'_, ElementData>;
+    unsafe fn ensure_data(&self) -> ElementDataMut<'_>;
 
     /// Clears the element data reference, if any.
     ///
@@ -745,10 +746,10 @@ pub trait TElement:
     fn has_data(&self) -> bool;
 
     /// Immutably borrows the ElementData.
-    fn borrow_data(&self) -> Option<AtomicRef<'_, ElementData>>;
+    fn borrow_data(&self) -> Option<ElementDataRef<'_>>;
 
     /// Mutably borrows the ElementData.
-    fn mutate_data(&self) -> Option<AtomicRefMut<'_, ElementData>>;
+    fn mutate_data(&self) -> Option<ElementDataMut<'_>>;
 
     /// Whether we should skip any root- or item-based display property
     /// blockification on this element.  (This function exists so that Gecko
@@ -799,6 +800,11 @@ pub trait TElement:
         };
         return data.hint.has_animation_hint();
     }
+
+    /// Called when a highlight pseudo-element (::selection, ::highlight,
+    /// ::target-text) style is invalidated. These pseudos need explicit repaint
+    /// triggering since their styles are resolved lazily during painting.
+    fn note_highlight_pseudo_style_invalidated(&self) {}
 
     /// The shadow root this element is a host of.
     fn shadow_root(&self) -> Option<<Self::ConcreteNode as TNode>::ConcreteShadowRoot>;
@@ -984,15 +990,64 @@ pub trait TElement:
 /// The attribute provider trait
 pub trait AttributeProvider {
     /// Return the value of the given custom attibute if it exists.
-    fn get_attr(&self, attr: &LocalName) -> Option<String>;
+    fn get_attr(&self, attr: &LocalName, namespace: &Namespace) -> Option<String>;
+}
+
+/// A set of the attributes used to compute a style that uses `attr()`
+pub type AttributeReferences = Option<Box<PrecomputedHashMap<LocalName, SmallVec<[Namespace; 1]>>>>;
+
+/// A data structure to keep track of the names queried from a provider.
+pub struct AttributeTracker<'a> {
+    /// The element that queries for attributes.
+    pub provider: &'a dyn AttributeProvider,
+    /// The set of attributes we have queried.
+    pub references: AttributeReferences,
+}
+
+impl<'a> AttributeTracker<'a> {
+    /// Construct a new attribute tracker trivially.
+    pub fn new(provider: &'a dyn AttributeProvider) -> Self {
+        Self {
+            provider,
+            references: None,
+        }
+    }
+
+    /// Consstruct a new dummy attribute tracker
+    pub fn new_dummy() -> Self {
+        Self {
+            provider: &DummyAttributeProvider {},
+            references: None,
+        }
+    }
+
+    /// Extract the queried references and consume self
+    pub fn finalize(self) -> AttributeReferences {
+        self.references
+    }
+
+    /// Query the value and save the name of the attribtue.
+    pub fn query(&mut self, name: &LocalName, namespace: &Namespace) -> Option<String> {
+        // We need to save namespaces in case we are thinking of sharing this element's
+        // style with another.
+        // i.e if elment a has ns1::attr="blue"
+        // and element b has ns2::attr="blue"
+        // a and b can only share style if ns1 and ns2 resolve to the same namespace.
+        self.references
+            .get_or_insert_default()
+            .entry(name.clone())
+            .or_default()
+            .push(namespace.clone());
+        self.provider.get_attr(name, namespace)
+    }
 }
 
 /// A dummy AttributeProvider that returns none to any attribute query.
 #[derive(Clone, Debug, PartialEq)]
-pub struct DummyAttributeProvider;
+struct DummyAttributeProvider;
 
 impl AttributeProvider for DummyAttributeProvider {
-    fn get_attr(&self, _attr: &LocalName) -> Option<String> {
+    fn get_attr(&self, _attr: &LocalName, _namespace: &Namespace) -> Option<String> {
         None
     }
 }

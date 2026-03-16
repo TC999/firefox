@@ -20,6 +20,7 @@ import mozilla.components.browser.engine.gecko.cookiebanners.GeckoCookieBannersS
 import mozilla.components.browser.engine.gecko.cookiebanners.ReportSiteDomainsRepository
 import mozilla.components.browser.engine.gecko.fetch.GeckoViewFetchClient
 import mozilla.components.browser.engine.gecko.permission.GeckoSitePermissionsStorage
+import mozilla.components.browser.engine.gecko.util.EngineDownloadDelegate
 import mozilla.components.browser.icons.BrowserIcons
 import mozilla.components.browser.session.storage.SessionStorage
 import mozilla.components.browser.state.engine.EngineMiddleware
@@ -40,8 +41,6 @@ import mozilla.components.concept.engine.mediaquery.PreferredColorScheme
 import mozilla.components.concept.fetch.Client
 import mozilla.components.feature.awesomebar.provider.SessionAutocompleteProvider
 import mozilla.components.feature.customtabs.store.CustomTabsServiceStore
-import mozilla.components.feature.downloads.DateTimeProvider
-import mozilla.components.feature.downloads.DefaultDateTimeProvider
 import mozilla.components.feature.downloads.DefaultFileSizeFormatter
 import mozilla.components.feature.downloads.DownloadEstimator
 import mozilla.components.feature.downloads.DownloadMiddleware
@@ -84,6 +83,8 @@ import mozilla.components.service.digitalassetlinks.local.StatementApi
 import mozilla.components.service.digitalassetlinks.local.StatementRelationChecker
 import mozilla.components.service.location.LocationService
 import mozilla.components.service.location.MozillaLocationService
+import mozilla.components.service.mars.MacTopSitesProvider
+import mozilla.components.service.mars.MacTopSitesRequestConfig
 import mozilla.components.service.mars.MarsTopSitesProvider
 import mozilla.components.service.mars.MarsTopSitesRequestConfig
 import mozilla.components.service.mars.NEW_TAB_TILE_1_PLACEMENT_KEY
@@ -92,9 +93,7 @@ import mozilla.components.service.mars.Placement
 import mozilla.components.service.mars.contile.ContileTopSitesUpdater
 import mozilla.components.service.pocket.ContentRecommendationsRequestConfig
 import mozilla.components.service.pocket.PocketStoriesConfig
-import mozilla.components.service.pocket.PocketStoriesRequestConfig
 import mozilla.components.service.pocket.PocketStoriesService
-import mozilla.components.service.pocket.Profile
 import mozilla.components.service.pocket.mars.api.MarsSpocsRequestConfig
 import mozilla.components.service.pocket.mars.api.NEW_TAB_SPOCS_PLACEMENT_KEY
 import mozilla.components.service.sync.autofill.AutofillCreditCardsAddressesStorage
@@ -103,6 +102,9 @@ import mozilla.components.support.base.worker.Frequency
 import mozilla.components.support.ktx.android.content.appVersionName
 import mozilla.components.support.ktx.android.content.res.readJSONObject
 import mozilla.components.support.locale.LocaleManager
+import mozilla.components.support.utils.DateTimeProvider
+import mozilla.components.support.utils.DefaultDateTimeProvider
+import mozilla.components.support.utils.DefaultDownloadFileUtils
 import mozilla.components.support.utils.RunWhenReadyQueue
 import org.mozilla.fenix.AppRequestInterceptor
 import org.mozilla.fenix.BuildConfig
@@ -127,13 +129,19 @@ import org.mozilla.fenix.nimbus.FxNimbus
 import org.mozilla.fenix.perf.StrictModeManager
 import org.mozilla.fenix.perf.lazyMonitored
 import org.mozilla.fenix.settings.advanced.getSelectedLocale
+import org.mozilla.fenix.settings.downloads.DownloadLocationManager
 import org.mozilla.fenix.share.DefaultSentFromFirefoxManager
 import org.mozilla.fenix.share.DefaultSentFromStorage
 import org.mozilla.fenix.share.SaveToPDFMiddleware
+import org.mozilla.fenix.summarization.eligibility.DefaultSummarizationEligibilityChecker
+import org.mozilla.fenix.summarization.eligibility.SummarizationEligibilityChecker
+import org.mozilla.fenix.summarization.onboarding.FenixSummarizationFeatureConfiguration
+import org.mozilla.fenix.summarization.onboarding.SummarizationFeatureDiscoveryConfiguration
+import org.mozilla.fenix.tabgroups.storage.redux.middleware.TabGroupMiddleware
+import org.mozilla.fenix.tabgroups.storage.repository.DefaultTabGroupRepository
 import org.mozilla.fenix.telemetry.TelemetryMiddleware
 import org.mozilla.fenix.utils.getUndoDelay
 import org.mozilla.geckoview.GeckoRuntime
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 import mozilla.components.service.pocket.mars.api.Placement as MarsSpocsPlacement
 
@@ -198,7 +206,13 @@ class Core(
             lnaFeatureEnabled = context.settings().isLnaFeatureEnabled,
             lnaTrackerBlockingEnabled = context.settings().isLnaTrackerBlockingEnabled,
             crliteChannel = FxNimbus.features.pki.value().crliteChannel,
-        )
+            downloadDelegate = EngineDownloadDelegate(
+                context = context,
+                downloadLocation = {
+                    DownloadLocationManager(context).defaultLocation
+                },
+            ),
+            )
 
         // Apply fingerprinting protection overrides if the feature is enabled in Nimbus
         if (FxNimbus.features.fingerprintingProtection.value().enabled) {
@@ -233,9 +247,9 @@ class Core(
         }
 
         GeckoEngine(
-            context,
-            defaultSettings,
-            geckoRuntime,
+            context = context,
+            defaultSettings = defaultSettings,
+            runtime = geckoRuntime,
         ).also {
             WebCompatFeature.install(it)
         }
@@ -327,6 +341,12 @@ class Core(
                     deleteFileFromStorage = {
                        context.settings().shouldCleanUpDownloadsAutomatically()
                     },
+                    downloadFileUtils = DefaultDownloadFileUtils(
+                        context = context.applicationContext,
+                        downloadLocation = {
+                            DownloadLocationManager(context.applicationContext).defaultLocation
+                        },
+                    ),
                 ),
                 ReaderViewMiddleware(),
                 TelemetryMiddleware(context, context.settings(), metrics, crashReporter),
@@ -367,6 +387,7 @@ class Core(
                     homepageTitle = context.getString(R.string.tab_tray_homepage_tab),
                 ),
                 BrowserVisualCompletenessMiddleware(visualCompletenessQueue),
+                TabGroupMiddleware(tabGroupRepository = tabGroupRepository),
             )
 
         BrowserStore(
@@ -392,10 +413,11 @@ class Core(
                         rootStorageDirectory = context.filesDir,
                         readJson = readJson,
                         collectionName = COLLECTION_NAME,
-                        serverUrl = if (context.settings().useProductionRemoteSettingsServer) {
-                            REMOTE_PROD_ENDPOINT_URL
-                        } else {
-                            REMOTE_STAGE_ENDPOINT_URL
+                        serverUrl = when (context.settings().remoteSettingsServer) {
+                            context.getString(R.string.remote_settings_server_prod) -> REMOTE_PROD_ENDPOINT_URL
+                            context.getString(R.string.remote_settings_server_dev) -> REMOTE_DEV_ENDPOINT_URL
+                            context.getString(R.string.remote_settings_server_stage) -> REMOTE_STAGE_ENDPOINT_URL
+                            else -> REMOTE_PROD_ENDPOINT_URL
                         },
                     ).updateProviderList()
                 }
@@ -559,19 +581,6 @@ class Core(
         PocketStoriesConfig(
             client,
             Frequency(4, TimeUnit.HOURS),
-            Profile(
-                profileId = UUID.fromString(context.settings().pocketSponsoredStoriesProfileId),
-                appId = BuildConfig.POCKET_CONSUMER_KEY,
-            ),
-            sponsoredStoriesParams = if (context.settings().useCustomConfigurationForSponsoredStories) {
-                PocketStoriesRequestConfig(
-                    context.settings().pocketSponsoredStoriesSiteId,
-                    context.settings().pocketSponsoredStoriesCountry,
-                    context.settings().pocketSponsoredStoriesCity,
-                )
-            } else {
-                PocketStoriesRequestConfig()
-            },
             contentRecommendationsParams = ContentRecommendationsRequestConfig(
                 locale = LocaleManager.getSelectedLocale(context).toLanguageTag(),
             ),
@@ -611,11 +620,28 @@ class Core(
         )
     }
 
+    val macTopSitesProvider by lazyMonitored {
+        MacTopSitesProvider(
+            adsClientProvider = context.components.ads.lazyAdsClientProvider,
+            requestConfig = MacTopSitesRequestConfig(
+                placements = listOf(
+                    NEW_TAB_TILE_1_PLACEMENT_KEY,
+                    NEW_TAB_TILE_2_PLACEMENT_KEY,
+                ),
+            ),
+            crashReporter = crashReporter,
+        )
+    }
+
     @Suppress("MagicNumber")
     val contileTopSitesUpdater by lazyMonitored {
         ContileTopSitesUpdater(
             context = context,
-            provider = marsTopSitesProvider,
+            provider = if (context.settings().enableMozillaAdsClient) {
+                macTopSitesProvider
+            } else {
+                marsTopSitesProvider
+            },
             frequency = Frequency(3, TimeUnit.HOURS),
         )
     }
@@ -624,7 +650,11 @@ class Core(
         DefaultTopSitesStorage(
             pinnedSitesStorage = pinnedSiteStorage,
             historyStorage = historyStorage,
-            topSitesProvider = marsTopSitesProvider,
+            topSitesProvider = if (context.settings().enableMozillaAdsClient) {
+                macTopSitesProvider
+            } else {
+                marsTopSitesProvider
+            },
         )
     }
 
@@ -633,6 +663,23 @@ class Core(
     val webAppManifestStorage by lazyMonitored { ManifestStorage(context) }
 
     val loginExceptionStorage by lazyMonitored { LoginExceptionStorage(context) }
+
+    /**
+     * Fenix implementation of [SummarizationFeatureDiscoveryConfiguration]
+     * backed by [org.mozilla.fenix.utils.Settings]
+     */
+    val summarizeFeatureSettings: FenixSummarizationFeatureConfiguration by lazyMonitored {
+        FenixSummarizationFeatureConfiguration(settings = context.components.settings)
+    }
+
+    val tabGroupRepository by lazyMonitored { DefaultTabGroupRepository(context) }
+
+    /**
+     * Summarization eligibility checker
+     */
+    val summarizationEligibilityChecker: SummarizationEligibilityChecker by lazyMonitored {
+        DefaultSummarizationEligibilityChecker()
+    }
 
     /**
      * Shared Preferences that encrypt/decrypt using Android KeyStore and lib-dataprotect for 23+
@@ -714,5 +761,6 @@ class Core(
         const val COLLECTION_NAME = "search-telemetry-v2"
         internal const val REMOTE_PROD_ENDPOINT_URL = "https://firefox.settings.services.mozilla.com"
         internal const val REMOTE_STAGE_ENDPOINT_URL = "https://firefox.settings.services.allizom.org"
+        internal const val REMOTE_DEV_ENDPOINT_URL = "https://remote-settings-dev.allizom.org"
     }
 }

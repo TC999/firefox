@@ -90,6 +90,7 @@
 #include "prthread.h"
 #include "xpcpublic.h"
 #if defined(MOZ_MEMORY)
+#  include "mozilla/TaskController.h"
 #  include "mozmemory.h"
 #endif
 
@@ -1264,7 +1265,11 @@ void nsJSContext::EndCycleCollectionCallback(
   else if (
       StaticPrefs::
           dom_memory_foreground_content_processes_have_larger_page_cache()) {
-    jemalloc_free_dirty_pages();
+    if (auto* tc = TaskController::Get()) {
+      tc->RequestIdleMemoryCleanup("CC completed");
+    } else {
+      jemalloc_free_dirty_pages();
+    }
   }
 #endif
 }
@@ -1541,7 +1546,11 @@ static void DOMGCSliceCallback(JSContext* aCx, JS::GCProgress aProgress,
       if (freeDirty &&
           StaticPrefs::
               dom_memory_foreground_content_processes_have_larger_page_cache()) {
-        jemalloc_free_dirty_pages();
+        if (auto* tc = TaskController::Get()) {
+          tc->RequestIdleMemoryCleanup("GC completed");
+        } else {
+          jemalloc_free_dirty_pages();
+        }
       }
 #endif
       break;
@@ -1806,8 +1815,9 @@ void nsJSContext::EnsureStatics() {
 
   JS::SetCreateGCSliceBudgetCallback(jsapi.cx(), CreateGCSliceBudget);
 
-  JS::InitDispatchsToEventLoop(jsapi.cx(), DispatchToEventLoop,
-                               DelayedDispatchToEventLoop, nullptr);
+  JS::InitAsyncTaskCallbacks(jsapi.cx(), DispatchToEventLoop,
+                             DelayedDispatchToEventLoop, nullptr, nullptr,
+                             nullptr);
 
   JS::InitConsumeStreamCallback(jsapi.cx(), ConsumeStream,
                                 FetchUtil::ReportJSStreamError);
@@ -1860,6 +1870,13 @@ void nsJSContext::EnsureStatics() {
       SetMemoryPrefChangedCallbackInt,
       "javascript.options.mem.gc_max_parallel_marking_threads",
       (void*)JSGC_MAX_MARKING_THREADS);
+
+#ifdef JS_GC_CONCURRENT_MARKING
+  Preferences::RegisterCallbackAndCall(
+      SetMemoryPrefChangedCallbackBool,
+      "javascript.options.mem.gc_experimental_concurrent_marking",
+      (void*)JSGC_CONCURRENT_MARKING_ENABLED);
+#endif
 
   Preferences::RegisterCallbackAndCall(
       SetMemoryGCSliceTimePrefChangedCallback,

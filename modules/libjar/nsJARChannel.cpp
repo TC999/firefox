@@ -247,7 +247,7 @@ nsresult nsJARChannel::CreateJarInput(nsIZipReaderCache* jarCache,
     if (NS_FAILED(rv)) return rv;
 
     if (mInnerJarEntry.IsEmpty())
-      reader = outerReader;
+      reader = std::move(outerReader);
     else {
       reader = do_CreateInstance(kZipReaderCID, &rv);
       if (NS_FAILED(rv)) return rv;
@@ -261,6 +261,9 @@ nsresult nsJARChannel::CreateJarInput(nsIZipReaderCache* jarCache,
       new nsJARInputThunk(reader, mJarEntry, jarCache != nullptr);
   rv = input->Init();
   if (NS_FAILED(rv)) {
+    if (rv == NS_ERROR_FILE_NOT_FOUND) {
+      CheckForBrokenChromeURL(mLoadInfo, mOriginalURI);
+    }
     return rv;
   }
 
@@ -916,7 +919,6 @@ static void RecordZeroLengthEvent(bool aIsSync, const nsCString& aSpec,
     };
     glean::zero_byte_load::load_properties.Record(Some(extra));
   } else if (StringEndsWith(fileName, ".js"_ns) ||
-             StringEndsWith(fileName, ".jsm"_ns) ||
              StringEndsWith(fileName, ".mjs"_ns)) {
     // We're going to skip reporting telemetry on JS loads
     // coming not from omni.ja.
@@ -1162,7 +1164,7 @@ nsJARChannel::AsyncOpen(nsIStreamListener* aListener) {
   // Initialize mProgressSink
   NS_QueryNotificationCallbacks(mCallbacks, mLoadGroup, mProgressSink);
 
-  mListener = listener;
+  mListener = std::move(listener);
   mIsPending = true;
 
   rv = LookupFile();

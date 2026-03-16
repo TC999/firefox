@@ -13,6 +13,7 @@ from operator import itemgetter
 
 import mozpack.path as mozpath
 from mozpack.manifests import InstallManifest
+from mozshellutil import quote as shell_quote
 
 from mozbuild import frontend
 from mozbuild.frontend.context import (
@@ -22,7 +23,6 @@ from mozbuild.frontend.context import (
     RenamedSourcePath,
     SourcePath,
 )
-from mozbuild.shellutil import quote as shell_quote
 
 from ..frontend.data import (
     BaseLibrary,
@@ -181,10 +181,9 @@ class BackendMakeFile:
             self.fh.write("NONRECURSIVE_TARGETS += export\n")
             self.fh.write("NONRECURSIVE_TARGETS_export += xpidl\n")
             self.fh.write(
-                "NONRECURSIVE_TARGETS_export_xpidl_DIRECTORY = "
-                "$(DEPTH)/xpcom/xpidl\n"
+                "NONRECURSIVE_TARGETS_export_xpidl_DIRECTORY = $(DEPTH)/xpcom/xpidl\n"
             )
-            self.fh.write("NONRECURSIVE_TARGETS_export_xpidl_TARGETS += " "export\n")
+            self.fh.write("NONRECURSIVE_TARGETS_export_xpidl_TARGETS += export\n")
 
         return self.fh.close()
 
@@ -543,21 +542,24 @@ class RecursiveMakeBackend(MakeBackend):
                 tier = "pre-compile"
             else:
                 tier = "misc"
-            relobjdir = mozpath.relpath(obj.objdir, self.environment.topobjdir)
             if tier == "pre-compile":
-                self._pre_compile.add(relobjdir)
+                self._pre_compile.add(obj.relobjdir)
             else:
-                self._no_skip[tier].add(relobjdir)
+                self._no_skip[tier].add(obj.relobjdir)
             backend_file.write_once("include $(topsrcdir)/config/AB_rCD.mk\n")
             reldir = mozpath.relpath(obj.objdir, backend_file.objdir)
             if not reldir:
                 for out in obj.outputs:
-                    out = mozpath.join(relobjdir, out)
-                    assert out not in self._target_per_file
-                    self._target_per_file[out] = (relobjdir, tier)
+                    target = mozpath.join(obj.relobjdir, out)
+                    assert target not in self._target_per_file
+                    self._target_per_file[target] = (obj.relobjdir, tier)
                 for input in obj.inputs:
                     if isinstance(input, ObjDirPath):
-                        self._post_process_dependencies.append((relobjdir, tier, input))
+                        self._post_process_dependencies.append((
+                            obj.relobjdir,
+                            tier,
+                            input,
+                        ))
             # For generated files that we handle in the top-level backend file,
             # we want to have a `directory/tier` target depending on the file.
             # For the others, we want a `tier` target.
@@ -804,7 +806,8 @@ class RecursiveMakeBackend(MakeBackend):
                 # builds.
                 for prior_target, target in pairwise(
                     sorted(
-                        [t for t in rust_roots], key=lambda t: t != self._gkrust_target
+                        [t for t in reversed(rust_roots)],
+                        key=lambda t: t != self._gkrust_target,
                     )
                 ):
                     r = root_deps_mk.create_rule([target])
@@ -1218,6 +1221,8 @@ class RecursiveMakeBackend(MakeBackend):
         backend_file.write_once("CARGO_TARGET_DIR := %s\n" % target_dir)
         backend_file.write("%s += $(DEPTH)/%s\n" % (target_variable, obj.location))
         backend_file.write("%s += %s\n" % (target_cargo_variable, obj.name))
+        if obj.features:
+            backend_file.write(f"{obj.FEATURES_VAR} := {','.join(obj.features)}\n")
 
     def _process_rust_program(self, obj, backend_file):
         self._process_rust_program_base(
@@ -1240,7 +1245,7 @@ class RecursiveMakeBackend(MakeBackend):
         self._process_non_default_target(obj, "force-cargo-test-run", backend_file)
         backend_file.write_once("CARGO_FILE := $(srcdir)/Cargo.toml\n")
         backend_file.write_once("RUST_TESTS := %s\n" % " ".join(obj.names))
-        backend_file.write_once("RUST_TEST_FEATURES := %s\n" % " ".join(obj.features))
+        backend_file.write_once(f"RUST_TEST_FEATURES := {','.join(obj.features)}\n")
 
     def _process_legacy_run_tests(self, obj, backend_file):
         self._no_skip["check"].add(backend_file.relobjdir)
@@ -1439,7 +1444,7 @@ class RecursiveMakeBackend(MakeBackend):
         backend_file.write("CARGO_TARGET_DIR := %s\n" % target_dir)
         if libdef.features:
             backend_file.write(
-                "%s := %s\n" % (libdef.FEATURES_VAR, " ".join(libdef.features))
+                f"{libdef.FEATURES_VAR} := {','.join(libdef.features)}\n"
             )
         if libdef.output_category:
             self._process_non_default_target(libdef, rust_lib, backend_file)
@@ -1456,10 +1461,7 @@ class RecursiveMakeBackend(MakeBackend):
             target_name = obj.KIND
         if target_name == "wasm":
             target_name = "target"
-        return "%s/%s" % (
-            mozpath.relpath(obj.objdir, self.environment.topobjdir),
-            target_name,
-        )
+        return f"{obj.relobjdir}/{target_name}"
 
     def _process_linked_libraries(self, obj, backend_file):
         objs, shared_libs, os_libs, static_libs = self._expand_libs(obj)
@@ -1554,8 +1556,7 @@ class RecursiveMakeBackend(MakeBackend):
                         self._compile_graph[build_target].add(
                             self._build_target_for_obj(lib)
                         )
-                relobjdir = mozpath.relpath(obj.objdir, self.environment.topobjdir)
-                objects_target = mozpath.join(relobjdir, "%s-objects" % obj.KIND)
+                objects_target = mozpath.join(obj.relobjdir, f"{obj.KIND}-objects")
                 if objects_target in self._compile_graph:
                     self._compile_graph[build_target].add(objects_target)
 
@@ -1617,9 +1618,12 @@ class RecursiveMakeBackend(MakeBackend):
                         else:
                             install_manifest.add_pattern_link(f.srcdir, f, dest_dir)
                     elif isinstance(f, AbsolutePath):
-                        if not f.full_path.lower().endswith(
-                            (".dll", ".pdb", ".so", ".dylib")
-                        ):
+                        if not f.full_path.lower().endswith((
+                            ".dll",
+                            ".pdb",
+                            ".so",
+                            ".dylib",
+                        )):
                             raise Exception(
                                 "Absolute paths installed to FINAL_TARGET_FILES must"
                                 " only be shared libraries or associated debug"
@@ -1761,16 +1765,16 @@ class RecursiveMakeBackend(MakeBackend):
                 mozpath.join("$(DEPTH)", top_level),
                 make_quote(shell_quote("manifest %s" % path)),
             ]
-            rule.add_commands(
-                ["$(call py_action,buildlist %s,%s)" % (path, " ".join(args))]
-            )
+            rule.add_commands([
+                "$(call py_action,buildlist %s,%s)" % (path, " ".join(args))
+            ])
         args = [
             mozpath.join("$(DEPTH)", obj.path),
             make_quote(shell_quote(str(obj.entry))),
         ]
-        rule.add_commands(
-            ["$(call py_action,buildlist %s,%s)" % (obj.entry.path, " ".join(args))]
-        )
+        rule.add_commands([
+            "$(call py_action,buildlist %s,%s)" % (obj.entry.path, " ".join(args))
+        ])
         fragment.dump(backend_file.fh, removal_guard=False)
 
         self._no_skip["misc"].add(obj.relsrcdir)
@@ -1853,14 +1857,17 @@ class RecursiveMakeBackend(MakeBackend):
             basename = os.path.basename(source)
             sorted_nonstatic_ipdl_basenames.append(basename)
             rule = mk.create_rule([basename])
-            rule.add_dependencies([source])
-            rule.add_commands(
-                [
-                    "$(RM) $@",
-                    "$(call py_action,preprocessor $@,$(DEFINES) $(ACDEFINES) "
-                    "$< -o $@)",
-                ]
-            )
+            rule.add_dependencies([
+                source,
+                "backend.mk",
+                "Makefile",
+                "$(DEPTH)/config/autoconf.mk",
+                "$(topsrcdir)/config/config.mk",
+            ])
+            rule.add_commands([
+                "$(RM) $@",
+                "$(call py_action,preprocessor $@,$(DEFINES) $(ACDEFINES) $< -o $@)",
+            ])
 
         mk.add_statement(
             "ALL_IPDLSRCS := %s %s"
@@ -1935,20 +1942,20 @@ class RecursiveMakeBackend(MakeBackend):
         for source in sorted(webidls.all_preprocessed_sources()):
             basename = os.path.basename(source)
             rule = mk.create_rule([basename])
-            # GLOBAL_DEPS would be used here, but due to the include order of
-            # our makefiles it's not set early enough to be useful, so we use
-            # WEBIDL_PP_DEPS, which has analagous content.
-            rule.add_dependencies([source, "$(WEBIDL_PP_DEPS)"])
-            rule.add_commands(
-                [
-                    # Remove the file before writing so bindings that go from
-                    # static to preprocessed don't end up writing to a symlink,
-                    # which would modify content in the source directory.
-                    "$(RM) $@",
-                    "$(call py_action,preprocessor $@,$(DEFINES) $(ACDEFINES) "
-                    "$< -o $@)",
-                ]
-            )
+            rule.add_dependencies([
+                source,
+                "backend.mk",
+                "Makefile",
+                "$(DEPTH)/config/autoconf.mk",
+                "$(topsrcdir)/config/config.mk",
+            ])
+            rule.add_commands([
+                # Remove the file before writing so bindings that go from
+                # static to preprocessed don't end up writing to a symlink,
+                # which would modify content in the source directory.
+                "$(RM) $@",
+                "$(call py_action,preprocessor $@,$(DEFINES) $(ACDEFINES) $< -o $@)",
+            ])
 
         self._add_unified_build_rules(
             mk,

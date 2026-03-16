@@ -6,4 +6,14 @@ support-files = [
   "head.js",
 ]
 
+["browser_tab_notes_adopt.js"]
+
+["browser_tab_notes_enable_disable.js"]
+
+["browser_tab_notes_history_pushstate.js"]
+
 ["browser_tab_notes_menu.js"]
+
+["browser_tab_notes_navigation.js"]
+
+["browser_tab_notes_telemetry.js"]

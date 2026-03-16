@@ -435,7 +435,6 @@ bool js::jit::RecompileBaselineScriptForDebugMode(
 
   // Don't destroy the old baseline script yet, since if we fail any of the
   // recompiles we need to rollback all the old baseline scripts.
-  MOZ_ASSERT(script->baselineScript()->hasDebugInstrumentation() == observing);
   return true;
 }
 
@@ -520,9 +519,8 @@ bool jit::RecompileOnStackBaselineScriptsForDebugMode(
       return false;
     }
   } else {
-    using ZoneRange = DebugAPI::ExecutionObservableSet::ZoneRange;
-    for (ZoneRange r = obs.zones()->all(); !r.empty(); r.popFront()) {
-      if (!InvalidateScriptsInZone(cx, r.front(), entries)) {
+    for (auto iter = obs.zones()->iter(); !iter.done(); iter.next()) {
+      if (!InvalidateScriptsInZone(cx, iter.get(), entries)) {
         return false;
       }
     }

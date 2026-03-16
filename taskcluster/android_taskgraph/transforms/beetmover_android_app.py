@@ -11,7 +11,6 @@ from gecko_taskgraph.transforms.task import (
     task_description_schema as gecko_task_description_schema,
 )
 from taskgraph.transforms.base import TransformSequence
-from taskgraph.transforms.task import task_description_schema
 from taskgraph.util.schema import optionally_keyed_by, resolve_keyed_by
 from voluptuous import ALLOW_EXTRA, Optional, Required, Schema
 
@@ -25,9 +24,9 @@ beetmover_description_schema = Schema(
         Required("name"): str,
         Required("worker"): {"upstream-artifacts": [dict]},
         # treeherder is allowed here to override any defaults we use for beetmover.
-        Optional("treeherder"): task_description_schema["treeherder"],
-        Optional("attributes"): task_description_schema["attributes"],
-        Optional("dependencies"): task_description_schema["dependencies"],
+        Optional("treeherder"): gecko_task_description_schema["treeherder"],
+        Optional("attributes"): gecko_task_description_schema["attributes"],
+        Optional("dependencies"): gecko_task_description_schema["dependencies"],
         Optional("bucket-scope"): optionally_keyed_by("level", "build-type", str),
         Optional("run-on-repo-type"): gecko_task_description_schema["run-on-repo-type"],
     },
@@ -102,15 +101,13 @@ def make_task_worker(config, tasks):
         locale = task["attributes"].get("locale")
         build_type = task["attributes"]["build-type"]
 
-        task["worker"].update(
-            {
-                "implementation": "beetmover",
-                "release-properties": craft_release_properties(config, task),
-                "artifact-map": generate_beetmover_artifact_map(
-                    config, task, platform=build_type, locale=locale
-                ),
-            }
-        )
+        task["worker"].update({
+            "implementation": "beetmover",
+            "release-properties": craft_release_properties(config, task),
+            "artifact-map": generate_beetmover_artifact_map(
+                config, task, platform=build_type, locale=locale
+            ),
+        })
 
         if locale:
             task["worker"]["locale"] = locale

@@ -20,7 +20,7 @@ static inline bool profiler_thread_is_profiling_runnables() {
          profiler_is_perfetto_tracing();
 }
 
-#if !defined(MOZ_GECKO_PROFILER) || !defined(MOZ_COLLECTING_RUNNABLE_TELEMETRY)
+#if !defined(MOZ_COLLECTING_RUNNABLE_TELEMETRY)
 #  define AUTO_PROFILE_FOLLOWING_RUNNABLE(runnable)
 #else
 #  define AUTO_PROFILE_FOLLOWING_RUNNABLE(runnable)                  \
@@ -38,10 +38,18 @@ struct RunnableMarker : BaseMarkerType<RunnableMarker> {
 
   using MS = MarkerSchema;
   static constexpr MS::PayloadField PayloadFields[] = {
-      {"name", MS::InputType::CString, "Runnable Name", MS::Format::String,
-       MS::PayloadFlags::Searchable},
-      {"runnable", MS::InputType::Uint64, "Runnable",
-       MS::Format::TerminatingFlow, MS::PayloadFlags::Searchable},
+      {
+          "name",
+          MS::InputType::CString,
+          "Runnable Name",
+          MS::Format::String,
+      },
+      {
+          "runnable",
+          MS::InputType::Uint64,
+          "Runnable",
+          MS::Format::TerminatingFlow,
+      },
   };
 
   static constexpr MS::Location Locations[] = {MS::Location::MarkerChart,

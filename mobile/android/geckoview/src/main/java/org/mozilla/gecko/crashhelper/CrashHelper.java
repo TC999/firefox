@@ -13,6 +13,7 @@ import android.os.Binder;
 import android.os.DeadObjectException;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
+import android.os.Process;
 import android.os.RemoteException;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -53,7 +54,8 @@ public final class CrashHelper extends Service {
       // "steal" the crash report of another main process. We should add
       // additional separation within the crash generation code to prevent this
       // from happening even though it's very unlikely.
-      CrashHelper.crash_generator(breakpadFd.detachFd(), minidumpPath, serverFd.detachFd());
+      CrashHelper.crash_generator(
+          Process.myPid(), breakpadFd.detachFd(), minidumpPath, serverFd.detachFd());
 
       return false;
     }
@@ -120,27 +122,18 @@ public final class CrashHelper extends Service {
         throws IOException {
       mBreakpadClient = ParcelFileDescriptor.dup(breakpadClientFd);
       mBreakpadServer = ParcelFileDescriptor.dup(breakpadServerFd);
-      if (!CrashHelper.set_breakpad_opts(mBreakpadServer.getFd())) {
-        throw new IOException("Could not set the proper options on the Breakpad socket");
-      }
       mClient = ParcelFileDescriptor.dup(clientFd);
       mServer = ParcelFileDescriptor.dup(serverFd);
     }
   }
 
-  // This builds five sockets used for communication between Gecko and the
-  // crash helper process. The first two are a socket pair identical to the one
-  // created via a call to
+  // This builds the sockets used for communication between Gecko and the crash
+  // helper process. The first two are consistent with the ones created via
   // google_breakpad::CrashGenerationServer::CreateReportChannel(), so we can
   // use them Breakpad's crash generation server & clients. The rest are
   // specific to the crash helper process.
   public static Pipes createCrashHelperPipes(final Context context) {
     try {
-      // We can't set the required socket options for the Breakpad server socket
-      // so we delegate those parts to native functions in
-      // crashhelper_android.cpp.
-      GeckoLoader.doLoadLibrary(null, "crashhelper");
-
       final FileDescriptor breakpad_client_fd = new FileDescriptor();
       final FileDescriptor breakpad_server_fd = new FileDescriptor();
       Os.socketpair(
@@ -149,6 +142,8 @@ public final class CrashHelper extends Service {
           0,
           breakpad_client_fd,
           breakpad_server_fd);
+      Os.setsockoptInt(breakpad_server_fd, OsConstants.SOL_SOCKET, OsConstants.SO_PASSCRED, 1);
+
       final FileDescriptor client_fd = new FileDescriptor();
       final FileDescriptor server_fd = new FileDescriptor();
       Os.socketpair(OsConstants.AF_UNIX, OsConstants.SOCK_SEQPACKET, 0, client_fd, server_fd);
@@ -174,7 +169,6 @@ public final class CrashHelper extends Service {
   // `stopWithTask` flag set in the manifest, so the service manager will
   // tear it down for us.
 
-  protected static native void crash_generator(int breakpadFd, String minidumpPath, int serverFd);
-
-  protected static native boolean set_breakpad_opts(int breakpadFd);
+  protected static native void crash_generator(
+      int clientPid, int breakpadFd, String minidumpPath, int serverFd);
 }

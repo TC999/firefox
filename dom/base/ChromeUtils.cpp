@@ -14,7 +14,8 @@
 #include "js/CallAndConstruct.h"  // JS::Call
 #include "js/CharacterEncoding.h"
 #include "js/ColumnNumber.h"  // JS::TaggedColumnNumberOneOrigin, JS::ColumnNumberOneOrigin
-#include "js/Date.h"                // JS::IsISOStyleDate
+#include "js/Date.h"  // JS::IsISOStyleDate
+#include "js/JSON.h"
 #include "js/Object.h"              // JS::GetClass
 #include "js/PropertyAndElement.h"  // JS_DefineProperty, JS_DefinePropertyById, JS_Enumerate, JS_GetProperty, JS_GetPropertyById, JS_SetProperty, JS_SetPropertyById, JS::IdVector
 #include "js/PropertyDescriptor.h"  // JS::PropertyDescriptor, JS_GetOwnPropertyDescriptorById
@@ -223,10 +224,78 @@ void ChromeUtils::ReleaseAssert(GlobalObject& aGlobal, bool aCondition,
 }
 
 /* static */
+void ChromeUtils::RegisterMarkerSchema(GlobalObject& aGlobal,
+                                       JS::Handle<JSObject*> aSchema,
+                                       ErrorResult& aRv) {
+  JSContext* cx = aGlobal.Context();
+  JS::Rooted<JSObject*> schemaObj(cx, aSchema);
+
+  JS::Rooted<JS::Value> nameVal(cx);
+  if (!JS_GetProperty(cx, schemaObj, "name", &nameVal) || !nameVal.isString()) {
+    aRv.ThrowTypeError("Schema must contain a 'name' field (string)");
+    return;
+  }
+
+  JS::Rooted<JSString*> nameStr(cx, nameVal.toString());
+  nsAutoJSString schemaName;
+  if (!schemaName.init(cx, nameStr)) {
+    aRv.ThrowTypeError("Failed to extract schema name");
+    return;
+  }
+
+  nsString jsonString;
+
+  auto callback = [](const char16_t* buf, uint32_t len, void* data) {
+    static_cast<nsString*>(data)->Append(buf, len);
+    return true;
+  };
+
+  if (!JS::ToJSONMaybeSafely(cx, schemaObj, callback, &jsonString)) {
+    aRv.ThrowTypeError("Failed to serialize schema");
+    return;
+  }
+
+  NS_ConvertUTF16toUTF8 schemaNameUTF8(schemaName);
+  profiler_register_marker_schema(schemaNameUTF8, jsonString);
+}
+
+// Wrapper marker type for custom markers from JavaScript.
+// Uses an empty name for two reasons:
+// 1. Avoids writing a "type" field in marker data (the user's type wins)
+// 2. Prevents this wrapper's schema from appearing in profile.meta.markerSchema
+//    (empty-name markers are filtered out during schema streaming)
+struct JSCustomMarker : public ::mozilla::BaseMarkerType<JSCustomMarker> {
+  static constexpr const char* Name = "";
+  static constexpr bool StoreName = true;
+
+  using MS = ::mozilla::MarkerSchema;
+
+  static constexpr MS::PayloadField PayloadFields[] = {};
+  static constexpr MS::Location Locations[] = {MS::Location::MarkerChart,
+                                               MS::Location::MarkerTable};
+
+  static void StreamJSONMarkerData(baseprofiler::SpliceableJSONWriter& aWriter,
+                                   const ProfilerString8View& aJSON) {
+    // Splice the user's JSON properties directly into the marker data.
+    // By setting Name = "" above, we avoid having the profiler infrastructure
+    // write its own "type" field, so the only "type" field comes from the
+    // user's data object (e.g., "CustomMarker").
+    auto stringView = aJSON.StringView();
+    const char* data = stringView.data();
+    size_t length = stringView.length();
+
+    if (length >= 2 && data[0] == '{' && data[length - 1] == '}') {
+      // Skip the opening '{' and closing '}'
+      aWriter.Splice(data + 1, length - 2);
+    }
+  }
+};
+
+/* static */
 void ChromeUtils::AddProfilerMarker(
     GlobalObject& aGlobal, const nsACString& aName,
     const ProfilerMarkerOptionsOrDouble& aOptions,
-    const Optional<nsACString>& aText) {
+    const Optional<UTF8StringOrObject>& aData) {
   if (!profiler_thread_is_being_profiled_for_markers()) {
     return;
   }
@@ -292,10 +361,35 @@ void ChromeUtils::AddProfilerMarker(
 
   {
     AUTO_PROFILER_STATS(ChromeUtils_AddProfilerMarker);
-    if (aText.WasPassed()) {
-      profiler_add_marker(aName, category, std::move(options),
-                          ::geckoprofiler::markers::TextMarker{},
-                          aText.Value());
+    if (aData.WasPassed()) {
+      const auto& data = aData.Value();
+
+      if (data.IsUTF8String()) {
+        profiler_add_marker(aName, category, std::move(options),
+                            ::geckoprofiler::markers::TextMarker{},
+                            data.GetAsUTF8String());
+      } else {
+        JSContext* cx = aGlobal.Context();
+        JS::Rooted<JS::Value> objValue(cx,
+                                       JS::ObjectValue(*data.GetAsObject()));
+
+        nsString jsonString;
+        auto callback = [](const char16_t* buf, uint32_t len, void* d) {
+          static_cast<nsString*>(d)->Append(buf, len);
+          return true;
+        };
+
+        JS::Rooted<JSObject*> obj(cx, &objValue.toObject());
+        if (!JS::ToJSONMaybeSafely(cx, obj, callback, &jsonString)) {
+          return;
+        }
+
+        NS_ConvertUTF16toUTF8 jsonUTF8(jsonString);
+
+        profiler_add_marker(
+            aName, category, std::move(options), JSCustomMarker{},
+            ProfilerString8View::WrapNullTerminatedString(jsonUTF8.get()));
+      }
     } else {
       profiler_add_marker(aName, category, std::move(options));
     }
@@ -707,6 +801,10 @@ void ChromeUtils::ImportESModule(
   nsresult rv =
       moduleloader->ImportESModule(cx, registryLocation, &moduleNamespace);
   if (NS_FAILED(rv)) {
+    if (maybeSyncLoaderScope) {
+      // Import error itself should be propagated.
+      maybeSyncLoaderScope->Finish();
+    }
     aRv.Throw(rv);
     return;
   }
@@ -924,6 +1022,10 @@ static bool ESModuleGetter(JSContext* aCx, unsigned aArgc, JS::Value* aVp) {
   JS::Rooted<JSObject*> moduleNamespace(aCx);
   nsresult rv = moduleloader->ImportESModule(aCx, uri, &moduleNamespace);
   if (NS_FAILED(rv)) {
+    if (maybeSyncLoaderScope) {
+      // Import error itself should be propagated.
+      maybeSyncLoaderScope->Finish();
+    }
     Throw(aCx, rv);
     return false;
   }
@@ -1076,6 +1178,11 @@ void ChromeUtils::GetLibcConstants(const GlobalObject&,
   aConsts.mO_CREAT.Construct(O_CREAT);
   aConsts.mO_NONBLOCK.Construct(O_NONBLOCK);
   aConsts.mO_WRONLY.Construct(O_WRONLY);
+#  ifdef O_CLOEXEC
+  aConsts.mO_CLOEXEC.Construct(O_CLOEXEC);
+  // In the unlikely event of a target where O_CLOEXEC isn't defined
+  // (Solaris 10?), the property will be absent in JS.
+#  endif
 
   aConsts.mPOLLERR.Construct(POLLERR);
   aConsts.mPOLLHUP.Construct(POLLHUP);
@@ -1087,6 +1194,7 @@ void ChromeUtils::GetLibcConstants(const GlobalObject&,
 
 #  ifdef XP_LINUX
   aConsts.mPR_CAPBSET_READ.Construct(PR_CAPBSET_READ);
+  aConsts.mO_PATH.Construct(O_PATH);
 #  endif
 }
 #endif
@@ -1700,6 +1808,17 @@ void ChromeUtils::InvalidateResourceCache(GlobalObject& aGlobal,
   SharedScriptCache::Invalidate();
 }
 
+void ChromeUtils::GetCachedJavaScriptSource(
+    GlobalObject& aGlobal, const nsACString& aKey, const nsACString& aURI,
+    const nsACString& aHintCharset, JS::MutableHandle<JS::Value> aRetval,
+    ErrorResult& aRv) {
+  JSContext* cx = aGlobal.Context();
+  if (!SharedScriptCache::GetCachedScriptSource(cx, aKey, aURI, aHintCharset,
+                                                aRetval)) {
+    aRv.NoteJSContextException(aGlobal.Context());
+  }
+}
+
 void ChromeUtils::ClearBfcacheByPrincipal(GlobalObject& aGlobal,
                                           nsIPrincipal* aPrincipal,
                                           ErrorResult& aRv) {
@@ -1861,10 +1980,10 @@ already_AddRefed<Promise> ChromeUtils::RequestProcInfo(GlobalObject& aGlobal,
                                                          // DOM windows.
             /* aUtilityInfo = */ std::move(utilityActors),
             /* aChild = */ 0  // Without a ContentProcess, no ChildId.
-#ifdef XP_DARWIN
+#ifdef XP_MACOSX
             ,
             /* aChildTask = */ aGeckoProcess->GetChildTask()
-#endif  // XP_DARWIN
+#endif  // XP_MACOSX
         );
       });
 
@@ -1965,10 +2084,10 @@ already_AddRefed<Promise> ChromeUtils::RequestProcInfo(GlobalObject& aGlobal,
         /* aWindowInfo = */ std::move(windows),
         /* aUtilityInfo = */ nsTArray<UtilityInfo>(),
         /* aChild = */ contentParent->ChildID()
-#ifdef XP_DARWIN
+#ifdef XP_MACOSX
             ,
         /* aChildTask = */ contentParent->Process()->GetChildTask()
-#endif  // XP_DARWIN
+#endif  // XP_MACOSX
     );
   }
 
@@ -2805,6 +2924,12 @@ void ChromeUtils::EncodeURIForSrcset(GlobalObject&, const nsACString& aIn,
   } else {
     aOut.Append(Substring(aIn, start));
   }
+}
+
+void ChromeUtils::GetLastOOMStackTrace(GlobalObject& aGlobal,
+                                       nsAString& aRetval) {
+  JSContext* cx = aGlobal.Context();
+  aRetval = NS_ConvertUTF8toUTF16(JS_GetLastOOMStackTrace(cx));
 }
 
 }  // namespace mozilla::dom

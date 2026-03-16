@@ -13,6 +13,7 @@
 
   let imports = {};
   ChromeUtils.defineESModuleGetters(imports, {
+    DeferredTask: "resource://gre/modules/DeferredTask.sys.mjs",
     ShortcutUtils: "resource://gre/modules/ShortcutUtils.sys.mjs",
   });
 
@@ -256,6 +257,8 @@
   customElements.define("deck", MozDeck);
 
   class MozTabpanels extends MozDeck {
+    static SPLIT_VIEW_RESIZE_THROTTLE_MS = 300;
+
     /**
      * Panels that are currently within an active Split View.
      *
@@ -269,10 +272,28 @@
      * @type {XULElement}
      */
     #splitViewSplitter = null;
+    #splitterWasDragging = false;
+    #splitterAriaUpdateTask = null;
+    #splitViewSplitterObserver = new MutationObserver(() => {
+      const splitterState = this.#splitViewSplitter.getAttribute("state");
+      if (splitterState === "dragging") {
+        this.#splitterWasDragging = true;
+        gBrowser.activeSplitView.resetRightPanelWidth();
+      } else {
+        const wasDragging = this.#splitterWasDragging;
+        this.#splitterWasDragging = false;
+        if (wasDragging) {
+          window.promiseDocumentFlushed(() =>
+            this.#recordSplitViewResizeTelemetry()
+          );
+        }
+        this.#splitterAriaUpdateTask.arm();
+      }
+    });
+    #splitViewSplitterKeysDown = new Set();
 
     static #SPLIT_VIEW_PANEL_EVENTS = Object.freeze([
       "click",
-      "focus",
       "mouseover",
       "mouseout",
     ]);
@@ -282,10 +303,55 @@
       this._tabbox = null;
     }
 
+    connectedCallback() {
+      super.connectedCallback();
+      this.#splitterAriaUpdateTask = new imports.DeferredTask(
+        () => this.updateSplitterAriaAttributes(),
+        0
+      );
+      window.addEventListener("SplitViewRemoved", this);
+    }
+
+    disconnectedCallback() {
+      super.disconnectedCallback();
+      this.#splitViewSplitterObserver.disconnect();
+      this.#splitterAriaUpdateTask.finalize();
+      window.removeEventListener("SplitViewRemoved", this);
+    }
+
+    #recordSplitViewResizeTelemetry() {
+      if (!this.#splitViewPanels.length) {
+        return;
+      }
+
+      const leftPanel = document.getElementById(this.#splitViewPanels[0]);
+      if (!leftPanel) {
+        return;
+      }
+
+      const leftWidth = leftPanel.getBoundingClientRect().width;
+      const totalWidth = this.getBoundingClientRect().width;
+      const widthPercentage = Math.round((leftWidth / totalWidth) * 100);
+
+      Glean.splitview.resize.record({ width: widthPercentage });
+    }
+
     handleEvent(e) {
-      const browser = e.currentTarget;
+      if (e.type === "SplitViewRemoved") {
+        this.#unthrottleSplitViewResizing();
+        return;
+      }
+      const browser =
+        e.currentTarget.tagName === "browser"
+          ? e.currentTarget
+          : e.currentTarget.querySelector("browser");
+      let elToFocus = null;
       switch (e.type) {
         case "click":
+          if (e.target.tagName !== "browser") {
+            elToFocus = e.target;
+          }
+        // falls through
         case "focus": {
           const tab = gBrowser.getTabForBrowser(browser);
           const tabstrip = this.tabbox.tabs;
@@ -296,9 +362,11 @@
           gBrowser.appendStatusPanel(browser);
           break;
         case "mouseout":
+          StatusPanel.panel.setAttribute("inactive", true);
           gBrowser.appendStatusPanel();
           break;
       }
+      elToFocus?.focus();
     }
 
     get tabbox() {
@@ -313,13 +381,90 @@
 
     get splitViewSplitter() {
       if (!this.#splitViewSplitter) {
-        const splitter = document.createXULElement("splitter");
-        splitter.className = "split-view-splitter";
-        splitter.setAttribute("resizebefore", "sibling");
-        splitter.setAttribute("resizeafter", "none");
-        this.#splitViewSplitter = splitter;
+        this.#splitViewSplitter = this.#createSplitViewSplitter();
       }
       return this.#splitViewSplitter;
+    }
+
+    #createSplitViewSplitter() {
+      const splitter = document.createXULElement("splitter");
+      splitter.className = "split-view-splitter";
+      splitter.setAttribute("resizebefore", "sibling");
+      splitter.setAttribute("resizeafter", "none");
+      splitter.setAttribute("tabindex", "0");
+      splitter.setAttribute("role", "separator");
+      splitter.setAttribute("data-l10n-id", "tab-splitview-splitter");
+      this.#splitterWasDragging = false;
+      splitter.addEventListener("command", () => {
+        gBrowser.activeSplitView.resetRightPanelWidth();
+        window.promiseDocumentFlushed(() =>
+          this.#recordSplitViewResizeTelemetry()
+        );
+        this.#splitterAriaUpdateTask.arm();
+      });
+      this.#splitViewSplitterObserver.observe(splitter, {
+        attributeFilter: ["state"],
+      });
+      splitter.addEventListener("keydown", e => {
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          this.#splitViewSplitterKeysDown.add(e.key);
+          this.#throttleSplitViewResizing();
+        }
+      });
+      splitter.addEventListener("keyup", e => {
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          this.#splitViewSplitterKeysDown.delete(e.key);
+          if (!this.#splitViewSplitterKeysDown.size) {
+            this.#unthrottleSplitViewResizing();
+          }
+        }
+      });
+      return splitter;
+    }
+
+    async updateSplitterAriaAttributes() {
+      // avoid triggering the splitter's creation here if it doesnt already exist
+      const splitter = this.#splitViewSplitter;
+      if (!splitter) {
+        return;
+      }
+      // The splitter is actively controlling the size of the left/first panel
+      const controlledPanel =
+        this.#splitViewPanels.length &&
+        document.getElementById(this.splitViewPanels[0]);
+      if (controlledPanel) {
+        splitter.setAttribute("aria-controls", controlledPanel.id);
+
+        // gather the min, max and current widths to update the aria attributes
+        const [containerWidth, currentWidth] =
+          await window.promiseDocumentFlushed(() => [
+            this.clientWidth,
+            controlledPanel.clientWidth,
+          ]);
+        const minWidth = parseFloat(getComputedStyle(controlledPanel).minWidth);
+        // We can reuse the controlled panel's minWidth to calculate maxWidth as it should be
+        // the same as the 2nd panel in the splitview
+        const maxWidth = containerWidth - minWidth;
+        // Sometimes dragging the splitter produces a panel width attribute which exceeds
+        // the max width, so lets get our own measurment. This may end up at the previous
+        // frames width
+        if (controlledPanel.hasAttribute("width")) {
+          const storedWidth = Number(controlledPanel.getAttribute("width"));
+          if (storedWidth != currentWidth) {
+            controlledPanel.setAttribute("width", currentWidth);
+            controlledPanel.style.width = currentWidth + "px";
+          }
+        }
+
+        splitter.setAttribute("aria-valuemin", String(minWidth));
+        splitter.setAttribute("aria-valuemax", String(maxWidth));
+        splitter.setAttribute("aria-valuenow", String(currentWidth));
+      } else {
+        splitter.removeAttribute("aria-controls");
+        splitter.removeAttribute("aria-valuenow");
+        splitter.removeAttribute("aria-valuemin");
+        splitter.removeAttribute("aria-valuemax");
+      }
     }
 
     /**
@@ -367,21 +512,19 @@
     }
 
     set splitViewPanels(newPanels) {
-      const oldPanels = this.#splitViewPanels;
-      for (const panel of oldPanels) {
-        this.removePanelFromSplitView(panel, false);
-      }
       for (const [i, panel] of newPanels.entries()) {
         const panelEl = document.getElementById(panel);
         panelEl?.classList.add("split-view-panel");
         panelEl?.setAttribute("column", i);
         const browser = panelEl?.querySelector("browser");
+        const browserContainer = panelEl?.querySelector(".browserContainer");
         for (const eventType of MozTabpanels.#SPLIT_VIEW_PANEL_EVENTS) {
-          browser?.addEventListener(eventType, this);
+          browserContainer?.addEventListener(eventType, this);
         }
+        browser?.addEventListener("focus", this);
       }
       this.#splitViewPanels = newPanels;
-      this.#isSplitViewActive = !!newPanels.length;
+      this.setSplitViewActive(!!newPanels.length);
     }
 
     get splitViewPanels() {
@@ -389,36 +532,144 @@
     }
 
     /**
-     * Remove split view attributes from a panel, and optionally remove it from
-     * the splitViewPanels array.
+     * Remove split view attributes from tabs and their linked panels.
      *
-     * @param {string} panel
-     * @param {boolean} [updateArray]
+     * @param {MozTabbrowserTab[]} tabs
      */
-    removePanelFromSplitView(panel, updateArray = true) {
-      const panelEl = document.getElementById(panel);
-      panelEl?.classList.remove("split-view-panel");
-      panelEl?.removeAttribute("column");
-      const browser = panelEl?.querySelector("browser");
-      for (const eventType of MozTabpanels.#SPLIT_VIEW_PANEL_EVENTS) {
-        browser?.removeEventListener(eventType, this);
-      }
-      if (updateArray) {
+    removeTabsFromSplitview(tabs) {
+      for (const tab of tabs) {
+        let panel = tab.linkedPanel;
+        const panelEl = document.getElementById(panel);
+        panelEl?.classList.remove("split-view-panel");
+        panelEl?.removeAttribute("column");
+        const browser = panelEl?.querySelector("browser");
+        const browserContainer = panelEl?.querySelector(".browserContainer");
+
+        for (const eventType of MozTabpanels.#SPLIT_VIEW_PANEL_EVENTS) {
+          browserContainer?.removeEventListener(eventType, this);
+        }
+        browser?.removeEventListener("focus", this);
         const index = this.#splitViewPanels.indexOf(panel);
+
         if (index !== -1) {
           this.#splitViewPanels.splice(index, 1);
         }
       }
-      this.#isSplitViewActive = !!this.#splitViewPanels.length;
+
+      this.setSplitViewActive(!!this.#splitViewPanels.length);
     }
 
-    set #isSplitViewActive(isActive) {
+    /**
+     * Updates attributes on panels such as the blue outline for active splitview tabs,
+     * panel ordering and aria attributes.
+     *
+     * @param {boolean} updatedValue
+     */
+    setSplitViewActive(updatedValue) {
+      let isActive = gBrowser.selectedTab.splitview && updatedValue;
       this.toggleAttribute("splitview", isActive);
       this.splitViewSplitter.hidden = !isActive;
+      const selectedPanel = this.selectedPanel;
+
+      /**
+       * Check whether `node` follows `a` in DOM order, and optionally
+       * precedes `b`.
+       *
+       * @param {Node} node - The node to test.
+       * @param {Node} a - `node` must follow this element.
+       * @param {Node} [b] - If provided, `node` must also precede this element.
+       * @returns {boolean}
+       */
+      const isBetween = (node, a, b = null) => {
+        const isAfterA = Boolean(
+          node.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_PRECEDING
+        );
+        if (!b) {
+          return isAfterA;
+        }
+        const isBeforeB = Boolean(
+          node.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING
+        );
+        return isAfterA && isBeforeB;
+      };
+
       if (isActive) {
-        // Place splitter after first panel, so that it can be resized.
+        // Ensure panels are in the correct DOM order so that focus moves
+        // as expected when tabbing across a splitview
         const firstPanel = document.getElementById(this.splitViewPanels[0]);
-        firstPanel?.after(this.#splitViewSplitter);
+        const secondPanel = document.getElementById(this.splitViewPanels[1]);
+        if (firstPanel && secondPanel) {
+          // Does secondPanel follow firstPanel? Move firstPanel before secondPanel if necessary
+          if (
+            !(
+              firstPanel.compareDocumentPosition(secondPanel) &
+              Node.DOCUMENT_POSITION_FOLLOWING
+            )
+          ) {
+            firstPanel.parentElement.moveBefore(firstPanel, secondPanel);
+          }
+        }
+        // Ensure the splitter is in-between the panels
+        if (
+          firstPanel &&
+          !isBetween(this.#splitViewSplitter, firstPanel, secondPanel)
+        ) {
+          firstPanel.after(this.#splitViewSplitter);
+        }
+      }
+      // Ensure that selected index stays up to date, in case the splitter
+      // offsets it.
+      this.selectedPanel = selectedPanel;
+      // Update aria attributes
+      this.#splitterAriaUpdateTask.arm();
+    }
+
+    setSplitViewPanelActive(isActive, panel) {
+      const panelEl = document.getElementById(panel);
+      panelEl?.classList.toggle("split-view-panel-active", isActive);
+    }
+
+    #throttleSplitViewResizing() {
+      if (!this._splitViewRenderTask || this._splitViewRenderTask.isFinalized) {
+        this.#freezeSplitViewBrowsers();
+        this._splitViewRenderTask = new imports.DeferredTask(
+          () => {
+            this.#unfreezeSplitViewBrowsers();
+            // Wait for repaint before re-freezing browsers.
+            return new Promise(resolve =>
+              requestAnimationFrame(() =>
+                Services.tm.dispatchToMainThread(() => {
+                  this.#freezeSplitViewBrowsers();
+                  resolve();
+                })
+              )
+            );
+          },
+          MozTabpanels.SPLIT_VIEW_RESIZE_THROTTLE_MS,
+          0
+        );
+      }
+      this._splitViewRenderTask.arm();
+    }
+
+    async #unthrottleSplitViewResizing() {
+      if (this._splitViewRenderTask && !this._splitViewRenderTask.isFinalized) {
+        await this._splitViewRenderTask.finalize();
+      }
+      this.#unfreezeSplitViewBrowsers();
+    }
+
+    #freezeSplitViewBrowsers() {
+      for (const browser of gBrowser.splitViewBrowsers) {
+        browser.preserveLayers(true);
+        browser.docShellIsActive = false;
+      }
+    }
+
+    #unfreezeSplitViewBrowsers() {
+      for (const browser of gBrowser.splitViewBrowsers) {
+        browser.docShellIsActive = true;
+        browser.preserveLayers(false);
       }
     }
   }

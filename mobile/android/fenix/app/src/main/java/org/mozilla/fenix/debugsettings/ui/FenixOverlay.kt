@@ -8,6 +8,8 @@ import android.content.Intent
 import android.os.StrictMode
 import android.widget.Toast
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -18,14 +20,17 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.flow.map
 import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.state.createTab
 import mozilla.components.browser.state.store.BrowserStore
+import mozilla.components.concept.integrity.IntegrityClient
 import mozilla.components.concept.storage.CreditCardsAddressesStorage
 import mozilla.components.concept.storage.LoginsStorage
-import mozilla.components.lib.state.ext.observeAsState
 import mozilla.telemetry.glean.Glean
 import org.mozilla.fenix.R
+import org.mozilla.fenix.components.ClientUUID
+import org.mozilla.fenix.components.llm.Llm
 import org.mozilla.fenix.debugsettings.addresses.AddressesDebugRegionRepository
 import org.mozilla.fenix.debugsettings.addresses.AddressesTools
 import org.mozilla.fenix.debugsettings.addresses.FakeAddressesDebugRegionRepository
@@ -39,16 +44,21 @@ import org.mozilla.fenix.debugsettings.gleandebugtools.DefaultGleanDebugToolsSto
 import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsMiddleware
 import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsState
 import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsStore
+import org.mozilla.fenix.debugsettings.llm.FakeClient
+import org.mozilla.fenix.debugsettings.llm.FakeClientUUID
+import org.mozilla.fenix.debugsettings.llm.FakeIntegrityClient
+import org.mozilla.fenix.debugsettings.llm.FakeUserIdProvider
 import org.mozilla.fenix.debugsettings.logins.FakeLoginsStorage
 import org.mozilla.fenix.debugsettings.logins.LoginsTools
 import org.mozilla.fenix.debugsettings.navigation.DebugDrawerRoute
 import org.mozilla.fenix.debugsettings.store.DebugDrawerAction
 import org.mozilla.fenix.debugsettings.store.DebugDrawerNavigationMiddleware
 import org.mozilla.fenix.debugsettings.store.DebugDrawerStore
+import org.mozilla.fenix.debugsettings.store.DebugDrawerTelemetryMiddleware
 import org.mozilla.fenix.debugsettings.store.DrawerStatus
 import org.mozilla.fenix.ext.components
+import org.mozilla.fenix.theme.DefaultThemeProvider
 import org.mozilla.fenix.theme.FirefoxTheme
-import org.mozilla.fenix.theme.Theme
 
 /**
  * Overlay for presenting Fenix-wide debugging content.
@@ -109,6 +119,9 @@ fun FenixOverlay(
             },
         creditCardsAddressesStorage = context.components.core.autofillStorage,
         inactiveTabsEnabled = inactiveTabsEnabled,
+        clientUUID = context.components.clientUUID,
+        integrityClient = context.components.integrityClient,
+        llm = context.components.llm,
     )
 }
 
@@ -121,8 +134,12 @@ fun FenixOverlay(
  * @param loginsStorage [LoginsStorage] used to access logins for [LoginsTools].
  * @param addressesDebugRegionRepository used to control storage for [AddressesTools].
  * @param creditCardsAddressesStorage used to access addresses for [AddressesTools].
+ * @param clientUUID used to test an [IntegrityClient].
+ * @param integrityClient used to test an [IntegrityClient].
+ * @param llm the component group [Llm].
  * @param inactiveTabsEnabled Whether the inactive tabs feature is enabled.
  */
+@Suppress("LongParameterList")
 @Composable
 private fun FenixOverlay(
     browserStore: BrowserStore,
@@ -131,6 +148,9 @@ private fun FenixOverlay(
     loginsStorage: LoginsStorage,
     addressesDebugRegionRepository: AddressesDebugRegionRepository,
     creditCardsAddressesStorage: CreditCardsAddressesStorage,
+    clientUUID: ClientUUID,
+    integrityClient: IntegrityClient,
+    llm: Llm,
     inactiveTabsEnabled: Boolean,
 ) {
     val navController = rememberNavController()
@@ -143,8 +163,13 @@ private fun FenixOverlay(
                     navController = navController,
                     scope = coroutineScope,
                 ),
+                DebugDrawerTelemetryMiddleware(),
             ),
         )
+    }
+
+    LaunchedEffect(Unit) {
+        debugDrawerStore.dispatch(DebugDrawerAction.ViewAppeared)
     }
 
     val debugDrawerDestinations = remember {
@@ -157,13 +182,16 @@ private fun FenixOverlay(
             loginsStorage = loginsStorage,
             addressesDebugRegionRepository = addressesDebugRegionRepository,
             creditCardsAddressesStorage = creditCardsAddressesStorage,
+            clientUUID = clientUUID,
+            integrityClient = integrityClient,
+            llm = llm,
         )
     }
-    val drawerStatus by debugDrawerStore.observeAsState(initialValue = DrawerStatus.Closed) { state ->
-        state.drawerStatus
-    }
+    val drawerStatus by remember {
+        debugDrawerStore.stateFlow.map { state -> state.drawerStatus }
+    }.collectAsState(initial = DrawerStatus.Closed)
 
-    FirefoxTheme(theme = Theme.getTheme(allowPrivateTheme = false)) {
+    FirefoxTheme(theme = DefaultThemeProvider.provideTheme()) {
         DebugOverlay(
             navController = navController,
             drawerStatus = drawerStatus,
@@ -206,5 +234,8 @@ private fun FenixOverlayPreview() {
         loginsStorage = FakeLoginsStorage(),
         addressesDebugRegionRepository = FakeAddressesDebugRegionRepository(),
         creditCardsAddressesStorage = FakeCreditCardsAddressesStorage(),
+        clientUUID = FakeClientUUID(),
+        integrityClient = IntegrityClient.testSuccess,
+        llm = Llm(FakeClient(), { null }, FakeIntegrityClient(), FakeUserIdProvider()),
     )
 }

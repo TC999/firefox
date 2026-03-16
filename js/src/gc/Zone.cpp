@@ -154,6 +154,10 @@ template class TrackedAllocPolicy<TrackingKind::Zone>;
 template class TrackedAllocPolicy<TrackingKind::Cell>;
 }  // namespace js
 
+MOZ_COLD void BufferAllocPolicy::reportAllocOverflow() const {
+  zone->reportAllocOverflow();
+}
+
 JS::Zone::Zone(JSRuntime* rt, Kind kind)
     : ZoneAllocator(rt, kind),
       arenas(this),
@@ -192,7 +196,9 @@ Zone::~Zone() {
   DebugAPI::deleteDebugScriptMap(debugScriptMap);
   js_delete(finalizationObservers_.ref().release());
 
-  MOZ_ASSERT(gcWeakMapList().isEmpty());
+  MOZ_ASSERT(gcSystemWeakMaps().isEmpty());
+  MOZ_ASSERT(gcUserWeakMaps().isEmpty());
+  MOZ_ASSERT(gcMarkedUserWeakMaps().isEmpty());
   MOZ_ASSERT(objectsWithWeakPointers.ref().empty());
 
   JSRuntime* rt = runtimeFromAnyThread();
@@ -214,17 +220,25 @@ bool Zone::init() {
   return !!regExps_.ref();
 }
 
-void Zone::setNeedsIncrementalBarrier(bool needs) {
-  needsIncrementalBarrier_ = needs;
+void Zone::setNeedsMarkingBarrier(GCRuntime* gc, bool needs) {
+  uint32_t newState = 0;
+  if (needs) {
+    newState = Incremental;
+    if (gc->isConcurrentMarkingEnabled()) {
+      newState |= Concurrent;
+    }
+  }
+
+  needsMarkingBarrier_ = newState;
 }
 
-void Zone::changeGCState(GCState prev, GCState next) {
+void Zone::changeGCState(GCRuntime* gc, GCState prev, GCState next) {
   MOZ_ASSERT(RuntimeHeapIsBusy());
   MOZ_ASSERT(gcState() == prev);
-  MOZ_ASSERT_IF(isGCMarkingOrVerifyingPreBarriers(), needsIncrementalBarrier_);
+  MOZ_ASSERT_IF(isGCMarkingOrVerifyingPreBarriers(), needsMarkingBarrier_);
 
   gcState_ = next;
-  needsIncrementalBarrier_ = isGCMarkingOrVerifyingPreBarriers();
+  setNeedsMarkingBarrier(gc, isGCMarkingOrVerifyingPreBarriers());
 }
 
 template <class Pred>
@@ -461,7 +475,7 @@ void JS::Zone::beforeClearDelegateInternal(JSObject* wrapper,
                                            JSObject* delegate) {
   // 'delegate' is no longer the delegate of 'wrapper'.
   MOZ_ASSERT(js::gc::detail::GetDelegate(wrapper) == delegate);
-  MOZ_ASSERT(needsIncrementalBarrier());
+  MOZ_ASSERT(needsMarkingBarrier());
   MOZ_ASSERT(!RuntimeFromMainThreadIsHeapMajorCollecting(this));
 
   // |wrapper| might be a key in a weak map, so trigger a barrier to account for
@@ -577,9 +591,9 @@ void Zone::addSizeOfIncludingThis(
   if (scriptCountsMap) {
     *scriptCountsMapArg +=
         scriptCountsMap->shallowSizeOfIncludingThis(mallocSizeOf);
-    for (auto r = scriptCountsMap->all(); !r.empty(); r.popFront()) {
+    for (auto iter = scriptCountsMap->iter(); !iter.done(); iter.next()) {
       *scriptCountsMapArg +=
-          r.front().value()->sizeOfIncludingThis(mallocSizeOf);
+          iter.get().value()->sizeOfIncludingThis(mallocSizeOf);
     }
   }
 }
@@ -598,7 +612,7 @@ void* ZoneAllocator::onOutOfMemory(js::AllocFunction allocFunc,
                                                 reallocPtr);
 }
 
-void ZoneAllocator::reportAllocationOverflow() const {
+void ZoneAllocator::reportAllocOverflow() const {
   js::ReportAllocationOverflow(static_cast<JSContext*>(nullptr));
 }
 
@@ -735,9 +749,8 @@ void Zone::traceScriptTableRoots(JSTracer* trc) {
   // cleared in JSRuntime::destroyRuntime() during shutdown to ensure that
   // scripts are collected before the runtime goes away completely.
   if (scriptCountsMap && trc->runtime()->profilingScripts) {
-    for (ScriptCountsMap::Range r = scriptCountsMap->all(); !r.empty();
-         r.popFront()) {
-      BaseScript* script = r.front().key();
+    for (auto iter = scriptCountsMap->iter(); !iter.done(); iter.next()) {
+      BaseScript* script = iter.get().key();
       MOZ_ASSERT(script->hasScriptCounts());
       TraceRoot(trc, &script, "profilingScripts");
     }

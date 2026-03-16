@@ -42,7 +42,6 @@ import org.mozilla.fenix.ext.nav
 import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.ext.runIfFragmentIsAttached
 import org.mozilla.fenix.ext.setTextColor
-import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.ext.showToolbar
 import org.mozilla.fenix.library.LibraryPageFragment
 import org.mozilla.fenix.library.history.History
@@ -52,7 +51,7 @@ import org.mozilla.fenix.library.historymetadata.interactor.HistoryMetadataGroup
 import org.mozilla.fenix.library.historymetadata.view.HistoryMetadataGroupView
 import org.mozilla.fenix.pbmlock.registerForVerification
 import org.mozilla.fenix.pbmlock.verifyUser
-import org.mozilla.fenix.tabstray.Page
+import org.mozilla.fenix.tabstray.redux.state.Page
 import org.mozilla.fenix.utils.allowUndo
 
 /**
@@ -134,7 +133,7 @@ class HistoryMetadataGroupFragment :
             activity?.invalidateOptionsMenu()
         }
 
-        requireContext().components.appStore.flowScoped(viewLifecycleOwner) { flow ->
+        requireContext().components.appStore.flowScoped(viewLifecycleOwner, Dispatchers.Main) { flow ->
             flow.map { state -> state.pendingDeletionHistoryItems }.collect { items ->
                 historyMetadataGroupStore.dispatch(
                     HistoryMetadataGroupFragmentAction.UpdatePendingDeletionItems(
@@ -268,29 +267,16 @@ class HistoryMetadataGroupFragment :
     }
 
     private fun showTabTray(openInPrivate: Boolean = false) {
-        if (requireContext().settings().tabManagerEnhancementsEnabled) {
-            findNavController().nav(
-                R.id.historyMetadataGroupFragment,
-                HistoryMetadataGroupFragmentDirections.actionGlobalTabManagementFragment(
-                    page = if (openInPrivate) {
-                        Page.PrivateTabs
-                    } else {
-                        Page.NormalTabs
-                    },
-                ),
-            )
-        } else {
-            findNavController().nav(
-                R.id.historyMetadataGroupFragment,
-                HistoryMetadataGroupFragmentDirections.actionGlobalTabsTrayFragment(
-                    page = if (openInPrivate) {
-                        Page.PrivateTabs
-                    } else {
-                        Page.NormalTabs
-                    },
-                ),
-            )
-        }
+        findNavController().nav(
+            R.id.historyMetadataGroupFragment,
+            HistoryMetadataGroupFragmentDirections.actionGlobalTabManagementFragment(
+                page = if (openInPrivate) {
+                    Page.PrivateTabs
+                } else {
+                    Page.NormalTabs
+                },
+            ),
+        )
     }
 
     private fun getSnackBarMessage(historyItems: Set<History.Metadata>): String {

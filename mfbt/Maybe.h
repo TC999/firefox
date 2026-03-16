@@ -146,7 +146,7 @@ class Maybe_CopyMove_Enabler;
   }
 
 template <typename T>
-class Maybe_CopyMove_Enabler<T, true, true, true> {
+class MOZ_TRIVIAL_ABI Maybe_CopyMove_Enabler<T, true, true, true> {
  public:
   Maybe_CopyMove_Enabler() = default;
 
@@ -165,7 +165,7 @@ class Maybe_CopyMove_Enabler<T, true, true, true> {
 };
 
 template <typename T>
-class Maybe_CopyMove_Enabler<T, true, false, true> {
+class MOZ_TRIVIAL_ABI Maybe_CopyMove_Enabler<T, true, false, true> {
  public:
   Maybe_CopyMove_Enabler() = default;
 
@@ -273,10 +273,16 @@ struct MaybeStorage<T, false> : MaybeStorageBase<T> {
   }
 };
 
+#ifdef __GNUC__
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wunused-value"
+#endif
 template <typename T>
 struct MaybeStorage<T, true> : MaybeStorageBase<T> {
  protected:
   char mIsSome = false;  // not bool -- guarantees minimal space consumption
+  // Make the padding explicit to help compiler optimization.
+  char padding[alignof(MaybeStorageBase<T>) - sizeof(char)] = {};
 
   constexpr MaybeStorage() = default;
   constexpr explicit MaybeStorage(const T& aVal)
@@ -289,6 +295,9 @@ struct MaybeStorage<T, true> : MaybeStorageBase<T> {
       : MaybeStorageBase<T>{std::in_place, std::forward<Args>(aArgs)...},
         mIsSome{true} {}
 };
+#ifdef __GNUC__
+#  pragma GCC diagnostic pop
+#endif
 
 template <typename T>
 struct IsMaybeImpl : std::false_type {};
@@ -526,14 +535,14 @@ class MOZ_INHERIT_TYPE_ANNOTATIONS_FROM_TEMPLATE_ARGS MOZ_GSL_OWNER Maybe
 
   /* Returns the contents of this Maybe<T> by pointer. Unsafe unless |isSome()|.
    */
-  T* ptr();
+  constexpr T* ptr();
   constexpr const T* ptr() const;
 
   /*
    * Returns the contents of this Maybe<T> by pointer. If |isNothing()|,
    * returns the default value provided.
    */
-  T* ptrOr(T* aDefault) {
+  constexpr T* ptrOr(T* aDefault) {
     if (isSome()) {
       return ptr();
     }
@@ -552,7 +561,7 @@ class MOZ_INHERIT_TYPE_ANNOTATIONS_FROM_TEMPLATE_ARGS MOZ_GSL_OWNER Maybe
    * returns the value returned from the function or functor provided.
    */
   template <typename F>
-  T* ptrOrFrom(F&& aFunc) {
+  constexpr T* ptrOrFrom(F&& aFunc) {
     if (isSome()) {
       return ptr();
     }
@@ -560,7 +569,7 @@ class MOZ_INHERIT_TYPE_ANNOTATIONS_FROM_TEMPLATE_ARGS MOZ_GSL_OWNER Maybe
   }
 
   template <typename F>
-  const T* ptrOrFrom(F&& aFunc) const {
+  constexpr const T* ptrOrFrom(F&& aFunc) const {
     if (isSome()) {
       return ptr();
     }
@@ -794,6 +803,55 @@ class MOZ_INHERIT_TYPE_ANNOTATIONS_FROM_TEMPLATE_ARGS MOZ_GSL_OWNER Maybe
     return std::invoke(std::forward<Func>(aFunc));
   }
 
+  /* begin() and end() implementation */
+ private:
+  template <typename U>
+  struct Iterator {
+    using iterator_type = Iterator<U>;
+    using value_type = U;
+    using difference_type = std::ptrdiff_t;
+    using reference = value_type&;
+    using pointer = value_type*;
+    using iterator_category = std::forward_iterator_tag;
+
+    constexpr Iterator() = default;
+    constexpr explicit Iterator(pointer aValue) : mValue(aValue) {}
+
+    constexpr reference operator*() const { return *mValue; };
+
+    constexpr pointer operator->() const { return mValue; }
+
+    constexpr iterator_type& operator++() {
+      mValue = nullptr;
+      return *this;
+    }
+
+    constexpr iterator_type operator++(int) {
+      iterator_type it{mValue};
+      mValue = nullptr;
+      return it;
+    }
+
+    constexpr auto operator<=>(const Iterator&) const = default;
+
+   private:
+    pointer mValue;
+  };
+
+ public:
+  using iterator = Iterator<T>;
+  using const_iterator = Iterator<const T>;
+
+  constexpr iterator begin() { return iterator{ptrOr(nullptr)}; }
+  constexpr const_iterator begin() const {
+    return const_iterator{ptrOr(nullptr)};
+  }
+  constexpr const_iterator cbegin() const { return begin(); }
+
+  constexpr iterator end() { return iterator{nullptr}; }
+  constexpr const_iterator end() const { return const_iterator{nullptr}; }
+  constexpr const_iterator cend() const { return end(); }
+
   /* If |isSome()|, empties this Maybe and destroys its contents. */
   constexpr void reset() {
     if (isSome()) {
@@ -934,7 +992,7 @@ constexpr T Maybe<T>::value() const&& {
 }
 
 template <typename T>
-T* Maybe<T>::ptr() {
+constexpr T* Maybe<T>::ptr() {
   MOZ_RELEASE_ASSERT(isSome());
   return &ref();
 }

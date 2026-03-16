@@ -288,9 +288,9 @@ class WindowGlobalParent final : public WindowContext,
   mozilla::ipc::IPCResult RecvSetClientInfo(
       const IPCClientInfo& aIPCClientInfo);
   mozilla::ipc::IPCResult RecvDestroy();
-  mozilla::ipc::IPCResult RecvRawMessage(
-      const JSActorMessageMeta& aMeta, JSIPCValue&& aData,
-      const UniquePtr<ClonedMessageData>& aStack);
+  mozilla::ipc::IPCResult RecvRawMessage(const JSActorMessageMeta& aMeta,
+                                         JSIPCValue&& aData,
+                                         StructuredCloneData* aStack);
 
   mozilla::ipc::IPCResult RecvGetContentBlockingEvents(
       GetContentBlockingEventsResolver&& aResolver);
@@ -332,6 +332,9 @@ class WindowGlobalParent final : public WindowContext,
 
   mozilla::ipc::IPCResult RecvSetDocumentDomain(NotNull<nsIURI*> aDomain);
 
+  mozilla::ipc::IPCResult RecvSetSiteIntegrityProtected(
+      NotNull<nsIURI*> aSourceURI, uint64_t aMaxAge);
+
   mozilla::ipc::IPCResult RecvReloadWithHttpsOnlyException();
 
   mozilla::ipc::IPCResult RecvGetStorageAccessPermission(
@@ -347,10 +350,15 @@ class WindowGlobalParent final : public WindowContext,
 
   mozilla::ipc::IPCResult RecvRecordUserActivationForBTP();
 
+  mozilla::ipc::IPCResult RecvRecordUserInteractionForPermissions();
+
   already_AddRefed<dom::PWebAuthnTransactionParent>
   AllocPWebAuthnTransactionParent();
 
   already_AddRefed<dom::PWebIdentityParent> AllocPWebIdentityParent();
+
+  already_AddRefed<dom::PDigitalCredentialParent>
+  AllocPDigitalCredentialParent();
 
  private:
   WindowGlobalParent(CanonicalBrowsingContext* aBrowsingContext,

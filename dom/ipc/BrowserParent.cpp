@@ -33,7 +33,6 @@
 #include "mozilla/TextEventDispatcher.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/TouchEvents.h"
-#include "mozilla/UniquePtr.h"
 #include "mozilla/dom/BrowserBridgeParent.h"
 #include "mozilla/dom/BrowserHost.h"
 #include "mozilla/dom/BrowserSessionStore.h"
@@ -255,7 +254,7 @@ class RequestingAccessKeyEventData {
   static int32_t sBrowserParentCount;
 };
 int32_t RequestingAccessKeyEventData::sBrowserParentCount = 0;
-MOZ_RUNINIT Maybe<RequestingAccessKeyEventData::Data>
+constinit Maybe<RequestingAccessKeyEventData::Data>
     RequestingAccessKeyEventData::sData;
 
 namespace dom {
@@ -572,19 +571,18 @@ BrowserBridgeParent* BrowserParent::GetBrowserBridgeParent() const {
 
 BrowserHost* BrowserParent::GetBrowserHost() const { return mBrowserHost; }
 
+bool BrowserParent::IsTransparent() const {
+  return mFrameElement && mFrameElement->HasAttr(nsGkAtoms::transparent) &&
+         nsContentUtils::IsChromeDoc(mFrameElement->OwnerDoc());
+}
+
 ParentShowInfo BrowserParent::GetShowInfo() {
   TryCacheDPIAndScale();
+  nsAutoString name;
   if (mFrameElement) {
-    nsAutoString name;
     mFrameElement->GetAttr(nsGkAtoms::name, name);
-    bool isTransparent =
-        nsContentUtils::IsChromeDoc(mFrameElement->OwnerDoc()) &&
-        mFrameElement->HasAttr(nsGkAtoms::transparent);
-    return ParentShowInfo(name, false, isTransparent, mDPI, mRounding,
-                          mDefaultScale.scale);
   }
-
-  return ParentShowInfo(u""_ns, false, false, mDPI, mRounding,
+  return ParentShowInfo(name, false, IsTransparent(), mDPI, mRounding,
                         mDefaultScale.scale);
 }
 
@@ -788,9 +786,9 @@ mozilla::ipc::IPCResult BrowserParent::RecvDidUnsuppressPainting() {
 }
 
 mozilla::ipc::IPCResult BrowserParent::RecvEnsureLayersConnected(
-    CompositorOptions* aCompositorOptions) {
+    Maybe<CompositorOptions>* aCompositorOptions) {
   if (mRemoteLayerTreeOwner.IsInitialized()) {
-    mRemoteLayerTreeOwner.EnsureLayersConnected(aCompositorOptions);
+    mRemoteLayerTreeOwner.EnsureLayersConnected(*aCompositorOptions);
   }
   return IPC_OK();
 }
@@ -1274,11 +1272,7 @@ mozilla::ipc::IPCResult BrowserParent::RecvPDocAccessibleConstructor(
 
     mozilla::ipc::IPCResult added = parentDoc->AddChildDoc(doc, aParentID);
     if (!added) {
-#  ifdef DEBUG
       return added;
-#  else
-      return IPC_OK();
-#  endif
     }
 
 #  ifdef XP_WIN
@@ -1288,6 +1282,14 @@ mozilla::ipc::IPCResult BrowserParent::RecvPDocAccessibleConstructor(
 #  endif
 
     return IPC_OK();
+  }
+
+  if (auto* prevTopLevel = GetTopLevelDocAccessible()) {
+    // Sometimes, we can get a new top level DocAccessibleParent before the
+    // old one gets destroyed. The old one will die pretty shortly anyway,
+    // so just destroy it now. If we don't do this, GetTopLevelDocAccessible()
+    // might return the wrong document for a short while.
+    prevTopLevel->Destroy();
   }
 
   if (aBrowsingContext) {
@@ -1307,11 +1309,7 @@ mozilla::ipc::IPCResult BrowserParent::RecvPDocAccessibleConstructor(
             bridge->GetEmbedderAccessibleDoc()) {
       mozilla::ipc::IPCResult added = embedderDoc->AddChildDoc(bridge);
       if (!added) {
-#  ifdef DEBUG
         return added;
-#  else
-        return IPC_OK();
-#  endif
       }
     }
     return IPC_OK();
@@ -1324,13 +1322,6 @@ mozilla::ipc::IPCResult BrowserParent::RecvPDocAccessibleConstructor(
       return IPC_FAIL_NO_REASON(this);
     }
 
-    if (auto* prevTopLevel = GetTopLevelDocAccessible()) {
-      // Sometimes, we can get a new top level DocAccessibleParent before the
-      // old one gets destroyed. The old one will die pretty shortly anyway,
-      // so just destroy it now. If we don't do this, GetTopLevelDocAccessible()
-      // might return the wrong document for a short while.
-      prevTopLevel->Destroy();
-    }
     doc->SetTopLevel();
     a11y::DocManager::RemoteDocAdded(doc);
 #  ifdef XP_WIN
@@ -2234,6 +2225,7 @@ void BrowserParent::SendRealTouchMoveEvent(
 
   AutoTArray<int32_t, kMaxTouchMoveIdentifiers> changedTouches;
   bool preventCompression = !StaticPrefs::dom_events_compress_touchmove() ||
+                            aEvent.mFlags.mIsSynthesizedForTests ||
                             // Ensure the very first touchmove isn't overridden
                             // by the second one, so that web pages can get
                             // accurate coordinates for the first touchmove.
@@ -2324,31 +2316,25 @@ mozilla::ipc::IPCResult BrowserParent::RecvSynthesizedEventResponse(
 }
 
 mozilla::ipc::IPCResult BrowserParent::RecvSyncMessage(
-    const nsString& aMessage, const ClonedMessageData& aData,
-    nsTArray<UniquePtr<ipc::StructuredCloneData>>* aRetVal) {
+    const nsString& aMessage, NotNull<ipc::StructuredCloneData*> aData,
+    nsTArray<NotNull<RefPtr<ipc::StructuredCloneData>>>* aRetVal) {
   AUTO_PROFILER_LABEL_DYNAMIC_LOSSY_NSSTRING("BrowserParent::RecvSyncMessage",
                                              OTHER, aMessage);
   MMPrinter::Print("BrowserParent::RecvSyncMessage", aMessage, aData);
 
-  ipc::StructuredCloneData data;
-  ipc::UnpackClonedMessageData(aData, data);
-
-  if (!ReceiveMessage(aMessage, true, &data, aRetVal)) {
+  if (!ReceiveMessage(aMessage, true, aData, aRetVal)) {
     return IPC_FAIL_NO_REASON(this);
   }
   return IPC_OK();
 }
 
 mozilla::ipc::IPCResult BrowserParent::RecvAsyncMessage(
-    const nsString& aMessage, const ClonedMessageData& aData) {
+    const nsString& aMessage, NotNull<ipc::StructuredCloneData*> aData) {
   AUTO_PROFILER_LABEL_DYNAMIC_LOSSY_NSSTRING("BrowserParent::RecvAsyncMessage",
                                              OTHER, aMessage);
   MMPrinter::Print("BrowserParent::RecvAsyncMessage", aMessage, aData);
 
-  StructuredCloneData data;
-  ipc::UnpackClonedMessageData(aData, data);
-
-  if (!ReceiveMessage(aMessage, false, &data, nullptr)) {
+  if (!ReceiveMessage(aMessage, false, aData, nullptr)) {
     return IPC_FAIL_NO_REASON(this);
   }
   return IPC_OK();
@@ -2801,7 +2787,10 @@ mozilla::ipc::IPCResult BrowserParent::RecvReplyKeyEvent(
             NS_WARN_IF(data.mPseudoCharCode != aEvent.mPseudoCharCode) ||
             NS_WARN_IF(data.mKeyNameIndex != aEvent.mKeyNameIndex) ||
             NS_WARN_IF(data.mCodeNameIndex != aEvent.mCodeNameIndex) ||
-            NS_WARN_IF(data.mModifiers != aEvent.mModifiers)) {
+            NS_WARN_IF(data.mModifiers != aEvent.mModifiers) ||
+            // The child process should've already cleared the editor commands
+            // because we don't use them.
+            NS_WARN_IF(aEvent.HasEditCommands())) {
           // Got different event data from what we stored before dispatching an
           // event with the ID.
           return Nothing();
@@ -3383,6 +3372,15 @@ void BrowserParent::UpdateFocusFromBrowsingContext() {
   }
 }
 
+mozilla::ipc::IPCResult BrowserParent::RecvPerformHapticFeedback(
+    mozilla::HapticFeedbackType aType) {
+  nsCOMPtr<nsIWidget> widget = GetTopLevelWidget();
+  if (widget) {
+    widget->PerformHapticFeedback(aType);
+  }
+  return IPC_OK();
+}
+
 /* static */
 BrowserParent* BrowserParent::UpdateFocus() {
   if (!sTopLevelWebFocus) {
@@ -3475,8 +3473,9 @@ mozilla::ipc::IPCResult BrowserParent::RecvSetInputContext(
 }
 
 bool BrowserParent::ReceiveMessage(
-    const nsString& aMessage, bool aSync, ipc::StructuredCloneData* aData,
-    nsTArray<UniquePtr<ipc::StructuredCloneData>>* aRetVal) {
+    const nsString& aMessage, bool aSync,
+    NotNull<ipc::StructuredCloneData*> aData,
+    nsTArray<NotNull<RefPtr<ipc::StructuredCloneData>>>* aRetVal) {
   // If we're for an oop iframe, don't deliver messages to the wrong place.
   if (mBrowserBridgeParent) {
     return true;
@@ -3488,7 +3487,7 @@ bool BrowserParent::ReceiveMessage(
         frameLoader->GetFrameMessageManager();
 
     manager->ReceiveMessage(mFrameElement, frameLoader, aMessage, aSync, aData,
-                            aRetVal, IgnoreErrors());
+                            aRetVal);
   }
   return true;
 }
@@ -3717,6 +3716,12 @@ void BrowserParent::NotifyResolutionChanged() {
                                 mDPI < 0 ? -1.0 : mDefaultScale.scale);
 }
 
+void BrowserParent::NotifyTransparencyChanged() {
+  if (!mIsDestroyed) {
+    (void)SendTransparencyChanged(IsTransparent());
+  }
+}
+
 bool BrowserParent::CanCancelContentJS(
     nsIRemoteTab::NavigationType aNavigationType, int32_t aNavigationIndex,
     nsIURI* aNavigationURI) const {
@@ -3933,13 +3938,18 @@ mozilla::ipc::IPCResult BrowserParent::RecvInvokeDragSession(
       cookieJarSettings, aSourceWindowContext.GetMaybeDiscarded(),
       aSourceTopWindowContext.GetMaybeDiscarded());
 
-  if (aVisualDnDData) {
-    const auto checkedSize = CheckedInt<size_t>(aDragRect.height) * aStride;
-    if (checkedSize.isValid() &&
-        aVisualDnDData->Size() >= checkedSize.value()) {
+  if (aVisualDnDData && aDragRect.width >= 0 && aDragRect.height >= 0) {
+    const auto checkedSize = CheckedInt<int32_t>(aDragRect.height) * aStride;
+    const auto computedStride =
+        CheckedInt<int32_t>(aDragRect.width) * gfx::BytesPerPixel(aFormat);
+    const auto checkedStride = CheckedInt<int32_t>(aStride);
+    if (checkedSize.isValid() && checkedSize.value() >= 0 &&
+        aVisualDnDData->Size() >= static_cast<size_t>(checkedSize.value()) &&
+        computedStride.isValid() && checkedStride.isValid() &&
+        computedStride.value() <= checkedStride.value()) {
       dragStartData->SetVisualization(gfx::CreateDataSourceSurfaceFromData(
           gfx::IntSize(aDragRect.width, aDragRect.height), aFormat,
-          aVisualDnDData->Data(), aStride));
+          aVisualDnDData->Data(), checkedStride.value()));
     }
   }
 

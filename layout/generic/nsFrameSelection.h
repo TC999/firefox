@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsFrameSelection_h___
-#define nsFrameSelection_h___
+#ifndef nsFrameSelection_h_
+#define nsFrameSelection_h_
 
 #include <stdint.h>
 
@@ -961,6 +961,13 @@ class nsFrameSelection final {
  private:
   ~nsFrameSelection();
 
+  /**
+   * Populates an existing highlight Selection with ranges from a Highlight.
+   * Must be called after the Selection is registered in mHighlightSelections.
+   */
+  MOZ_CAN_RUN_SCRIPT void PopulateHighlightSelection(
+      mozilla::dom::Selection& aSelection, mozilla::dom::Highlight& aHighlight);
+
   // TODO: in case an error is returned, it sometimes refers to a programming
   // error, in other cases to runtime errors. This deserves to be cleaned up.
   [[nodiscard]] MOZ_CAN_RUN_SCRIPT nsresult
@@ -1400,4 +1407,4 @@ struct LimitersAndCaretData {
 
 }  // namespace mozilla
 
-#endif /* nsFrameSelection_h___ */
+#endif /* nsFrameSelection_h_ */

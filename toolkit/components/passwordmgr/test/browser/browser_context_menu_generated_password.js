@@ -313,15 +313,10 @@ add_task(async function fill_generated_password_with_matching_logins() {
       await openPasswordContextMenu(browser, passwordInputSelector);
 
       // Execute the command of the first login menuitem found at the context menu.
-      let passwordChangedPromise = ContentTask.spawn(
+      let passwordChangedPromise = BrowserTestUtils.waitForContentEvent(
         browser,
-        null,
-        async function () {
-          let passwordInput = content.document.getElementById(
-            "form-basic-password"
-          );
-          await ContentTaskUtils.waitForEvent(passwordInput, "input");
-        }
+        "input",
+        true
       );
 
       let popupMenu = document.getElementById("fill-login-popup");
@@ -373,7 +368,7 @@ add_task(async function fill_generated_password_with_matching_logins() {
     "Generated password shouldn't have changed to match the filled password"
   );
 
-  Services.logins.removeAllUserFacingLogins();
+  await Services.logins.removeAllUserFacingLoginsAsync();
   LoginTestUtils.resetGeneratedPasswordsCache();
 });
 

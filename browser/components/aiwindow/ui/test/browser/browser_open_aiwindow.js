@@ -3,20 +3,33 @@
 
 "use strict";
 
+const { PromiseTestUtils } = ChromeUtils.importESModule(
+  "resource://testing-common/PromiseTestUtils.sys.mjs"
+);
+// AI chat content loads Fluent strings asynchronously, which may not complete
+// before the test finishes. This is expected and doesn't affect test behavior.
+PromiseTestUtils.allowMatchingRejectionsGlobally(
+  /Missing message.*smartwindow-messages-document-title/
+);
+
 /**
  * Test window type detection and menu item visibility based on aiwindow pref and window type.
  */
 add_task(async function test_window_type_and_menu_visibility() {
-  // AI Window disabled
+  // AI Window blocked via AI Control
   await SpecialPowers.pushPrefEnv({
-    set: [["browser.aiwindow.enabled", false]],
+    set: [
+      ["browser.smartwindow.enabled", false],
+      ["browser.ai.control.smartWindow", "blocked"],
+    ],
   });
 
   await openHamburgerMenu();
   checkMenuItemVisibility(
     false,
     document.getElementById("appMenu-new-ai-window-button"),
-    document.getElementById("appMenu-new-classic-window-button")
+    document.getElementById("appMenu-new-classic-window-button"),
+    document.getElementById("appMenu-chats-history-button")
   );
   await closeHamburgerMenu();
 
@@ -26,23 +39,28 @@ add_task(async function test_window_type_and_menu_visibility() {
     checkMenuItemVisibility(
       false,
       document.getElementById("menu_newAIWindow"),
-      document.getElementById("menu_newClassicWindow")
+      document.getElementById("menu_newClassicWindow"),
+      document.getElementById("appMenu-chats-history-button")
     );
     await closeFileMenu(fileMenuPopup);
   }
 
   await SpecialPowers.popPrefEnv();
 
-  // AI Window enabled
+  // AI Window enabled and AI Control default settings
   await SpecialPowers.pushPrefEnv({
-    set: [["browser.aiwindow.enabled", true]],
+    set: [
+      ["browser.smartwindow.enabled", true],
+      ["browser.ai.control.smartWindow", "default"],
+    ],
   });
 
   await openHamburgerMenu();
   checkMenuItemVisibility(
     true,
     document.getElementById("appMenu-new-ai-window-button"),
-    document.getElementById("appMenu-new-classic-window-button")
+    document.getElementById("appMenu-new-classic-window-button"),
+    document.getElementById("appMenu-chats-history-button")
   );
   await closeHamburgerMenu();
 
@@ -51,7 +69,8 @@ add_task(async function test_window_type_and_menu_visibility() {
     checkMenuItemVisibility(
       true,
       document.getElementById("menu_newAIWindow"),
-      document.getElementById("menu_newClassicWindow")
+      document.getElementById("menu_newClassicWindow"),
+      document.getElementById("appMenu-chats-history-button")
     );
     await closeFileMenu(fileMenuPopup);
   }
@@ -60,12 +79,52 @@ add_task(async function test_window_type_and_menu_visibility() {
 });
 
 /**
+ * Test that the File menu doesn't crash and AI items are hidden when
+ * gBrowser is unavailable (simulates macOS hidden window with no
+ * browser windows open).
+ */
+add_task(async function test_file_menu_no_browser_window() {
+  let fileMenuPopup = document.getElementById("menu_FilePopup");
+  if (!fileMenuPopup) {
+    return;
+  }
+
+  let savedGBrowser = window.gBrowser;
+  window.gBrowser = undefined;
+
+  try {
+    await SpecialPowers.pushPrefEnv({
+      set: [
+        ["browser.smartwindow.enabled", false],
+        ["browser.ai.control.smartWindow", "blocked"],
+      ],
+    });
+
+    await openFileMenu(fileMenuPopup);
+    Assert.ok(
+      document.getElementById("menu_newAIWindow").hidden,
+      "AI Window item should be hidden when pref is disabled and no browser window"
+    );
+    Assert.ok(
+      document.getElementById("menu_newClassicWindow").hidden,
+      "Classic Window item should be hidden when pref is disabled and no browser window"
+    );
+    await closeFileMenu(fileMenuPopup);
+  } finally {
+    window.gBrowser = savedGBrowser;
+    await SpecialPowers.popPrefEnv();
+  }
+});
+
+/**
  * Test that clicking AI window and classic window buttons opens the correct window type.
  */
 add_task(async function test_button_actions() {
   await SpecialPowers.pushPrefEnv({
-    set: [["browser.aiwindow.enabled", true]],
+    set: [["browser.smartwindow.enabled", true]],
   });
+
+  const restoreSignIn = skipSignIn();
 
   const currentWindowIsAIWindow = isAIWindow();
 
@@ -81,6 +140,13 @@ add_task(async function test_button_actions() {
     button.click();
 
     const newWin = await delayedStartupPromise;
+
+    const exampleUrl = "https://example.com/";
+    await BrowserTestUtils.loadURIString({
+      browser: newWin.gBrowser.selectedTab.linkedBrowser,
+      uriString: exampleUrl,
+    });
+
     const newWinIsAI =
       newWin.document.documentElement.hasAttribute("ai-window");
 
@@ -97,7 +163,8 @@ add_task(async function test_button_actions() {
       checkMenuItemVisibility(
         true,
         newWin.document.getElementById("appMenu-new-ai-window-button"),
-        newWin.document.getElementById("appMenu-new-classic-window-button")
+        newWin.document.getElementById("appMenu-new-classic-window-button"),
+        newWin.document.getElementById("appMenu-chats-history-button")
       );
       await closeHamburgerMenu(newWin);
 
@@ -106,7 +173,8 @@ add_task(async function test_button_actions() {
         checkMenuItemVisibility(
           true,
           newWin.document.getElementById("menu_newAIWindow"),
-          newWin.document.getElementById("menu_newClassicWindow")
+          newWin.document.getElementById("menu_newClassicWindow"),
+          newWin.document.getElementById("appMenu-chats-history-button")
         );
         await closeFileMenu(fileMenuPopup);
       }
@@ -144,13 +212,89 @@ add_task(async function test_button_actions() {
     await closeHamburgerMenu();
   }
 
+  restoreSignIn();
+  await SpecialPowers.popPrefEnv();
+});
+
+add_task(async function test_openNewBrowserWindow_and_ai_inherit() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.smartwindow.enabled", true]],
+  });
+
+  const newAIWindow = await BrowserTestUtils.openNewBrowserWindow({
+    openerWindow: null,
+    aiWindow: true,
+  });
+
+  Assert.ok(
+    newAIWindow.document.documentElement.hasAttribute("ai-window"),
+    "BrowserTestUtils.openNewBrowserWindow({ aiWindow: true }) should open an AI Window"
+  );
+
+  await SpecialPowers.popPrefEnv();
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      ["browser.smartwindow.enabled", false],
+      ["browser.ai.control.smartWindow", "blocked"],
+    ],
+  });
+
+  const newWindowAfterDisabledAI = await BrowserTestUtils.openNewBrowserWindow({
+    openerWindow: newAIWindow,
+    aiWindow: false,
+  });
+
+  Assert.ok(
+    !newWindowAfterDisabledAI.document.documentElement.hasAttribute(
+      "ai-window"
+    ),
+    "BrowserTestUtils.openNewBrowserWindow({ aiWindow: false }) should not open a new AI Window from an existing AI Window"
+  );
+
+  await BrowserTestUtils.closeWindow(newAIWindow);
+  await BrowserTestUtils.closeWindow(newWindowAfterDisabledAI);
+  await SpecialPowers.popPrefEnv();
+});
+
+/**
+ * Test AI window mode detection in aiWindow.html
+ */
+add_task(async function test_aiwindow_html_mode_detection() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.smartwindow.enabled", true]],
+  });
+
+  // Open AI Window directly to load aiWindow.html
+  const newAIWindow = await BrowserTestUtils.openNewBrowserWindow({
+    openerWindow: null,
+    aiWindow: true,
+  });
+  const browser = newAIWindow.gBrowser.selectedBrowser;
+
+  await SpecialPowers.spawn(browser, [], async () => {
+    await content.customElements.whenDefined("ai-window");
+
+    const aiWindowElement = content.document.querySelector("ai-window");
+    Assert.ok(aiWindowElement, "ai-window element should exist");
+
+    // Check that mode is detected (should be FULLPAGE when loaded directly)
+    info(`aiWindowElement.mode: ${aiWindowElement.mode}`);
+    Assert.strictEqual(
+      aiWindowElement.mode,
+      "fullpage",
+      `Mode should be detected as fullpage, got: ${aiWindowElement.mode}`
+    );
+  });
+
+  await BrowserTestUtils.closeWindow(newAIWindow);
   await SpecialPowers.popPrefEnv();
 });
 
 function checkMenuItemVisibility(
   aiWindowEnabled,
   aiOpenerButton,
-  classicOpenerButton
+  classicOpenerButton,
+  chatsButton
 ) {
   const doc =
     aiOpenerButton?.ownerDocument ||
@@ -161,29 +305,41 @@ function checkMenuItemVisibility(
   if (!aiWindowEnabled) {
     Assert.ok(
       !aiOpenerButton || aiOpenerButton.hidden,
-      `AI Window button should not be visible when browser.aiwindow.enabled is false`
+      `AI Window button should not be visible when Smart Window feature is blocked`
     );
     Assert.ok(
       !classicOpenerButton || classicOpenerButton.hidden,
-      `Classic Window button should not be visible when browser.aiwindow.enabled is false`
+      `Classic Window button should not be visible when Smart Window feature is blocked`
+    );
+    Assert.ok(
+      !chatsButton || chatsButton.hidden,
+      `Chats history button should not be visible when Smart Window feature is blocked`
     );
   } else if (currentWindowIsAIWindow) {
     Assert.ok(
       !aiOpenerButton || aiOpenerButton.hidden,
-      `AI Window button should be hidden in AI Window when browser.aiwindow.enabled is true`
+      `AI Window button should be hidden in AI Window when browser.smartwindow.enabled is true`
     );
     Assert.ok(
       classicOpenerButton && !classicOpenerButton.hidden,
-      `Classic Window button should be visible in AI Window when browser.aiwindow.enabled is true`
+      `Classic Window button should be visible in AI Window when browser.smartwindow.enabled is true`
+    );
+    Assert.ok(
+      chatsButton && !chatsButton.hidden,
+      `Chats history button should be visible when browser.smartwindow.enabled is true and in AI window`
     );
   } else {
     Assert.ok(
       aiOpenerButton && !aiOpenerButton.hidden,
-      `AI Window button should be visible in Classic Window when browser.aiwindow.enabled is true`
+      `AI Window button should be visible in Classic Window when browser.smartwindow.enabled is true`
     );
     Assert.ok(
       !classicOpenerButton || classicOpenerButton.hidden,
-      `Classic Window button should be hidden in Classic Window when browser.aiwindow.enabled is true`
+      `Classic Window button should be hidden in Classic Window when browser.smartwindow.enabled is true`
+    );
+    Assert.ok(
+      !chatsButton || chatsButton.hidden,
+      `Chats history button should be hidden in when browser.smartwindow.enabled is true but not in AI Window`
     );
   }
 }

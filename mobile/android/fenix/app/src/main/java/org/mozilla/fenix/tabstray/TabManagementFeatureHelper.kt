@@ -13,26 +13,6 @@ import org.mozilla.fenix.nimbus.FxNimbus
 interface TabManagementFeatureHelper {
 
     /**
-     * Whether the Tabs Tray enhancements are enabled in Nightly.
-     */
-    val enhancementsEnabledNightly: Boolean
-
-    /**
-     * Whether the Tabs Tray enhancements are enabled in Beta.
-     */
-    val enhancementsEnabledBeta: Boolean
-
-    /**
-     * Whether the Tabs Tray enhancements are enabled in Release.
-     */
-    val enhancementsEnabledRelease: Boolean
-
-    /**
-     * Whether the Tabs Tray enhancements are enabled for the user.
-     */
-    val enhancementsEnabled: Boolean
-
-    /**
      * Whether the Tab Manager opening animation is enabled.
      */
     val openingAnimationEnabled: Boolean
@@ -41,6 +21,11 @@ interface TabManagementFeatureHelper {
      * Whether the Tab Search feature is enabled.
      */
     val tabSearchEnabled: Boolean
+
+    /**
+     * Whether the Tab Groups feature is enabled.
+     */
+    val tabGroupsEnabled: Boolean
 }
 
 /**
@@ -48,27 +33,17 @@ interface TabManagementFeatureHelper {
  */
 data object DefaultTabManagementFeatureHelper : TabManagementFeatureHelper {
 
-    override val enhancementsEnabledNightly: Boolean
-        get() = FxNimbus.features.tabManagementEnhancements.value().enabled
-
-    override val enhancementsEnabledBeta: Boolean
-        get() = FxNimbus.features.tabManagementEnhancements.value().enabled
-
-    override val enhancementsEnabledRelease: Boolean
-        get() = FxNimbus.features.tabManagementEnhancements.value().enabled
-
-    override val enhancementsEnabled: Boolean
-        get() = when {
-            Config.channel.isDebug -> true
-            Config.channel.isNightlyOrDebug -> enhancementsEnabledNightly
-            Config.channel.isBeta -> enhancementsEnabledBeta
-            Config.channel.isRelease -> enhancementsEnabledRelease
-            else -> false
-        }
-
     override val openingAnimationEnabled: Boolean
         get() = Config.channel.isDebug || FxNimbus.features.tabManagementEnhancements.value().openingAnimationEnabled
 
     override val tabSearchEnabled: Boolean
-        get() = Config.channel.isDebug
+        get() = when {
+            Config.channel.isNightlyOrDebug -> true
+            Config.channel.isBeta -> FxNimbus.features.tabSearch.value().enabled
+            Config.channel.isRelease -> FxNimbus.features.tabSearch.value().enabled
+            else -> false
+        }
+
+    override val tabGroupsEnabled: Boolean
+        get() = FxNimbus.features.tabGroups.value().enabled
 }

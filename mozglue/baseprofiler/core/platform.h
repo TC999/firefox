@@ -31,10 +31,9 @@
 
 #include "PlatformMacros.h"
 
-#include "BaseProfiler.h"
+#include "mozilla/BaseProfiler.h"
 
 #include "mozilla/Atomics.h"
-#include "mozilla/Logging.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/Vector.h"
 

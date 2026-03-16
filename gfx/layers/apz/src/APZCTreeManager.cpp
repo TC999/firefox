@@ -1340,7 +1340,7 @@ HitTestingTreeNode* APZCTreeManager::PrepareNodeForLayer(
                apzc.get(), aLayer.GetLayer(), uint64_t(aLayersId),
                aMetrics.GetScrollId());
 
-    apzc->NotifyLayersUpdated(
+    apzc->NotifyMainThreadTransaction(
         aLayer.Metadata(), AsyncPanZoomController::LayersUpdateFlags{
                                .mIsFirstPaint = aLayer.IsFirstPaint(),
                                .mThisLayerTreeUpdated =
@@ -1504,7 +1504,7 @@ HitTestingTreeNode* APZCTreeManager::PrepareNodeForLayer(
 
 template <typename PanGestureOrScrollWheelInput>
 static bool WillHandleInput(const PanGestureOrScrollWheelInput& aPanInput) {
-  if (!XRE_IsParentProcess() || !NS_IsMainThread()) {
+  if (!NS_IsMainThread()) {
     return true;
   }
 
@@ -2434,14 +2434,13 @@ void APZCTreeManager::MaybeOverrideLayersIdForWheelEvent(InputData& aEvent) {
     txn = mInputQueue->GetCurrentPanGestureBlock();
   }
 
-  APZCTM_LOG("Maybe override txn (0x%p) wheel transactions enabled=%d", txn,
-             StaticPrefs::dom_event_wheel_event_groups_enabled());
+  APZCTM_LOG("Maybe override txn (0x%p)", txn);
 
   // If we're in a wheel transaction, subsequent events in the transaction
   // should be sent to the same content process as the first event, even
   // if content rendered by a different process has scrolled under the
   // cursor.
-  if (!txn || !StaticPrefs::dom_event_wheel_event_groups_enabled()) {
+  if (!txn) {
     return;
   }
 

@@ -56,7 +56,7 @@ Tensor::Tensor(const GlobalObject& aGlobal, const nsACString& aType,
     : mType(aType) {
   LOGD("{} type: {} len: {}", __PRETTY_FUNCTION__, aType, aData.Length());
   nsCOMPtr<nsIGlobalObject> global = do_QueryInterface(aGlobal.GetAsSupports());
-  mGlobal = global;
+  mGlobal = std::move(global);
   // Cast to uint8_t. Type is held in mType
   mData.AppendElements(aData);
   mDims.AppendElements(aDims);
@@ -68,7 +68,7 @@ Tensor::Tensor(const GlobalObject& aGlobal, ONNXTensorElementDataType aType,
   LOGD("Output tensor: {} type: {} len: {}", __PRETTY_FUNCTION__,
        ONNXTypeToString(aType), aData.Length());
   nsCOMPtr<nsIGlobalObject> global = do_QueryInterface(aGlobal.GetAsSupports());
-  mGlobal = global;
+  mGlobal = std::move(global);
   mData = std::move(aData);
   mDims.AppendElements(aDims);
 }
@@ -359,7 +359,7 @@ nsLiteralCString Tensor::ONNXTypeToString(
 nsCString Tensor::ToString() const {
   nsCString rv;
   size_t count = mData.Length() / DataTypeSize(Type());
-  rv.AppendFmt(FMT_STRING("{} {} elements, {} bytes, {} dims"), mType, count,
+  rv.AppendFmt("{} {} elements, {} bytes, {} dims", mType, count,
                mData.Length(), mDims.Length());
 
   if (MOZ_LOG_TEST(gONNXLog, LogLevel::Verbose)) {

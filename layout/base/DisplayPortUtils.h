@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_DisplayPortUtils_h__
-#define mozilla_DisplayPortUtils_h__
+#ifndef mozilla_DisplayPortUtils_h_
+#define mozilla_DisplayPortUtils_h_
 
 #include <cstdint>
 #include <iosfwd>
@@ -388,6 +388,7 @@ class DisplayPortUtils {
    * aLimitAncestor.
    */
   static FrameAndASRKind OneStepInASRChain(FrameAndASRKind aFrameAndASRKind,
+                                           nsDisplayListBuilder* aBuilder,
                                            nsIFrame* aLimitAncestor = nullptr);
 
   /**
@@ -406,8 +407,16 @@ class DisplayPortUtils {
       nsIFrame* aAnchor, nsIFrame* aLimitAncestor,
       const ActiveScrolledRoot* aASRofLimitAncestor,
       nsDisplayListBuilder* aBuilder);
+
+  /**
+   * aFrame is an absolutely positioned frame that is anchor positioned and
+   * compensates for scroll in at least one axis.
+   */
+  static bool ShouldAsyncScrollWithAnchor(nsIFrame* aFrame, nsIFrame* aAnchor,
+                                          nsDisplayListBuilder* aBuilder,
+                                          PhysicalAxes aAxes);
 };
 
 }  // namespace mozilla
 
-#endif  // mozilla_DisplayPortUtils_h__
+#endif  // mozilla_DisplayPortUtils_h_

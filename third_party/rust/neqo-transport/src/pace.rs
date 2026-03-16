@@ -68,7 +68,7 @@ impl Pacer {
         self.p
     }
 
-    pub fn set_mtu(&mut self, mtu: usize) {
+    pub const fn set_mtu(&mut self, mtu: usize) {
         self.p = mtu;
     }
 
@@ -91,11 +91,11 @@ impl Pacer {
             u128::try_from(packet - self.c).expect("packet is larger than current credit");
         let d = r.saturating_mul(deficit);
         let add = d / u128::try_from(cwnd * Self::SPEEDUP).expect("usize fits into u128");
-        let w = u64::try_from(add).map(Duration::from_nanos).unwrap_or(rtt);
+        let w = u64::try_from(add).map_or(rtt, Duration::from_nanos);
 
         // If the increment is below the timer granularity, send immediately.
         if w < GRANULARITY {
-            qtrace!("[{self}] next {cwnd}/{rtt:?} below granularity ({w:?})",);
+            qtrace!("[{self}] next {cwnd}/{rtt:?} below granularity ({w:?})");
             return self.t;
         }
 
@@ -161,7 +161,7 @@ mod tests {
 
     use super::Pacer;
 
-    const RTT: Duration = Duration::from_millis(1000);
+    const RTT: Duration = Duration::from_secs(1);
     const PACKET: usize = 1000;
     const CWND: usize = PACKET * 10;
 
@@ -226,5 +226,16 @@ mod tests {
         }
         // We expect _some_ time to have progressed after sending all the packets.
         assert!(n - start > Duration::ZERO);
+    }
+
+    #[test]
+    fn pacer_display_and_debug() {
+        let mut p = Pacer::new(true, now(), PACKET, PACKET);
+        assert_eq!(p.mtu(), PACKET);
+        p.set_mtu(500);
+        assert_eq!(p.mtu(), 500);
+        p.set_mtu(PACKET);
+        assert_eq!(p.to_string(), "Pacer 1000/1000");
+        assert!(format!("{p:?}").starts_with("Pacer@"));
     }
 }

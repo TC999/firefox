@@ -47,8 +47,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Original author: ekr@rtfm.com
 
 // This is a wrapper around the nICEr ICE stack
-#ifndef nricectx_h__
-#define nricectx_h__
+#ifndef nricectx_h_
+#define nricectx_h_
 
 #include <map>
 #include <memory>
@@ -363,6 +363,8 @@ class NrIceCtx {
                          int potential_ct);
   static int stream_gathering(void* obj, nr_ice_media_stream* stream);
   static int stream_gathered(void* obj, nr_ice_media_stream* stream);
+  static int candidate_error(void* obj, nr_ice_media_stream* stream,
+                             nr_ice_candidate* candidate);
   static int stream_checking(void* obj, nr_ice_media_stream* stream);
   static int stream_ready(void* obj, nr_ice_media_stream* stream);
   static int stream_disconnected(void* obj, nr_ice_media_stream* stream);

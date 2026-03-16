@@ -42,7 +42,7 @@ headless:
 a11y-checks:
     description: "{description} with accessibility checks enabled"
     component: "Core::Disability Access APIs"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     suffix: "a11y-checks"
     mozinfo: "a11y_checks"
     replace:
@@ -59,6 +59,7 @@ a11y-checks:
                 ) && (
                     "mochitest-devtools-chrome" == task["try-name"]
                     || "mochitest-browser-chrome" == task["try-name"]
+                    || "mochitest-browser-chrome-thunderbird" == task["try-name"]
                 )'
     merge:
         mozharness:
@@ -68,7 +69,7 @@ a11y-checks:
 aab:
     description: "{description} with aab test_runner"
     component: "GeckoView::General"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     when: &gv_e10s_filter
         $eval: '"android" in task["test-platform"]'
     suffix: "aab"
@@ -181,7 +182,7 @@ trainhop-beta:
 geckoview-no-fission:
     description: "{description} without fission enabled"
     component: "GeckoView::General"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     when:
         <<: *gv_e10s_filter
     suffix: "nofis"
@@ -194,7 +195,7 @@ geckoview-no-fission:
 geckoview-fission:
     description: "{description} with fission enabled and default isolation strategy"
     component: "GeckoView::General"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     when:
         <<: *gv_e10s_filter
     suffix: "fis"
@@ -203,7 +204,7 @@ geckoview-fission:
 geckoview-fission-isolate-high-value:
     description: "{description} with fission enabled and isolation strategy isolateHighValue"
     component: "GeckoView::General"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     when:
         <<: *gv_e10s_filter
     suffix: "fis-hv"
@@ -216,7 +217,7 @@ geckoview-fission-isolate-high-value:
 no-fission:
     description: "{description} without fission enabled"
     component: "Core::DOM: Content Processes"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     suffix: "nofis"
     mozinfo: "fission"
     when:
@@ -232,7 +233,7 @@ no-fission:
 geckoview-zygote:
     description: "{description} with app Zygote preloading enabled"
     component: "GeckoView::General"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     suffix: "zygote"
     when:
         <<: *gv_e10s_filter
@@ -244,7 +245,7 @@ geckoview-zygote:
 geckoview-no-fission-no-ship:
     description: "{description} with fission disabled and ship disabled"
     component: "GeckoView::General"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     suffix: "nofis-noship"
     when:
         <<: *gv_e10s_filter
@@ -273,7 +274,7 @@ xorigin:
 conditioned_profile:
     description: "{description} with conditioned profile"
     component: "Testing::General"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     suffix: "condprof"
     mozinfo: "condprof"
     when:
@@ -306,7 +307,7 @@ conditioned_profile:
 socketprocess:
     description: "{description} with socket process enabled"
     component: "Core::Networking"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     suffix: "spi"
     mozinfo: "socketprocess_e10s"
     when:
@@ -317,35 +318,13 @@ socketprocess:
                 - "--setpref=media.peerconnection.mtransport_process=true"
                 - "--setpref=network.process.enabled=true"
 
-socketprocess_networking:
-    description: "{description} with networking on socket process enabled"
-    component: "Core::Networking"
-    expiration: "2026-03-01"
-    suffix: "spi-nw"
-    mozinfo: "socketprocess_networking"
-    when:
-        $eval: '
-                (
-                    "linux" in task["test-platform"]
-                    || "windows" in task["test-platform"]
-                    || "macosx" in task["test-platform"]
-                ) && (
-                    "mochitest" in task["try-name"]
-                    || "xpcshell" == task["try-name"]
-                )'
-    merge:
-        mozharness:
-            extra-options:
-                - "--setpref=network.process.enabled=true"
-                - "--setpref=network.http.network_access_on_socket_process.enabled=true"
-
 # -
 # Webrender DComp variants for Win10
 
 webrender-dcomp-disabled:
     description: "{description} with dcomp disabled"
     component: "Core::Graphics: WebRender"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     suffix: "wr-dc0"
     when:
         $eval: '"windows1" in task["test-platform"]'
@@ -361,7 +340,7 @@ webrender-dcomp-disabled:
 webrender-dcomp-present:  # Default variant ends up like this.
     description: "{description} with dcomp present but not overlays"
     component: "Core::Graphics: WebRender"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     suffix: "wr-dc1-p"
     when:
         $eval: '"windows1" in task["test-platform"]'
@@ -377,7 +356,7 @@ webrender-dcomp-present:  # Default variant ends up like this.
 webrender-dcomp-overlays:
     description: "{description} with dcomp overlays but not compositing"
     component: "Core::Graphics: WebRender"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     suffix: "wr-dc2-o"
     when:
         $eval: '"windows1" in task["test-platform"]'
@@ -393,7 +372,7 @@ webrender-dcomp-overlays:
 webrender-dcomp-compositing:
     description: "{description} with dcomp compositing"
     component: "Core::Graphics: WebRender"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     suffix: "wr-dc3-c"
     when:
         $eval: '"windows1" in task["test-platform"]'
@@ -496,7 +475,7 @@ media-gpu:
 no-gpu-process:
     description: "{description} without a dedicated GPU process"
     component: "Core::Graphics"
-    expiration: "2026-01-15"
+    expiration: "2027-01-15"
     suffix: "nogpu"
     mozinfo: "nogpu"
     when:
@@ -544,7 +523,7 @@ msix:
 http3:
     description: "{description} with http3 server"
     component: "Core::Networking"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     suffix: "http3"
     mozinfo: "http3"
     when:
@@ -563,7 +542,7 @@ http3:
 http2:
     description: "{description} with http2 server"
     component: "Core::Networking"
-    expiration: "2026-03-01"
+    expiration: "2026-09-01"
     suffix: "http2"
     mozinfo: "http2"
     when:
@@ -604,7 +583,7 @@ draw-snapshot:
 async-event-dispatching:
     description: "{description} with async widget event dispatching"
     component: "Remote Protocol::Agent"
-    expiration: "2026-04-01"
+    expiration: "2026-10-01"
     suffix: "async"
     mozinfo: "remote_async"
     replace:

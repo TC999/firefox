@@ -7,7 +7,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   LoginHelper: "resource://gre/modules/LoginHelper.sys.mjs",
 });
 
-const rustMirrorTelemetryVersion = "3";
+const rustMirrorTelemetryVersion = "4";
 
 // checks validity of an origin
 function checkOrigin(origin) {
@@ -150,6 +150,24 @@ function normalizeRustStorageErrorMessage(error) {
     .replace(/\{[0-9a-fA-F-]{36}\}/, "{UUID}");
 }
 
+//Normalize a Unix timestamp (ms) to the first day of its month at 00:00 UTC
+function roundToMonthUTC(timestampMs) {
+  if (!timestampMs) {
+    return null;
+  }
+
+  const d = new Date(timestampMs);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0);
+}
+
+function isFtpOrigin(origin) {
+  if (!origin || typeof origin !== "string") {
+    return false;
+  }
+
+  return origin.toLowerCase().includes("ftp");
+}
+
 function recordMirrorFailure(runId, operation, error, login = null) {
   // lookup poisoned status
   const poisoned = Services.prefs.getBoolPref(
@@ -175,9 +193,14 @@ function recordMirrorFailure(runId, operation, error, login = null) {
     has_punycode_origin: false,
     has_punycode_form_action_origin: false,
 
+    has_ftp_origin: false,
+
     has_empty_password: false,
     has_username_line_break: false,
     has_username_nul: false,
+
+    time_created: null,
+    time_last_used: null,
   };
 
   if (login) {
@@ -196,9 +219,14 @@ function recordMirrorFailure(runId, operation, error, login = null) {
       login.formActionOrigin
     );
 
+    data.has_ftp_origin = isFtpOrigin(login.origin);
+
     data.has_empty_password = !login.password;
     data.has_username_line_break = containsLineBreaks(login.username);
     data.has_username_nul = containsNul(login.username);
+
+    data.time_created = roundToMonthUTC(login.timeCreated);
+    data.time_last_used = roundToMonthUTC(login.timeLastUsed);
   }
 
   Glean.pwmgr.rustWriteFailure.record(data);
@@ -353,7 +381,7 @@ export class LoginManagerRustMirror {
         newLoginData = subject.queryElementAt(1, Ci.nsILoginInfo);
         this.#logger.log(`modifying login ${loginToModify.guid}...`);
         try {
-          this.#rustStorage.modifyLogin(loginToModify, newLoginData);
+          await this.#rustStorage.modifyLoginAsync(loginToModify, newLoginData);
           this.#logger.log(`modified login ${loginToModify.guid}.`);
         } catch (e) {
           status = "failure";
@@ -366,7 +394,7 @@ export class LoginManagerRustMirror {
       case "removeLogin":
         this.#logger.log(`removing login ${subject.guid}...`);
         try {
-          this.#rustStorage.removeLogin(subject);
+          await this.#rustStorage.removeLoginAsync(subject);
           this.#logger.log(`removed login ${subject.guid}.`);
         } catch (e) {
           status = "failure";
@@ -379,7 +407,7 @@ export class LoginManagerRustMirror {
       case "removeAllLogins":
         this.#logger.log("removing all logins...");
         try {
-          this.#rustStorage.removeAllLogins();
+          await this.#rustStorage.removeAllLoginsAsync();
           this.#logger.log("removed all logins.");
         } catch (e) {
           status = "failure";
@@ -393,6 +421,49 @@ export class LoginManagerRustMirror {
       case "importLogins":
         this.#logger.log("re-migrating logins after import...");
         await this.#migrate();
+        break;
+
+      case "addPotentiallyVulnerablePassword":
+        this.#logger.log(
+          `adding ${subject.guid} to potentially vulnerable passwords...`
+        );
+        try {
+          await this.#rustStorage.addPotentiallyVulnerablePassword(subject);
+          this.#logger.log(
+            `added ${subject.guid} to potentially vulnerable passwords.`
+          );
+        } catch (e) {
+          status = "failure";
+          recordMirrorFailure(
+            runId,
+            "addPotentiallyVulnerablePassword",
+            e,
+            subject
+          );
+          this.#logger.error("mirror-error:", e);
+        }
+        recordMirrorStatus(runId, "addPotentiallyVulnerablePassword", status);
+        break;
+
+      case "clearAllPotentiallyVulnerablePasswords":
+        this.#logger.log("clearing all potentially vulnerable passwords");
+        try {
+          await this.#rustStorage.clearAllPotentiallyVulnerablePasswords();
+          this.#logger.log("cleared all potentially vulnerable passwords");
+        } catch (e) {
+          status = "failure";
+          recordMirrorFailure(
+            runId,
+            "clearAllPotentiallyVulnerablePasswords",
+            e
+          );
+          this.#logger.error("mirror-error:", e);
+        }
+        recordMirrorStatus(
+          runId,
+          "clearAllPotentiallyVulnerablePasswords",
+          status
+        );
         break;
 
       default:
@@ -428,6 +499,16 @@ export class LoginManagerRustMirror {
     await this.#migrate();
   }
 
+  /**
+   * Migrates logins from JSON storage to Rust storage.
+   *
+   * This migration is run once per profile (and can be re-run via
+   * ProfileDataUpgrader.sys.mjs).
+   *
+   * Note: This will perform encryption operations; therefore can trigger
+   * primary password UI. However, by now primary password is excluded,
+   * as it only runs if no primary password is set.
+   */
   async #migrate() {
     if (this.#migrationInProgress) {
       this.#logger.log("Migration already in progress.");
@@ -448,6 +529,8 @@ export class LoginManagerRustMirror {
 
     try {
       this.#rustStorage.removeAllLogins();
+      await this.#rustStorage.clearAllPotentiallyVulnerablePasswords();
+
       this.#logger.log("Cleared existing Rust logins.");
 
       Services.prefs.setBoolPref("signon.rustMirror.poisoned", false);
@@ -469,6 +552,24 @@ export class LoginManagerRustMirror {
       this.#logger.log(
         `Successfully migrated ${numberOfLoginsMigrated}/${numberOfLoginsToMigrate} logins.`
       );
+
+      const potentiallyVulnerablePasswords =
+        this.#jsonStorage.decryptedPotentiallyVulnerablePasswords;
+
+      try {
+        await this.#rustStorage.addPotentiallyVulnerablePasswords(
+          potentiallyVulnerablePasswords
+        );
+
+        this.#logger.log(
+          `Successfully migrated ${potentiallyVulnerablePasswords.length} potentially vulnerable passwords.`
+        );
+      } catch (e) {
+        this.#logger.error(
+          "potentially vulnerable passwords migration error:",
+          e
+        );
+      }
 
       // Migration complete, don't run again
       Services.prefs.setBoolPref("signon.rustMirror.migrationNeeded", false);

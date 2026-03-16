@@ -345,6 +345,8 @@ function promiseMessage(
   browser = gBrowser.selectedBrowser
 ) {
   let startTime = ChromeUtils.now();
+  // TODO: Switch to SpecialPowers.spawn
+  // eslint-disable-next-line mozilla/reject-contenttask-spawn
   let promise = ContentTask.spawn(
     browser,
     [aMessage, aCount],
@@ -859,7 +861,7 @@ async function reloadFromContent() {
   await disableObserverVerification();
 
   let loadedPromise = BrowserTestUtils.browserLoaded(gBrowser.selectedBrowser);
-  await ContentTask.spawn(gBrowser.selectedBrowser, null, () =>
+  await SpecialPowers.spawn(gBrowser.selectedBrowser, [], () =>
     content.location.reload()
   );
 
@@ -1310,8 +1312,8 @@ async function runTests(tests, options = {}) {
  * @param {boolean} remember - True to persist the permission to the
  *   SitePermissions database as SitePermissions.SCOPE_PERSISTENT. Note that
  *   callers are responsible for clearing this persistent permission.
- * @return {Promise}
- * @resolves {undefined} - Once the sharing is complete.
+ * @returns {Promise<void>}
+ *   Resolves once sharing is complete.
  */
 async function shareDevices(
   browser,

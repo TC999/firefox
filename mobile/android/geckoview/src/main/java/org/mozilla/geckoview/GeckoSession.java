@@ -44,6 +44,7 @@ import androidx.annotation.IntDef;
 import androidx.annotation.LongDef;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.OptIn;
 import androidx.annotation.RequiresApi;
 import androidx.annotation.StringDef;
 import androidx.annotation.UiThread;
@@ -79,6 +80,7 @@ import org.mozilla.gecko.EventDispatcher;
 import org.mozilla.gecko.GeckoAppShell;
 import org.mozilla.gecko.GeckoDragAndDrop;
 import org.mozilla.gecko.GeckoThread;
+import org.mozilla.gecko.HapticFeedbackController;
 import org.mozilla.gecko.IGeckoEditableParent;
 import org.mozilla.gecko.MagnifiableSurfaceView;
 import org.mozilla.gecko.NativeQueue;
@@ -156,11 +158,17 @@ public class GeckoSession {
   private final EventDispatcher mEventDispatcher = new EventDispatcher(mNativeQueue);
 
   private final SessionTextInput mTextInput = new SessionTextInput(this, mNativeQueue);
+
+  private final HapticFeedbackController mHapticFeedbackController = new HapticFeedbackController();
   private SessionAccessibility mAccessibility;
   private SessionFinder mFinder;
   private SessionPdfFileSaver mPdfFileSaver;
   private TranslationsController.SessionTranslation mTranslations =
       new TranslationsController.SessionTranslation(this);
+
+  /** Session page extractor. Initialized once, in {@link #getSessionPageExtractor()} */
+  @OptIn(markerClass = ExperimentalGeckoViewApi.class)
+  private PageExtractionController.SessionPageExtractor mPageExtractor;
 
   /** {@code SessionMagnifier} handles magnifying glass. */
   /* package */ interface SessionMagnifier {
@@ -586,7 +594,8 @@ public class GeckoSession {
                     message.getString("alt"),
                     message.getString("elementType"),
                     message.getString("elementSrc"),
-                    message.getString("textContent"));
+                    message.getString("textContent"),
+                    message.getString("linkText"));
 
             delegate.onContextMenu(
                 GeckoSession.this, message.getInt("screenX"), message.getInt("screenY"), elem);
@@ -1349,8 +1358,9 @@ public class GeckoSession {
    *
    * @return a {@link GeckoResult} containing the UserAgent string
    */
-  @AnyThread
+  @HandlerThread
   public @NonNull GeckoResult<String> getUserAgent() {
+    ThreadUtils.assertOnHandlerThread();
     return mEventDispatcher.queryString("GeckoView:GetUserAgent");
   }
 
@@ -1650,6 +1660,19 @@ public class GeckoSession {
             }
           });
     }
+
+    @WrapForJNI(calledFrom = "gecko")
+    private void performHapticFeedback(final int effect) {
+      final Window self = this;
+      ThreadUtils.runOnUiThread(
+          () -> {
+            final GeckoSession session = self.mOwner.get();
+            if (session == null) {
+              return;
+            }
+            session.getHapticFeedbackController().performHapticFeedback(effect);
+          });
+    }
   }
 
   private class Listener implements BundleEventListener {
@@ -1886,6 +1909,17 @@ public class GeckoSession {
   public @NonNull SessionTextInput getTextInput() {
     // May be called on any thread.
     return mTextInput;
+  }
+
+  /**
+   * Get the HapticFeedbackController instance for this session.
+   *
+   * @return HapticFeedbackController instance.
+   */
+  @UiThread
+  /* package */ @NonNull
+  HapticFeedbackController getHapticFeedbackController() {
+    return mHapticFeedbackController;
   }
 
   /**
@@ -2546,6 +2580,34 @@ public class GeckoSession {
   }
 
   /**
+   * Determine if the current page uses a qualified website authentication certificate (QWAC).
+   *
+   * @return A {@link GeckoResult} which holds the QWAC as an {@link X509Certificate}, or null if
+   *     the site does not use one.
+   */
+  @UiThread
+  public @NonNull GeckoResult<X509Certificate> qwacStatus() {
+    return mEventDispatcher
+        .queryString("GeckoView:GetQWACStatus")
+        .map(
+            qwacPem -> {
+              X509Certificate qwac = null;
+              if (qwacPem != null) {
+                try {
+                  final CertificateFactory factory = CertificateFactory.getInstance("X.509");
+                  final byte[] qwacBytes = Base64.decode(qwacPem, Base64.NO_WRAP);
+                  qwac =
+                      (X509Certificate)
+                          factory.generateCertificate(new ByteArrayInputStream(qwacBytes));
+                } catch (final CertificateException e) {
+                  Log.e(LOGTAG, "Failed to decode certificate", e);
+                }
+              }
+              return qwac;
+            });
+  }
+
+  /**
    * Returns a WebExtensionController for this GeckoSession. Delegates attached to this controller
    * will receive events specific to this session.
    *
@@ -2687,8 +2749,9 @@ public class GeckoSession {
    *
    * @return {@link GeckoResult} with boolean
    */
-  @AnyThread
+  @HandlerThread
   public @NonNull GeckoResult<Boolean> hasCookieBannerRuleForBrowsingContextTree() {
+    ThreadUtils.assertOnHandlerThread();
     return mEventDispatcher.queryBoolean("GeckoView:HasCookieBannerRuleForBrowsingContextTree");
   }
 
@@ -2736,8 +2799,9 @@ public class GeckoSession {
    *
    * @return Result of the check operation as a {@link GeckoResult} object.
    */
-  @AnyThread
+  @HandlerThread
   public @NonNull GeckoResult<Boolean> isPdfJs() {
+    ThreadUtils.assertOnHandlerThread();
     return mEventDispatcher.queryBoolean("GeckoView:IsPdfJs");
   }
 
@@ -3199,8 +3263,9 @@ public class GeckoSession {
    *
    * @return a {@link GeckoResult} result of if there is existing form data.
    */
-  @AnyThread
+  @HandlerThread
   public @NonNull GeckoResult<Boolean> containsFormData() {
+    ThreadUtils.assertOnHandlerThread();
     return mEventDispatcher.queryBoolean("GeckoView:ContainsFormData");
   }
 
@@ -3209,8 +3274,9 @@ public class GeckoSession {
    *
    * @return a {@link GeckoResult} containing the WebCompatInfo as a JSONObject.
    */
-  @AnyThread
+  @HandlerThread
   public @NonNull GeckoResult<JSONObject> getWebCompatInfo() {
+    ThreadUtils.assertOnHandlerThread();
     return mEventDispatcher
         .queryString("GeckoView:GetWebCompatInfo")
         .map(
@@ -3245,8 +3311,9 @@ public class GeckoSession {
    * @return a {@link GeckoResult} wil complete if sending more web compatibility info was
    *     successful. Will complete exceptionally if the web compat info was not sent.
    */
-  @AnyThread
+  @HandlerThread
   public @NonNull GeckoResult<Void> sendMoreWebCompatInfo(@NonNull final JSONObject info) {
+    ThreadUtils.warnOnHandlerThread();
     final GeckoBundle bundle = new GeckoBundle();
     bundle.putString("info", info.toString());
     return mEventDispatcher.queryVoid("GeckoView:SendMoreWebCompatInfo", bundle);
@@ -3610,6 +3677,20 @@ public class GeckoSession {
   }
 
   /**
+   * Get the page extractor for this GeckoSession.
+   *
+   * @return The current page extractor session coordinator.
+   */
+  @AnyThread
+  @ExperimentalGeckoViewApi
+  public @NonNull PageExtractionController.SessionPageExtractor getSessionPageExtractor() {
+    if (mPageExtractor == null) {
+      mPageExtractor = new PageExtractionController.SessionPageExtractor(this);
+    }
+    return mPageExtractor;
+  }
+
+  /**
    * Get the current selection action delegate for this GeckoSession.
    *
    * @return SelectionActionDelegate instance or null if not set.
@@ -3937,8 +4018,18 @@ public class GeckoSession {
       /** The source URI (src) of the element. Set for (nested) media elements. */
       public final @Nullable String srcUri;
 
-      /** The text content of the element */
+      /**
+       * The text content of the element
+       *
+       * @deprecated This field is deprecated, please use {@link ContextElement#linkText} to
+       *     retrieve the text associated with a link element.
+       */
+      @Deprecated
+      @DeprecationSchedule(id = "context-element-api-updates", version = 151)
       public final @Nullable String textContent;
+
+      /** The link text of the element */
+      public final @Nullable String linkText;
 
       // TODO: Bug 1595822 make public
       final List<WebExtension.Menu> extensionMenus;
@@ -3953,6 +4044,7 @@ public class GeckoSession {
        * @param typeStr The type of the element.
        * @param srcUri The source URI (src).
        * @param textContent The text content.
+       * @param linkText The link text content.
        */
       protected ContextElement(
           final @Nullable String baseUri,
@@ -3961,7 +4053,8 @@ public class GeckoSession {
           final @Nullable String altText,
           final @NonNull String typeStr,
           final @Nullable String srcUri,
-          final @Nullable String textContent) {
+          final @Nullable String textContent,
+          final @Nullable String linkText) {
         this.baseUri = baseUri;
         this.linkUri = linkUri;
         this.title = title;
@@ -3970,6 +4063,7 @@ public class GeckoSession {
         this.srcUri = srcUri;
         this.textContent = textContent;
         this.extensionMenus = null;
+        this.linkText = linkText;
       }
 
       /**
@@ -3981,7 +4075,11 @@ public class GeckoSession {
        * @param altText The alternative text (alt).
        * @param typeStr The type of the element.
        * @param srcUri The source URI (src).
+       * @deprecated This constructor has been deprecated and will be removed in a future version.
+       *     Please use the other overloaded constructors.
        */
+      @Deprecated
+      @DeprecationSchedule(id = "context-element-api-updates", version = 151)
       protected ContextElement(
           final @Nullable String baseUri,
           final @Nullable String linkUri,
@@ -3989,7 +4087,7 @@ public class GeckoSession {
           final @Nullable String altText,
           final @NonNull String typeStr,
           final @Nullable String srcUri) {
-        this(baseUri, linkUri, title, altText, typeStr, srcUri, null);
+        this(baseUri, linkUri, title, altText, typeStr, srcUri, null, null);
       }
 
       private static int getType(final String name) {
@@ -7076,7 +7174,7 @@ public class GeckoSession {
      */
     int PERMISSION_STORAGE_ACCESS = 8;
 
-    /** Permission for local device (localhost) access */
+    /** Permission for local device (loopback-network) access */
     int PERMISSION_LOCAL_DEVICE_ACCESS = 9;
 
     /** Permission for local network access */
@@ -7220,7 +7318,7 @@ public class GeckoSession {
             || type.startsWith("3rdPartyStorage^")
             || type.startsWith("3rdPartyFrameStorage^")) {
           return PERMISSION_STORAGE_ACCESS;
-        } else if ("localhost".equals(type)) {
+        } else if ("loopback-network".equals(type)) {
           return PERMISSION_LOCAL_DEVICE_ACCESS;
         } else if ("local-network".equals(type)) {
           return PERMISSION_LOCAL_NETWORK_ACCESS;
@@ -7251,7 +7349,7 @@ public class GeckoSession {
           case PERMISSION_STORAGE_ACCESS:
             return "storage-access";
           case PERMISSION_LOCAL_DEVICE_ACCESS:
-            return "localhost";
+            return "loopback-network";
           case PERMISSION_LOCAL_NETWORK_ACCESS:
             return "local-network";
           default:
@@ -8251,7 +8349,7 @@ public class GeckoSession {
    *     CompleteExceptionally with a {@link GeckoPrintException}s, if there are any issues while
    *     generating the PDF.
    */
-  @AnyThread
+  @HandlerThread
   public @NonNull GeckoResult<InputStream> saveAsPdf() {
     return saveAsPdfByBrowsingContext(null);
   }
@@ -8266,6 +8364,7 @@ public class GeckoSession {
   @AnyThread
   private @NonNull GeckoResult<InputStream> saveAsPdfByBrowsingContext(
       final @Nullable Long browsingContextId) {
+    ThreadUtils.assertOnHandlerThread();
     final GeckoResult<InputStream> geckoResult = new GeckoResult<>();
     if (browsingContextId == null) {
       // Ensures the canonical browsing context is available
@@ -8290,12 +8389,13 @@ public class GeckoSession {
 
   /**
    * Prints the currently displayed page and provides dialog finished status or if an exception
-   * occured.
+   * occurred.
    *
    * @return if the printing dialog finished or an exception.
    */
-  @AnyThread
+  @HandlerThread
   public @NonNull GeckoResult<Boolean> didPrintPageContent() {
+    ThreadUtils.assertOnHandlerThread();
     final PrintDelegate delegate = getPrintDelegate();
     final GeckoResult<Boolean> result = new GeckoResult<>();
     if (delegate == null) {
@@ -8436,6 +8536,19 @@ public class GeckoSession {
   @AnyThread
   public void setExperimentDelegate(final @Nullable ExperimentDelegate delegate) {
     mExperimentHandler.setDelegate(delegate, this);
+  }
+
+  /**
+   * Handle back key pressed on Web content to dismiss some HTML elements such as &lt;dialog&gt;.
+   *
+   * <p>See <a
+   * href="https://developer.mozilla.org/en-US/docs/Web/API/CloseWatcher">CloseWatcher</a>.
+   *
+   * @return true if the back key is processed.
+   */
+  @UiThread
+  public @NonNull GeckoResult<Boolean> processBackPressed() {
+    return mEventDispatcher.queryBoolean("GeckoView:ProcessBackPressed");
   }
 
   /** Thrown when failure occurs when printing from a website. */

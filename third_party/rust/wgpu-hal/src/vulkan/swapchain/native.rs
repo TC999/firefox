@@ -382,8 +382,7 @@ impl Swapchain for NativeSwapchain {
         &mut self,
         timeout: Option<core::time::Duration>,
         fence: &crate::vulkan::Fence,
-    ) -> Result<Option<crate::AcquiredSurfaceTexture<crate::api::Vulkan>>, crate::SurfaceError>
-    {
+    ) -> Result<crate::AcquiredSurfaceTexture<crate::api::Vulkan>, crate::SurfaceError> {
         let mut timeout_ns = match timeout {
             Some(duration) => duration.as_nanos() as u64,
             None => u64::MAX,
@@ -445,7 +444,7 @@ impl Swapchain for NativeSwapchain {
             Ok(pair) => pair,
             Err(error) => {
                 return match error {
-                    vk::Result::TIMEOUT => Ok(None),
+                    vk::Result::TIMEOUT => Err(crate::SurfaceError::Timeout),
                     vk::Result::NOT_READY | vk::Result::ERROR_OUT_OF_DATE_KHR => {
                         Err(crate::SurfaceError::Outdated)
                     }
@@ -468,9 +467,10 @@ impl Swapchain for NativeSwapchain {
         // latency, depending on how the platform implements waiting within
         // acquire.
         unsafe {
+            // The `wait_all` argument must be `true` to avoid crash on some Android devices. See https://github.com/gfx-rs/wgpu/pull/8769
             self.device
                 .raw
-                .wait_for_fences(&[self.fence], false, timeout_ns)
+                .wait_for_fences(&[self.fence], true, timeout_ns)
                 .map_err(map_host_device_oom_and_lost_err)?;
 
             self.device
@@ -498,8 +498,7 @@ impl Swapchain for NativeSwapchain {
             texture: crate::vulkan::Texture {
                 raw: self.images[index as usize],
                 drop_guard: None,
-                block: None,
-                external_memory: None,
+                memory: crate::vulkan::TextureMemory::External,
                 format: self.config.format,
                 copy_size: crate::CopyExtent {
                     width: self.config.extent.width,
@@ -513,10 +512,10 @@ impl Swapchain for NativeSwapchain {
                 present_semaphores: present_semaphore_arc,
             }),
         };
-        Ok(Some(crate::AcquiredSurfaceTexture {
+        Ok(crate::AcquiredSurfaceTexture {
             texture,
             suboptimal,
-        }))
+        })
     }
 
     unsafe fn discard_texture(
@@ -595,7 +594,7 @@ impl Swapchain for NativeSwapchain {
             // (i.e `VkSwapchainCreateInfoKHR::preTransform` not being equal to the current device orientation).
             // This is always the case when the device orientation is anything other than the identity one, as we unconditionally use `VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR`.
             #[cfg(not(target_os = "android"))]
-            log::warn!("Suboptimal present of frame {}", texture.index);
+            log::debug!("Suboptimal present of frame {}", texture.index);
         }
         Ok(())
     }

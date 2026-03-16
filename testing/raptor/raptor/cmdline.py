@@ -101,7 +101,7 @@ def create_parser(mach_interface=False):
         required=True,
         dest="test",
         help="Name of Raptor test to run (can be a top-level suite name i.e. "
-        "'--test raptor-speedometer','--test raptor-tp6-1', or for page-load "
+        "'--test speedometer3','--test raptor-tp6-1', or for page-load "
         "tests a suite sub-test i.e. '--test raptor-tp6-google-firefox')",
     )
     add_arg(
@@ -256,20 +256,24 @@ def create_parser(mach_interface=False):
         default=None,
         help="How long to wait (ms) after browser start-up before starting the tests",
     )
-    add_arg(
-        "--browser-cycles",
-        dest="browser_cycles",
-        type=int,
-        help="The number of times a cold load test is repeated (for cold load tests only, "
-        "where the browser is shutdown and restarted between test iterations)",
-    ),
-    add_arg(
-        "--project",
-        dest="project",
-        type=str,
-        default="mozilla-central",
-        help="Project name (try, mozilla-central, etc.)",
-    ),
+    (
+        add_arg(
+            "--browser-cycles",
+            dest="browser_cycles",
+            type=int,
+            help="The number of times a cold load test is repeated (for cold load tests only, "
+            "where the browser is shutdown and restarted between test iterations)",
+        ),
+    )
+    (
+        add_arg(
+            "--project",
+            dest="project",
+            type=str,
+            default="mozilla-central",
+            help="Project name (try, mozilla-central, etc.)",
+        ),
+    )
     add_arg(
         "--test-url-params",
         dest="test_url_params",

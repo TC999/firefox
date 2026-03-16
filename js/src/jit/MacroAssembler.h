@@ -772,7 +772,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // As setupAlignedABICall, but for WebAssembly native ABI calls, which pass
   // through a builtin thunk that uses the wasm ABI. All the wasm ABI calls
   // can be native, since we always know the stack alignment a priori.
-  void setupWasmABICall();
+  void setupWasmABICall(wasm::SymbolicAddress builtin);
 
   // Setup an ABI call for when the alignment is not known. This may need a
   // scratch register.
@@ -831,8 +831,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void callWithABINoProfiler(const Address& fun, ABIType result) PER_ARCH;
 
   // Restore the stack to its state before the setup function call.
-  void callWithABIPost(uint32_t stackAdjust, ABIType result,
-                       bool callFromWasm = false) PER_ARCH;
+  void callWithABIPost(uint32_t stackAdjust, ABIType result) PER_ARCH;
 
 #ifdef JS_CHECK_UNSAFE_CALL_WITH_ABI
   // Set the JSContext::inUnsafeCallWithABI flag using InstanceReg.
@@ -1175,8 +1174,10 @@ class MacroAssembler : public MacroAssemblerSpecific {
                                 Register dest) PER_ARCH;
 
   inline void mulPtr(Register rhs, Register srcDest) PER_ARCH;
-  inline void mulPtr(ImmWord rhs, Register srcDest) DEFINED_ON(x86, x64);
+  inline void mulPtr(ImmWord rhs, Register srcDest) PER_ARCH;
 
+  inline void mul64(const Register64& rhs, const Register64& srcDest)
+      DEFINED_ON(x64, arm64, riscv64);
   inline void mul64(const Operand& src, const Register64& dest) DEFINED_ON(x64);
   inline void mul64(const Operand& src, const Register64& dest,
                     const Register temp) DEFINED_ON(x64);
@@ -1843,10 +1844,21 @@ class MacroAssembler : public MacroAssemblerSpecific {
                                                      const Shape* shape,
                                                      Label* label);
 
-  void branchTestObjShapeList(Condition cond, Register obj,
-                              Register shapeElements, Register shapeScratch,
-                              Register endScratch, Register spectreScratch,
-                              Label* label);
+ private:
+  void branchTestObjShapeListImpl(Register obj, Register shapeElements,
+                                  size_t itemSize, Register shapeScratch,
+                                  Register endScratch, Register spectreScratch,
+                                  Label* fail);
+
+ public:
+  void branchTestObjShapeList(Register obj, Register shapeElements,
+                              Register shapeScratch, Register endScratch,
+                              Register spectreScratch, Label* fail);
+
+  void branchTestObjShapeListSetOffset(Register obj, Register shapeElements,
+                                       Register offset, Register shapeScratch,
+                                       Register endScratch,
+                                       Register spectreScratch, Label* fail);
 
   inline void branchTestClassIsFunction(Condition cond, Register clasp,
                                         Label* label);
@@ -1896,10 +1908,9 @@ class MacroAssembler : public MacroAssemblerSpecific {
                                            Register scratch,
                                            const void* handlerp, Label* label);
 
-  inline void branchTestNeedsIncrementalBarrier(Condition cond, Label* label);
-  inline void branchTestNeedsIncrementalBarrierAnyZone(Condition cond,
-                                                       Label* label,
-                                                       Register scratch);
+  inline void branchTestNeedsMarkingBarrier(Condition cond, Label* label);
+  inline void branchTestNeedsMarkingBarrierAnyZone(Condition cond, Label* label,
+                                                   Register scratch);
 
   // Perform a type-test on a tag of a Value (32bits boxing), or the tagged
   // value (64bits boxing).
@@ -2228,10 +2239,43 @@ class MacroAssembler : public MacroAssemblerSpecific {
                                     Label* failure) PER_ARCH;
 
   // ========================================================================
-  // Canonicalization primitives.
-  inline void canonicalizeDouble(FloatRegister reg);
+  // Support for 128-bit arithmetic.
 
-  inline void canonicalizeFloat(FloatRegister reg);
+  // Produces the top 64 bits of the 128-bit value `lhsHi:lhsLo +/-
+  // rhsHi:rhsLo`.  Only used on 64-bit targets.  `output` must be different
+  // from all the other registers, on all supported targets.
+  inline void wasmAddSubI128HI64(Register lhsLo, Register lhsHi, Register rhsLo,
+                                 Register rhsHi, Register output, bool isAdd)
+      DEFINED_ON(x64, arm64, riscv64);
+
+  // Produces the top 64 bits of the 128-bit value `lhs *widen rhs`.  Only used
+  // on 64-bit targets.  On x64, `lhs` must be RAX, `rhs` must be RDX, and all
+  // 5 registers must be distinct.
+  inline void wasmMulI64WideHI64(Register lhs, Register rhs, Register temp0,
+                                 Register temp1, Register output, bool isSigned)
+      DEFINED_ON(x64);
+
+  // The same, but for all other 64-bit targets.  There are no restrictions on
+  // what the registers may be.
+  inline void wasmMulI64WideHI64(Register lhs, Register rhs, Register output,
+                                 bool isSigned) DEFINED_ON(arm64, riscv64);
+
+  // ========================================================================
+  // Canonicalization primitives.
+  inline void canonicalizeDoubleNaN(FloatRegister reg);
+
+  inline void canonicalizeFloatNaN(FloatRegister reg);
+
+  // If denormal support is disabled, there are 2^53 ways to represent zero.
+  // This function canonicalizes the representation to either -0.0 or +0.0,
+  // maintaining the sign bit of the input.
+  //
+  // This function will not change the value of the double if denormals are
+  // enabled.
+  inline void canonicalizeDoubleZero(FloatRegister reg, FloatRegister scratch);
+
+  // If the value is a double, perform canonicalizeDoubleZero on it.
+  inline void canonicalizeValueZero(ValueOperand value, FloatRegister scratch);
 
  public:
   // ========================================================================
@@ -5218,7 +5262,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
   template <typename T>
   void guardedCallPreBarrier(const T& address, MIRType type) {
     Label done;
-    branchTestNeedsIncrementalBarrier(Assembler::Zero, &done);
+    branchTestNeedsMarkingBarrier(Assembler::Zero, &done);
     unguardedCallPreBarrier(address, type);
     bind(&done);
   }
@@ -5230,7 +5274,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void guardedCallPreBarrierAnyZone(const T& address, MIRType type,
                                     Register scratch) {
     Label done;
-    branchTestNeedsIncrementalBarrierAnyZone(Assembler::Zero, &done, scratch);
+    branchTestNeedsMarkingBarrierAnyZone(Assembler::Zero, &done, scratch);
     unguardedCallPreBarrier(address, type);
     bind(&done);
   }
@@ -5913,6 +5957,15 @@ class MacroAssembler : public MacroAssemblerSpecific {
     storePtr(getStackPointer(), t);
   }
 
+  template <typename T>
+  void loadStackPtrFromPrivateValue(T t) {
+    loadStackPtr(t);
+  }
+  template <typename T>
+  void storeStackPtrToPrivateValue(T t) {
+    storeStackPtr(t);
+  }
+
   // StackPointer testing functions.
   // On ARM64, sp can function as the zero register depending on context.
   // Code shared across platforms must use these functions to be valid.
@@ -5933,6 +5986,8 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void enableProfilingInstrumentation() {
     emitProfilingInstrumentation_ = true;
   }
+
+  void instrumentProfilerCallSite();
 
  private:
   // This class is used to surround call sites throughout the assembler. This

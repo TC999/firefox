@@ -27,6 +27,9 @@ import org.mozilla.fenix.utils.Settings as AppSettings
 
 private const val EXTRA_COMPOSABLE_TOOLBAR = "EXTRA_COMPOSABLE_TOOLBAR"
 
+// Intent extra to enable or disable TabTray animation setting for testing
+private const val EXTRA_TAB_TRAY_ANIMATION = "EXTRA_TAB_TRAY_ANIMATION"
+
 /**
  * Deep links in the form of `fenix://host` open different parts of the app.
  */
@@ -102,6 +105,13 @@ class HomeDeepLinkIntentProcessor(
                     )
                     settings.shouldUseComposableToolbar = composableToolbarPreference
                 }
+                if (extras?.containsKey(EXTRA_TAB_TRAY_ANIMATION) == true) {
+                    val tabTrayAnimationPreference = extras.getBoolean(
+                        EXTRA_TAB_TRAY_ANIMATION,
+                        settings.tabManagerOpeningAnimationEnabled,
+                    )
+                    settings.tabManagerOpeningAnimationEnabled = tabTrayAnimationPreference
+                }
             }
             "enable_private_browsing" -> {
                 activity.browsingModeManager.mode = BrowsingMode.Private
@@ -119,6 +129,7 @@ class HomeDeepLinkIntentProcessor(
                     return
                 }
 
+                @Suppress("DEPRECATION")
                 activity.openToBrowserAndLoad(
                     url,
                     newTab = true,

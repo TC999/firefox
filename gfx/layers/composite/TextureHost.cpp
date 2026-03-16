@@ -278,9 +278,10 @@ already_AddRefed<TextureHost> CreateBackendIndependentTextureHost(
             case BufferDescriptor::TYCbCrDescriptor: {
               const YCbCrDescriptor& ycbcr = desc.get_YCbCrDescriptor();
               reqSize = ImageDataSerializer::ComputeYCbCrBufferSize(
-                  ycbcr.ySize(), ycbcr.yStride(), ycbcr.cbCrSize(),
-                  ycbcr.cbCrStride(), ycbcr.yOffset(), ycbcr.cbOffset(),
-                  ycbcr.crOffset());
+                  ycbcr.display(), ycbcr.ySize(), ycbcr.yStride(),
+                  ycbcr.cbCrSize(), ycbcr.cbCrStride(), ycbcr.yOffset(),
+                  ycbcr.cbOffset(), ycbcr.crOffset(), ycbcr.colorDepth(),
+                  ycbcr.chromaSubsampling());
               break;
             }
             case BufferDescriptor::TRGBDescriptor: {
@@ -460,6 +461,8 @@ BufferTextureHost::BufferTextureHost(const BufferDescriptor& aDesc,
   switch (mDescriptor.type()) {
     case BufferDescriptor::TYCbCrDescriptor: {
       const YCbCrDescriptor& ycbcr = mDescriptor.get_YCbCrDescriptor();
+      MOZ_ASSERT(gfx::IntRect(gfx::IntPoint(), ycbcr.ySize())
+                     .Contains(ycbcr.display()));
       mSize = ycbcr.display().Size();
       mFormat = gfx::SurfaceFormat::YUV420;
       break;

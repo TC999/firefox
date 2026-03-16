@@ -43,6 +43,19 @@ class CSSTransition;
 class Document;
 class Promise;
 
+// The helper struct to hold the animation-range values.
+struct AnimationRange {
+  StyleAnimationRangeStart mStart = StyleAnimationRangeStart::DefaultStart();
+  StyleAnimationRangeEnd mEnd = StyleAnimationRangeEnd::DefaultEnd();
+  bool operator==(const AnimationRange& aOther) const {
+    return mStart == aOther.mStart && mEnd == aOther.mEnd;
+  }
+  bool IsNormal() const {
+    return mStart.name == StyleTimelineRangeName::Normal &&
+           mEnd.name == StyleTimelineRangeName::Normal;
+  }
+};
+
 class Animation : public DOMEventTargetHelper,
                   public LinkedListElement<Animation> {
  protected:
@@ -113,6 +126,10 @@ class Animation : public DOMEventTargetHelper,
   void SetTimeline(AnimationTimeline* aTimeline);
   void SetTimelineNoUpdate(AnimationTimeline* aTimeline);
 
+  const AnimationRange& GetTimelineRange() const { return mTimelineRange; }
+  void SetTimelineRange(AnimationRange&& aRange);
+  void SetTimelineRangeNoUpdate(AnimationRange&& aRange);
+
   Nullable<TimeDuration> GetStartTime() const { return mStartTime; }
   Nullable<double> GetStartTimeAsDouble() const;
   void SetStartTime(const Nullable<TimeDuration>& aNewStartTime);
@@ -137,6 +154,9 @@ class Animation : public DOMEventTargetHelper,
 
   double PlaybackRate() const { return mPlaybackRate; }
   void SetPlaybackRate(double aPlaybackRate);
+  // Returns the playback rate multiplied by
+  // BrowsingContext::AnimationsPlayBackRateMultiplier.
+  double PlaybackRateInternal() const;
 
   AnimationPlayState PlayState() const;
   virtual AnimationPlayState PlayStateFromJS() const { return PlayState(); }
@@ -185,7 +205,7 @@ class Animation : public DOMEventTargetHelper,
             // won't be relevant and hence won't be returned by GetAnimations().
             // We don't want its timeline to keep it alive (which would happen
             // if we return true) since otherwise it will effectively be leaked.
-            PlaybackRate() != 0.0) ||
+            PlaybackRateInternal() != 0.0) ||
            // Always return true for not idle animations attached to not
            // monotonically increasing timelines even if the animation is
            // finished. This is required to accommodate cases where timeline
@@ -205,9 +225,7 @@ class Animation : public DOMEventTargetHelper,
    * As with the start time, we should use the pending playback rate when
    * producing layer animations.
    */
-  double CurrentOrPendingPlaybackRate() const {
-    return mPendingPlaybackRate.valueOr(mPlaybackRate);
-  }
+  double CurrentOrPendingPlaybackRate() const;
   bool HasPendingPlaybackRate() const { return mPendingPlaybackRate.isSome(); }
 
   /**
@@ -221,7 +239,7 @@ class Animation : public DOMEventTargetHelper,
    */
   static TimeDuration CurrentTimeFromTimelineTime(
       const TimeDuration& aTimelineTime, const TimeDuration& aStartTime,
-      float aPlaybackRate) {
+      double aPlaybackRate) {
     return (aTimelineTime - aStartTime).MultDouble(aPlaybackRate);
   }
 
@@ -236,7 +254,7 @@ class Animation : public DOMEventTargetHelper,
    */
   static TimeDuration StartTimeFromTimelineTime(
       const TimeDuration& aTimelineTime, const TimeDuration& aCurrentTime,
-      float aPlaybackRate) {
+      double aPlaybackRate) {
     TimeDuration result = aTimelineTime;
     if (aPlaybackRate == 0) {
       return result;
@@ -268,7 +286,7 @@ class Animation : public DOMEventTargetHelper,
   bool IsInEffect() const;
 
   bool IsPlaying() const {
-    return mPlaybackRate != 0.0 && mTimeline &&
+    return PlaybackRateInternal() != 0.0 && mTimeline &&
            !mTimeline->GetCurrentTimeAsDuration().IsNull() &&
            PlayState() == AnimationPlayState::Running;
   }
@@ -404,7 +422,7 @@ class Animation : public DOMEventTargetHelper,
   ProgressTimelinePosition AtProgressTimelineBoundary() const {
     Nullable<TimeDuration> currentTime = GetUnconstrainedCurrentTime();
     return AtProgressTimelineBoundary(
-        mTimeline ? mTimeline->TimelineDuration() : nullptr,
+        mTimeline ? mTimeline->TimelineDuration(mTimelineRange) : nullptr,
         // Set unlimited current time based on the first matching condition:
         // 1. start time is resolved:
         //    (timeline time - start time) × playback rate
@@ -412,8 +430,10 @@ class Animation : public DOMEventTargetHelper,
         //    animation’s current time
         !currentTime.IsNull() ? currentTime : GetCurrentTimeAsDuration(),
         mStartTime.IsNull() ? TimeDuration() : mStartTime.Value(),
-        mPlaybackRate);
+        PlaybackRateInternal());
   }
+
+  void UpdateNormalizedTimingForTimelineDataChange();
 
   void SetHiddenByContentVisibility(bool hidden);
   bool IsHiddenByContentVisibility() const {
@@ -422,6 +442,8 @@ class Animation : public DOMEventTargetHelper,
   void UpdateHiddenByContentVisibility();
 
   DocGroup* GetDocGroup();
+
+  void PostUpdate();
 
  protected:
   void SilentlySetCurrentTime(const TimeDuration& aNewCurrentTime);
@@ -461,7 +483,6 @@ class Animation : public DOMEventTargetHelper,
    * animations running on the compositor).
    */
   void FlushUnanimatedStyle() const;
-  void PostUpdate();
   void ResetFinishedPromise();
   void MaybeResolveFinishedPromise();
   void DoFinishNotification(SyncNotifyFlag aSyncNotifyFlag);
@@ -531,6 +552,8 @@ class Animation : public DOMEventTargetHelper,
   double mPlaybackRate = 1.0;
   Maybe<double> mPendingPlaybackRate;
 
+  AnimationRange mTimelineRange;
+
   // A Promise that is replaced on each call to Play()
   // and fulfilled when Play() is successfully completed.
   // This object is lazily created by GetReady.
@@ -589,6 +612,10 @@ class Animation : public DOMEventTargetHelper,
   TimeStamp mPendingReadyTime;
 
  private:
+  // Returns BrowsingContext.animationsPlayBackRateMultiplier for this
+  // animation.
+  double AnimationsPlayBackRateMultiplier() const;
+
   // The id for this animation on the compositor.
   uint64_t mIdOnCompositor = 0;
   bool mIsPartialPrerendered = false;

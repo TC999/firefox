@@ -366,6 +366,7 @@ class NetworkEventWatcher {
         resourceUpdates.proxyHttpVersion = updateResource.proxyHttpVersion;
         resourceUpdates.proxyStatus = updateResource.proxyStatus;
         resourceUpdates.proxyStatusText = updateResource.proxyStatusText;
+        resourceUpdates.isRedirect = updateResource.isRedirect;
 
         if (resourceUpdates.earlyHintsStatus.length) {
           networkEventTypes.push(
@@ -417,6 +418,7 @@ class NetworkEventWatcher {
     }
 
     if (
+      updateResource.updateType == NETWORK_EVENT_TYPES.REQUEST_POSTDATA ||
       updateResource.updateType == NETWORK_EVENT_TYPES.RESPONSE_START ||
       updateResource.updateType == NETWORK_EVENT_TYPES.RESPONSE_CONTENT ||
       isResponseComplete

@@ -46,15 +46,6 @@
 //!   Note: WebRender has a reduced fork of this crate, so that we can avoid
 //!   publishing this crate on crates.io.
 
-extern crate app_units;
-extern crate cssparser;
-extern crate euclid;
-extern crate selectors;
-extern crate servo_arc;
-extern crate smallbitvec;
-extern crate smallvec;
-extern crate void;
-
 use std::hash::{BuildHasher, Hash};
 use std::mem::size_of;
 use std::ops::Range;
@@ -822,7 +813,8 @@ malloc_size_of_is_0!(app_units::Au);
 malloc_size_of_is_0!(
     cssparser::TokenSerializationType,
     cssparser::SourceLocation,
-    cssparser::SourcePosition
+    cssparser::SourcePosition,
+    cssparser::UnicodeRange
 );
 
 malloc_size_of_is_0!(selectors::OpaqueElement);

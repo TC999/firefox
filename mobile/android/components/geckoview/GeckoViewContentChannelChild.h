@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_net_GeckoViewContentChannelChild_h__
-#define mozilla_net_GeckoViewContentChannelChild_h__
+#ifndef mozilla_net_GeckoViewContentChannelChild_h_
+#define mozilla_net_GeckoViewContentChannelChild_h_
 
 #include "nsBaseChannel.h"
 #include "nsIChildChannel.h"
@@ -41,8 +41,7 @@ class GeckoViewContentChannelChild final
 
   mozilla::ipc::IPCResult RecvOnDataAvailable(const nsresult& aChannelStatus,
                                               const nsACString& aData,
-                                              const uint64_t& aOffset,
-                                              const uint32_t& aCount);
+                                              const uint64_t& aOffset);
 
   mozilla::ipc::IPCResult RecvOnStopRequest(const nsresult& aChannelStatus);
 
@@ -63,7 +62,7 @@ class GeckoViewContentChannelChild final
                         const nsCString& aEntityID, nsIURI* aURI);
 
   void DoOnDataAvailable(const nsresult& aChannelStatus, const nsCString& aData,
-                         const uint64_t& aOffset, const uint32_t& aCount);
+                         const uint64_t& aOffset);
 
   void DoOnStopRequest(const nsresult& aChannelStatus);
 

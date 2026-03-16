@@ -33,16 +33,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
+import mozilla.components.browser.state.search.DefaultSearchEngineProvider
 import mozilla.components.browser.state.search.SearchEngine
 import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.state.SearchState
 import mozilla.components.browser.state.state.availableSearchEngines
 import mozilla.components.browser.state.store.BrowserStore
-import mozilla.components.compose.base.annotation.FlexibleWindowLightDarkPreview
+import mozilla.components.compose.base.annotation.FlexibleWindowPreview
 import mozilla.components.compose.base.button.IconButton
 import mozilla.components.compose.base.menu.DropdownMenu
 import mozilla.components.compose.base.menu.MenuItem
@@ -51,6 +52,7 @@ import mozilla.components.compose.base.text.Text
 import mozilla.components.lib.state.ext.observeAsComposableState
 import org.mozilla.fenix.R
 import org.mozilla.fenix.theme.FirefoxTheme
+import org.mozilla.fenix.theme.PreviewThemeProvider
 import org.mozilla.fenix.theme.Theme
 import mozilla.components.ui.icons.R as iconsR
 
@@ -74,8 +76,10 @@ fun SearchEngineShortcuts(
     onAddEngineClicked: () -> Unit,
 ) {
     val searchState = store.observeAsComposableState { it.search }.value
+    val defaultSearchEngineId = DefaultSearchEngineProvider(store).getDefaultSearchEngine()?.id
     val searchEngines = with(searchState) {
-        regionSearchEngines + additionalSearchEngines + availableSearchEngines + customSearchEngines
+        (regionSearchEngines + additionalSearchEngines + availableSearchEngines + customSearchEngines)
+            .filter { it.id != defaultSearchEngineId }
     }
     val disabledShortcutsIds = searchState.disabledSearchEngineIds
 
@@ -278,10 +282,12 @@ private fun generateFakeEngines(
     )
 }
 
-@FlexibleWindowLightDarkPreview
+@FlexibleWindowPreview
 @Composable
-private fun SearchEngineShortcutsPreview() {
-    FirefoxTheme {
+private fun SearchEngineShortcutsPreview(
+    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
+) {
+    FirefoxTheme(theme) {
         SearchEngineShortcuts(
             categoryTitle = stringResource(id = R.string.preferences_category_engines_in_search_menu),
             store = BrowserStore(
@@ -289,28 +295,7 @@ private fun SearchEngineShortcutsPreview() {
                     search = SearchState(
                         regionSearchEngines = generateFakeEnginesList(),
                         disabledSearchEngineIds = listOf("7", "8"),
-                    ),
-                ),
-            ),
-            onCheckboxClicked = { _, _ -> },
-            onEditEngineClicked = {},
-            onDeleteEngineClicked = {},
-            onAddEngineClicked = {},
-        )
-    }
-}
-
-@Preview
-@Composable
-private fun SearchEngineShortcutsPrivatePreview() {
-    FirefoxTheme(theme = Theme.Private) {
-        SearchEngineShortcuts(
-            categoryTitle = stringResource(id = R.string.preferences_category_engines_in_search_menu),
-            store = BrowserStore(
-                initialState = BrowserState(
-                    search = SearchState(
-                        regionSearchEngines = generateFakeEnginesList(),
-                        disabledSearchEngineIds = listOf("7", "8"),
+                        regionDefaultSearchEngineId = "1",
                     ),
                 ),
             ),

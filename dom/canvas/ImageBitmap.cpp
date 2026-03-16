@@ -306,37 +306,28 @@ static already_AddRefed<DataSourceSurface> ScaleDataSourceSurface(
   const int bytesPerPixel = BytesPerPixel(format);
 
   const IntSize srcSize = aSurface->GetSize();
-  int32_t tmp;
-
-  CheckedInt<int32_t> checked;
-  CheckedInt<int32_t> dstWidth(
-      aOptions.mResizeWidth.WasPassed() ? aOptions.mResizeWidth.Value() : 0);
-  CheckedInt<int32_t> dstHeight(
-      aOptions.mResizeHeight.WasPassed() ? aOptions.mResizeHeight.Value() : 0);
-
-  if (!dstWidth.isValid() || !dstHeight.isValid()) {
+  Maybe<int32_t> resizeWidth;
+  Maybe<int32_t> resizeHeight;
+  if (aOptions.mResizeWidth.WasPassed()) {
+    CheckedInt<int32_t> checked(aOptions.mResizeWidth.Value());
+    if (!checked.isValid()) {
+      return nullptr;
+    }
+    resizeWidth.emplace(checked.value());
+  }
+  if (aOptions.mResizeHeight.WasPassed()) {
+    CheckedInt<int32_t> checked(aOptions.mResizeHeight.Value());
+    if (!checked.isValid()) {
+      return nullptr;
+    }
+    resizeHeight.emplace(checked.value());
+  }
+  Maybe<IntSize> maybeDstSize =
+      nsLayoutUtils::ComputeResizedSize(srcSize, resizeWidth, resizeHeight);
+  if (!maybeDstSize) {
     return nullptr;
   }
-
-  if (!dstWidth.value()) {
-    checked = srcSize.width * dstHeight;
-    if (!checked.isValid()) {
-      return nullptr;
-    }
-
-    tmp = ceil(checked.value() / double(srcSize.height));
-    dstWidth = tmp;
-  } else if (!dstHeight.value()) {
-    checked = srcSize.height * dstWidth;
-    if (!checked.isValid()) {
-      return nullptr;
-    }
-
-    tmp = ceil(checked.value() / double(srcSize.width));
-    dstHeight = tmp;
-  }
-
-  const IntSize dstSize(dstWidth.value(), dstHeight.value());
+  const IntSize dstSize = *maybeDstSize;
   const int32_t dstStride = dstSize.width * bytesPerPixel;
 
   // Create a new SourceSurface.
@@ -358,9 +349,24 @@ static already_AddRefed<DataSourceSurface> ScaleDataSourceSurface(
   uint8_t* srcBufferPtr = srcMap.GetData();
   uint8_t* dstBufferPtr = dstMap.GetData();
 
-  bool res = Scale(srcBufferPtr, srcSize.width, srcSize.height,
-                   srcMap.GetStride(), dstBufferPtr, dstSize.width,
-                   dstSize.height, dstMap.GetStride(), aSurface->GetFormat());
+  SamplingFilter filter = SamplingFilter::LINEAR;
+  switch (aOptions.mResizeQuality) {
+    case ResizeQuality::Pixelated:
+      filter = SamplingFilter::POINT;
+      break;
+    case ResizeQuality::Medium:
+    case ResizeQuality::High:
+      filter = SamplingFilter::GOOD;
+      break;
+    case ResizeQuality::Low:
+    default:
+      break;
+  }
+
+  bool res =
+      Scale(srcBufferPtr, srcSize.width, srcSize.height, srcMap.GetStride(),
+            dstBufferPtr, dstSize.width, dstSize.height, dstMap.GetStride(),
+            aSurface->GetFormat(), filter);
   if (!res) {
     return nullptr;
   }
@@ -1064,7 +1070,9 @@ already_AddRefed<ImageBitmap> ImageBitmap::CreateImageBitmapInternal(
   bool willModify = aOptions.mImageOrientation == ImageOrientation::FlipY ||
                     requiresPremultiply || requiresUnpremultiply;
   if ((willModify && !aAllocatedImageData) ||
-      (aOptions.mImageOrientation == ImageOrientation::FlipY &&
+      ((aOptions.mImageOrientation == ImageOrientation::FlipY ||
+        aOptions.mResizeWidth.WasPassed() ||
+        aOptions.mResizeHeight.WasPassed()) &&
        aCropRect.isSome()) ||
       aMustCopy) {
     dataSurface = surface->GetDataSurface();

@@ -258,6 +258,12 @@ impl<'a, 'b, W> SequenceWriter<'a, 'b, W>
 where
     W: Write + 'b,
 {
+    /// Returns whether this writer has written any item.
+    pub fn has_written(&self) -> bool {
+        // See comment in item()
+        self.inner.prefix.is_none()
+    }
+
     /// Create a new sequence writer.
     #[inline]
     pub fn new(inner: &'a mut CssWriter<'b, W>, separator: &'static str) -> Self {
@@ -595,11 +601,47 @@ pub mod specified {
     }
 }
 
+/// A keyword value used by the Typed OM.
+///
+/// This corresponds to `CSSKeywordValue` in the Typed OM specification.
+/// The keyword is stored as a `CssString` so it can be represented and
+/// transferred independently of any specific property (e.g. `"none"`,
+/// `"block"`, `"thin"`).
+#[derive(Clone, Debug)]
+#[repr(C)]
+pub struct KeywordValue(pub CssString);
+
+/// A single numeric value with an associated unit.
+///
+/// This corresponds to `CSSUnitValue` in the Typed OM specification. The
+/// numeric component is stored separately from the textual unit identifier.
+#[derive(Clone, Debug)]
+#[repr(C)]
+pub struct UnitValue {
+    /// The numeric component of the value.
+    pub value: f32,
+
+    /// The textual unit string (e.g. `"px"`, `"em"`, `"%"`, `"deg"`).
+    pub unit: CssString,
+}
+
+/// A sum of numeric values.
+///
+/// This corresponds to `CSSMathSum` in the Typed OM specification. A sum
+/// value represents an expression such as `10px + 2em`. Each entry is itself
+/// a `NumericValue`, allowing nested sums if needed.
+#[derive(Clone, Debug)]
+#[repr(C)]
+pub struct MathSum {
+    /// The list of numeric terms that make up the sum.
+    pub values: ThinVec<NumericValue>,
+}
+
 /// A numeric value used by the Typed OM.
 ///
 /// This corresponds to `CSSNumericValue` and its subclasses in the Typed OM
 /// specification. It represents numbers that can appear in CSS values,
-/// including both simple unit quantities and sums of numeric terms.
+/// including both simple unit quantities and composite expressions..
 ///
 /// Unlike the parser-level representation, `NumericValue` is property-agnostic
 /// and suitable for conversion to or from the `CSSNumericValue` family of DOM
@@ -609,25 +651,13 @@ pub mod specified {
 pub enum NumericValue {
     /// A single numeric value with a concrete unit.
     ///
-    /// This corresponds to `CSSUnitValue`. The `value` field stores the raw
-    /// numeric component, and the `unit` field stores the textual unit
-    /// identifier (e.g. `"px"`, `"em"`, `"%"`, `"deg"`).
-    Unit {
-        /// The numeric component of the value.
-        value: f32,
-        /// The textual unit string (e.g. `"px"`, `"em"`, `"deg"`).
-        unit: CssString,
-    },
+    /// This corresponds to `CSSUnitValue`.
+    Unit(UnitValue),
 
-    /// A sum of multiple numeric values.
+    /// A sum of numeric values.
     ///
-    /// This corresponds to `CSSMathSum`, representing an expression such as
-    /// `10px + 2em`. Each entry in `values` is another `NumericValue`, which
-    /// may itself be a unit value or a nested sum.
-    Sum {
-        /// The list of numeric terms that make up the sum.
-        values: ThinVec<NumericValue>,
-    },
+    /// This corresponds to `CSSMathSum`.
+    Sum(MathSum),
 }
 
 /// A property-agnostic representation of a value, used by Typed OM.
@@ -638,12 +668,12 @@ pub enum NumericValue {
 #[derive(Clone, Debug)]
 #[repr(C)]
 pub enum TypedValue {
-    /// A keyword value (e.g. `"block"`, `"none"`, `"thin"`).
+    /// A keyword value such as `"block"`, `"none"`, or `"thin"`.
     ///
-    /// Keywords are stored as a `CssString` so they can be represented and
-    /// transferred independently of any specific property. This corresponds
-    /// to `CSSKeywordValue` in the Typed OM specification.
-    Keyword(CssString),
+    /// This corresponds to `CSSKeywordValue` in the Typed OM specification.
+    /// Keywords are represented as a standalone `KeywordValue` so they can
+    /// be carried and compared independently of any particular property.
+    Keyword(KeywordValue),
 
     /// A numeric value such as a length, angle, time, or a sum thereof.
     ///
@@ -658,6 +688,10 @@ pub enum TypedValue {
 /// values into CSS syntax, it converts them into [`TypedValue`]s that can be
 /// exposed to the DOM as `CSSStyleValue` subclasses.
 ///
+/// Most consumers should use [`ToTyped::to_typed_value`]. At the moment,
+/// consumers only use the first reified value. The ability to expose multiple
+/// values is infrastructure-only for now.
+///
 /// This trait is derivable with `#[derive(ToTyped)]`. The derived
 /// implementation currently supports:
 ///
@@ -671,8 +705,8 @@ pub enum TypedValue {
 ///   producing a nested [`TypedValue`] representation when possible.
 ///
 /// * Other cases: If no automatic mapping is defined or recursion is not
-///   enabled, the derived implementation falls back to the default method,
-///   returning `None`.
+///   enabled, the derived implementation falls back to the default method
+///   (which returns `Err(())`, and thus `to_typed_value()` returns `None`)
 ///
 /// The `derive_fields` attribute is intentionally opt-in for now to avoid
 /// forcing types that do not participate in reification to implement
@@ -681,15 +715,66 @@ pub enum TypedValue {
 ///
 /// Over time, the derive may be extended to handle additional CSS value
 /// categories such as numeric, color, and transform types.
+///
+/// Summary of derive attributes recognized by `#[derive(ToTyped)]`:
+///
+/// * `#[typed_value(derive_fields)]` on the type enables limited recursion
+///   for structs and data-carrying enum variants.
+///
+/// * `#[css(skip)]`, `#[typed_value(skip)]`, or `#[typed_value(todo)]` on a
+///   variant cause that variant to be treated as unsupported (the derived
+///   implementation returns `Err(())`).
+///
+/// * `#[css(skip)]` on a field causes that field to be ignored during
+///   reification.
+///
+/// * `#[css(keyword = "...")]` on a unit variant overrides the keyword that
+///   would otherwise be derived from the Rust identifier.
+///
+/// * `#[css(comma)]` on the variant indicates that iterable fields correspond
+///   to comma-separated CSS lists. When this attribute is present, multiple
+///   items in the iterable may be reified as separate `TypedValue`s. If it is
+///   not present and the iterable contains more than one item, the derived
+///   implementation returns `Err(())`.
+///
+/// * `#[css(iterable)]` on a field indicates that the field represents a list
+///   of values. Each item in the iterable is reified individually by calling
+///   `ToTyped::to_typed` on the element type.
+///
+/// * `#[css(if_empty = "...")]` on an iterable field specifies a keyword
+///   value that should be produced when the iterable is empty.
 pub trait ToTyped {
+    /// Attempt to convert `self` into one or more [`TypedValue`] items.
+    ///
+    /// Implementations append any resulting values to `dest`. This is the
+    /// low-level entry point used by the Typed OM reification infrastructure.
+    /// Most callers should prefer [`ToTyped::to_typed_value`].
+    ///
+    /// Returning `Err(())` indicates that the value cannot be represented as
+    /// a property-agnostic Typed OM value.
+    fn to_typed(&self, _dest: &mut ThinVec<TypedValue>) -> Result<(), ()> {
+        Err(())
+    }
+
     /// Attempt to convert `self` into a [`TypedValue`].
     ///
     /// Returns `Some(TypedValue)` if the value can be reified into a
     /// property-agnostic CSSStyleValue subclass. Returns `None` if the value
-    /// is unrepresentable, in which case reification produces a property-tied
+    /// is unrepresentable, in which case consumers produce a property-tied
     /// CSSStyleValue instead.
-    fn to_typed(&self) -> Option<TypedValue> {
-        None
+    fn to_typed_value(&self) -> Option<TypedValue> {
+        let mut dest = ThinVec::new();
+        self.to_typed(&mut dest).ok()?;
+        dest.into_iter().next()
+    }
+}
+
+impl<'a, T> ToTyped for &'a T
+where
+    T: ToTyped + ?Sized,
+{
+    fn to_typed(&self, dest: &mut ThinVec<TypedValue>) -> Result<(), ()> {
+        (*self).to_typed(dest)
     }
 }
 
@@ -697,26 +782,32 @@ impl<T> ToTyped for Box<T>
 where
     T: ?Sized + ToTyped,
 {
-    fn to_typed(&self) -> Option<TypedValue> {
-        (**self).to_typed()
+    fn to_typed(&self, dest: &mut ThinVec<TypedValue>) -> Result<(), ()> {
+        (**self).to_typed(dest)
     }
 }
 
 impl ToTyped for Au {
-    fn to_typed(&self) -> Option<TypedValue> {
+    fn to_typed(&self, dest: &mut ThinVec<TypedValue>) -> Result<(), ()> {
         let value = self.to_f32_px();
         let unit = CssString::from("px");
-        Some(TypedValue::Numeric(NumericValue::Unit { value, unit }))
+        dest.push(TypedValue::Numeric(NumericValue::Unit(UnitValue {
+            value,
+            unit,
+        })));
+        Ok(())
     }
 }
 
 macro_rules! impl_to_typed_for_predefined_type {
     ($name: ty) => {
         impl<'a> ToTyped for $name {
-            fn to_typed(&self) -> Option<TypedValue> {
-                // XXX Should return TypedValue::Numeric with unit "number"
-                // once that variant is available. Tracked in bug 1990419.
-                None
+            fn to_typed(&self, dest: &mut ThinVec<TypedValue>) -> Result<(), ()> {
+                dest.push(TypedValue::Numeric(NumericValue::Unit(UnitValue {
+                    value: *self as f32,
+                    unit: CssString::from("number"),
+                })));
+                Ok(())
             }
         }
     };

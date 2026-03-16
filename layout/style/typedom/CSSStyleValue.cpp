@@ -6,22 +6,78 @@
 
 #include "mozilla/dom/CSSStyleValue.h"
 
+#include "CSSUnsupportedValue.h"
 #include "mozilla/Assertions.h"
+#include "mozilla/CSSPropertyId.h"
 #include "mozilla/ErrorResult.h"
+#include "mozilla/ServoStyleConsts.h"
+#include "mozilla/dom/CSSKeywordValue.h"
+#include "mozilla/dom/CSSNumericValue.h"
 #include "mozilla/dom/CSSStyleValueBinding.h"
+#include "mozilla/dom/CSSTransformValue.h"
 #include "nsCycleCollectionParticipant.h"
+#include "nsString.h"
 
 namespace mozilla::dom {
 
 CSSStyleValue::CSSStyleValue(nsCOMPtr<nsISupports> aParent)
-    : mParent(std::move(aParent)), mValueType(ValueType::Uninitialized) {
+    : mParent(std::move(aParent)),
+      mStyleValueType(StyleValueType::Uninitialized) {
   MOZ_ASSERT(mParent);
 }
 
 CSSStyleValue::CSSStyleValue(nsCOMPtr<nsISupports> aParent,
-                             ValueType aValueType)
-    : mParent(std::move(aParent)), mValueType(aValueType) {
+                             StyleValueType aStyleValueType)
+    : mParent(std::move(aParent)), mStyleValueType(aStyleValueType) {
   MOZ_ASSERT(mParent);
+}
+
+// static
+RefPtr<CSSStyleValue> CSSStyleValue::Create(
+    nsCOMPtr<nsISupports> aParent, const CSSPropertyId& aPropertyId,
+    StylePropertyTypedValue&& aTypedValue) {
+  RefPtr<CSSStyleValue> styleValue;
+
+  switch (aTypedValue.tag) {
+    case StylePropertyTypedValue::Tag::Typed: {
+      const auto& typedValue = aTypedValue.AsTyped();
+
+      switch (typedValue.tag) {
+        case StyleTypedValue::Tag::Keyword: {
+          const auto& keywordValue = typedValue.AsKeyword();
+
+          styleValue =
+              CSSKeywordValue::Create(std::move(aParent), keywordValue);
+
+          break;
+        }
+
+        case StyleTypedValue::Tag::Numeric: {
+          const auto& numericValue = typedValue.AsNumeric();
+
+          styleValue =
+              CSSNumericValue::Create(std::move(aParent), numericValue);
+
+          break;
+        }
+      }
+      break;
+    }
+
+    case StylePropertyTypedValue::Tag::Unsupported: {
+      auto unsupportedValue = std::move(aTypedValue).ExtractUnsupported();
+
+      styleValue = CSSUnsupportedValue::Create(std::move(aParent), aPropertyId,
+                                               std::move(unsupportedValue));
+
+      break;
+    }
+
+    case StylePropertyTypedValue::Tag::None:
+      break;
+  }
+
+  return styleValue;
 }
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(CSSStyleValue)
@@ -59,24 +115,64 @@ void CSSStyleValue::ParseAll(const GlobalObject& aGlobal,
   aRv.Throw(NS_ERROR_NOT_IMPLEMENTED);
 }
 
-void CSSStyleValue::Stringify(nsAString& aRetVal) const {}
+void CSSStyleValue::Stringify(nsACString& aRetVal) const {
+  const CSSPropertyId* propertyId = GetPropertyId();
+  ToCssTextWithProperty(
+      propertyId ? *propertyId : CSSPropertyId(eCSSProperty_UNKNOWN), aRetVal);
+}
 
 // end of CSSStyleValue Web IDL implementation
 
 bool CSSStyleValue::IsCSSUnsupportedValue() const {
-  return mValueType == ValueType::UnsupportedValue;
+  return mStyleValueType == StyleValueType::UnsupportedValue;
 }
 
 bool CSSStyleValue::IsCSSKeywordValue() const {
-  return mValueType == ValueType::KeywordValue;
+  return mStyleValueType == StyleValueType::KeywordValue;
 }
 
-bool CSSStyleValue::IsCSSUnitValue() const {
-  return mValueType == ValueType::UnitValue;
+bool CSSStyleValue::IsCSSNumericValue() const {
+  return mStyleValueType == StyleValueType::NumericValue;
 }
 
-bool CSSStyleValue::IsCSSMathSum() const {
-  return mValueType == ValueType::MathSum;
+bool CSSStyleValue::IsCSSTransformValue() const {
+  return mStyleValueType == StyleValueType::TransformValue;
+}
+
+void CSSStyleValue::ToCssTextWithProperty(const CSSPropertyId& aPropertyId,
+                                          nsACString& aDest) const {
+  switch (GetStyleValueType()) {
+    case StyleValueType::TransformValue: {
+      const CSSTransformValue& transformValue = GetAsCSSTransformValue();
+
+      transformValue.ToCssTextWithProperty(aPropertyId, aDest);
+      break;
+    }
+
+    case StyleValueType::NumericValue: {
+      const CSSNumericValue& numericValue = GetAsCSSNumericValue();
+
+      numericValue.ToCssTextWithProperty(aPropertyId, aDest);
+      break;
+    }
+
+    case StyleValueType::KeywordValue: {
+      const CSSKeywordValue& keywordValue = GetAsCSSKeywordValue();
+
+      keywordValue.ToCssTextWithProperty(aPropertyId, aDest);
+      break;
+    }
+
+    case StyleValueType::UnsupportedValue: {
+      const CSSUnsupportedValue& unsupportedValue = GetAsCSSUnsupportedValue();
+
+      unsupportedValue.ToCssTextWithProperty(aPropertyId, aDest);
+      break;
+    }
+
+    case StyleValueType::Uninitialized:
+      break;
+  }
 }
 
 }  // namespace mozilla::dom

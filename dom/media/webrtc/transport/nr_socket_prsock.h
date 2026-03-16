@@ -42,8 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Implementation of nICEr/nr_socket that is tied to the Gecko
 // SocketTransportService.
 
-#ifndef nr_socket_prsock__
-#define nr_socket_prsock__
+#ifndef nr_socket_prsock_
+#define nr_socket_prsock_
 
 #include <memory>
 #include <queue>
@@ -65,10 +65,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "prio.h"
 
 // nICEr includes
-extern "C" {
 #include "async_wait.h"
 #include "transport_addr.h"
-}
 
 // Stub declaration for nICEr type
 typedef struct nr_socket_vtbl_ nr_socket_vtbl;

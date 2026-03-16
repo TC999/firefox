@@ -9,7 +9,7 @@ from mozunit import main
 from pytest_taskgraph import make_graph, make_task
 from taskgraph import create
 from taskgraph.util import json
-from taskgraph.util.taskcluster import get_task_definition
+from taskgraph.util.taskcluster import _task_definitions_cache
 
 from gecko_taskgraph import decision
 from gecko_taskgraph.actions import trigger_action_callback
@@ -26,7 +26,7 @@ def mock_root_url(monkeypatch):
 @pytest.fixture(autouse=True)
 def clear_caches():
     yield
-    get_task_definition.cache_clear()
+    _task_definitions_cache.cache.clear()
 
 
 @pytest.fixture
@@ -261,6 +261,11 @@ def test_run_missing_tests(mocker, responses, run_action, get_artifact):
 
     responses.get(
         f"{ROOT_URL}/api/queue/v1/task/gid/artifacts/public%2Ftarget-tasks.json",
+        status=303,
+        json={"url": f"{ROOT_URL}/artifacts/target-tasks.json"},
+    )
+    responses.get(
+        f"{ROOT_URL}/artifacts/target-tasks.json",
         status=200,
         json={"test-foo": {}, "test-bar": {}},
     )
@@ -294,7 +299,7 @@ def test_merge_automation(mocker, run_action, graph_config):
     run_action(
         "merge-automation",
         params={"project": "mozilla-central"},
-        input={"behavior": "bump-main"},
+        input={"behavior": "bump-main", "merge-automation-id": 123},
     )
 
     m.assert_called_once()
@@ -304,6 +309,7 @@ def test_merge_automation(mocker, run_action, graph_config):
     assert kwargs["parameters"]["merge_config"] == {
         "force-dry-run": False,
         "behavior": "bump-main",
+        "merge-automation-id": 123,
     }
     assert kwargs["parameters"]["tasks_for"] == "action"
 
@@ -405,6 +411,47 @@ def test_backfill_task(mocker, run_action, get_artifact):
     assert "test-task" in to_run
 
 
+def test_backfill_task_chunk_not_found(mocker, run_action, get_artifact):
+    """When the original chunk doesn't exist in the target push, the backfill
+    should still apply the original manifests via MOZHARNESS_TEST_PATHS."""
+    task_def = {
+        "name": "test-linux-wpt-1",
+        "payload": {"env": {}},
+        "metadata": {"name": "test-linux-wpt-1"},
+        "extra": {"treeherder": {"symbol": "wpt1", "groupSymbol": "W"}},
+        "tags": {},
+    }
+    graph = make_graph(
+        make_task(label="test-linux-wpt-1", task_def=task_def),
+    )
+    m = mocker.patch("gecko_taskgraph.actions.backfill.fetch_graph_and_labels")
+    m.return_value = ("gid", graph, {}, None)
+    mocker.patch("gecko_taskgraph.actions.backfill.combine_task_graph_files")
+
+    original_manifests = {"web-platform-tests": ["/css/test1.html", "/dom/test2.html"]}
+    run_action(
+        "backfill-task",
+        input={
+            "label": "test-linux-wpt-9",
+            "revision": "abc123",
+            "symbol": "wpt9",
+            "test_manifests": original_manifests,
+        },
+    )
+
+    to_run = get_artifact("to-run-0.json")
+    assert "test-linux-wpt-1" in to_run
+
+    task_graph = get_artifact("task-graph-0.json")
+    task_data = list(task_graph.values())[0]
+    task_def = task_data.get("task", task_data)
+    assert task_def["payload"]["env"]["MOZHARNESS_TEST_PATHS"] == json.dumps(
+        original_manifests
+    )
+    assert task_def["metadata"]["name"] == "test-linux-wpt-9"
+    assert task_def["extra"]["treeherder"]["symbol"] == "wpt9-abc123-bk"
+
+
 def test_confirm_failures(mocker, responses, run_action, get_artifact):
     task_id = "test-task-id"
     task_def = {
@@ -435,14 +482,17 @@ def test_confirm_failures(mocker, responses, run_action, get_artifact):
         },
     )
 
-    errorsummary_content = b"\n".join(
-        [
-            b'{"test": "dom/tests/test_example.html", "status": "FAIL", "expected": "PASS", "group": "dom/tests"}',
-            b'{"test": "dom/tests/test_another.html", "status": "FAIL", "expected": "PASS", "group": "dom/tests"}',
-        ]
-    )
+    errorsummary_content = b"\n".join([
+        b'{"test": "dom/tests/test_example.html", "status": "FAIL", "expected": "PASS", "group": "dom/tests"}',
+        b'{"test": "dom/tests/test_another.html", "status": "FAIL", "expected": "PASS", "group": "dom/tests"}',
+    ])
     responses.get(
         f"{ROOT_URL}/api/queue/v1/task/{task_id}/artifacts/public%2Flogs%2Ferrorsummary.log",
+        status=303,
+        json={"url": f"{ROOT_URL}/artifacts/errorsummary.log"},
+    )
+    responses.get(
+        f"{ROOT_URL}/artifacts/errorsummary.log",
         status=200,
         body=errorsummary_content,
     )
@@ -622,9 +672,6 @@ def test_add_all_browsertime(mocker, run_action, get_artifact):
     assert "build" not in to_run
 
 
-@pytest.mark.xfail(
-    reason="Index API artifact handling issue - _handle_artifact doesn't parse YAML correctly for index artifacts"
-)
 def test_gecko_profile(mocker, responses, run_action, get_artifact):
     task_id = "tid"
     task_def = {
@@ -665,6 +712,11 @@ def test_gecko_profile(mocker, responses, run_action, get_artifact):
 
     responses.get(
         f"{ROOT_URL}/api/index/v1/task/gecko.v2.some-project.pushlog-id.100.decision/artifacts/public%2Fparameters.yml",
+        status=303,
+        headers={"Location": f"{ROOT_URL}/artifacts/gecko-profile-params.yml"},
+    )
+    responses.get(
+        f"{ROOT_URL}/artifacts/gecko-profile-params.yml",
         status=200,
         body=yaml.dump({"pushlog_id": "100", "project": "autoland", "level": "1"}),
         content_type="application/x-yaml",
@@ -738,25 +790,33 @@ def test_release_promotion(
 
     responses.get(
         f"{ROOT_URL}/api/queue/v1/task/decision-task-id/artifacts/public%2Fparameters.yml",
+        status=303,
+        json={"url": f"{ROOT_URL}/artifacts/decision-parameters.yml"},
+    )
+    responses.get(
+        f"{ROOT_URL}/artifacts/decision-parameters.yml",
         status=200,
-        body=yaml.dump(
-            {
-                "base_repository": "http://hg.example.com",
-                "head_repository": "http://hg.example.com",
-                "head_rev": "abcdef",
-                "project": "try",
-                "level": "1",
-                "pushlog_id": "100",
-                "required_signoffs": [],
-                "signoff_urls": {},
-                "release_product": "firefox",
-                "release_type": "nightly",
-            }
-        ),
+        body=yaml.dump({
+            "base_repository": "http://hg.example.com",
+            "head_repository": "http://hg.example.com",
+            "head_rev": "abcdef",
+            "project": "try",
+            "level": "1",
+            "pushlog_id": "100",
+            "required_signoffs": [],
+            "signoff_urls": {},
+            "release_product": "firefox",
+            "release_type": "nightly",
+        }),
         content_type="application/x-yaml",
     )
     responses.get(
         f"{ROOT_URL}/api/queue/v1/task/decision-task-id/artifacts/public%2Ffull-task-graph.json",
+        status=303,
+        json={"url": f"{ROOT_URL}/artifacts/full-task-graph.json"},
+    )
+    responses.get(
+        f"{ROOT_URL}/artifacts/full-task-graph.json",
         status=200,
         json={},
     )

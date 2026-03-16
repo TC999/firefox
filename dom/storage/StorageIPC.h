@@ -201,7 +201,7 @@ class SessionStorageObserverChild final : public PSessionStorageObserverChild {
 
  public:
   void AssertIsOnOwningThread() const {
-    NS_ASSERT_OWNINGTHREAD(LocalStorageCacheChild);
+    NS_ASSERT_OWNINGTHREAD(SessionStorageObserverChild);
   }
 
  private:
@@ -239,7 +239,7 @@ class SessionStorageCacheChild final
 
  public:
   void AssertIsOnOwningThread() const {
-    NS_ASSERT_OWNINGTHREAD(SesionStoragManagerChild);
+    NS_ASSERT_OWNINGTHREAD(SessionStorageCacheChild);
   }
 
  private:
@@ -274,7 +274,7 @@ class SessionStorageManagerChild final
 
  public:
   void AssertIsOnOwningThread() const {
-    NS_ASSERT_OWNINGTHREAD(SesionStoragManagerChild);
+    NS_ASSERT_OWNINGTHREAD(SessionStorageManagerChild);
   }
 
  private:
@@ -366,7 +366,7 @@ class StorageDBParent final : public PBackgroundStorageParent {
     virtual ~CacheParentBridge() = default;
 
     // LocalStorageCacheBridge
-    virtual const nsCString Origin() const override;
+    virtual nsCString Origin() const override;
     virtual const nsCString& OriginNoSuffix() const override {
       return mOriginNoSuffix;
     }

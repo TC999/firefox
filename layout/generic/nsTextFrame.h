@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsTextFrame_h__
-#define nsTextFrame_h__
+#ifndef nsTextFrame_h_
+#define nsTextFrame_h_
 
 #include "JustificationUtils.h"
 #include "gfxSkipChars.h"
@@ -685,24 +685,24 @@ class nsTextFrame : public nsIFrame {
   // Return false if the text was not painted and we should continue with
   // the fast path.
   bool PaintTextWithSelection(const PaintTextSelectionParams& aParams,
-                              const ClipEdges& aClipEdges);
+                              const ClipEdges& aClipEdges,
+                              const SelectionDetails& aDetails);
   // helper: paint text with foreground and background colors determined
   // by selection(s). Also computes a mask of all selection types applying to
   // our text, returned in aAllSelectionTypeMask.
   // Return false if the text was not painted and we should continue with
   // the fast path.
-  bool PaintTextWithSelectionColors(
-      const PaintTextSelectionParams& aParams,
-      const mozilla::UniquePtr<SelectionDetails>& aDetails,
-      SelectionTypeMask* aAllSelectionTypeMask, const ClipEdges& aClipEdges);
+  bool PaintTextWithSelectionColors(const PaintTextSelectionParams& aParams,
+                                    const SelectionDetails& aDetails,
+                                    SelectionTypeMask* aAllSelectionTypeMask,
+                                    const ClipEdges& aClipEdges);
   // helper: paint text decorations for text selected by aSelectionType
-  void PaintTextSelectionDecorations(
-      const PaintTextSelectionParams& aParams,
-      const mozilla::UniquePtr<SelectionDetails>& aDetails,
-      SelectionType aSelectionType);
+  void PaintTextSelectionDecorations(const PaintTextSelectionParams& aParams,
+                                     const SelectionDetails& aDetails,
+                                     SelectionType aSelectionType);
 
   SelectionTypeMask ResolveSelections(
-      const PaintTextSelectionParams& aParams, const SelectionDetails* aDetails,
+      const PaintTextSelectionParams& aParams, const SelectionDetails& aDetails,
       nsTArray<PriorityOrderedSelectionsForRange>& aResult,
       SelectionType aSelectionType, bool* aAnyBackgrounds = nullptr) const;
 
@@ -1020,14 +1020,14 @@ class nsTextFrame : public nsIFrame {
   bool CombineSelectionUnderlineRect(nsPresContext* aPresContext,
                                      nsRect& aRect);
 
-  // This sets *aShadows to the appropriate shadows, if any, for the given
+  // Returns the appropriate shadows, if any, for the given
   // type of selection.
-  // If text-shadow was not specified, *aShadows is left untouched.
+  // Returns an empty span if text-shadow was not specified..
   // Note that the returned shadow(s) will only be valid as long as the
   // textPaintStyle remains in scope.
-  void GetSelectionTextShadow(
+  mozilla::Span<const mozilla::StyleSimpleShadow> GetSelectionTextShadow(
       SelectionType aSelectionType, nsTextPaintStyle& aTextPaintStyle,
-      mozilla::Span<const mozilla::StyleSimpleShadow>* aShadows);
+      nsAtom* aHighlightName = nullptr);
 
   /**
    * Utility methods to paint selection.
@@ -1090,7 +1090,7 @@ class nsTextFrame : public nsIFrame {
    * ranges.
    */
   static SelectionTypeMask CreateSelectionRangeList(
-      const SelectionDetails* aDetails, SelectionType aSelectionType,
+      const SelectionDetails& aDetails, SelectionType aSelectionType,
       const PaintTextSelectionParams& aParams,
       nsTArray<SelectionRange>& aSelectionRanges, bool* aAnyBackgrounds);
 

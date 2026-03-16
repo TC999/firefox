@@ -71,6 +71,8 @@ enum class SymbolicAddress {
   LogD,
   PowD,
   ATan2D,
+  AddSubI128,
+  MulI64Wide,
   ArrayMemMove,
   ArrayRefsMove,
   HandleDebugTrap,
@@ -240,6 +242,8 @@ extern const SymbolicAddressSignature SASigExpD;
 extern const SymbolicAddressSignature SASigLogD;
 extern const SymbolicAddressSignature SASigPowD;
 extern const SymbolicAddressSignature SASigATan2D;
+extern const SymbolicAddressSignature SASigAddSubI128;
+extern const SymbolicAddressSignature SASigMulI64Wide;
 extern const SymbolicAddressSignature SASigArrayMemMove;
 extern const SymbolicAddressSignature SASigArrayRefsMove;
 extern const SymbolicAddressSignature SASigMemoryGrowM32;
@@ -307,6 +311,18 @@ bool IsRoundingFunction(SymbolicAddress callee, jit::RoundingMode* mode);
 // See "The Wasm-builtin ABIs in WasmFrame.h".
 
 bool NeedsBuiltinThunk(SymbolicAddress sym);
+
+// Returns the ABI that needs to be used to call a builtin.
+inline jit::ABIKind ABIForBuiltin(SymbolicAddress sym) {
+  // Builtin thunks use the WebAssembly ABI. See GenerateBuiltinThunk for more
+  // information.
+  if (NeedsBuiltinThunk(sym)) {
+    return jit::ABIKind::Wasm;
+  }
+
+  // Otherwise non-thunked builtins use the System ABI directly.
+  return jit::ABIKind::System;
+}
 
 // This function queries whether pc is in one of the process's builtin thunks
 // and, if so, returns the CodeRange and pointer to the code segment that the

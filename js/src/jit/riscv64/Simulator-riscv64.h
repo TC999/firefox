@@ -241,7 +241,7 @@ using sfreg_t = int64_t;
 #    define zext_xlen(x) (((reg_t)(x) << (32 - xlen)) >> (32 - xlen))
 #  endif
 
-#  define BIT(n) (0x1LL << n)
+#  define BIT(n) (0x1LL << (n))
 #  define QUIET_BIT_S(nan) (bit_cast<int32_t>(nan) & BIT(22))
 #  define QUIET_BIT_D(nan) (bit_cast<int64_t>(nan) & BIT(51))
 static inline bool isSnan(float fp) { return !QUIET_BIT_S(fp); }
@@ -375,7 +375,7 @@ class SimInstructionBase : public InstructionBase {
 
 class SimInstruction : public InstructionGetters<SimInstructionBase> {
  public:
-  SimInstruction() {}
+  SimInstruction() = default;
 
   explicit SimInstruction(Instruction* instr) { *this = instr; }
 
@@ -972,7 +972,7 @@ class Simulator {
   bool init();
 
   // Unsupported instructions use Format to print an error and stop execution.
-  void format(SimInstruction* instr, const char* format);
+  void format(const SimInstruction& instr, const char* format);
 
   // Read and write memory.
   // RISCV Memory read/write methods
@@ -988,13 +988,13 @@ class Simulator {
     return lhs;
   }
 
-  inline int32_t loadLinkedW(uint64_t addr, SimInstruction* instr);
+  inline int32_t loadLinkedW(uint64_t addr, const SimInstruction& instr);
   inline int storeConditionalW(uint64_t addr, int32_t value,
-                               SimInstruction* instr);
+                               const SimInstruction& instr);
 
-  inline int64_t loadLinkedD(uint64_t addr, SimInstruction* instr);
+  inline int64_t loadLinkedD(uint64_t addr, const SimInstruction& instr);
   inline int storeConditionalD(uint64_t addr, int64_t value,
-                               SimInstruction* instr);
+                               const SimInstruction& instr);
 
   // Used for breakpoints and traps.
   void SoftwareInterrupt();
@@ -1004,7 +1004,7 @@ class Simulator {
   bool IsTracepoint(uint32_t code);
   void printWatchpoint(uint32_t code);
   void handleStop(uint32_t code);
-  bool isStopInstruction(SimInstruction* instr);
+  bool isStopInstruction(const SimInstruction& instr);
   bool isEnabledStop(uint32_t code);
   void enableStop(uint32_t code);
   void disableStop(uint32_t code);
@@ -1013,12 +1013,12 @@ class Simulator {
 
   // Simulator breakpoints.
   struct Breakpoint {
-    SimInstruction* location;
+    Instruction* location;
     bool enabled;
     bool is_tbreak;
   };
   BreakpointVector<Breakpoint> breakpoints_;
-  void SetBreakpoint(SimInstruction* breakpoint, bool is_tbreak);
+  void SetBreakpoint(const SimInstruction& location, bool is_tbreak);
   void ListBreakpoints();
   void CheckBreakpoints();
 
@@ -1044,7 +1044,7 @@ class Simulator {
   }
 
   // Executes one instruction.
-  void InstructionDecode(Instruction* instr);
+  void InstructionDecode(const SimInstruction& instr);
 
   // ICache.
   // static void CheckICache(base::CustomMatcherHashMap* i_cache,
@@ -1062,8 +1062,9 @@ class Simulator {
     if (std::isnan(alu_out) || std::isnan(src1) || std::isnan(src2) ||
         std::isnan(dst)) {
       // signaling_nan sets kInvalidOperation bit
-      if (isSnan(alu_out) || isSnan(src1) || isSnan(src2) || isSnan(dst))
+      if (isSnan(alu_out) || isSnan(src1) || isSnan(src2) || isSnan(dst)) {
         set_fflags(kInvalidOperation);
+      }
       alu_out = std::numeric_limits<T>::quiet_NaN();
     }
     return alu_out;
@@ -1080,8 +1081,9 @@ class Simulator {
     if (std::isnan(alu_out) || std::isnan(src1) || std::isnan(src2) ||
         std::isnan(src3)) {
       // signaling_nan sets kInvalidOperation bit
-      if (isSnan(alu_out) || isSnan(src1) || isSnan(src2) || isSnan(src3))
+      if (isSnan(alu_out) || isSnan(src1) || isSnan(src2) || isSnan(src3)) {
         set_fflags(kInvalidOperation);
+      }
       alu_out = std::numeric_limits<T>::quiet_NaN();
     }
     return alu_out;
@@ -1096,8 +1098,9 @@ class Simulator {
     // if any input or result is NaN, the result is quiet_NaN
     if (std::isnan(alu_out) || std::isnan(src1) || std::isnan(src2)) {
       // signaling_nan sets kInvalidOperation bit
-      if (isSnan(alu_out) || isSnan(src1) || isSnan(src2))
+      if (isSnan(alu_out) || isSnan(src1) || isSnan(src2)) {
         set_fflags(kInvalidOperation);
+      }
       alu_out = std::numeric_limits<T>::quiet_NaN();
     }
     return alu_out;
@@ -1120,32 +1123,36 @@ class Simulator {
   template <typename Func>
   inline float CanonicalizeDoubleToFloatOperation(Func fn) {
     float alu_out = fn(drs1());
-    if (std::isnan(alu_out) || std::isnan(drs1()))
+    if (std::isnan(alu_out) || std::isnan(drs1())) {
       alu_out = std::numeric_limits<float>::quiet_NaN();
+    }
     return alu_out;
   }
 
   template <typename Func>
   inline float CanonicalizeDoubleToFloatOperation(Func fn, double frs) {
     float alu_out = fn(frs);
-    if (std::isnan(alu_out) || std::isnan(drs1()))
+    if (std::isnan(alu_out) || std::isnan(drs1())) {
       alu_out = std::numeric_limits<float>::quiet_NaN();
+    }
     return alu_out;
   }
 
   template <typename Func>
   inline float CanonicalizeFloatToDoubleOperation(Func fn, float frs) {
     double alu_out = fn(frs);
-    if (std::isnan(alu_out) || std::isnan(frs1()))
+    if (std::isnan(alu_out) || std::isnan(frs1())) {
       alu_out = std::numeric_limits<double>::quiet_NaN();
+    }
     return alu_out;
   }
 
   template <typename Func>
   inline float CanonicalizeFloatToDoubleOperation(Func fn) {
     double alu_out = fn(frs1());
-    if (std::isnan(alu_out) || std::isnan(frs1()))
+    if (std::isnan(alu_out) || std::isnan(frs1())) {
       alu_out = std::numeric_limits<double>::quiet_NaN();
+    }
     return alu_out;
   }
 
@@ -1253,7 +1260,7 @@ class SimulatorProcess {
       ICacheCheckingDisableCount;
   static void FlushICache(void* start, size_t size);
 
-  static void checkICacheLocked(SimInstruction* instr);
+  static void checkICacheLocked(const SimInstruction& instr);
 
   static bool initialize() {
     singleton_ = js_new<SimulatorProcess>();

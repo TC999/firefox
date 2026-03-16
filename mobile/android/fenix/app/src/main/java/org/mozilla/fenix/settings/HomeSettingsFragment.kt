@@ -67,7 +67,7 @@ class HomeSettingsFragment : PreferenceFragmentCompat() {
         super.onResume()
         showToolbar(getString(R.string.preferences_home_2))
         args.preferenceToScrollTo?.let {
-            scrollToPreference(it)
+            scrollToPreferenceWithHighlight(it)
         }
     }
 
@@ -80,6 +80,12 @@ class HomeSettingsFragment : PreferenceFragmentCompat() {
         requirePreference<CheckBoxPreference>(R.string.pref_key_enable_contile).apply {
             isChecked = fenixSettings.showContileFeature
             onPreferenceChangeListener = createMetricPreferenceChangeListener("contile")
+        }
+
+        requirePreference<SwitchPreference>(R.string.pref_key_privacy_report).apply {
+            isVisible = fenixSettings.showPrivacyReportSectionToggle
+            isChecked = fenixSettings.showPrivacyReportFeature
+            onPreferenceChangeListener = createMetricPreferenceChangeListener("privacy_report")
         }
 
         requirePreference<SwitchPreference>(R.string.pref_key_recent_tabs).apply {
@@ -132,13 +138,6 @@ class HomeSettingsFragment : PreferenceFragmentCompat() {
             onPreferenceChangeListener = createMetricPreferenceChangeListener("recently_visited")
         }
 
-        val openingScreenRadioHomepage =
-            requirePreference<RadioButtonPreference>(R.string.pref_key_start_on_home_always)
-        val openingScreenLastTab =
-            requirePreference<RadioButtonPreference>(R.string.pref_key_start_on_home_never)
-        val openingScreenAfterFourHours =
-            requirePreference<RadioButtonPreference>(R.string.pref_key_start_on_home_after_four_hours)
-
         requirePreference<Preference>(R.string.pref_key_wallpapers).apply {
             setOnPreferenceClickListener {
                 view?.findNavController()?.navigateWithBreadcrumb(
@@ -151,11 +150,7 @@ class HomeSettingsFragment : PreferenceFragmentCompat() {
             }
         }
 
-        addToRadioGroup(
-            openingScreenRadioHomepage,
-            openingScreenLastTab,
-            openingScreenAfterFourHours,
-        )
+        setupOpeningScreenPreferences()
     }
 
     private fun createMetricPreferenceChangeListener(metricKey: String): Preference.OnPreferenceChangeListener {
@@ -173,5 +168,26 @@ class HomeSettingsFragment : PreferenceFragmentCompat() {
 
             true
         }
+    }
+
+    private fun setupOpeningScreenPreferences() {
+        val openingScreenRadioHomepage =
+            requirePreference<RadioButtonPreference>(R.string.pref_key_start_on_home_always).apply {
+                setDefaultValue(fenixSettings.alwaysOpenTheHomepageWhenOpeningTheApp)
+            }
+        val openingScreenLastTab =
+            requirePreference<RadioButtonPreference>(R.string.pref_key_start_on_home_never).apply {
+                setDefaultValue(fenixSettings.alwaysOpenTheLastTabWhenOpeningTheApp)
+            }
+        val openingScreenAfterFourHours =
+            requirePreference<RadioButtonPreference>(R.string.pref_key_start_on_home_after_four_hours).apply {
+                setDefaultValue(fenixSettings.openHomepageAfterFourHoursOfInactivity)
+            }
+
+        addToRadioGroup(
+            openingScreenRadioHomepage,
+            openingScreenLastTab,
+            openingScreenAfterFourHours,
+        )
     }
 }

@@ -263,7 +263,7 @@ class AppLinksUseCasesTest {
         val context = createContext(Triple(browserSchemeUrl, browserPackage, ""))
         val browsers: Browsers = mock()
         whenever(browsers.isInstalled(browserPackage)).thenReturn(true)
-        val subject = AppLinksUseCases(context = context, launchInApp = { true }, installedBrowsers = browsers)
+        val subject = AppLinksUseCases(context = context, launchInApp = { true }, installedBrowsers = { browsers })
 
         val redirect = subject.interceptedAppLinkRedirect(browserSchemeUrl)
         assertTrue(redirect.isRedirect())
@@ -277,7 +277,7 @@ class AppLinksUseCasesTest {
         val context = createContext(Triple(appUrl, browserPackage, ""))
         val browsers: Browsers = mock()
         whenever(browsers.isInstalled(browserPackage)).thenReturn(true)
-        val subject = AppLinksUseCases(context = context, launchInApp = { true }, installedBrowsers = browsers)
+        val subject = AppLinksUseCases(context = context, launchInApp = { true }, installedBrowsers = { browsers })
 
         val redirect = subject.interceptedAppLinkRedirect(appUrl)
         assertFalse(redirect.isRedirect())
@@ -357,7 +357,7 @@ class AppLinksUseCasesTest {
     fun `A intent scheme denied should return no app intent`() {
         val uri = "intent://details/#Intent"
         val context = createContext(Triple(uri, appPackage, ""))
-        val subject = AppLinksUseCases(context, { true }, alwaysDeniedSchemes = setOf("intent"))
+        val subject = AppLinksUseCases(context, { true }, alwaysDeniedSchemes = AlwaysDeniedSchemes(setOf("intent")))
 
         val redirect = subject.interceptedAppLinkRedirect.invoke(uri)
 

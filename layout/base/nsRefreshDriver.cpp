@@ -60,6 +60,7 @@
 #include "mozilla/TaskController.h"
 #include "mozilla/VsyncDispatcher.h"
 #include "mozilla/VsyncTaskManager.h"
+#include "mozilla/dom/AnimationTimelinesController.h"
 #include "mozilla/dom/BrowserChild.h"
 #include "mozilla/dom/CallbackDebuggerNotification.h"
 #include "mozilla/dom/ContentChild.h"
@@ -1253,6 +1254,7 @@ static uint32_t GetFirstFrameDelay(imgIRequest* req) {
 }
 
 static constexpr nsLiteralCString sRenderingPhaseNames[] = {
+    "Reveal"_ns,                                     // Reveal
     "Flush autofocus candidates"_ns,                 // FlushAutoFocusCandidates
     "Resize steps"_ns,                               // ResizeSteps
     "Scroll steps"_ns,                               // ScrollSteps
@@ -2039,11 +2041,7 @@ void nsRefreshDriver::UpdateRemoteFrameEffects() {
 }
 
 static void UpdateAndReduceAnimations(Document& aDocument) {
-  for (DocumentTimeline* tl :
-       ToTArray<AutoTArray<RefPtr<DocumentTimeline>, 32>>(
-           aDocument.Timelines())) {
-    tl->WillRefresh();
-  }
+  aDocument.TimelinesController().WillRefresh();
 
   if (nsPresContext* pc = aDocument.GetPresContext()) {
     if (pc->EffectCompositor()->NeedsReducing()) {
@@ -2399,6 +2397,12 @@ void nsRefreshDriver::Tick(VsyncId aId, TimeStamp aNowTime,
     return StopTimer();
   }
 
+  // Step 6, For each doc of docs, reveal doc.
+  RunRenderingPhase(RenderingPhase::Reveal,
+                    [](Document& aDoc) MOZ_CAN_RUN_SCRIPT_BOUNDARY_LAMBDA {
+                      MOZ_KnownLive(aDoc).Reveal();
+                    });
+
   // Step 7. For each doc of docs, flush autofocus candidates for doc if its
   // node navigable is a top-level traversable.
   // NOTE(emilio): Docs with autofocus candidates must be the top-level.
@@ -2631,11 +2635,11 @@ bool nsRefreshDriver::PaintIfNeeded() {
   {
     PaintTelemetry::AutoRecordPaint record;
     ps->SyncWindowPropertiesIfNeeded();
-    ps->PaintSynchronously();
     // Paint our popups.
     if (nsXULPopupManager* pm = nsXULPopupManager::GetInstance()) {
       pm->PaintPopups(this);
     }
+    ps->PaintSynchronously();
   }
   return true;
 }

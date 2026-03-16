@@ -8,6 +8,7 @@
 package org.mozilla.fenix.bookmarks
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Image
@@ -27,7 +28,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.paddingFromBaseline
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,6 +35,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,6 +45,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -52,8 +54,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -85,15 +87,17 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.toColorInt
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import mozilla.appservices.places.BookmarkRoot
 import mozilla.components.browser.state.action.AwesomeBarAction
@@ -119,10 +123,8 @@ import mozilla.components.compose.browser.toolbar.store.BrowserToolbarStore
 import mozilla.components.compose.browser.toolbar.ui.BrowserToolbarQuery
 import mozilla.components.concept.base.profiler.Profiler
 import mozilla.components.lib.state.ext.observeAsComposableState
-import mozilla.components.lib.state.ext.observeAsState
 import mozilla.components.support.ktx.android.view.hideKeyboard
-import mozilla.telemetry.glean.private.NoExtras
-import org.mozilla.fenix.GleanMetrics.BookmarksManagement
+import org.mozilla.fenix.Config
 import org.mozilla.fenix.R
 import org.mozilla.fenix.bookmarks.BookmarksTestTag.BOOKMARK_TOOLBAR
 import org.mozilla.fenix.bookmarks.BookmarksTestTag.EDIT_BOOKMARK_ITEM_TITLE_TEXT_FIELD
@@ -134,10 +136,13 @@ import org.mozilla.fenix.compose.Favicon
 import org.mozilla.fenix.compose.list.IconListItem
 import org.mozilla.fenix.compose.list.SelectableFaviconListItem
 import org.mozilla.fenix.compose.list.SelectableIconListItem
+import org.mozilla.fenix.ext.components
+import org.mozilla.fenix.ext.getRootView
 import org.mozilla.fenix.search.SearchFragmentAction.SuggestionClicked
 import org.mozilla.fenix.search.SearchFragmentAction.SuggestionSelected
 import org.mozilla.fenix.search.SearchFragmentState
 import org.mozilla.fenix.search.SearchFragmentStore
+import org.mozilla.fenix.search.awesomebar.DeleteHistoryEntryDelegate
 import org.mozilla.fenix.theme.FirefoxTheme
 import mozilla.components.ui.icons.R as iconsR
 
@@ -172,22 +177,16 @@ internal fun BookmarksScreen(
     val navController = rememberNavController()
     val store = buildStore(navController)
 
-    val isPrivateModeLocked by appStore.observeAsState(
-        initialValue = appStore.state.isPrivateScreenLocked,
-    ) { appState ->
-        appState.isPrivateScreenLocked
-    }
+    val isPrivateModeLocked by remember {
+        appStore.stateFlow.map { appState -> appState.isPrivateScreenLocked }
+    }.collectAsState(initial = appStore.state.isPrivateScreenLocked)
+
     LaunchedEffect(isPrivateModeLocked) {
         if (!isPrivateModeLocked) {
             store.dispatch(PrivateBrowsingAuthorized)
         }
     }
 
-    DisposableEffect(LocalLifecycleOwner.current) {
-        onDispose {
-            store.dispatch(ViewDisposed)
-        }
-    }
     NavHost(
         navController = navController,
         startDestination = startDestination,
@@ -248,7 +247,7 @@ private fun BookmarksList(
     profiler: Profiler?,
     useNewSearchUX: Boolean = false,
 ) {
-    val state by store.observeAsState(store.state) { it }
+    val state by store.stateFlow.collectAsState()
     val searchState = searchStore.observeAsComposableState { it }.value
     val awesomebarBackground = AwesomeBarDefaults.colors().background
     val awesomebarScrim by remember(searchState.query) {
@@ -269,16 +268,19 @@ private fun BookmarksList(
 
     val snackbarMessage = when (state.bookmarksSnackbarState) {
         BookmarksSnackbarState.CantEditDesktopFolders -> stringResource(R.string.bookmark_cannot_edit_root)
-        is BookmarksSnackbarState.UndoDeletion -> {
-            val (id, titleOrCount) = state.undoSnackbarText()
-            stringResource(id, titleOrCount)
+        BookmarksSnackbarState.SelectFolderFailed -> {
+            stringResource(R.string.bookmark_error_select_folder)
+        }
+        is BookmarksSnackbarState.BookmarkMoved -> {
+            stringResource(
+                R.string.bookmark_moved_single_item,
+                formatArgs = arrayOf(
+                    (state.bookmarksSnackbarState as BookmarksSnackbarState.BookmarkMoved).from,
+                    (state.bookmarksSnackbarState as BookmarksSnackbarState.BookmarkMoved).to,
+                ),
+            )
         }
         else -> ""
-    }
-
-    val snackbarActionLabel = when (state.bookmarksSnackbarState) {
-        is BookmarksSnackbarState.UndoDeletion -> stringResource(R.string.bookmark_undo_deletion)
-        else -> null
     }
 
     val fabHeight = remember { mutableIntStateOf(0) }
@@ -286,19 +288,19 @@ private fun BookmarksList(
     LaunchedEffect(state.bookmarksSnackbarState) {
         when (state.bookmarksSnackbarState) {
             BookmarksSnackbarState.None -> return@LaunchedEffect
-            is BookmarksSnackbarState.UndoDeletion -> scope.launch {
-                BookmarksManagement.deleteSnackbarShown.record(NoExtras())
+            BookmarksSnackbarState.CantEditDesktopFolders -> scope.launch {
                 snackbarHostState.displaySnackbar(
                     message = snackbarMessage,
-                    actionLabel = snackbarActionLabel,
-                    onActionPerformed = {
-                        store.dispatch(SnackbarAction.Undo)
-                        BookmarksManagement.deleteSnackbarUndoClicked.record(NoExtras())
-                    },
                     onDismissPerformed = { store.dispatch(SnackbarAction.Dismissed) },
                 )
             }
-            BookmarksSnackbarState.CantEditDesktopFolders -> scope.launch {
+            BookmarksSnackbarState.SelectFolderFailed -> scope.launch {
+                snackbarHostState.displaySnackbar(
+                    message = snackbarMessage,
+                    onDismissPerformed = { store.dispatch(SnackbarAction.Dismissed) },
+                )
+            }
+            is BookmarksSnackbarState.BookmarkMoved -> scope.launch {
                 snackbarHostState.displaySnackbar(
                     message = snackbarMessage,
                     onDismissPerformed = { store.dispatch(SnackbarAction.Dismissed) },
@@ -402,9 +404,6 @@ private fun BookmarksList(
                 val folders = state.bookmarkItems.folders()
                 itemsIndexed(folders) { index, item ->
                     var showMenu by remember { mutableStateOf(false) }
-                    if (state.isGuidMarkedForDeletion(item.guid)) {
-                        return@itemsIndexed
-                    }
                     val isSelected = item in state.selectedItems
 
                     if (item.isDesktopFolder) {
@@ -488,9 +487,6 @@ private fun BookmarksList(
 
                 itemsIndexed(state.bookmarkItems.bookmarks()) { index, item ->
                     var showMenu by remember { mutableStateOf(false) }
-                    if (state.isGuidMarkedForDeletion(item.guid)) {
-                        return@itemsIndexed
-                    }
                     val isSelected = item in state.selectedItems
 
                     SelectableFaviconListItem(
@@ -541,6 +537,13 @@ private fun BookmarksList(
         }
 
         if (useNewSearchUX && state.isSearching && searchState.searchSuggestionsProviders.isNotEmpty()) {
+            val activity = LocalActivity.current
+            val deleteHistoryDelegate = remember(activity?.getRootView(), searchStore) {
+                activity?.getRootView()?.let {
+                    DeleteHistoryEntryDelegate(it, it.context.components, searchStore)
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .background(awesomebarScrim)
@@ -561,12 +564,16 @@ private fun BookmarksList(
                     AwesomeBar(
                         text = searchState.query,
                         providers = searchState.searchSuggestionsProviders,
+                        hiddenSuggestions = searchState.hiddenSuggestions,
                         orientation = AwesomeBarOrientation.TOP,
                         onSuggestionClicked = { suggestion ->
                             searchStore.dispatch(SuggestionClicked(suggestion))
                         },
                         onAutoComplete = { suggestion ->
                             searchStore.dispatch(SuggestionSelected(suggestion))
+                        },
+                        onRemoveClicked = { suggestion ->
+                            deleteHistoryDelegate?.handleDeletingHistoryEntry(suggestion)
                         },
                         onVisibilityStateUpdated = {
                             browserStore.dispatch(AwesomeBarAction.VisibilityStateUpdated(it))
@@ -593,11 +600,15 @@ private fun LazyListScope.fabOffsetSpace(fabHeight: Int) {
 private fun BookmarksListTopBar(
     store: BookmarksStore,
 ) {
-    val selectedItems by store.observeAsState(store.state.selectedItems) { it.selectedItems }
-    val recursiveCount by store.observeAsState(store.state.recursiveSelectedCount) { it.recursiveSelectedCount }
-    val folderTitle by store.observeAsState(store.state.currentFolder.title) { store.state.currentFolder.title }
+    val selectedItems by remember { store.stateFlow.map { it.selectedItems } }
+        .collectAsState(initial = store.state.selectedItems)
+    val recursiveCount by remember { store.stateFlow.map { it.recursiveSelectedCount } }
+        .collectAsState(initial = store.state.recursiveSelectedCount)
+    val folderTitle by remember { store.stateFlow.map { store.state.currentFolder.title } }
+        .collectAsState(store.state.currentFolder.title)
     var showMenu by remember { mutableStateOf(false) }
-    val showSortMenu by store.observeAsState(store.state.sortMenuShown) { it.sortMenuShown }
+    val showSortMenu by remember { store.stateFlow.map { it.sortMenuShown } }
+        .collectAsState(store.state.sortMenuShown)
 
     val backgroundColor = if (selectedItems.isEmpty()) {
         MaterialTheme.colorScheme.surface
@@ -674,12 +685,13 @@ private fun BookmarksListTopBarActions(
     showMenu: Boolean,
     onShowMenuChanged: (Boolean) -> Unit,
 ) {
-    val isCurrentFolderDesktopRoot by store.observeAsState(store.state.currentFolder.isDesktopRoot) {
-        store.state.currentFolder.isDesktopRoot
-    }
-    val isCurrentFolderMobileRoot by store.observeAsState(store.state.currentFolder.isMobileRoot) {
-        store.state.currentFolder.isMobileRoot
-    }
+    val isCurrentFolderDesktopRoot by remember {
+        store.stateFlow.map { store.state.currentFolder.isDesktopRoot }
+    }.collectAsState(store.state.currentFolder.isDesktopRoot)
+    val isCurrentFolderMobileRoot by remember {
+        store.stateFlow.map { store.state.currentFolder.isMobileRoot }
+    }.collectAsState(store.state.currentFolder.isMobileRoot)
+
     when {
         selectedItems.isEmpty() -> BookmarksListTopBarActionsNoSelection(
             store = store,
@@ -858,9 +870,8 @@ private fun BookmarksListTopBarActionsNoSelection(
 private fun WarnDialog(
     store: BookmarksStore,
 ) {
-    val state by store.observeAsState(store.state.openTabsConfirmationDialog) {
-        it.openTabsConfirmationDialog
-    }
+    val state by remember { store.stateFlow.map { it.openTabsConfirmationDialog } }
+        .collectAsState(initial = store.state.openTabsConfirmationDialog)
 
     val dialog = state
     if (dialog is OpenTabsConfirmationDialog.Presenting) {
@@ -924,18 +935,47 @@ private fun AlertDialogDeletionWarning(
 private fun SelectFolderScreen(
     store: BookmarksStore,
 ) {
-    val showNewFolderButton by store.observeAsState(store.state.showNewFolderButton) { store.state.showNewFolderButton }
-    val state by store.observeAsState(store.state.bookmarksSelectFolderState) { it.bookmarksSelectFolderState }
+    val showNewFolderButton by remember { store.stateFlow.map { store.state.showNewFolderButton } }
+        .collectAsState(initial = store.state.showNewFolderButton)
+    val state by remember { store.stateFlow.map { it.bookmarksSelectFolderState } }
+        .collectAsState(initial = store.state.bookmarksSelectFolderState)
 
     LaunchedEffect(Unit) {
         store.dispatch(SelectFolderAction.ViewAppeared)
     }
 
+    BackInvokedHandler(state?.isSearching ?: false) {
+        store.dispatch(SelectFolderAction.SearchDismissed)
+    }
+
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+
     Scaffold(
+        modifier = Modifier
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
+                                store.dispatch(SelectFolderAction.SearchDismissed)
+                            },
+                        )
+                    },
         topBar = {
-            SelectFolderTopBar(store = store)
+            if (state?.isSearching ?: false) {
+                SelectFolderSearchTopBar(store = store)
+            } else {
+                SelectFolderTopBar(store = store)
+            }
         },
     ) { paddingValues ->
+        if (state?.isLoading ?: false) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            return@Scaffold
+        }
         LazyColumn(
             modifier = Modifier
                 .padding(paddingValues)
@@ -943,11 +983,16 @@ private fun SelectFolderScreen(
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            items(state?.folders.orEmpty()) { folder ->
+            items(
+                key = { item -> item.folder.guid },
+                items = state?.visibleFolders.orEmpty().flattenToList(),
+            ) { folder ->
                 FolderListItem(
                     folder = folder,
                     isSelected = folder.guid == state?.selectedGuid,
+                    showPadding = state?.isSearching ?: true,
                     onClick = { store.dispatch(SelectFolderAction.ItemClicked(folder)) },
+                    onChevronClick = { store.dispatch(SelectFolderAction.ChevronClicked(folder)) },
                 )
             }
 
@@ -961,13 +1006,76 @@ private fun SelectFolderScreen(
 }
 
 @Composable
+private fun SelectFolderSearchTopBar(store: BookmarksStore) {
+    val focusRequester = remember { FocusRequester() }
+    var text by remember {
+        mutableStateOf(
+            TextFieldValue(
+                store.state.bookmarksSelectFolderState?.searchQuery.orEmpty(),
+                selection = TextRange(
+                    store.state.bookmarksSelectFolderState?.searchQuery?.length ?: 0,
+                ),
+            ),
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+        val value = text.text
+        text = text.copy(selection = TextRange(value.length))
+    }
+
+    TopAppBar(
+        title = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { newValue ->
+                    text = newValue
+                    store.dispatch(
+                        SelectFolderAction.SearchQueryUpdated(newValue.text),
+                    )
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+                placeholder = {
+                    stringResource(R.string.select_bookmark_search_button_content_description)
+                },
+                leadingIcon = {
+                    Icon(
+                        painter = painterResource(iconsR.drawable.mozac_ic_search_24),
+                        contentDescription = stringResource(
+                            R.string.select_bookmark_search_button_content_description,
+                            ),
+                        )
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+            )
+        },
+        navigationIcon = {},
+        actions = {},
+        windowInsets = WindowInsets(
+            top = 0.dp,
+            bottom = 0.dp,
+        ),
+    )
+}
+
+@Composable
 private fun FolderListItem(
     folder: SelectFolderItem,
     isSelected: Boolean,
+    showPadding: Boolean = true,
     onClick: () -> Unit,
+    onChevronClick: () -> Unit,
 ) {
     if (folder.isDesktopRoot) {
-        Box(modifier = Modifier.padding(start = folder.startPadding)) {
+        Box(
+            modifier = Modifier.padding(
+            start = folder.startPadding,
+            ),
+        ) {
             Row(modifier = Modifier.width(FirefoxTheme.layout.size.containerMaxWidth)) {
                 Spacer(modifier = Modifier.width(56.dp))
                 Text(
@@ -978,19 +1086,49 @@ private fun FolderListItem(
             }
         }
     } else {
-        Box(modifier = Modifier.padding(start = folder.startPadding)) {
-            SelectableIconListItem(
-                label = folder.title,
-                isSelected = isSelected,
-                beforeIconPainter = painterResource(iconsR.drawable.mozac_ic_folder_24),
-                modifier = Modifier
-                    .width(FirefoxTheme.layout.size.containerMaxWidth)
-                    .toggleable(
-                        value = isSelected,
-                        role = Role.RadioButton,
-                        onValueChange = { onClick() },
-                    ),
-            )
+        Box(
+            modifier = Modifier
+            .padding(start = if (!showPadding) folder.startPadding else 0.dp)
+            .width(FirefoxTheme.layout.size.containerMaxWidth),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                when (folder.expansionState) {
+                    is SelectFolderExpansionState.None -> Spacer(modifier = Modifier.size(width = 48.dp, height = 0.dp))
+                    is SelectFolderExpansionState.Open -> {
+                        IconButton(onClick = onChevronClick) {
+                            Icon(
+                                painter = painterResource(iconsR.drawable.mozac_ic_chevron_down_24),
+                                contentDescription = stringResource(
+                                    R.string.bookmark_select_folder_close_folder_content_description,
+                                    folder.title,
+                                ),
+                            )
+                        }
+                    }
+                    is SelectFolderExpansionState.Closed -> {
+                        IconButton(onClick = onChevronClick) {
+                            Icon(
+                                painter = painterResource(iconsR.drawable.mozac_ic_chevron_right_24),
+                                contentDescription = stringResource(
+                                    R.string.bookmark_select_folder_expand_folder_content_description,
+                                    folder.title,
+                                ),
+                            )
+                        }
+                    }
+                }
+                SelectableIconListItem(
+                    label = folder.title,
+                    isSelected = isSelected,
+                    beforeIconPainter = painterResource(iconsR.drawable.mozac_ic_folder_24),
+                    modifier = Modifier
+                        .toggleable(
+                            value = isSelected,
+                            role = Role.RadioButton,
+                            onValueChange = { onClick() },
+                        ),
+                )
+            }
         }
     }
 }
@@ -1046,6 +1184,22 @@ private fun SelectFolderTopBar(store: BookmarksStore) {
                 SelectFolderSortOverflowMenu(store = store)
             }
 
+            // TODO https://bugzilla.mozilla.org/show_bug.cgi?id=2006505
+            if (Config.channel.isDebug) {
+                IconButton(
+                    onClick = {
+                        store.dispatch(SelectFolderAction.SearchClicked)
+                    },
+                ) {
+                    Icon(
+                        painter = painterResource(iconsR.drawable.mozac_ic_search_24),
+                        contentDescription = stringResource(
+                            R.string.select_bookmark_search_button_content_description,
+                        ),
+                    )
+                }
+            }
+
             if (onNewFolderClick != null) {
                 IconButton(onClick = { onNewFolderClick() }) {
                     Icon(
@@ -1067,10 +1221,10 @@ private fun SelectFolderTopBar(store: BookmarksStore) {
 
 @Composable
 private fun SelectFolderSortOverflowMenu(store: BookmarksStore) {
-    val showMenu by store.observeAsState(store.state.sortMenuShown) {
-        store.state.sortMenuShown
-    }
-    val sortOrder by store.observeAsState(store.state.sortOrder) { store.state.sortOrder }
+    val showMenu by remember { store.stateFlow.map { store.state.sortMenuShown } }
+        .collectAsState(initial = store.state.sortMenuShown)
+    val sortOrder by remember { store.stateFlow.map { store.state.sortOrder } }
+        .collectAsState(initial = store.state.sortOrder)
 
     val menuItems = listOf(
         MenuItem.CheckableItem(
@@ -1197,7 +1351,8 @@ private fun BookmarkSortOverflowMenu(
     onDismissRequest: () -> Unit,
     store: BookmarksStore,
 ) {
-    val sortOrder by store.observeAsState(store.state.sortOrder) { store.state.sortOrder }
+    val sortOrder by remember { store.stateFlow.map { store.state.sortOrder } }
+        .collectAsState(store.state.sortOrder)
 
     val menuItems = listOf(
         MenuItem.CheckableItem(
@@ -1311,12 +1466,18 @@ private fun BookmarkListItemMenu(
 ) {
     val menuItems = listOf(
         MenuItem.TextItem(
+            text = Text.Resource(R.string.bookmark_menu_select_button),
+            onClick = { store.dispatch(BookmarksListMenuAction.Bookmark.SelectClicked(bookmark)) },
+        ),
+        MenuItem.TextItem(
             text = Text.Resource(R.string.bookmark_menu_edit_button),
             onClick = { store.dispatch(BookmarksListMenuAction.Bookmark.EditClicked(bookmark)) },
         ),
         MenuItem.TextItem(
-            text = Text.Resource(R.string.bookmark_menu_copy_button),
-            onClick = { store.dispatch(BookmarksListMenuAction.Bookmark.CopyClicked(bookmark)) },
+            text = Text.Resource(R.string.bookmark_menu_move_button),
+            onClick = {
+                store.dispatch(BookmarksListMenuAction.Bookmark.MoveClicked(bookmark))
+            },
         ),
         MenuItem.TextItem(
             text = Text.Resource(R.string.bookmark_menu_share_button),
@@ -1352,8 +1513,18 @@ private fun BookmarkListFolderMenu(
 ) {
     val menuItems = listOf(
         MenuItem.TextItem(
+            text = Text.Resource(R.string.bookmark_menu_select_button),
+            onClick = { store.dispatch(BookmarksListMenuAction.Folder.SelectClicked(folder)) },
+        ),
+        MenuItem.TextItem(
             text = Text.Resource(R.string.bookmark_menu_edit_button),
             onClick = { store.dispatch(BookmarksListMenuAction.Folder.EditClicked(folder)) },
+        ),
+        MenuItem.TextItem(
+            text = Text.Resource(R.string.bookmark_menu_move_button),
+            onClick = {
+                store.dispatch(BookmarksListMenuAction.Folder.MoveClicked(folder))
+            },
         ),
         MenuItem.TextItem(
             text = Text.Resource(R.string.bookmark_menu_open_all_in_tabs_button),
@@ -1380,7 +1551,7 @@ private fun BookmarkListFolderMenu(
 private fun EditFolderScreen(
     store: BookmarksStore,
 ) {
-    val state by store.observeAsState(store.state) { it }
+    val state by store.stateFlow.collectAsState()
     val editState = state.bookmarksEditFolderState ?: return
     val dialogState = state.bookmarksDeletionDialogState
 
@@ -1482,7 +1653,8 @@ private fun EditFolderTopBar(
 private fun AddFolderScreen(
     store: BookmarksStore,
 ) {
-    val state by store.observeAsState(store.state.bookmarksAddFolderState) { it.bookmarksAddFolderState }
+    val state by remember { store.stateFlow.map { it.bookmarksAddFolderState } }
+        .collectAsState(initial = store.state.bookmarksAddFolderState)
     Scaffold(
         topBar = { AddFolderTopBar(onBackClick = { store.dispatch(BackClicked) }) },
     ) { paddingValues ->
@@ -1560,7 +1732,8 @@ private fun AddFolderTopBar(onBackClick: () -> Unit) {
 private fun EditBookmarkScreen(
     store: BookmarksStore,
 ) {
-    val state by store.observeAsState(store.state.bookmarksEditBookmarkState) { it.bookmarksEditBookmarkState }
+    val state by remember { store.stateFlow.map { it.bookmarksEditBookmarkState } }
+        .collectAsState(initial = store.state.bookmarksEditBookmarkState)
 
     val bookmark = state?.bookmark ?: return
     val folder = state?.folder ?: return
@@ -1696,10 +1869,7 @@ private fun ClearableTextField(
         onValueChange = onValueChange,
         placeholder = placeholder,
         errorText = "",
-        modifier = modifier
-            .onFocusChanged { isFocused = it.isFocused }
-            .padding(0.dp)
-            .paddingFromBaseline(0.dp),
+        modifier = modifier.onFocusChanged { isFocused = it.isFocused },
         trailingIcon = {
             if (isFocused && value.isNotEmpty()) {
                 CrossTextFieldButton { onValueChange("") }
@@ -1777,7 +1947,6 @@ private fun EditBookmarkScreenPreview() {
             bookmarksSelectFolderState = null,
             bookmarksEditFolderState = null,
             bookmarksMultiselectMoveState = null,
-            bookmarksDeletionSnackbarQueueCount = 0,
             isLoading = false,
             isSearching = false,
         ),
@@ -1832,7 +2001,6 @@ private fun EditFolderScreenPreview() {
                 ),
             ),
             bookmarksMultiselectMoveState = null,
-            bookmarksDeletionSnackbarQueueCount = 0,
             isLoading = false,
             isSearching = false,
         ),
@@ -1882,7 +2050,6 @@ private fun BookmarksScreenPreview() {
                 bookmarksSelectFolderState = null,
                 bookmarksEditFolderState = null,
                 bookmarksMultiselectMoveState = null,
-                bookmarksDeletionSnackbarQueueCount = 0,
                 isLoading = false,
                 isSearching = false,
             ),
@@ -1927,7 +2094,6 @@ private fun EmptyBookmarksScreenPreview() {
                 bookmarksSelectFolderState = null,
                 bookmarksEditFolderState = null,
                 bookmarksMultiselectMoveState = null,
-                bookmarksDeletionSnackbarQueueCount = 0,
                 isLoading = false,
                 isSearching = false,
             ),
@@ -1980,7 +2146,6 @@ private fun AddFolderPreview() {
             bookmarksSelectFolderState = null,
             bookmarksEditFolderState = null,
             bookmarksMultiselectMoveState = null,
-            bookmarksDeletionSnackbarQueueCount = 0,
             isLoading = false,
             isSearching = false,
         ),
@@ -2032,55 +2197,77 @@ private fun SelectFolderPreview() {
                     SelectFolderItem(
                         indentation = PREVIEW_INDENTATION_0,
                         folder = BookmarkItem.Folder("Bookmarks", "guid0", null),
+                        expansionState = SelectFolderExpansionState.Closed,
                     ),
                     SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_2,
+                        indentation = PREVIEW_INDENTATION_0,
                         folder = BookmarkItem.Folder("Bookmarks Menu", BookmarkRoot.Menu.id, null),
+                        expansionState = SelectFolderExpansionState.None,
                     ),
                     SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_2,
+                        indentation = PREVIEW_INDENTATION_0,
                         folder = BookmarkItem.Folder("Bookmarks Toolbar", BookmarkRoot.Toolbar.id, position = null),
+                        expansionState = SelectFolderExpansionState.None,
                     ),
                     SelectFolderItem(
                         indentation = PREVIEW_INDENTATION_1,
                         folder = BookmarkItem.Folder("Desktop Bookmarks", BookmarkRoot.Root.id, position = null),
-                    ),
-                    SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_2,
-                        folder = BookmarkItem.Folder("Bookmarks Unfiled", BookmarkRoot.Unfiled.id, position = null),
-                    ),
-                    SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_1,
-                        folder = BookmarkItem.Folder("Nested One", "guid0", position = null),
-                    ),
-                    SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_2,
-                        folder = BookmarkItem.Folder("Nested Two", "guid0", position = null),
-                    ),
-                    SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_2,
-                        folder = BookmarkItem.Folder("Nested Two", "guid0", position = null),
-                    ),
-                    SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_1,
-                        folder = BookmarkItem.Folder("Nested One", "guid0", position = null),
-                    ),
-                    SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_2,
-                        folder = BookmarkItem.Folder("Nested Two", "guid1", position = null),
-                    ),
-                    SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_3,
-                        folder = BookmarkItem.Folder("Nested Three", "guid0", position = null),
+                        expansionState = SelectFolderExpansionState.None,
                     ),
                     SelectFolderItem(
                         indentation = PREVIEW_INDENTATION_0,
-                        folder = BookmarkItem.Folder("Nested 0", "guid0", position = null),
+                        folder = BookmarkItem.Folder("Bookmarks Unfiled", BookmarkRoot.Unfiled.id, position = null),
+                        expansionState = SelectFolderExpansionState.Open(
+                            listOf(
+                                SelectFolderItem(
+                                    indentation = PREVIEW_INDENTATION_1,
+                                    folder = BookmarkItem.Folder("Nested One", "guid0", position = null),
+                                    expansionState = SelectFolderExpansionState.Open(
+                                        listOf(
+                                            SelectFolderItem(
+                                                indentation = PREVIEW_INDENTATION_2,
+                                                folder = BookmarkItem.Folder("Nested Two", "guid0", position = null),
+                                                expansionState = SelectFolderExpansionState.None,
+                                            ),
+                                            SelectFolderItem(
+                                                indentation = PREVIEW_INDENTATION_2,
+                                                folder = BookmarkItem.Folder("Nested Two", "guid0", position = null),
+                                                expansionState = SelectFolderExpansionState.None,
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                                SelectFolderItem(
+                                    indentation = PREVIEW_INDENTATION_1,
+                                    folder = BookmarkItem.Folder("Nested One", "guid0", position = null),
+                                    expansionState = SelectFolderExpansionState.Open(
+                                        listOf(
+                                            SelectFolderItem(
+                                                indentation = PREVIEW_INDENTATION_2,
+                                                folder = BookmarkItem.Folder("Nested Two", "guid1", position = null),
+                                                expansionState = SelectFolderExpansionState.Open(
+                                                    listOf(
+                                                        SelectFolderItem(
+                                                            indentation = PREVIEW_INDENTATION_3,
+                                                            folder = BookmarkItem.Folder(
+                                                                title = "Nested Three",
+                                                                guid = "guid0",
+                                                                position = null,
+                                                            ),
+                                                            expansionState = SelectFolderExpansionState.None,
+                                                        ),
+                                                    ),
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
                     ),
                 ),
             ),
             bookmarksMultiselectMoveState = null,
-            bookmarksDeletionSnackbarQueueCount = 0,
             isLoading = false,
             isSearching = false,
         ),

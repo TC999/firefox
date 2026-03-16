@@ -15,11 +15,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "jsnum.h"
 #include "jspubtd.h"
 #include "NamespaceImports.h"
 
 #include "builtin/intl/DateTimeFormat.h"
+#include "builtin/Number.h"
 #include "builtin/temporal/Calendar.h"
 #include "builtin/temporal/Duration.h"
 #include "builtin/temporal/Int96.h"
@@ -315,7 +315,7 @@ BigInt* js::temporal::ToBigInt(JSContext* cx,
  */
 EpochNanoseconds js::temporal::GetUTCEpochNanoseconds(
     const ISODateTime& isoDateTime) {
-  MOZ_ASSERT(ISODateTimeWithinLimits(isoDateTime));
+  MOZ_ASSERT(IsValidISODateTime(isoDateTime));
 
   const auto& [date, time] = isoDateTime;
 
@@ -368,10 +368,10 @@ InstantObject* js::temporal::CreateTemporalInstant(
   }
 
   // Step 4.
-  object->setFixedSlot(InstantObject::SECONDS_SLOT,
-                       NumberValue(epochNanoseconds.seconds));
-  object->setFixedSlot(InstantObject::NANOSECONDS_SLOT,
-                       Int32Value(epochNanoseconds.nanoseconds));
+  object->initFixedSlot(InstantObject::SECONDS_SLOT,
+                        NumberValue(epochNanoseconds.seconds));
+  object->initFixedSlot(InstantObject::NANOSECONDS_SLOT,
+                        Int32Value(epochNanoseconds.nanoseconds));
 
   // Step 5.
   return object;
@@ -398,10 +398,10 @@ static InstantObject* CreateTemporalInstant(JSContext* cx, const CallArgs& args,
 
   // Step 4.
   auto epochNs = ToEpochNanoseconds(epochNanoseconds);
-  object->setFixedSlot(InstantObject::SECONDS_SLOT,
-                       NumberValue(epochNs.seconds));
-  object->setFixedSlot(InstantObject::NANOSECONDS_SLOT,
-                       Int32Value(epochNs.nanoseconds));
+  object->initFixedSlot(InstantObject::SECONDS_SLOT,
+                        NumberValue(epochNs.seconds));
+  object->initFixedSlot(InstantObject::NANOSECONDS_SLOT,
+                        Int32Value(epochNs.nanoseconds));
 
   // Step 5.
   return object;

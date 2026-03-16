@@ -61,6 +61,8 @@ const loginInfoToLoginEntryWithMeta = loginInfo =>
       timeCreated: loginInfo.timeCreated,
       timeLastUsed: loginInfo.timeLastUsed,
       timePasswordChanged: loginInfo.timePasswordChanged,
+      timeLastBreachAlertDismissed:
+        loginInfo.timeLastBreachAlertDismissed || null,
     }),
   });
 
@@ -84,6 +86,8 @@ const loginToLoginInfo = login => {
   loginInfo.timeLastUsed = login.timeLastUsed;
   loginInfo.timePasswordChanged = login.timePasswordChanged;
   loginInfo.timesUsed = login.timesUsed;
+  loginInfo.timeLastBreachAlertDismissed =
+    login.timeLastBreachAlertDismissed || null;
 
   /* These fields are not attributes on the Rust Login class
   loginInfo.syncCounter = login.syncCounter;
@@ -196,6 +200,41 @@ class RustLoginsStoreAdapter {
     const loginEntry = loginInfoToLoginEntry(loginInfo);
     const login = this.#store.findLoginToUpdate(loginEntry);
     return login && loginToLoginInfo(login);
+  }
+
+  async recordPotentiallyVulnerablePasswords(passwords) {
+    await this.#store.recordPotentiallyVulnerablePasswords(passwords);
+  }
+
+  async isPotentiallyVulnerablePassword(id) {
+    return this.#store.isPotentiallyVulnerablePassword(id);
+  }
+
+  async recordBreachAlertDismissal(id) {
+    await this.#store.recordBreachAlertDismissal(id);
+  }
+
+  async clearAllPotentiallyVulnerablePasswords() {
+    await this.#store.resetAllBreaches();
+  }
+
+  async arePotentiallyVulnerablePasswords(ids) {
+    return this.#store.arePotentiallyVulnerablePasswords(ids);
+  }
+
+  async getBreachAlertDismissalsByLoginGUID() {
+    const result = {};
+    for (const {
+      id,
+      timeLastBreachAlertDismissed: timeBreachAlertDismissed,
+    } of this.#store.list()) {
+      if (timeBreachAlertDismissed) {
+        result[id] = {
+          timeBreachAlertDismissed,
+        };
+      }
+    }
+    return result;
   }
 
   shutdown() {
@@ -325,6 +364,13 @@ export class LoginManagerRustStorage {
     throw Components.Exception("loginIsDeleted", Cr.NS_ERROR_NOT_IMPLEMENTED);
   }
 
+  loginIsDeletedAsync(_guid) {
+    throw Components.Exception(
+      "loginIsDeletedAsync",
+      Cr.NS_ERROR_NOT_IMPLEMENTED
+    );
+  }
+
   addWithMeta(login) {
     return this.#storageAdapter.addWithMeta(login);
   }
@@ -385,6 +431,13 @@ export class LoginManagerRustStorage {
     this.#storageAdapter.update(idToModify, newLogin);
   }
 
+  async modifyLoginAsync(oldLogin, newLoginData, _fromSync) {
+    let result = this.modifyLogin(oldLogin, newLoginData, _fromSync);
+
+    // Emulate being async:
+    return Promise.resolve(result);
+  }
+
   /**
    * Checks to see if the specified GUID already exists.
    */
@@ -402,18 +455,18 @@ export class LoginManagerRustStorage {
     this.#storageAdapter.touch(oldStoredLogin.guid);
   }
 
-  async recordBreachAlertDismissal(_loginGUID) {
-    throw Components.Exception(
-      "recordBreachAlertDismissal",
-      Cr.NS_ERROR_NOT_IMPLEMENTED
-    );
+  async recordPasswordUseAsync(login) {
+    let result = this.recordPasswordUse(login);
+    // Emulate being async:
+    return Promise.resolve(result);
   }
 
-  getBreachAlertDismissalsByLoginGUID() {
-    throw Components.Exception(
-      "getBreachAlertDismissalsByLoginGUID",
-      Cr.NS_ERROR_NOT_IMPLEMENTED
-    );
+  async recordBreachAlertDismissal(loginGUID) {
+    await this.#storageAdapter.recordBreachAlertDismissal(loginGUID);
+  }
+
+  async getBreachAlertDismissalsByLoginGUID() {
+    return this.#storageAdapter.getBreachAlertDismissalsByLoginGUID();
   }
 
   /**
@@ -421,7 +474,7 @@ export class LoginManagerRustStorage {
    * fails due to a corrupt entry, the login is not included in
    * the resulting array.
    *
-   * @resolve {nsILoginInfo[]}
+   * @returns {Promise<nsILoginInfo[]>}
    */
   async getAllLogins(includeDeleted) {
     // `includeDeleted` is currentlty unsupported
@@ -609,6 +662,13 @@ export class LoginManagerRustStorage {
     this.#storageAdapter.delete(idToDelete);
   }
 
+  async removeLoginAsync(login, _fromSync) {
+    let result = this.removeLogin(login, _fromSync);
+
+    // Emulate being async:
+    return Promise.resolve(result);
+  }
+
   /**
    * Removes all logins from local storage, including FxA Sync key.
    *
@@ -617,6 +677,10 @@ export class LoginManagerRustStorage {
    */
   removeAllLogins() {
     this.#removeLogins(false, true);
+  }
+
+  async removeAllLoginsAsync() {
+    this.removeAllLogins();
   }
 
   /**
@@ -628,6 +692,10 @@ export class LoginManagerRustStorage {
    */
   removeAllUserFacingLogins(fullyRemove) {
     this.#removeLogins(fullyRemove, false);
+  }
+
+  async removeAllUserFacingLoginsAsync(fullyRemove) {
+    this.removeAllUserFacingLogins(fullyRemove);
   }
 
   /**
@@ -711,25 +779,30 @@ export class LoginManagerRustStorage {
     return logins.length;
   }
 
-  addPotentiallyVulnerablePassword(_login) {
-    throw Components.Exception(
-      "addPotentiallyVulnerablePassword",
-      Cr.NS_ERROR_NOT_IMPLEMENTED
+  async addPotentiallyVulnerablePassword(login) {
+    await this.#storageAdapter.recordPotentiallyVulnerablePasswords([
+      login.password,
+    ]);
+  }
+
+  // adding multiple potentially vulnerable passwords during migration
+  async addPotentiallyVulnerablePasswords(passwords) {
+    await this.#storageAdapter.recordPotentiallyVulnerablePasswords(passwords);
+  }
+
+  async isPotentiallyVulnerablePassword(login) {
+    return this.#storageAdapter.isPotentiallyVulnerablePassword(
+      login.QueryInterface(Ci.nsILoginMetaInfo).guid
     );
   }
 
-  isPotentiallyVulnerablePassword(_login) {
-    throw Components.Exception(
-      "isPotentiallyVulnerablePassword",
-      Cr.NS_ERROR_NOT_IMPLEMENTED
-    );
+  async arePotentiallyVulnerablePasswords(logins) {
+    const ids = logins.map(l => l.QueryInterface(Ci.nsILoginMetaInfo).guid);
+    return this.#storageAdapter.arePotentiallyVulnerablePasswords(ids);
   }
 
-  clearAllPotentiallyVulnerablePasswords() {
-    throw Components.Exception(
-      "clearAllPotentiallyVulnerablePasswords",
-      Cr.NS_ERROR_NOT_IMPLEMENTED
-    );
+  async clearAllPotentiallyVulnerablePasswords() {
+    await this.#storageAdapter.clearAllPotentiallyVulnerablePasswords();
   }
 
   get uiBusy() {

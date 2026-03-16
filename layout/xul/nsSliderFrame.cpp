@@ -997,6 +997,10 @@ nsresult nsSliderFrame::StopDrag() {
   return NS_OK;
 }
 
+bool nsSliderFrame::ClickAndHoldActive() const {
+  return mCurrentClickHoldDestination.isSome();
+}
+
 void nsSliderFrame::DragThumb(bool aGrabMouseEvents) {
   if (mDragInProgress != aGrabMouseEvents) {
     Scrollbar()->ActivityChanged(aGrabMouseEvents);
@@ -1204,6 +1208,15 @@ void nsSliderFrame::Destroy(DestroyContext& aContext) {
   nsContainerFrame::Destroy(aContext);
 }
 
+void nsSliderFrame::StartRepeat() {
+  ScrollContainerFrame* sf = GetScrollContainerFrame();
+  if (sf) {
+    mCurrentClickHoldDestination = Some(sf->GetScrollPosition());
+  }
+  nsRepeatService::GetInstance()->Start(Notify, this, mContent->OwnerDoc(),
+                                        "nsSliderFrame"_ns);
+}
+
 void nsSliderFrame::Notify() {
   bool stop = false;
 
@@ -1329,7 +1342,6 @@ void nsSliderFrame::PageScroll(bool aClickAndHold) {
   }
 
   if (nsIScrollbarMediator* m = sb->GetScrollbarMediator()) {
-    sb->SetButtonScrollDirectionAndUnit(changeDirection, ScrollUnit::PAGES);
     m->ScrollByPage(sb, changeDirection, scrollSnapFlags);
   }
 }

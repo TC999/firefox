@@ -11,11 +11,9 @@ mod ipc_server;
 mod logging;
 mod phc;
 
-#[cfg(not(target_os = "android"))]
-use crash_helper_common::Pid;
 #[cfg(target_os = "android")]
-use crash_helper_common::RawAncillaryData;
-use crash_helper_common::{BreakpadData, BreakpadRawData, IPCConnector, IPCListener};
+use crash_helper_common::RawIPCConnector;
+use crash_helper_common::{BreakpadData, BreakpadRawData, IPCConnector, IPCListener, Pid};
 use std::{
     ffi::{c_char, CStr, OsString},
     fmt::Display,
@@ -45,6 +43,14 @@ pub unsafe extern "C" fn crash_generator_logic_desktop(
     listener: *const c_char,
     pipe: *const c_char,
 ) -> i32 {
+    // HACK: This constant is declared in the `mach2` crate but using a `c_uint`
+    // type which makes it incompatible with the return value of
+    // `bootstrap_look_up()` and thus prevents the `match` expression below from
+    // compiling correctly. We re-declare it here as a `c_int` until upstream
+    // issue #67 is fixed.
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    const BOOTSTRAP_UNKNOWN_SERVICE: std::ffi::c_int = 1102;
+
     daemonize();
     logging::init();
 
@@ -60,10 +66,24 @@ pub unsafe extern "C" fn crash_generator_logic_desktop(
         "Could not parse the crash generator's listener",
     );
     let pipe = unsafe { CStr::from_ptr(pipe) };
-    let connector = unwrap_with_message(
-        IPCConnector::deserialize(pipe),
-        "Could not parse the crash generator's connector",
-    );
+    let connector = IPCConnector::deserialize(pipe);
+    let connector = match connector {
+        // If the main process went down before we could deserialize the
+        // connector then deserialization will fail, handle this case as an
+        // expected error rather than a panic.
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        Err(crash_helper_common::errors::IPCError::Deserialize(
+            crash_helper_common::PlatformError::BootstrapLookUp(_rv @ BOOTSTRAP_UNKNOWN_SERVICE),
+        )) => {
+            log::error!("Could not reach out to the main process, shutting down");
+            return -1;
+        }
+        Err(e) => {
+            log::error!("Could not deserialize connector: {e:?}");
+            return -1;
+        }
+        Ok(connector) => connector,
+    };
 
     let crash_generator = unwrap_with_message(
         CrashGenerator::new(breakpad_data, minidump_path),
@@ -71,7 +91,7 @@ pub unsafe extern "C" fn crash_generator_logic_desktop(
     );
 
     let ipc_server = unwrap_with_message(
-        IPCServer::new(listener, connector),
+        IPCServer::new(client_pid, listener, connector),
         "Could not create the IPC server",
     );
 
@@ -92,9 +112,10 @@ pub unsafe extern "C" fn crash_generator_logic_desktop(
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub unsafe extern "C" fn crash_generator_logic_android(
+    pid: Pid,
     breakpad_data: BreakpadRawData,
     minidump_path: *const c_char,
-    pipe: RawAncillaryData,
+    pipe: RawIPCConnector,
 ) {
     logging::init();
 
@@ -117,11 +138,11 @@ pub unsafe extern "C" fn crash_generator_logic_android(
         // SAFETY: The `pipe` file descriptor passed in from the caller is
         // guaranteed to be valid.
         let connector = unwrap_with_message(
-            unsafe { IPCConnector::from_raw_ancillary(pipe) },
+            unsafe { IPCConnector::from_raw_connector(pipe) },
             "Could not use the pipe",
         );
         let ipc_server = unwrap_with_message(
-            IPCServer::new(listener, connector),
+            IPCServer::new(pid, listener, connector),
             "Could not create the IPC server",
         );
         main_loop(ipc_server, crash_generator)

@@ -10,9 +10,10 @@ use std::{
     ops::{Deref, Div as _},
 };
 
-use neqo_common::{qtrace, Header};
+use neqo_common::{Header, qtrace};
 
 use crate::{
+    Error, Res,
     prefix::{
         BASE_PREFIX_NEGATIVE, BASE_PREFIX_POSITIVE, HEADER_FIELD_INDEX_DYNAMIC,
         HEADER_FIELD_INDEX_DYNAMIC_POST, HEADER_FIELD_INDEX_STATIC,
@@ -20,15 +21,14 @@ use crate::{
         HEADER_FIELD_LITERAL_NAME_REF_DYNAMIC_POST, HEADER_FIELD_LITERAL_NAME_REF_STATIC,
         NO_PREFIX,
     },
-    qpack_send_buf::Data,
-    reader::{parse_utf8, ReceiverBufferWrapper},
+    qpack_send_buf::Encoder as _,
+    reader::{ReceiverBufferWrapper, parse_utf8},
     table::HeaderTable,
-    Error, Res,
 };
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct HeaderEncoder {
-    buf: Data,
+    buf: neqo_common::Encoder,
     base: u64,
     use_huffman: bool,
     max_entries: u64,
@@ -44,7 +44,7 @@ impl Display for HeaderEncoder {
 impl HeaderEncoder {
     pub fn new(base: u64, use_huffman: bool, max_entries: u64) -> Self {
         Self {
-            buf: Data::default(),
+            buf: neqo_common::Encoder::default(),
             base,
             use_huffman,
             max_entries,
@@ -58,7 +58,7 @@ impl HeaderEncoder {
             .encode_prefixed_encoded_int(HEADER_FIELD_INDEX_STATIC, index);
     }
 
-    fn new_ref(&mut self, index: u64) {
+    const fn new_ref(&mut self, index: u64) {
         if let Some(r) = self.max_dynamic_index_ref {
             if r < index {
                 self.max_dynamic_index_ref = Some(index);
@@ -81,7 +81,9 @@ impl HeaderEncoder {
     }
 
     pub fn encode_literal_with_name_ref(&mut self, is_static: bool, index: u64, value: &[u8]) {
-        qtrace!("[{self}] encode literal with name ref - index={index}, static={is_static}, value={value:x?}");
+        qtrace!(
+            "[{self}] encode literal with name ref - index={index}, static={is_static}, value={value:x?}"
+        );
         if is_static {
             self.buf
                 .encode_prefixed_encoded_int(HEADER_FIELD_LITERAL_NAME_REF_STATIC, index);
@@ -139,14 +141,14 @@ impl HeaderEncoder {
             .encode_prefixed_encoded_int(NO_PREFIX, enc_insert_cnt);
         self.buf.encode_prefixed_encoded_int(prefix, delta);
 
-        self.buf.write_bytes(&tmp);
+        self.buf.encode(tmp);
     }
 }
 
 impl Deref for HeaderEncoder {
     type Target = [u8];
     fn deref(&self) -> &Self::Target {
-        &self.buf
+        self.buf.as_ref()
     }
 }
 

@@ -1,4 +1,4 @@
-// |reftest| skip-if(!this.hasOwnProperty("Intl")||!xulRuntime.shell)
+// |reftest| skip-if(!xulRuntime.shell)
 
 const locales = [
   "en", "ar", "ar-SA", "ar-EG",
@@ -6,7 +6,6 @@ const locales = [
 
 const deprecated = [
   "islamic",
-  "islamic-rgsa"
 ];
 
 const supportedCalendars = Intl.supportedValuesOf("calendar");

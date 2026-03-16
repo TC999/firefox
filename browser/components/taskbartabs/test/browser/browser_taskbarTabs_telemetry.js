@@ -4,12 +4,14 @@ http://creativecommons.org/publicdomain/zero/1.0/ */
 "use strict";
 
 ChromeUtils.defineESModuleGetters(this, {
+  AppConstants: "resource://gre/modules/AppConstants.sys.mjs",
   FileTestUtils: "resource://testing-common/FileTestUtils.sys.mjs",
   TaskbarTabsRegistry:
     "resource:///modules/taskbartabs/TaskbarTabsRegistry.sys.mjs",
   TaskbarTabsWindowManager:
     "resource:///modules/taskbartabs/TaskbarTabsWindowManager.sys.mjs",
   TaskbarTabsPin: "resource:///modules/taskbartabs/TaskbarTabsPin.sys.mjs",
+  TaskbarTabsUtils: "resource:///modules/taskbartabs/TaskbarTabsUtils.sys.mjs",
   ShellService: "moz-src:///browser/components/shell/ShellService.sys.mjs",
   sinon: "resource://testing-common/Sinon.sys.mjs",
   MockRegistrar: "resource://testing-common/MockRegistrar.sys.mjs",
@@ -38,7 +40,6 @@ const exposeDeleteResult = async () => {
 
 const proxyNativeShellService = {
   ...ShellService.shellService,
-  createWindowsIcon: sinon.stub().resolves(),
   createShortcut: sinon.stub().resolves("dummy_path"),
   deleteShortcut: sinon.stub().callsFake(exposeDeleteResult),
   pinShortcutToTaskbar: sinon.stub().callsFake(exposePinResult),
@@ -46,6 +47,11 @@ const proxyNativeShellService = {
 };
 
 sinon.stub(ShellService, "shellService").value(proxyNativeShellService);
+sinon.stub(ShellService, "writeShortcutIcon").resolves();
+sinon.stub(ShellService, "createLinuxDesktopEntry").resolves();
+sinon
+  .stub(ShellService, "deleteLinuxDesktopEntry")
+  .callsFake(exposeDeleteResult);
 
 registerCleanupFunction(() => {
   sinon.restore();
@@ -63,7 +69,7 @@ add_task(async function testInstallAndUninstallMetric() {
   Services.fog.testResetFOG();
   let snapshot;
 
-  const taskbarTab = gRegistry.findOrCreateTaskbarTab(PARSED_URL, 0);
+  const taskbarTab = createTaskbarTab(gRegistry, PARSED_URL, 0);
 
   snapshot = Glean.webApp.install.testGetValue();
   is(snapshot.length, 1, "Should have recorded an 'install' event");
@@ -76,12 +82,17 @@ add_task(async function testInstallAndUninstallMetric() {
 async function testPinMetricCustom(aPinResult, aPinMessage = null) {
   let snapshot;
 
-  const taskbarTab = gRegistry.findOrCreateTaskbarTab(PARSED_URL, 0);
+  const taskbarTab = createTaskbarTab(gRegistry, PARSED_URL, 0);
   Services.fog.testResetFOG();
 
   gShortcutPinResult = aPinResult;
 
-  await TaskbarTabsPin.pinTaskbarTab(taskbarTab, gRegistry);
+  await TaskbarTabsPin.pinTaskbarTab(
+    taskbarTab,
+    gRegistry,
+    await TaskbarTabsUtils.getDefaultIcon()
+  );
+
   snapshot = Glean.webApp.pin.testGetValue();
   is(snapshot.length, 1, "A single pin event was recorded");
   Assert.strictEqual(
@@ -99,11 +110,11 @@ add_task(async function testPinMetricSuccess() {
 
 add_task(async function testPinMetricFail() {
   await testPinMetricCustom("Pin fail!");
-});
+}).skip(AppConstants.platform !== "win"); // Pinning shortcuts is Windows-only.
 
 add_task(async function testPinMetricInvalid() {
   await testPinMetricCustom(undefined, "Unknown exception");
-});
+}).skip(AppConstants.platform !== "win"); // Pinning shortcuts is Windows-only.
 
 async function testUnpinMetricCustom(
   aUnpinResult,
@@ -113,13 +124,18 @@ async function testUnpinMetricCustom(
 ) {
   let snapshot;
 
-  const taskbarTab = gRegistry.findOrCreateTaskbarTab(PARSED_URL, 0);
+  const taskbarTab = createTaskbarTab(gRegistry, PARSED_URL, 0);
   Services.fog.testResetFOG();
 
   gShortcutPinResult = aUnpinResult;
   gShortcutDeleteResult = aDeleteResult;
 
   // We've mocked out so much that calling pinTaskbarTab should be irrelevant.
+  // However, we still need to specify the shortcut path, since otherwise
+  // deleteShortcut et al won't be called.
+  gRegistry.patchTaskbarTab(taskbarTab, {
+    shortcutRelativePath: "whatever",
+  });
 
   await TaskbarTabsPin.unpinTaskbarTab(taskbarTab, gRegistry);
   snapshot = Glean.webApp.unpin.testGetValue();
@@ -144,7 +160,7 @@ add_task(async function testPinAndUnpinMetric_UnpinSuccessDeleteSuccess() {
 
 add_task(async function testPinAndUnpinMetric_UnpinFailDeleteSuccess() {
   await testUnpinMetricCustom("Unpin fail!", null);
-});
+}).skip(AppConstants.platform !== "win"); // Unpinning shortcuts is Windows-only.
 
 add_task(async function testPinAndUnpinMetric_UnpinSuccessDeleteFail() {
   await testUnpinMetricCustom(null, "Deletion fail!");
@@ -152,18 +168,18 @@ add_task(async function testPinAndUnpinMetric_UnpinSuccessDeleteFail() {
 
 add_task(async function testPinAndUnpinMetric_UnpinSuccessDeleteFail() {
   await testUnpinMetricCustom("Unpin fail!", "Deletion fail!");
-});
+}).skip(AppConstants.platform !== "win"); // Unpinning shortcuts is Windows-only.
 
 add_task(async function testPinAndUnpinMetric_UnpinInvalid() {
   await testUnpinMetricCustom(undefined, null, "Unknown exception", null);
-});
+}).skip(AppConstants.platform !== "win"); // Unpinning shortcuts is Windows-only.
 
 add_task(async function testPinAndUnpinMetric_DeleteInvalid() {
   await testUnpinMetricCustom(null, undefined, null, "Unknown exception");
 });
 
 add_task(async function testActivateWhenWindowOpened() {
-  const taskbarTab = gRegistry.findOrCreateTaskbarTab(PARSED_URL, 0);
+  const taskbarTab = createTaskbarTab(gRegistry, PARSED_URL, 0);
   Services.fog.testResetFOG();
 
   const win1 = await gWindowManager.openWindow(taskbarTab);
@@ -182,7 +198,7 @@ add_task(async function testActivateWhenWindowOpened() {
 
 add_task(async function testMoveToTaskbarLowLevelMetric() {
   Services.fog.testResetFOG();
-  const taskbarTab = gRegistry.findOrCreateTaskbarTab(PARSED_URL, 0);
+  const taskbarTab = createTaskbarTab(gRegistry, PARSED_URL, 0);
   is(
     Glean.webApp.moveToTaskbar.testGetValue(),
     null,
@@ -241,7 +257,7 @@ add_task(async function testMoveToTaskbarHighLevelMetric() {
 });
 
 add_task(async function testEjectMetric() {
-  const taskbarTab = gRegistry.findOrCreateTaskbarTab(PARSED_URL, 0);
+  const taskbarTab = createTaskbarTab(gRegistry, PARSED_URL, 0);
   Services.fog.testResetFOG();
 
   const win = await gWindowManager.openWindow(taskbarTab);
@@ -262,25 +278,23 @@ add_task(async function testEjectMetric() {
 });
 
 add_task(async function testUsageTimeMetricSingleWindow() {
-  const taskbarTab = gRegistry.findOrCreateTaskbarTab(PARSED_URL, 0);
+  const taskbarTab = createTaskbarTab(gRegistry, PARSED_URL, 0);
   Services.fog.testResetFOG();
 
   const win = await gWindowManager.openWindow(taskbarTab);
-  let promise;
+
+  // Focus that window if it wasn't already focused.
+  await SimpleTest.promiseFocus(win);
 
   // Take focus away from that window.
-  promise = BrowserTestUtils.waitForEvent(window, "focus");
-  window.focus();
-  await promise;
+  await SimpleTest.promiseFocus(window);
 
   // ...and give it back.
-  promise = BrowserTestUtils.waitForEvent(win, "focus");
-  win.focus();
-  await promise;
+  await SimpleTest.promiseFocus(win);
 
   // now close it.
   await BrowserTestUtils.closeWindow(win);
-  window.focus(); // for good measure
+  await SimpleTest.promiseFocus(window); // for good measure
 
   const snapshot = Glean.webApp.usageTime.testGetValue();
   is(snapshot.count, 2, "Two separate intervals should be made");

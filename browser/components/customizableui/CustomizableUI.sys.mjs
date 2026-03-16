@@ -266,6 +266,28 @@ XPCOMUtils.defineLazyPreferenceGetter(
   ""
 );
 
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "ippEnabled",
+  "browser.ipProtection.enabled",
+  false,
+  (_pref, _oldVal, newVal) => {
+    if (!newVal) {
+      return;
+    }
+    let navbarPlacements = gAreas
+      .get(CustomizableUI.AREA_NAVBAR)
+      .get("defaultPlacements");
+
+    // If IPP wasn't available when the navbar area was registered,
+    // we need to add the buttons default placement now.
+    if (navbarPlacements && !navbarPlacements.includes("ipprotection-button")) {
+      let index = navbarPlacements.indexOf("fxa-toolbar-menu-button");
+      navbarPlacements.splice(index, 0, "ipprotection-button");
+    }
+  }
+);
+
 ChromeUtils.defineLazyGetter(lazy, "log", () => {
   let { ConsoleAPI } = ChromeUtils.importESModule(
     "resource://gre/modules/Console.sys.mjs"
@@ -345,6 +367,7 @@ var CustomizableUIInternal = {
       "spring",
       "downloads-button",
       AppConstants.MOZ_DEV_EDITION ? "developer-button" : null,
+      lazy.ippEnabled ? "ipprotection-button" : null,
       "fxa-toolbar-menu-button",
       lazy.resetPBMToolbarButtonEnabled ? "reset-pbm-toolbar-button" : null,
     ].filter(name => name);
@@ -2572,9 +2595,7 @@ var CustomizableUIInternal = {
       node.setAttribute("id", aWidget.id);
       node.setAttribute("widget-id", aWidget.id);
       node.setAttribute("widget-type", aWidget.type);
-      if (aWidget.disabled) {
-        node.setAttribute("disabled", true);
-      }
+      node.toggleAttribute("disabled", !!aWidget.disabled);
       node.setAttribute("removable", aWidget.removable);
       node.setAttribute("overflows", aWidget.overflows);
       if (aWidget.tabSpecific) {
@@ -2985,8 +3006,8 @@ var CustomizableUIInternal = {
         // Find containing browser or iframe element in the parent doc.
         return target.defaultView.docShell.chromeEventHandler;
       }
-      // Skip any parent shadow roots
-      return target.parentNode?.host?.parentNode || target.parentNode;
+      // Iterate up through any shadow roots
+      return target.parentNode?.host || target.parentNode;
     }
 
     // While keeping track of that, we go from the original target back up,
@@ -3012,12 +3033,12 @@ var CustomizableUIInternal = {
 
       // Break out of the loop immediately for disabled items, as we need to
       // keep the menu open in that case.
-      if (target.getAttribute("disabled") == "true") {
+      if (target.hasAttribute("disabled")) {
         return true;
       }
 
       let tagName = target.localName;
-      if (tagName == "input" || tagName == "searchbar") {
+      if (tagName == "input" || target.closest("#search-container")) {
         return true;
       }
       if (tagName == "toolbaritem" || tagName == "toolbarbutton") {
@@ -3028,6 +3049,9 @@ var CustomizableUIInternal = {
       if (tagName == "menuitem") {
         // If we're in a nested menu we don't need to close this panel.
         return true;
+      }
+      if (tagName == "moz-button") {
+        return false;
       }
     }
 
@@ -3080,6 +3104,14 @@ var CustomizableUIInternal = {
     // of the real ones, so looking for the 'stoooop, don't close me' attributes
     // is more involved.
     let target = aEvent.originalTarget;
+
+    if (!target.isConnected) {
+      // If the item that the event dispatched on is no longer part of the DOM,
+      // let's ignore it. This is particularly useful for items that remove
+      // themselves, like dismissable `moz-message-bar` elements.
+      return;
+    }
+
     while (target.parentNode && target.localName != "panel") {
       if (
         target.getAttribute("closemenu") == "none" ||
@@ -6878,7 +6910,7 @@ export var CustomizableUI = {
       }
       for (let attr of attrs) {
         let attrVal = menuChild.getAttribute(attr);
-        if (attrVal) {
+        if (attrVal !== null) {
           subviewItem.setAttribute(attr, attrVal);
         }
       }

@@ -8,6 +8,7 @@ use std::{cmp::max, time::Duration};
 
 pub use crate::recovery::FAST_PTO_SCALE;
 use crate::{
+    CongestionControlAlgorithm, DEFAULT_INITIAL_RTT, Res,
     connection::{ConnectionIdManager, Role},
     rtt::GRANULARITY,
     stream_id::StreamType,
@@ -23,7 +24,6 @@ use crate::{
     },
     tracking::DEFAULT_LOCAL_ACK_DELAY,
     version::{self, Version},
-    CongestionControlAlgorithm, Res, DEFAULT_INITIAL_RTT,
 };
 
 /// Maximum number of bidirectional streams that the remote can open.
@@ -200,7 +200,7 @@ impl ConnectionParameters {
         &self.versions
     }
 
-    pub(crate) fn get_versions_mut(&mut self) -> &mut version::Config {
+    pub(crate) const fn get_versions_mut(&mut self) -> &mut version::Config {
         &mut self.versions
     }
 
@@ -449,7 +449,6 @@ impl ConnectionParameters {
         self.pmtud_iface_mtu
     }
 
-    // TODO: Not used in neqo, but Gecko calls it. Needs a test to call it.
     #[must_use]
     pub const fn pmtud_iface_mtu(mut self, pmtud_iface_mtu: bool) -> Self {
         self.pmtud_iface_mtu = pmtud_iface_mtu;
@@ -537,22 +536,44 @@ impl ConnectionParameters {
             TransportParameterId::IdleTimeout,
             u64::try_from(self.idle_timeout.as_millis()).unwrap_or(0),
         );
-        if let PreferredAddressConfig::Address(preferred) = &self.preferred_address {
-            if role == Role::Server {
-                let (cid, srt) = cid_manager.preferred_address_cid()?;
-                tps.local_mut().set(
-                    TransportParameterId::PreferredAddress,
-                    TransportParameter::PreferredAddress {
-                        v4: preferred.ipv4(),
-                        v6: preferred.ipv6(),
-                        cid,
-                        srt,
-                    },
-                );
-            }
+        if let PreferredAddressConfig::Address(preferred) = &self.preferred_address
+            && role == Role::Server
+        {
+            let (cid, srt) = cid_manager.preferred_address_cid()?;
+            tps.local_mut().set(
+                TransportParameterId::PreferredAddress,
+                TransportParameter::PreferredAddress {
+                    v4: preferred.ipv4(),
+                    v6: preferred.ipv6(),
+                    cid,
+                    srt,
+                },
+            );
         }
         tps.local_mut()
             .set_integer(MaxDatagramFrameSize, self.datagram_size);
         Ok(tps)
+    }
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grease_default() {
+        let params = ConnectionParameters::default();
+        assert!(params.is_greasing());
+        let params = params.grease(false);
+        assert!(!params.is_greasing());
+    }
+
+    #[test]
+    fn pmtud_iface_mtu() {
+        let params = ConnectionParameters::default().pmtud_iface_mtu(true);
+        assert!(params.pmtud_iface_mtu_enabled());
+        let params = params.pmtud_iface_mtu(false);
+        assert!(!params.pmtud_iface_mtu_enabled());
     }
 }

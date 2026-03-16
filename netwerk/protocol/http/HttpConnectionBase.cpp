@@ -24,6 +24,7 @@
 #include "nsIOService.h"
 #include "nsISocketTransport.h"
 #include "ConnectionEntry.h"
+#include "xpcpublic.h"
 
 namespace mozilla {
 namespace net {
@@ -39,6 +40,22 @@ HttpConnectionBase::HttpConnectionBase() {
 void HttpConnectionBase::BootstrapTimings(TimingStruct times) {
   mBootstrappedTimingsSet = true;
   mBootstrappedTimings = times;
+}
+
+void HttpConnectionBase::SetDnsBootstrapTimings(TimeStamp domainLookupStart,
+                                                TimeStamp domainLookupEnd) {
+  mBootstrappedTimingsSet = true;
+  mBootstrappedTimings.domainLookupStart = domainLookupStart;
+  mBootstrappedTimings.domainLookupEnd = domainLookupEnd;
+}
+
+void HttpConnectionBase::SetConnectBootstrapTimings(TimeStamp connectStart,
+                                                    TimeStamp tcpConnectEnd) {
+  mBootstrappedTimingsSet = true;
+  mBootstrappedTimings.connectStart = connectStart;
+  if (!tcpConnectEnd.IsNull()) {
+    mBootstrappedTimings.tcpConnectEnd = tcpConnectEnd;
+  }
 }
 
 void HttpConnectionBase::SetSecurityCallbacks(
@@ -105,7 +122,9 @@ void HttpConnectionBase::RecordConnectionAddressType() {
 
   NetAddr addr;
   GetPeerAddr(&addr);
-  if (addr.GetIpAddressSpace() != nsILoadInfo::IPAddressSpace::Public) {
+  // We allow recording this metric in the test environment.
+  if (addr.GetIpAddressSpace() != nsILoadInfo::IPAddressSpace::Public &&
+      !xpc::AreNonLocalConnectionsDisabled()) {
     return;
   }
 

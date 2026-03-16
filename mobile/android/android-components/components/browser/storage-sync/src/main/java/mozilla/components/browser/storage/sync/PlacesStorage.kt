@@ -5,7 +5,7 @@
 package mozilla.components.browser.storage.sync
 
 import android.content.Context
-import androidx.annotation.VisibleForTesting
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -21,9 +21,11 @@ import mozilla.components.concept.sync.SyncStatus
 import mozilla.components.concept.sync.SyncableStore
 import mozilla.components.support.base.log.logger.Logger
 import mozilla.components.support.base.utils.NamedThreadFactory
+import mozilla.components.support.rusterrors.reportRustError
 import mozilla.components.support.utils.logElapsedTime
 import java.nio.charset.MalformedInputException
 import java.util.concurrent.Executors
+import mozilla.appservices.places.uniffi.InternalException as UniffiInternalException
 
 /**
  * A base class for concrete implementations of PlacesStorages
@@ -31,17 +33,14 @@ import java.util.concurrent.Executors
 abstract class PlacesStorage(
     context: Context,
     val crashReporter: CrashReporting? = null,
+    readDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    writeDispatcher: CoroutineDispatcher = Executors.newSingleThreadExecutor(
+        NamedThreadFactory("PlacesStorageWriteScope"),
+    ).asCoroutineDispatcher(),
 ) : Storage, SyncableStore, StorageMaintenanceRegistry {
-    internal var writeScope =
-        CoroutineScope(
-            Executors.newSingleThreadExecutor(
-                NamedThreadFactory("PlacesStorageWriteScope"),
-            ).asCoroutineDispatcher(),
-        )
-        @VisibleForTesting internal set
+    internal val writeScope = CoroutineScope(writeDispatcher)
 
-    internal var readScope = CoroutineScope(Dispatchers.IO)
-        @VisibleForTesting internal set
+    internal val readScope = CoroutineScope(readDispatcher)
     private val storageDir by lazy { context.filesDir }
 
     /**
@@ -61,9 +60,11 @@ abstract class PlacesStorage(
     internal open val reader: PlacesReaderConnection by lazy { places.reader() }
 
     override suspend fun warmUp() {
-        logElapsedTime(logger, "Warming up places storage") {
-            writer
-            reader
+        handlePlacesExceptions("warmUp") {
+            logElapsedTime(logger, "Warming up places storage") {
+                writer
+                reader
+            }
         }
     }
 
@@ -157,6 +158,9 @@ abstract class PlacesStorage(
         } catch (e: PlacesApiException) {
             crashReporter?.submitCaughtException(e)
             logger.warn("Ignoring PlacesApiException while running $operation", e)
+        } catch (e: UniffiInternalException) {
+            logger.error("Ignoring internal uniffi places exception when running $operation", e)
+            reportRustError("places-internal-error", e)
         }
     }
 
@@ -186,6 +190,10 @@ abstract class PlacesStorage(
         } catch (e: PlacesApiException) {
             crashReporter?.submitCaughtException(e)
             logger.warn("Ignoring PlacesApiException while running $operation", e)
+            default
+        } catch (e: UniffiInternalException) {
+            logger.error("Ignoring internal uniffi places exception when running $operation", e)
+            reportRustError("places-internal-error", e)
             default
         }
     }

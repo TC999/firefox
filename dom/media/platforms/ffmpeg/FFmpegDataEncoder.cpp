@@ -34,6 +34,10 @@ AVCodecID GetFFmpegEncoderCodecId<LIBAV_VER>(CodecType aCodec) {
       return AV_CODEC_ID_H264;
     }
 
+    if (aCodec == CodecType::H265) {
+      return AV_CODEC_ID_HEVC;
+    }
+
     if (aCodec == CodecType::AV1) {
       return AV_CODEC_ID_AV1;
     }
@@ -69,16 +73,16 @@ AVCodec* FFmpegDataEncoder<LIBAV_VER>::FindSoftwareEncoder(
       continue;
     }
 
+    if (codec->capabilities & AV_CODEC_CAP_HARDWARE) {
+      continue;
+    }
+
     // Prioritize libx264 for now since it's the only h264 codec we tested.
     // Once libopenh264 is supported, we can simply use the first one we find.
     if (aCodecId == AV_CODEC_ID_H264 && strcmp(codec->name, "libx264") != 0) {
       if (!fallbackCodec) {
         fallbackCodec = codec;
       }
-      continue;
-    }
-
-    if (codec->capabilities & AV_CODEC_CAP_HARDWARE) {
       continue;
     }
 
@@ -169,7 +173,7 @@ FFmpegDataEncoder<LIBAV_VER>::CreateMediaRawData(AVPacket* aPacket) {
   // Copy frame data from AVPacket.
   auto data = MakeRefPtr<MediaRawData>();
   UniquePtr<MediaRawDataWriter> writer(data->CreateWriter());
-  if (!writer->Append(aPacket->data, static_cast<size_t>(aPacket->size))) {
+  if (!writer->Append(aPacket->data, AssertedCast<size_t>(aPacket->size))) {
     return Err(MediaResult(NS_ERROR_OUT_OF_MEMORY,
                            "fail to allocate MediaRawData buffer"_ns));
   }
@@ -279,7 +283,7 @@ FFmpegDataEncoder<LIBAV_VER>::ProcessReconfigure(
 
   FFMPEG_LOG("ProcessReconfigure");
 
-  bool ok = false;
+  bool ok = true;
   for (const auto& confChange : aConfigurationChanges->mChanges) {
     // A reconfiguration on the fly succeeds if all changes can be applied
     // successfuly. In case of failure, the encoder will be drained and
@@ -292,10 +296,13 @@ FFmpegDataEncoder<LIBAV_VER>::ProcessReconfigure(
         [&](const BitrateChange& aChange) -> bool {
           // Verified on x264
           if (!strcmp(mCodecContext->codec->name, "libx264")) {
+            if (aChange.get().isNothing()) {
+              return false;
+            }
             MOZ_ASSERT(aChange.get().ref() != 0);
             mConfig.mBitrate = aChange.get().ref();
             mCodecContext->bit_rate =
-                static_cast<FFmpegBitRate>(mConfig.mBitrate);
+                AssertedCast<FFmpegBitRate>(mConfig.mBitrate);
             return true;
           }
           return false;
@@ -349,14 +356,14 @@ void FFmpegDataEncoder<LIBAV_VER>::SetContextBitrate() {
   MOZ_ASSERT(mCodecContext);
 
   if (mConfig.mBitrateMode == BitrateMode::Constant) {
-    mCodecContext->rc_max_rate = static_cast<FFmpegBitRate>(mConfig.mBitrate);
-    mCodecContext->rc_min_rate = static_cast<FFmpegBitRate>(mConfig.mBitrate);
-    mCodecContext->bit_rate = static_cast<FFmpegBitRate>(mConfig.mBitrate);
+    mCodecContext->rc_max_rate = AssertedCast<FFmpegBitRate>(mConfig.mBitrate);
+    mCodecContext->rc_min_rate = AssertedCast<FFmpegBitRate>(mConfig.mBitrate);
+    mCodecContext->bit_rate = AssertedCast<FFmpegBitRate>(mConfig.mBitrate);
     FFMPEG_LOG("Encoding in CBR: %d", mConfig.mBitrate);
   } else {
-    mCodecContext->rc_max_rate = static_cast<FFmpegBitRate>(mConfig.mBitrate);
+    mCodecContext->rc_max_rate = AssertedCast<FFmpegBitRate>(mConfig.mBitrate);
     mCodecContext->rc_min_rate = 0;
-    mCodecContext->bit_rate = static_cast<FFmpegBitRate>(mConfig.mBitrate);
+    mCodecContext->bit_rate = AssertedCast<FFmpegBitRate>(mConfig.mBitrate);
     FFMPEG_LOG("Encoding in VBR: [%d;%d]", (int)mCodecContext->rc_min_rate,
                (int)mCodecContext->rc_max_rate);
   }

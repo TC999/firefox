@@ -48,6 +48,8 @@ support-files = [
   "html_post-raw-test-page.html",
   "html_header-test-page.html",
   "html_post-raw-with-headers-test-page.html",
+  "html_reporting_api-test-page.html",
+  "html_reporting_api-test-page.html^headers^",
   "html_simple-test-page.html",
   "html_single-get-page.html",
   "html_single_get_page_favicon.html",
@@ -80,6 +82,7 @@ support-files = [
   "sjs_long-polling-server.sjs",
   "sjs_search-test-server.sjs",
   "sjs_method-test-server.sjs",
+  "sjs_no-response-server.sjs",
   "sjs_set-cookie-same-site.sjs",
   "sjs_simple-test-server.sjs",
   "sjs_simple-unsorted-cookies-test-server.sjs",
@@ -144,6 +147,8 @@ skip-if = [
 ["browser_net_brotli.js"]
 
 ["browser_net_cache_details.js"]
+
+["browser_net_cache_svg_size.js"]
 
 ["browser_net_cached-status.js"]
 skip-if = [
@@ -264,6 +269,7 @@ skip-if = [
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11'", # Bug 1479782
   "os == 'mac' && os_version == '14.70' && arch == 'x86_64'", # Bug 1479782
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1479782
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 1479782
 ]
 
 ["browser_net_header-docs.js"]
@@ -336,6 +342,8 @@ fail-if = [
 
 ["browser_net_leak_on_tab_close.js"]
 
+["browser_net_non_ascii_headers.js"]
+
 ["browser_net_offline_mode.js"]
 
 ["browser_net_open_in_debugger.js"]
@@ -367,9 +375,12 @@ fail-if = [
 ["browser_net_persistent_logs.js"]
 skip-if = [
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && debug", # Bug 1661612
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && debug", # Bug 1661612
 ]
 
 ["browser_net_post-data-json-payloads.js"]
+
+["browser_net_post-data-no-response.js"]
 
 ["browser_net_post-data-raw-payloads-with-upload-stream-headers.js"]
 
@@ -387,9 +398,13 @@ skip-if = [
 
 ["browser_net_reload-button.js"]
 
+["browser_net_reporting_api.js"]
+
 ["browser_net_req-resp-bodies.js"]
 
 ["browser_net_requests_with_empty_response.js"]
+
+["browser_net_requests-keep-alive.js"]
 
 ["browser_net_response_CORS_blocked.js"]
 
@@ -448,6 +463,7 @@ skip-if = [
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11'", # Bug 1667115
   "os == 'mac' && os_version == '14.70' && arch == 'x86_64'", # Bug 1667115
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1667115
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 1667115
 ]
 
 ["browser_net_simple-request-details.js"]
@@ -508,6 +524,8 @@ fail-if = [
 
 ["browser_net_throttling_cached.js"]
 
+["browser_net_throttling_disable_unblocks_requests.js"]
+
 ["browser_net_throttling_menu.js"]
 
 ["browser_net_throttling_profiles.js"]
@@ -537,6 +555,8 @@ fail-if = [
 ["browser_net_use_as_fetch.js"]
 
 ["browser_net_view-source-debugger.js"]
+
+["browser_net_view-source-requests.js"]
 
 ["browser_net_waterfall-click.js"]
 

@@ -184,6 +184,8 @@ const VALID_ADDRESS_COMPUTED_FIELDS = [
   ...AddressRecord.NAME_COMPONENTS,
   ...AddressRecord.STREET_ADDRESS_COMPONENTS,
   ...AddressRecord.TEL_COMPONENTS,
+  "address-housenumber",
+  "address-extra-housesuffix",
 ];
 
 export const VALID_CREDIT_CARD_FIELDS = [

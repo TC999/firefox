@@ -46,7 +46,7 @@ newtab-search-box-input =
     .placeholder = ᱣᱮᱵᱽ ᱨᱮ ᱥᱮᱸᱫᱽᱨᱟᱭ ᱢᱮ
     .aria-label = ᱣᱮᱵᱽ ᱨᱮ ᱥᱮᱸᱫᱽᱨᱟᱭ ᱢᱮ
 
-## Top Sites - General form dialog.
+## Clear text button for the URL and image URL input fields in the Top Sites form.
 
 newtab-topsites-add-search-engine-header = ᱥᱮᱸᱫᱽᱨᱟ ᱤᱧᱡᱤᱱ ᱥᱮᱞᱮᱫ ᱢᱮ
 newtab-topsites-add-shortcut-header = ᱱᱟᱶᱟ ᱠᱷᱟᱴᱚᱢᱟᱪᱷᱟ
@@ -403,6 +403,11 @@ newtab-weather-menu-hide-weather = ᱱᱟᱶᱟ ᱴᱮᱵᱽ ᱨᱮ ᱦᱚᱭ �
 newtab-weather-menu-learn-more = ᱰᱷᱮᱨ ᱥᱮᱬᱟᱭ ᱢᱮ
 # This message is shown if user is working offline
 newtab-weather-error-not-available = ᱱᱤᱛᱚᱜ ᱫᱚ ᱦᱚᱭ ᱦᱤᱥᱤᱫ ᱰᱟᱴᱟ ᱵᱟᱝ ᱧᱟᱢᱚᱜ ᱠᱟᱱᱟ ᱾
+# Variables:
+#   $provider (string) - Service provider for weather data
+newtab-weather-see-forecast-description =
+    .title = { $provider } ᱨᱮ ᱨᱮ ᱯᱷᱚᱨᱠᱟᱥᱴ ᱧᱮᱞ ᱢᱮ
+    .aria-description = { $provider } ∙ ᱥᱯᱚᱱᱥᱚᱨ ᱟᱠᱟᱱ
 
 ## Topic Labels
 

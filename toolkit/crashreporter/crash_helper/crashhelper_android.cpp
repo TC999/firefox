@@ -9,30 +9,13 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
-// For DirectAuxvDumpInfo
-#include "mozilla/toolkit/crashreporter/rust_minidump_writer_linux_ffi_generated.h"
 #include "mozilla/crash_helper_ffi_generated.h"
 
 #define CRASH_HELPER_LOGTAG "GeckoCrashHelper"
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_org_mozilla_gecko_crashhelper_CrashHelper_set_1breakpad_1opts(
-    JNIEnv* jenv, jclass, jint breakpad_fd) {
-  // Enable passing credentials on the Breakpad server socket. We'd love to do
-  // it inside CrashHelper.java but the Java methods require an Android API
-  // version that's too recent for us.
-  const int val = 1;
-  int res = setsockopt(breakpad_fd, SOL_SOCKET, SO_PASSCRED, &val, sizeof(val));
-  if (res < 0) {
-    return false;
-  }
-
-  return true;
-}
-
 extern "C" JNIEXPORT void JNICALL
 Java_org_mozilla_gecko_crashhelper_CrashHelper_crash_1generator(
-    JNIEnv* jenv, jclass, jint breakpad_fd, jstring minidump_path,
+    JNIEnv* jenv, jclass, jint pid, jint breakpad_fd, jstring minidump_path,
     jint server_fd) {
   // The breakpad server socket needs to be put in non-blocking mode, we do it
   // here as the Rust code that picks it up won't touch it anymore and just
@@ -53,6 +36,7 @@ Java_org_mozilla_gecko_crashhelper_CrashHelper_crash_1generator(
 
   const char* minidump_path_str =
       jenv->GetStringUTFChars(minidump_path, nullptr);
-  crash_generator_logic_android(breakpad_fd, minidump_path_str, server_fd);
+  const RawIPCConnector pipe = {.socket = server_fd};
+  crash_generator_logic_android(pid, breakpad_fd, minidump_path_str, pipe);
   jenv->ReleaseStringUTFChars(minidump_path, minidump_path_str);
 }

@@ -503,7 +503,7 @@
 
         <activity
             android:name=".HomeActivity"
-            android:theme="@style/SplashScreen"
+            android:theme="@style/SplashScreenThemeBase"
             android:exported="true"
             android:configChanges="keyboard|keyboardHidden|mcc|mnc|orientation|screenSize|layoutDirection|smallestScreenSize|screenLayout"
             android:launchMode="singleTask"
@@ -799,6 +799,17 @@
             <meta-data
                 android:name="androidx.work.WorkManagerInitializer"
                 android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <!-- Disables automatic initialization of EmojiCompat -->
+            <meta-data
+                android:name="androidx.emoji2.text.EmojiCompatInitializer"
                 tools:node="remove" />
         </provider>
 

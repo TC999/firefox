@@ -12,10 +12,7 @@ import androidx.test.espresso.Espresso
 import androidx.test.espresso.Espresso.openActionBarOverflowOrOptionsMenu
 import androidx.test.filters.SdkSuppress
 import mozilla.components.feature.sitepermissions.SitePermissionsRules
-import okhttp3.mockwebserver.MockWebServer
-import org.junit.After
 import org.junit.Assume
-import org.junit.Before
 import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
@@ -24,8 +21,8 @@ import org.mozilla.fenix.customannotations.SkipLeaks
 import org.mozilla.fenix.customannotations.SmokeTest
 import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.helpers.AppAndSystemHelper
-import org.mozilla.fenix.helpers.AppAndSystemHelper.assertNativeAppOpens
 import org.mozilla.fenix.helpers.AppAndSystemHelper.denyPermission
+import org.mozilla.fenix.helpers.AppAndSystemHelper.denyPermissionAndDontAskAgainButton
 import org.mozilla.fenix.helpers.AppAndSystemHelper.grantSystemPermission
 import org.mozilla.fenix.helpers.AppAndSystemHelper.verifyKeyboardVisibility
 import org.mozilla.fenix.helpers.Constants
@@ -36,7 +33,7 @@ import org.mozilla.fenix.helpers.MockBrowserDataHelper
 import org.mozilla.fenix.helpers.MockBrowserDataHelper.createBookmarkItem
 import org.mozilla.fenix.helpers.MockBrowserDataHelper.createTabItem
 import org.mozilla.fenix.helpers.MockBrowserDataHelper.setCustomSearchEngine
-import org.mozilla.fenix.helpers.SearchDispatcher
+import org.mozilla.fenix.helpers.SearchMockServerRule
 import org.mozilla.fenix.helpers.TestAssetHelper.getGenericAsset
 import org.mozilla.fenix.helpers.TestHelper
 import org.mozilla.fenix.helpers.TestHelper.clickSnackbarButton
@@ -54,6 +51,7 @@ import org.mozilla.fenix.ui.robots.longClickPageObject
 import org.mozilla.fenix.ui.robots.multipleSelectionToolbar
 import org.mozilla.fenix.ui.robots.navigationToolbar
 import org.mozilla.fenix.ui.robots.searchScreen
+import org.mozilla.fenix.ui.robots.settingsTurnOnSyncScreen
 import java.util.Locale
 
 /**
@@ -67,14 +65,13 @@ import java.util.Locale
  */
 
 class SearchTest : TestSetup() {
-    private lateinit var searchMockServer: MockWebServer
     private val queryString: String = "firefox"
     private val generalEnginesList = listOf("DuckDuckGo", "Google", "Bing")
     private val topicEnginesList = listOf("Wikipedia (en)")
     private val firefoxSuggestHeader = getStringResource(R.string.firefox_suggest_header)
 
     @get:Rule
-    val activityTestRule = AndroidComposeTestRule(
+    val composeTestRule = AndroidComposeTestRule(
         HomeActivityTestRule(
             skipOnboarding = true,
             isPocketEnabled = false,
@@ -90,55 +87,43 @@ class SearchTest : TestSetup() {
     @get:Rule
     val memoryLeaksRule = DetectMemoryLeaksRule()
 
-    @Before
-    override fun setUp() {
-        super.setUp()
-        searchMockServer = MockWebServer().apply {
-            dispatcher = SearchDispatcher()
-            start()
-        }
-    }
-
-    @After
-    override fun tearDown() {
-        super.tearDown()
-        searchMockServer.shutdown()
-    }
+    @get:Rule
+    val searchMockServerRule = SearchMockServerRule()
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2154189
     @SdkSuppress(minSdkVersion = 34)
     @Test
     fun verifySearchBarItemsTest() {
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
             verifyDefaultSearchEngine("Google")
             verifySearchBarPlaceholder("Search or enter address")
-        }.clickUrlbar {
+        }.clickURLBar {
             verifyKeyboardVisibility(isExpectedToBeVisible = true)
-            verifyScanButtonVisibility(visible = true)
-            verifyVoiceSearchButtonVisibility(enabled = true)
+            verifyScanButton(isDisplayed = true)
+            verifyVoiceSearchButton(isDisplayed = true)
             verifySearchBarPlaceholder("Search or enter address")
             typeSearch("mozilla ")
             waitForAppWindowToBeUpdated()
-            verifyScanButtonVisibility(visible = false)
-            verifyVoiceSearchButtonVisibility(enabled = true)
+            verifyScanButton(isDisplayed = false)
+            verifyVoiceSearchButton(isDisplayed = true)
         }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2154190
     @Test
     fun verifySearchSelectorMenuItemsTest() {
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
-            verifySearchView()
             verifySearchToolbar(isDisplayed = true)
             clickSearchSelectorButton()
-            verifySearchShortcutListContains(
+            verifySearchShortcutList(
                 *generalEnginesList.toTypedArray(),
                 *topicEnginesList.toTypedArray(),
                 "Bookmarks",
                 "Tabs",
                 "History",
                 "Search settings",
+                isSearchEngineDisplayed = true,
             )
         }
     }
@@ -147,15 +132,14 @@ class SearchTest : TestSetup() {
     @Test
     fun verifySearchPlaceholderForGeneralDefaultSearchEnginesTest() {
         generalEnginesList.forEach {
-            homeScreen {
-            }.openSearch {
+            searchScreen(composeTestRule) {
                 clickSearchSelectorButton()
             }.clickSearchEngineSettings {
                 openDefaultSearchEngineMenu()
                 changeDefaultSearchEngine(it)
                 exitMenu()
             }
-            navigationToolbar {
+            navigationToolbar(composeTestRule) {
                 verifySearchBarPlaceholder("Search or enter address")
             }
         }
@@ -167,8 +151,7 @@ class SearchTest : TestSetup() {
         val generalEnginesList = listOf("DuckDuckGo", "Bing")
 
         generalEnginesList.forEach {
-            homeScreen {
-            }.openSearch {
+            searchScreen(composeTestRule) {
                 clickSearchSelectorButton()
                 selectTemporarySearchMethod(it)
                 verifySearchBarPlaceholder("Search the web")
@@ -180,7 +163,7 @@ class SearchTest : TestSetup() {
     @Test
     fun verifySearchPlaceholderForTopicSpecificSearchEnginesTest() {
         topicEnginesList.forEach {
-            homeScreen {
+            homeScreen(composeTestRule) {
             }.openSearch {
                 clickSearchSelectorButton()
                 selectTemporarySearchMethod(it)
@@ -189,27 +172,34 @@ class SearchTest : TestSetup() {
         }
     }
 
-    // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1059459
+    // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/3135010
     @SmokeTest
     @Test
     fun verifyQRScanningCameraAccessDialogTest() {
         val cameraManager = TestHelper.appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
         Assume.assumeTrue(cameraManager.cameraIdList.isNotEmpty())
 
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
             waitForAppWindowToBeUpdated()
-            verifySearchView()
             clickScanButton()
             denyPermission()
             clickScanButton()
-            clickDismissPermissionRequiredDialog()
+            denyPermissionAndDontAskAgainButton()
+        }.dismissSearchBar {
+        }.openThreeDotMenu {
+        }.clickSignInToSyncButton {
         }
-        homeScreen {
-        }.openSearch {
-            clickScanButton()
-            clickGoToPermissionsSettings()
-            assertNativeAppOpens(Constants.PackageName.ANDROID_SETTINGS)
+        settingsTurnOnSyncScreen(composeTestRule) {
+            clickReadyToScanButton()
+            clickDismissPermissionRequiredDialog()
+            clickReadyToScanButton()
+        }.clickGoToPermissionsSettings {
+            openAppSystemPermissionsSettings()
+            switchAppPermissionSystemSetting("Camera", "Allow")
+        }.goBackToSignInToSync(composeTestRule) {
+            clickReadyToScanButton()
+            verifyQRScannerIsOpen()
         }
     }
 
@@ -220,7 +210,7 @@ class SearchTest : TestSetup() {
         val cameraManager = TestHelper.appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
         Assume.assumeTrue(cameraManager.cameraIdList.isNotEmpty())
 
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
             clickScanButton()
             grantSystemPermission()
@@ -232,20 +222,18 @@ class SearchTest : TestSetup() {
     @Test
     fun verifyScanButtonAvailableOnlyForGeneralSearchEnginesTest() {
         generalEnginesList.forEach {
-            homeScreen {
-            }.openSearch {
+            searchScreen(composeTestRule) {
                 clickSearchSelectorButton()
                 selectTemporarySearchMethod(it)
-                verifyScanButtonVisibility(visible = true)
+                verifyScanButton(isDisplayed = true)
             }.dismissSearchBar {}
         }
 
         topicEnginesList.forEach {
-            homeScreen {
-            }.openSearch {
+            searchScreen(composeTestRule) {
                 clickSearchSelectorButton()
                 selectTemporarySearchMethod(it)
-                verifyScanButtonVisibility(visible = false)
+                verifyScanButton(isDisplayed = false)
             }.dismissSearchBar {}
         }
     }
@@ -256,22 +244,21 @@ class SearchTest : TestSetup() {
     @Test
     fun searchEnginesCanBeChangedTemporarilyFromSearchSelectorMenuTest() {
         (generalEnginesList + topicEnginesList).forEach {
-            homeScreen {
-            }.openSearch {
+            searchScreen(composeTestRule) {
                 clickSearchSelectorButton()
-                verifySearchShortcutListContains(it)
+                verifySearchShortcutList(it, isSearchEngineDisplayed = true)
                 selectTemporarySearchMethod(it)
                 verifySearchEngineIcon(it)
             }.submitQuery("mozilla ") {
                 verifyUrl("mozilla")
-            }.goToHomescreen(activityTestRule) {}
+            }.goToHomescreen {}
         }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/233589
     @Test
     fun defaultSearchEnginesCanBeSetFromSearchSelectorMenuTest() {
-        searchScreen {
+        searchScreen(composeTestRule) {
             clickSearchSelectorButton()
         }.clickSearchEngineSettings {
             verifyToolbarText("Search")
@@ -279,7 +266,7 @@ class SearchTest : TestSetup() {
             changeDefaultSearchEngine("DuckDuckGo")
             exitMenu()
         }
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
         }.submitQuery(queryString) {
             verifyUrl(queryString)
@@ -289,7 +276,7 @@ class SearchTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/522918
     @Test
     fun verifyClearSearchButtonTest() {
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
             typeSearch(queryString)
             clickClearButton()
@@ -298,75 +285,75 @@ class SearchTest : TestSetup() {
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1623441
+    @Ignore("Failing: https://bugzilla.mozilla.org/show_bug.cgi?id=1930244")
     @SmokeTest
     @Test
     fun searchResultsOpenedInNewTabsGenerateSearchGroupsTest() {
-        val firstPageUrl = searchMockServer.getGenericAsset(1).url
-        val secondPageUrl = searchMockServer.getGenericAsset(2).url
+        val firstPageUrl = searchMockServerRule.server.getGenericAsset(1).url
+        val secondPageUrl = searchMockServerRule.server.getGenericAsset(2).url
         val searchEngineName = "TestSearchEngine"
         // setting our custom mockWebServer search URL
-        setCustomSearchEngine(searchMockServer, searchEngineName)
+        setCustomSearchEngine(searchMockServerRule.server, searchEngineName)
 
         // Performs a search and opens 2 dummy search results links to create a search group
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
         }.submitQuery(queryString) {
-            longClickPageObject(MatcherHelper.itemWithText("Link 1"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 1"))
             clickContextMenuItem("Open link in new tab")
-            clickSnackbarButton(activityTestRule, "SWITCH")
+            clickSnackbarButton(composeTestRule, "SWITCH")
             verifyUrl(firstPageUrl.toString())
             Espresso.pressBack()
-            longClickPageObject(MatcherHelper.itemWithText("Link 2"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 2"))
             clickContextMenuItem("Open link in new tab")
-            clickSnackbarButton(activityTestRule, "SWITCH")
+            clickSnackbarButton(composeTestRule, "SWITCH")
             verifyUrl(secondPageUrl.toString())
-        }.openTabDrawer(activityTestRule) {
+        }.openTabDrawer(composeTestRule) {
         }.openThreeDotMenu {
         }.closeAllTabs {
-            verifyRecentlyVisitedSearchGroupDisplayed(activityTestRule, shouldBeDisplayed = true, searchTerm = queryString, groupSize = 3)
+            verifyRecentlyVisitedSearchGroupDisplayed(shouldBeDisplayed = true, searchTerm = queryString, groupSize = 3)
         }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1592229
-    @Ignore("disabled - https://bugzilla.mozilla.org/show_bug.cgi?id=1989405")
     @Test
     fun verifyAPageIsAddedToASearchGroupOnlyOnceTest() {
-        val firstPageUrl = searchMockServer.getGenericAsset(1).url
-        val secondPageUrl = searchMockServer.getGenericAsset(2).url
+        val firstPageUrl = searchMockServerRule.server.getGenericAsset(1).url
+        val secondPageUrl = searchMockServerRule.server.getGenericAsset(2).url
         val originPageUrl =
-            "http://localhost:${searchMockServer.port}/pages/searchResults.html?search=firefox".toUri()
+            "http://localhost:${searchMockServerRule.server.port}/pages/searchResults.html?search=firefox".toUri()
         val searchEngineName = "TestSearchEngine"
         // setting our custom mockWebServer search URL
-        setCustomSearchEngine(searchMockServer, searchEngineName)
+        setCustomSearchEngine(searchMockServerRule.server, searchEngineName)
 
         // Performs a search and opens 2 dummy search results links to create a search group
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
         }.submitQuery(queryString) {
-            longClickPageObject(MatcherHelper.itemWithText("Link 1"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 1"))
             clickContextMenuItem("Open link in new tab")
-            clickSnackbarButton(activityTestRule, "SWITCH")
+            clickSnackbarButton(composeTestRule, "SWITCH")
             verifyUrl(firstPageUrl.toString())
             Espresso.pressBack()
-            longClickPageObject(MatcherHelper.itemWithText("Link 1"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 1"))
             clickContextMenuItem("Open link in new tab")
-            clickSnackbarButton(activityTestRule, "SWITCH")
+            clickSnackbarButton(composeTestRule, "SWITCH")
             verifyUrl(firstPageUrl.toString())
             Espresso.pressBack()
-            longClickPageObject(MatcherHelper.itemWithText("Link 2"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 2"))
             clickContextMenuItem("Open link in new tab")
-            clickSnackbarButton(activityTestRule, "SWITCH")
+            clickSnackbarButton(composeTestRule, "SWITCH")
             verifyUrl(secondPageUrl.toString())
             Espresso.pressBack()
-            longClickPageObject(MatcherHelper.itemWithText("Link 1"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 1"))
             clickContextMenuItem("Open link in new tab")
-            clickSnackbarButton(activityTestRule, "SWITCH")
+            clickSnackbarButton(composeTestRule, "SWITCH")
             verifyUrl(firstPageUrl.toString())
-        }.openTabDrawer(activityTestRule) {
+        }.openTabDrawer(composeTestRule) {
         }.openThreeDotMenu {
         }.closeAllTabs {
-            verifyRecentlyVisitedSearchGroupDisplayed(activityTestRule, shouldBeDisplayed = true, searchTerm = queryString, groupSize = 3)
-        }.openRecentlyVisitedSearchGroupHistoryList(activityTestRule, queryString) {
+            verifyRecentlyVisitedSearchGroupDisplayed(shouldBeDisplayed = true, searchTerm = queryString, groupSize = 3)
+        }.openRecentlyVisitedSearchGroupHistoryList(queryString) {
             verifyTestPageUrl(firstPageUrl)
             verifyTestPageUrl(secondPageUrl)
             verifyTestPageUrl(originPageUrl)
@@ -379,226 +366,230 @@ class SearchTest : TestSetup() {
     fun searchGroupIsGeneratedWhenNavigatingInTheSameTabTest() {
         // setting our custom mockWebServer search URL
         val searchEngineName = "TestSearchEngine"
-        setCustomSearchEngine(searchMockServer, searchEngineName)
+        setCustomSearchEngine(searchMockServerRule.server, searchEngineName)
 
         // Performs a search and opens 2 dummy search results links to create a search group
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
         }.submitQuery(queryString) {
-            clickPageObject(MatcherHelper.itemContainingText("Link 1"))
+            clickPageObject(composeTestRule, MatcherHelper.itemContainingText("Link 1"))
             waitForPageToLoad()
             Espresso.pressBack()
-            clickPageObject(MatcherHelper.itemContainingText("Link 2"))
+            clickPageObject(composeTestRule, MatcherHelper.itemContainingText("Link 2"))
             waitForPageToLoad()
-        }.openTabDrawer(activityTestRule) {
+        }.openTabDrawer(composeTestRule) {
         }.openThreeDotMenu {
         }.closeAllTabs {
-            verifyRecentlyVisitedSearchGroupDisplayed(activityTestRule, shouldBeDisplayed = true, searchTerm = queryString, groupSize = 3)
+            verifyRecentlyVisitedSearchGroupDisplayed(shouldBeDisplayed = true, searchTerm = queryString, groupSize = 3)
         }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1591781
     @SmokeTest
-    @Ignore("disabled - https://bugzilla.mozilla.org/show_bug.cgi?id=1989405")
     @Test
     fun searchGroupIsNotGeneratedForLinksOpenedInPrivateTabsTest() {
         // setting our custom mockWebServer search URL
         val searchEngineName = "TestSearchEngine"
-        setCustomSearchEngine(searchMockServer, searchEngineName)
+        setCustomSearchEngine(searchMockServerRule.server, searchEngineName)
 
         // Performs a search and opens 2 dummy search results links to create a search group
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
         }.submitQuery(queryString) {
-            longClickPageObject(MatcherHelper.itemWithText("Link 1"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 1"))
             clickContextMenuItem("Open link in private tab")
-            longClickPageObject(MatcherHelper.itemWithText("Link 2"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 2"))
             clickContextMenuItem("Open link in private tab")
-        }.openTabDrawer(activityTestRule) {
+        }.openTabDrawer(composeTestRule) {
         }.toggleToPrivateTabs {
         }.openPrivateTab(0) {
-        }.openTabDrawer(activityTestRule) {
+        }.openTabDrawer(composeTestRule) {
         }.openPrivateTab(1) {
-        }.openTabDrawer(activityTestRule) {
+        }.openTabDrawer(composeTestRule) {
         }.openThreeDotMenu {
         }.closeAllTabs {
-            togglePrivateBrowsingModeOnOff(composeTestRule = activityTestRule)
-            verifyRecentlyVisitedSearchGroupDisplayed(activityTestRule, shouldBeDisplayed = false, searchTerm = queryString, groupSize = 3)
+            togglePrivateBrowsingModeOnOff()
+            verifyRecentlyVisitedSearchGroupDisplayed(shouldBeDisplayed = false, searchTerm = queryString, groupSize = 3)
         }.openThreeDotMenu {
-        }.openHistory {
+        }.clickHistoryButton {
             verifyHistoryItemExists(shouldExist = false, item = "3 sites")
         }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1592269
-    @Ignore("disabled - https://bugzilla.mozilla.org/show_bug.cgi?id=1989405")
     @SmokeTest
     @Test
     fun deleteIndividualHistoryItemsFromSearchGroupTest() {
-        val firstPageUrl = searchMockServer.getGenericAsset(1).url
-        val secondPageUrl = searchMockServer.getGenericAsset(2).url
+        val firstPageUrl = searchMockServerRule.server.getGenericAsset(1).url
+        val secondPageUrl = searchMockServerRule.server.getGenericAsset(2).url
         // setting our custom mockWebServer search URL
         val searchEngineName = "TestSearchEngine"
-        setCustomSearchEngine(searchMockServer, searchEngineName)
+        setCustomSearchEngine(searchMockServerRule.server, searchEngineName)
 
         // Performs a search and opens 2 dummy search results links to create a search group
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
         }.submitQuery(queryString) {
-            longClickPageObject(MatcherHelper.itemWithText("Link 1"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 1"))
             clickContextMenuItem("Open link in new tab")
-            clickSnackbarButton(activityTestRule, "SWITCH")
+            clickSnackbarButton(composeTestRule, "SWITCH")
             verifyUrl(firstPageUrl.toString())
             TestHelper.mDevice.pressBack()
-            longClickPageObject(MatcherHelper.itemWithText("Link 2"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 2"))
             clickContextMenuItem("Open link in new tab")
-            clickSnackbarButton(activityTestRule, "SWITCH")
+            clickSnackbarButton(composeTestRule, "SWITCH")
             verifyUrl(secondPageUrl.toString())
-        }.openTabDrawer(activityTestRule) {
+        }.openTabDrawer(composeTestRule) {
         }.openThreeDotMenu {
         }.closeAllTabs {
-            verifyRecentlyVisitedSearchGroupDisplayed(activityTestRule, shouldBeDisplayed = true, searchTerm = queryString, groupSize = 3)
-        }.openRecentlyVisitedSearchGroupHistoryList(activityTestRule, queryString) {
+            verifyRecentlyVisitedSearchGroupDisplayed(shouldBeDisplayed = true, searchTerm = queryString, groupSize = 3)
+        }.openRecentlyVisitedSearchGroupHistoryList(queryString) {
             clickDeleteHistoryButton(firstPageUrl.toString())
             longTapSelectItem(secondPageUrl)
-            multipleSelectionToolbar {
-                openActionBarOverflowOrOptionsMenu(activityTestRule.activity)
+            multipleSelectionToolbar(composeTestRule) {
+                openActionBarOverflowOrOptionsMenu(composeTestRule.activity)
                 clickMultiSelectionDelete()
                 waitUntilSnackbarGone()
             }
             exitMenu()
         }
-        homeScreen {
+        homeScreen(composeTestRule) {
             waitForAppWindowToBeUpdated()
             // checking that the group is removed when only 1 item is left
-            verifyRecentlyVisitedSearchGroupDisplayed(activityTestRule, shouldBeDisplayed = false, searchTerm = queryString, groupSize = 1)
+            verifyRecentlyVisitedSearchGroupDisplayed(shouldBeDisplayed = false, searchTerm = queryString, groupSize = 1)
         }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1592242
-    @Ignore("disabled - https://bugzilla.mozilla.org/show_bug.cgi?id=1989405")
     @Test
     fun deleteSearchGroupFromHomeScreenTest() {
-        val firstPageUrl = searchMockServer.getGenericAsset(1).url
-        val secondPageUrl = searchMockServer.getGenericAsset(2).url
+        val firstPageUrl = searchMockServerRule.server.getGenericAsset(1).url
+        val secondPageUrl = searchMockServerRule.server.getGenericAsset(2).url
         // setting our custom mockWebServer search URL
         val searchEngineName = "TestSearchEngine"
-        setCustomSearchEngine(searchMockServer, searchEngineName)
+        setCustomSearchEngine(searchMockServerRule.server, searchEngineName)
 
         // Performs a search and opens 2 dummy search results links to create a search group
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
         }.submitQuery(queryString) {
-            longClickPageObject(MatcherHelper.itemWithText("Link 1"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 1"))
             clickContextMenuItem("Open link in new tab")
-            clickSnackbarButton(activityTestRule, "SWITCH")
+            clickSnackbarButton(composeTestRule, "SWITCH")
             verifyUrl(firstPageUrl.toString())
             TestHelper.mDevice.pressBack()
-            longClickPageObject(MatcherHelper.itemWithText("Link 2"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 2"))
             clickContextMenuItem("Open link in new tab")
-            clickSnackbarButton(activityTestRule, "SWITCH")
+            clickSnackbarButton(composeTestRule, "SWITCH")
             verifyUrl(secondPageUrl.toString())
-        }.openTabDrawer(activityTestRule) {
+        }.openTabDrawer(composeTestRule) {
         }.openThreeDotMenu {
         }.closeAllTabs {
-            verifyRecentlyVisitedSearchGroupDisplayed(activityTestRule, shouldBeDisplayed = true, searchTerm = queryString, groupSize = 3)
-        }.openRecentlyVisitedSearchGroupHistoryList(activityTestRule, queryString) {
+            verifyRecentlyVisitedSearchGroupDisplayed(shouldBeDisplayed = true, searchTerm = queryString, groupSize = 3)
+        }.openRecentlyVisitedSearchGroupHistoryList(queryString) {
             clickDeleteAllHistoryButton()
             confirmDeleteAllHistory()
             verifySnackBarText(expectedText = "Group deleted")
             verifyHistoryItemExists(shouldExist = false, firstPageUrl.toString())
         }.goBack {}
-        homeScreen {
-            verifyRecentlyVisitedSearchGroupDisplayed(activityTestRule, shouldBeDisplayed = false, queryString, groupSize = 3)
+        homeScreen(composeTestRule) {
+            verifyRecentlyVisitedSearchGroupDisplayed(shouldBeDisplayed = false, queryString, groupSize = 3)
         }.openThreeDotMenu {
-        }.openHistory {
+        }.clickHistoryButton {
             verifySearchGroupDisplayed(shouldBeDisplayed = false, queryString, groupSize = 3)
             verifyEmptyHistoryView()
         }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1592235
-    @Ignore("disabled - https://bugzilla.mozilla.org/show_bug.cgi?id=1989405")
+    @SkipLeaks(reasons = ["https://bugzilla.mozilla.org/show_bug.cgi?id=2011676"])
     @Test
     fun openAPageFromHomeScreenSearchGroupTest() {
-        val firstPageUrl = searchMockServer.getGenericAsset(1).url
-        val secondPageUrl = searchMockServer.getGenericAsset(2).url
+        val firstPageUrl = searchMockServerRule.server.getGenericAsset(1).url
+        val secondPageUrl = searchMockServerRule.server.getGenericAsset(2).url
 
         // setting our custom mockWebServer search URL
         val searchEngineName = "TestSearchEngine"
-        setCustomSearchEngine(searchMockServer, searchEngineName)
+        setCustomSearchEngine(searchMockServerRule.server, searchEngineName)
 
         // Performs a search and opens 2 dummy search results links to create a search group
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
         }.submitQuery(queryString) {
-            longClickPageObject(MatcherHelper.itemWithText("Link 1"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 1"))
             clickContextMenuItem("Open link in new tab")
-            clickSnackbarButton(activityTestRule, "SWITCH")
+            clickSnackbarButton(composeTestRule, "SWITCH")
             verifyUrl(firstPageUrl.toString())
             TestHelper.mDevice.pressBack()
-            longClickPageObject(MatcherHelper.itemWithText("Link 2"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 2"))
             clickContextMenuItem("Open link in new tab")
-            clickSnackbarButton(activityTestRule, "SWITCH")
+            clickSnackbarButton(composeTestRule, "SWITCH")
             verifyUrl(secondPageUrl.toString())
             waitForPageToLoad()
-        }.openTabDrawer(activityTestRule) {
+        }.openTabDrawer(composeTestRule) {
         }.openThreeDotMenu {
         }.closeAllTabs {
-            verifyRecentlyVisitedSearchGroupDisplayed(activityTestRule, shouldBeDisplayed = true, searchTerm = queryString, groupSize = 3)
-        }.openRecentlyVisitedSearchGroupHistoryList(activityTestRule, queryString) {
+            verifyRecentlyVisitedSearchGroupDisplayed(
+                shouldBeDisplayed = true,
+                searchTerm = queryString,
+                groupSize = 3,
+            )
+        }.openRecentlyVisitedSearchGroupHistoryList(queryString) {
         }.openWebsiteFromSearchGroup(firstPageUrl) {
             verifyUrl(firstPageUrl.toString())
-        }.goToHomescreen(activityTestRule) {
-        }.openRecentlyVisitedSearchGroupHistoryList(activityTestRule, queryString) {
-            TestHelper.longTapSelectItem(firstPageUrl)
-            TestHelper.longTapSelectItem(secondPageUrl)
-            Espresso.openActionBarOverflowOrOptionsMenu(activityTestRule.activity)
+        }.goToHomescreen {
+        }.openRecentlyVisitedSearchGroupHistoryList(queryString) {
+            longTapSelectItem(firstPageUrl)
+            longTapSelectItem(secondPageUrl)
+            openActionBarOverflowOrOptionsMenu(composeTestRule.activity)
         }
-
-        multipleSelectionToolbar {
-        }.clickOpenNewTab(activityTestRule) {
+        multipleSelectionToolbar(composeTestRule) {
+        }.clickOpenNewTab {
             verifyNormalBrowsingButtonIsSelected()
-        }.closeTabDrawer {}
-        Espresso.openActionBarOverflowOrOptionsMenu(activityTestRule.activity)
-        multipleSelectionToolbar {
-        }.clickOpenPrivateTab(activityTestRule) {
-            verifyPrivateBrowsingButtonIsSelected()
+        }.openThreeDotMenu {
+        }.closeAllTabs {
+        }.openRecentlyVisitedSearchGroupHistoryList(queryString) {
+            longTapSelectItem(firstPageUrl)
+            longTapSelectItem(secondPageUrl)
+            openActionBarOverflowOrOptionsMenu(composeTestRule.activity)
+            multipleSelectionToolbar(composeTestRule) {
+            }.clickOpenPrivateTab {
+                verifyPrivateBrowsingButtonIsSelected()
+            }
         }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1592238
-    @Ignore("disabled - https://bugzilla.mozilla.org/show_bug.cgi?id=1989405")
     @Test
     fun shareAPageFromHomeScreenSearchGroupTest() {
-        val firstPageUrl = searchMockServer.getGenericAsset(1).url
-        val secondPageUrl = searchMockServer.getGenericAsset(2).url
+        val firstPageUrl = searchMockServerRule.server.getGenericAsset(1).url
+        val secondPageUrl = searchMockServerRule.server.getGenericAsset(2).url
         // setting our custom mockWebServer search URL
         val searchEngineName = "TestSearchEngine"
-        setCustomSearchEngine(searchMockServer, searchEngineName)
+        setCustomSearchEngine(searchMockServerRule.server, searchEngineName)
 
         // Performs a search and opens 2 dummy search results links to create a search group
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
         }.submitQuery(queryString) {
-            longClickPageObject(MatcherHelper.itemWithText("Link 1"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 1"))
             clickContextMenuItem("Open link in new tab")
-            clickSnackbarButton(activityTestRule, "SWITCH")
+            clickSnackbarButton(composeTestRule, "SWITCH")
             verifyUrl(firstPageUrl.toString())
             TestHelper.mDevice.pressBack()
-            longClickPageObject(MatcherHelper.itemWithText("Link 2"))
+            longClickPageObject(composeTestRule, MatcherHelper.itemWithText("Link 2"))
             clickContextMenuItem("Open link in new tab")
-            clickSnackbarButton(activityTestRule, "SWITCH")
+            clickSnackbarButton(composeTestRule, "SWITCH")
             verifyUrl(secondPageUrl.toString())
-        }.openTabDrawer(activityTestRule) {
+        }.openTabDrawer(composeTestRule) {
         }.openThreeDotMenu {
         }.closeAllTabs {
-            verifyRecentlyVisitedSearchGroupDisplayed(activityTestRule, shouldBeDisplayed = true, searchTerm = queryString, groupSize = 3)
-        }.openRecentlyVisitedSearchGroupHistoryList(activityTestRule, queryString) {
+            verifyRecentlyVisitedSearchGroupDisplayed(shouldBeDisplayed = true, searchTerm = queryString, groupSize = 3)
+        }.openRecentlyVisitedSearchGroupHistoryList(queryString) {
             TestHelper.longTapSelectItem(firstPageUrl)
         }
 
-        multipleSelectionToolbar {
+        multipleSelectionToolbar(composeTestRule) {
             clickShareHistoryButton()
             verifyShareOverlay()
             verifyShareTabFavicon()
@@ -610,14 +601,13 @@ class SearchTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1232633
     // Default search code for Google-US
     @Test
-    @SkipLeaks
     fun defaultSearchCodeGoogleUS() {
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
         }.submitQuery(queryString) {
             verifyPageContent("google")
         }.openThreeDotMenu {
-        }.openHistory {
+        }.clickHistoryButton {
             // Full URL no longer visible in the nav bar, so we'll check the history record
             // A search group is sometimes created when searching with Google (probably redirects)
             try {
@@ -633,20 +623,20 @@ class SearchTest : TestSetup() {
     // Default search code for Bing-US
     @Test
     fun defaultSearchCodeBingUS() {
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openSearchSubMenu {
             openDefaultSearchEngineMenu()
             changeDefaultSearchEngine("Bing")
             exitMenu()
         }
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
         }.submitQuery(queryString) {
            waitForPageToLoad()
         }.openThreeDotMenu {
-        }.openHistory {
+        }.clickHistoryButton {
             // Full URL no longer visible in the nav bar, so we'll check the history record
             // A search group is sometimes created when searching with Bing (probably redirects)
             try {
@@ -661,22 +651,21 @@ class SearchTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1232638
     // Default search code for DuckDuckGo-US
     @Test
-    @SkipLeaks
     fun defaultSearchCodeDuckDuckGoUS() {
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openSearchSubMenu {
             openDefaultSearchEngineMenu()
             changeDefaultSearchEngine("DuckDuckGo")
             exitMenu()
         }
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
         }.submitQuery(queryString) {
             verifyPageContent("duckduckgo")
         }.openThreeDotMenu {
-        }.openHistory {
+        }.clickHistoryButton {
             // Full URL no longer visible in the nav bar, so we'll check the history record
             // A search group is sometimes created when searching with DuckDuckGo
             try {
@@ -692,18 +681,17 @@ class SearchTest : TestSetup() {
     // Test that verifies the Firefox Suggest results in a general search context
     @Test
     fun verifyFirefoxSuggestHeaderForBrowsingDataSuggestionsTest() {
-        val firstPage = searchMockServer.getGenericAsset(1)
-        val secondPage = searchMockServer.getGenericAsset(2)
+        val firstPage = searchMockServerRule.server.getGenericAsset(1)
+        val secondPage = searchMockServerRule.server.getGenericAsset(2)
 
         createTabItem(firstPage.url.toString())
         createBookmarkItem(secondPage.url.toString(), secondPage.title, 1u)
 
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openSearch {
             typeSearch("generic")
-            verifyTheSuggestionsHeader(activityTestRule, firefoxSuggestHeader)
+            verifyTheSuggestionsHeader(firefoxSuggestHeader)
             verifySearchSuggestionsAreDisplayed(
-                activityTestRule,
                 searchSuggestions = arrayOf(
                     firstPage.url.toString(),
                     secondPage.url.toString(),
@@ -716,23 +704,22 @@ class SearchTest : TestSetup() {
     @SmokeTest
     @Test
     fun verifyHistorySearchWithBrowsingHistoryTest() {
-        val firstPageUrl = searchMockServer.getGenericAsset(1)
-        val secondPageUrl = searchMockServer.getGenericAsset(2)
+        val firstPageUrl = searchMockServerRule.server.getGenericAsset(1)
+        val secondPageUrl = searchMockServerRule.server.getGenericAsset(2)
 
         MockBrowserDataHelper.createHistoryItem(firstPageUrl.url.toString())
         MockBrowserDataHelper.createHistoryItem(secondPageUrl.url.toString())
 
-        navigationToolbar {
-        }.clickUrlbar {
+        navigationToolbar(composeTestRule) {
+        }.clickURLBar {
             clickSearchSelectorButton()
             selectTemporarySearchMethod(searchEngineName = "History")
             typeSearch(searchTerm = "Mozilla")
-            verifySuggestionsAreNotDisplayed(rule = activityTestRule, "Mozilla")
+            verifySuggestionsAreNotDisplayed("Mozilla")
             clickClearButton()
             typeSearch(searchTerm = "generic")
             verifyTypedToolbarText("generic", exists = true)
             verifySearchSuggestionsAreDisplayed(
-                rule = activityTestRule,
                 searchSuggestions = arrayOf(
                     firstPageUrl.url.toString(),
                     secondPageUrl.url.toString(),
@@ -747,26 +734,25 @@ class SearchTest : TestSetup() {
     @SdkSuppress(minSdkVersion = 34)
     @Test
     fun verifyTabsSearchItemsTest() {
-        navigationToolbar {
-        }.clickUrlbar {
+        navigationToolbar(composeTestRule) {
+        }.clickURLBar {
             clickSearchSelectorButton()
             selectTemporarySearchMethod("Tabs")
-            verifyKeyboardVisibility(isExpectedToBeVisible = true)
-            verifyScanButtonVisibility(visible = false)
-            verifyVoiceSearchButtonVisibility(enabled = true)
-            verifySearchBarPlaceholder(text = "Search tabs")
+            verifyScanButton(isDisplayed = false)
+            verifyVoiceSearchButton(isDisplayed = true)
+            verifySearchBarPlaceholder(searchHint = "Search tabs")
         }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2154198
     @Test
     fun verifyTabsSearchWithoutOpenTabsTest() {
-        navigationToolbar {
-        }.clickUrlbar {
+        navigationToolbar(composeTestRule) {
+        }.clickURLBar {
             clickSearchSelectorButton()
             selectTemporarySearchMethod(searchEngineName = "Tabs")
             typeSearch(searchTerm = "Mozilla")
-            verifySuggestionsAreNotDisplayed(rule = activityTestRule, "Mozilla")
+            verifySuggestionsAreNotDisplayed("Mozilla")
             clickClearButton()
             verifySearchBarPlaceholder("Search tabs")
         }
@@ -776,24 +762,23 @@ class SearchTest : TestSetup() {
     @SmokeTest
     @Test
     fun verifyTabsSearchWithOpenTabsTest() {
-        val firstPageUrl = searchMockServer.getGenericAsset(1)
-        val secondPageUrl = searchMockServer.getGenericAsset(2)
+        val firstPageUrl = searchMockServerRule.server.getGenericAsset(1)
+        val secondPageUrl = searchMockServerRule.server.getGenericAsset(2)
 
         createTabItem(firstPageUrl.url.toString())
         createTabItem(secondPageUrl.url.toString())
 
-        navigationToolbar {
-        }.clickUrlbar {
+        navigationToolbar(composeTestRule) {
+        }.clickURLBar {
             clickSearchSelectorButton()
             selectTemporarySearchMethod(searchEngineName = "Tabs")
             typeSearch(searchTerm = "Mozilla")
-            verifySuggestionsAreNotDisplayed(rule = activityTestRule, "Mozilla")
+            verifySuggestionsAreNotDisplayed("Mozilla")
             clickClearButton()
             typeSearch(searchTerm = "generic")
             verifyTypedToolbarText("generic", exists = true)
-            verifyTheSuggestionsHeader(activityTestRule, firefoxSuggestHeader)
+            verifyTheSuggestionsHeader(firefoxSuggestHeader)
             verifySearchSuggestionsAreDisplayed(
-                rule = activityTestRule,
                 searchSuggestions = arrayOf(
                     firstPageUrl.url.toString(),
                     secondPageUrl.url.toString(),
@@ -801,7 +786,7 @@ class SearchTest : TestSetup() {
             )
         }.clickSearchSuggestion(firstPageUrl.url.toString()) {
             verifyTabCounter("2")
-        }.openTabDrawer(activityTestRule) {
+        }.openTabDrawer(composeTestRule) {
             verifyOpenTabsOrder(position = 1, title = firstPageUrl.url.toString())
             verifyOpenTabsOrder(position = 2, title = secondPageUrl.url.toString())
         }
@@ -811,24 +796,24 @@ class SearchTest : TestSetup() {
     @SdkSuppress(minSdkVersion = 34)
     @Test
     fun verifyBookmarksSearchItemsTest() {
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.clickSearchSelectorButton {
             selectTemporarySearchMethod("Bookmarks")
             verifySearchBarPlaceholder("Search bookmarks")
             verifyKeyboardVisibility(isExpectedToBeVisible = true)
-            verifyScanButtonVisibility(visible = false)
-            verifyVoiceSearchButtonVisibility(enabled = true)
+            verifyScanButton(isDisplayed = false)
+            verifyVoiceSearchButton(isDisplayed = true)
         }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2154204
     @Test
     fun verifyBookmarkSearchWithNoBookmarksTest() {
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.clickSearchSelectorButton {
             selectTemporarySearchMethod("Bookmarks")
             typeSearch("test")
-            verifySuggestionsAreNotDisplayed(activityTestRule, "test")
+            verifySuggestionsAreNotDisplayed("test")
         }
     }
 
@@ -838,13 +823,12 @@ class SearchTest : TestSetup() {
         createBookmarkItem(url = "https://bookmarktest1.com", title = "Test1", position = 1u)
         createBookmarkItem(url = "https://bookmarktest2.com", title = "Test2", position = 2u)
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.clickSearchSelectorButton {
             selectTemporarySearchMethod("Bookmarks")
             typeSearch("test")
-            verifyTheSuggestionsHeader(activityTestRule, firefoxSuggestHeader)
+            verifyTheSuggestionsHeader(firefoxSuggestHeader)
             verifySearchSuggestionsAreDisplayed(
-                rule = activityTestRule,
                 searchSuggestions = arrayOf(
                     "Test1",
                     "https://bookmarktest1.com/",
@@ -855,7 +839,7 @@ class SearchTest : TestSetup() {
         }.dismissSearchBar {
         }.openSearch {
             typeSearch("mozilla ")
-            verifySuggestionsAreNotDisplayed(activityTestRule, "Test1", "Test2")
+            verifySuggestionsAreNotDisplayed("Test1", "Test2")
         }
     }
 
@@ -863,26 +847,25 @@ class SearchTest : TestSetup() {
     @SdkSuppress(minSdkVersion = 34)
     @Test
     fun verifyHistorySearchItemsTest() {
-        navigationToolbar {
-        }.clickUrlbar {
+        navigationToolbar(composeTestRule) {
+        }.clickURLBar {
             clickSearchSelectorButton()
             selectTemporarySearchMethod("History")
-            verifyKeyboardVisibility(isExpectedToBeVisible = true)
-            verifyScanButtonVisibility(visible = false)
-            verifyVoiceSearchButtonVisibility(enabled = true)
-            verifySearchBarPlaceholder(text = "Search history")
+            verifyScanButton(isDisplayed = false)
+            verifyVoiceSearchButton(isDisplayed = true)
+            verifySearchBarPlaceholder(searchHint = "Search history")
         }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2154213
     @Test
     fun verifyHistorySearchWithoutBrowsingHistoryTest() {
-        navigationToolbar {
-        }.clickUrlbar {
+        navigationToolbar(composeTestRule) {
+        }.clickURLBar {
             clickSearchSelectorButton()
             selectTemporarySearchMethod(searchEngineName = "History")
             typeSearch(searchTerm = "Mozilla")
-            verifySuggestionsAreNotDisplayed(rule = activityTestRule, "Mozilla")
+            verifySuggestionsAreNotDisplayed("Mozilla")
             clickClearButton()
             verifySearchBarPlaceholder("Search history")
         }
@@ -894,39 +877,35 @@ class SearchTest : TestSetup() {
     fun searchHistoryNotRememberedInPrivateBrowsingTest() {
         TestHelper.appContext.settings().shouldShowSearchSuggestionsInPrivate = true
 
-        val firstPageUrl = searchMockServer.getGenericAsset(1)
+        val firstPageUrl = searchMockServerRule.server.getGenericAsset(1)
         val searchEngineName = "TestSearchEngine"
 
-        setCustomSearchEngine(searchMockServer, searchEngineName)
+        setCustomSearchEngine(searchMockServerRule.server, searchEngineName)
         createBookmarkItem(firstPageUrl.url.toString(), firstPageUrl.title, 1u)
 
-        homeScreen {
-        }.openNavigationToolbar {
-        }.clickUrlbar {
+        navigationToolbar(composeTestRule) {
+        }.clickURLBar {
         }.submitQuery("test page 1") {
-        }.goToHomescreen(activityTestRule) {
+        }.goToHomescreen {
         }.togglePrivateBrowsingMode()
 
-        homeScreen {
-        }.openNavigationToolbar {
-        }.clickUrlbar {
+        navigationToolbar(composeTestRule) {
+        }.clickURLBar {
         }.submitQuery("test page 2") {
         }.openNavigationToolbar {
-        }.clickUrlbar {
+        }.clickURLBar {
             typeSearch(searchTerm = "test page")
-            verifyTheSuggestionsHeader(activityTestRule, firefoxSuggestHeader)
-            verifyTheSuggestionsHeader(activityTestRule, "TestSearchEngine search")
+            verifyTheSuggestionsHeader(firefoxSuggestHeader)
+            verifyTheSuggestionsHeader("TestSearchEngine search")
             verifySearchSuggestionsAreDisplayed(
-                rule = activityTestRule,
                 searchSuggestions = arrayOf(
                     "test page 1",
                     firstPageUrl.url.toString(),
                 ),
             )
             // 2 search engine suggestions and 2 browser suggestions (1 history, 1 bookmark)
-            verifySearchSuggestionsCount(activityTestRule, numberOfSuggestions = 4, searchTerm = "test page")
+            verifySearchSuggestionsCount(numberOfSuggestions = 4, searchTerm = "test page")
             verifySuggestionsAreNotDisplayed(
-                activityTestRule,
                 searchSuggestions = arrayOf(
                     "test page 2",
                 ),
@@ -937,19 +916,21 @@ class SearchTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1232631
     // Expected for app language set to Arabic
     @Test
+    @SkipLeaks(reasons = ["https://bugzilla.mozilla.org/show_bug.cgi?id=2004855"])
     fun verifySearchEnginesFunctionalityUsingRTLLocaleTest() {
         val arabicLocale = Locale.Builder().setLanguage("ar").setRegion("AR").build()
 
-        AppAndSystemHelper.runWithAppLocaleChanged(arabicLocale, activityTestRule.activityRule) {
-            homeScreen {
+        AppAndSystemHelper.runWithAppLocaleChanged(arabicLocale, composeTestRule.activityRule) {
+            homeScreen(composeTestRule) {
             }.openSearch {
-                verifyTranslatedFocusedNavigationToolbar("ابحث أو أدخِل عنوانا")
+                verifyTranslatedNavigationToolbarHint("ابحث أو أدخِل عنوانا")
                 clickSearchSelectorButton()
-                verifySearchShortcutListContains(
+                verifySearchShortcutList(
                     "Google",
                     "Bing",
                     "DuckDuckGo",
                     "ويكيبيديا (ar)",
+                    isSearchEngineDisplayed = true,
                 )
                 selectTemporarySearchMethod("ويكيبيديا (ar)")
             }.submitQuery("firefox") {

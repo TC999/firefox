@@ -5,7 +5,7 @@
 package org.mozilla.fenix.onboarding.store
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import mozilla.components.lib.state.MiddlewareContext
+import io.mockk.mockk
 import mozilla.components.support.test.robolectric.testContext
 import mozilla.telemetry.glean.testing.GleanTestRule
 import org.junit.Assert.assertEquals
@@ -16,8 +16,6 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mockito.Mock
-import org.mockito.MockitoAnnotations
 import org.mozilla.fenix.GleanMetrics.Onboarding
 
 @RunWith(AndroidJUnit4::class)
@@ -26,15 +24,11 @@ class PrivacyPreferencesTelemetryMiddlewareTest {
     @get:Rule
     val gleanTestRule = GleanTestRule(testContext)
 
-    @Mock
-    private lateinit var context: MiddlewareContext<PrivacyPreferencesState, PrivacyPreferencesAction>
-
     private lateinit var middleware: PrivacyPreferencesTelemetryMiddleware
 
     @Before
     fun setup() {
-        MockitoAnnotations.openMocks(this)
-        middleware = PrivacyPreferencesTelemetryMiddleware()
+        middleware = PrivacyPreferencesTelemetryMiddleware(installSource = "installPackage")
     }
 
     @Test
@@ -42,7 +36,7 @@ class PrivacyPreferencesTelemetryMiddlewareTest {
         assertNull(Onboarding.privacyPreferencesModalCrashReportingEnabled.testGetValue())
 
         middleware.invoke(
-            context,
+            store = mockk(),
             {},
             PrivacyPreferencesAction.CrashReportingPreferenceUpdatedTo(true),
         )
@@ -59,7 +53,7 @@ class PrivacyPreferencesTelemetryMiddlewareTest {
         assertNull(Onboarding.privacyPreferencesModalUsageDataEnabled.testGetValue())
 
         middleware.invoke(
-            context,
+            store = mockk(),
             {},
             PrivacyPreferencesAction.UsageDataPreferenceUpdatedTo(true),
         )
@@ -76,7 +70,7 @@ class PrivacyPreferencesTelemetryMiddlewareTest {
         assertNull(Onboarding.privacyPreferencesModalCrashReportingLearnMore.testGetValue())
 
         middleware.invoke(
-            context,
+            store = mockk(),
             {},
             PrivacyPreferencesAction.CrashReportingLearnMore,
         )
@@ -91,7 +85,7 @@ class PrivacyPreferencesTelemetryMiddlewareTest {
         assertNull(Onboarding.privacyPreferencesModalUsageDataLearnMore.testGetValue())
 
         middleware.invoke(
-            context,
+            store = mockk(),
             {},
             PrivacyPreferencesAction.UsageDataUserLearnMore,
         )

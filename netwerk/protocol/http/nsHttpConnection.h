@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsHttpConnection_h__
-#define nsHttpConnection_h__
+#ifndef nsHttpConnection_h_
+#define nsHttpConnection_h_
 
 #include <functional>
 #include "HttpConnectionBase.h"
@@ -92,6 +92,11 @@ class nsHttpConnection final : public HttpConnectionBase,
     return (mUsingSpdyVersion != SpdyVersion::NONE) ||
            (mKeepAliveMask && mKeepAlive);
   }
+
+  // Cheap reuse check without the IsAlive() socket probe. Used by
+  // AvailableForDispatchNow() to avoid a redundant probe before
+  // GetIdleConnection() performs the definitive check.
+  bool CanReuseLikely();
 
   // Returns time in seconds for how long connection can be reused.
   uint32_t TimeToLive();
@@ -196,8 +201,6 @@ class nsHttpConnection final : public HttpConnectionBase,
   nsresult CreateTunnelStream(nsAHttpTransaction* httpTransaction,
                               HttpConnectionBase** aHttpConnection,
                               bool aIsExtendedCONNECT = false) override;
-
-  bool RequestDone() { return mRequestDone; }
 
  private:
   void SetTunnelSetupDone() override;
@@ -366,7 +369,6 @@ class nsHttpConnection final : public HttpConnectionBase,
 
   nsCOMPtr<nsIInputStream> mProxyConnectStream;
 
-  bool mRequestDone{false};
   bool mHasTLSTransportLayer{false};
   bool mTransactionDisallowHttp3{false};
 };
@@ -374,4 +376,4 @@ class nsHttpConnection final : public HttpConnectionBase,
 }  // namespace net
 }  // namespace mozilla
 
-#endif  // nsHttpConnection_h__
+#endif  // nsHttpConnection_h_

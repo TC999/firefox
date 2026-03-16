@@ -50,11 +50,11 @@ object BrowserToolbarStoreBuilder {
      * @param browserStore [BrowserStore] used for observing the browsing details.
      * @param components [Components] allowing interactions with other application features.
      * @param browsingModeManager [BrowsingModeManager] for querying the current browsing mode.
-     * @param browserAnimator Helper for animating the browser content when navigating to other screens.
      * @param thumbnailsFeature [BrowserThumbnails] for requesting screenshots of the current tab.
      * @param readerModeController [ReaderModeController] for managing the reader mode.
      * @param settings [Settings] object to get the toolbar position and other settings.
      * @param customTabSession [CustomTabSessionState] if the toolbar is shown in a custom tab.
+     * @param isSandboxCustomTab Whether the custom tab is sandboxed.
      */
     @Suppress("LongParameterList", "LongMethod")
     fun build(
@@ -66,11 +66,11 @@ object BrowserToolbarStoreBuilder {
         browserStore: BrowserStore,
         components: Components,
         browsingModeManager: BrowsingModeManager,
-        browserAnimator: BrowserAnimator,
         thumbnailsFeature: () -> BrowserThumbnails?,
         readerModeController: ReaderModeController,
         settings: Settings,
         customTabSession: CustomTabSessionState? = null,
+        isSandboxCustomTab: Boolean = false,
     ) = fragment.fragmentStore(
         BrowserToolbarState(
             displayState = DisplayState(
@@ -106,7 +106,6 @@ object BrowserToolbarStoreBuilder {
                         navController = navController,
                         browsingModeManager = browsingModeManager,
                         readerModeController = readerModeController,
-                        browserAnimator = browserAnimator,
                         thumbnailsFeature = thumbnailsFeature,
                         isWideScreen = { fragment.isWideWindow() },
                         isTallScreen = { fragment.isTallWindow() },
@@ -146,6 +145,7 @@ object BrowserToolbarStoreBuilder {
                         closeTabDelegate = { activity.finishAndRemoveTask() },
                         settings = settings,
                         scope = lifecycleScope,
+                        isSandboxCustomTab = isSandboxCustomTab,
                     ),
                 )
             },

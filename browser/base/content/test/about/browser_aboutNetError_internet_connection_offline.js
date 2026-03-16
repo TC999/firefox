@@ -6,6 +6,7 @@
 async function checkErrorForInvalidUriLoad(l10nId) {
   let browser;
   let pageLoaded;
+  await setSecurityCertErrorsFeltPrivacyToFalse();
   await BrowserTestUtils.openNewForegroundTab(
     gBrowser,
     () => {
@@ -62,7 +63,7 @@ async function checkErrorForInvalidUriLoad_feltPrivacyToTrue(l10nId) {
     );
 
     Assert.strictEqual(
-      netErrorCard.netErrorTitleText.dataset.l10nId,
+      netErrorCard.errorTitle.dataset.l10nId,
       expectedl10nId,
       "Correct error page title is set"
     );

@@ -30,7 +30,6 @@
 #  include "jit/riscv64/Simulator-riscv64.h"
 
 #  include "mozilla/Casting.h"
-#  include "mozilla/IntegerPrintfMacros.h"
 
 #  include <cinttypes>
 #  include <float.h>
@@ -39,13 +38,11 @@
 
 #  include "jit/AtomicOperations.h"
 #  include "jit/riscv64/Assembler-riscv64.h"
-#  include "js/Conversions.h"
 #  include "js/UniquePtr.h"
 #  include "js/Utility.h"
 #  include "threading/LockGuard.h"
 #  include "vm/JSContext.h"
 #  include "vm/Runtime.h"
-#  include "wasm/WasmInstance.h"
 #  include "wasm/WasmSignalHandlers.h"
 
 #  define I8(v) static_cast<int8_t>(v)
@@ -83,12 +80,15 @@ static void UNREACHABLE() {
   printf("UNREACHABLE instruction.\n");
   MOZ_CRASH();
 }
-#  define UNSUPPORTED()                                                \
-    std::cout << "Unrecognized instruction [@pc=0x" << std::hex        \
-              << registers_[pc] << "]: 0x" << instr_.InstructionBits() \
-              << std::endl;                                            \
-    printf("Unsupported instruction.\n");                              \
-    MOZ_CRASH();
+
+#  define UNSUPPORTED()                                                  \
+    do {                                                                 \
+      std::cout << "Unrecognized instruction [@pc=0x" << std::hex        \
+                << registers_[pc] << "]: 0x" << instr_.InstructionBits() \
+                << '\n';                                                 \
+      printf("Unsupported instruction.\n");                              \
+      MOZ_CRASH();                                                       \
+    } while (0)
 
 static char* ReadLine(const char* prompt) {
   UniqueChars result;
@@ -321,33 +321,29 @@ class RiscvDebugger {
 int64_t RiscvDebugger::GetRegisterValue(int regnum) {
   if (regnum == Simulator::Register::kNumSimuRegisters) {
     return sim_->get_pc();
-  } else {
-    return sim_->getRegister(regnum);
   }
+  return sim_->getRegister(regnum);
 }
 
 int64_t RiscvDebugger::GetFPURegisterValue(int regnum) {
   if (regnum == Simulator::FPURegister::kNumFPURegisters) {
     return sim_->get_pc();
-  } else {
-    return sim_->getFpuRegister(regnum);
   }
+  return sim_->getFpuRegister(regnum);
 }
 
 float RiscvDebugger::GetFPURegisterValueFloat(int regnum) {
   if (regnum == Simulator::FPURegister::kNumFPURegisters) {
     return sim_->get_pc();
-  } else {
-    return sim_->getFpuRegisterFloat(regnum);
   }
+  return sim_->getFpuRegisterFloat(regnum);
 }
 
 double RiscvDebugger::GetFPURegisterValueDouble(int regnum) {
   if (regnum == Simulator::FPURegister::kNumFPURegisters) {
     return sim_->get_pc();
-  } else {
-    return sim_->getFpuRegisterDouble(regnum);
   }
+  return sim_->getFpuRegisterDouble(regnum);
 }
 
 #  ifdef CAN_USE_RVV_INSTRUCTIONS
@@ -367,14 +363,15 @@ bool RiscvDebugger::GetValue(const char* desc, int64_t* value) {
   if (regnum != Registers::invalid_reg) {
     *value = GetRegisterValue(regnum);
     return true;
-  } else if (fpuregnum != FloatRegisters::invalid_reg) {
+  }
+  if (fpuregnum != FloatRegisters::invalid_reg) {
     *value = GetFPURegisterValue(fpuregnum);
     return true;
-  } else if (strncmp(desc, "0x", 2) == 0) {
-    return sscanf(desc + 2, "%" SCNx64, reinterpret_cast<int64_t*>(value)) == 1;
-  } else {
-    return sscanf(desc, "%" SCNu64, reinterpret_cast<int64_t*>(value)) == 1;
   }
+  if (strncmp(desc, "0x", 2) == 0) {
+    return sscanf(desc + 2, "%" SCNx64, reinterpret_cast<int64_t*>(value)) == 1;
+  }
+  return sscanf(desc, "%" SCNu64, reinterpret_cast<int64_t*>(value)) == 1;
 }
 
 #  define REG_INFO(name)                               \
@@ -435,9 +432,10 @@ void RiscvDebugger::printAllRegsIncludingFPU() {
   printf("\n\n");
   // f0, f1, f2, ... f31.
   MOZ_ASSERT(kNumFPURegisters % 2 == 0);
-  for (int i = 0; i < kNumFPURegisters; i += 2)
+  for (int i = 0; i < kNumFPURegisters; i += 2) {
     printf("%3s: 0x%016" PRIx64 "  %16.4e \t%3s: 0x%016" PRIx64 "  %16.4e\n",
            FPU_REG_INFO(i), FPU_REG_INFO(i + 1));
+  }
 #  undef FPU_REG_INFO
 }
 
@@ -474,319 +472,311 @@ void RiscvDebugger::Debug() {
     char* line = ReadLine("sim> ");
     if (line == nullptr) {
       break;
+    }
+    char* last_input = sim_->lastDebuggerInput();
+    if (strcmp(line, "\n") == 0 && last_input != nullptr) {
+      line = last_input;
     } else {
-      char* last_input = sim_->lastDebuggerInput();
-      if (strcmp(line, "\n") == 0 && last_input != nullptr) {
-        line = last_input;
-      } else {
-        // Ownership is transferred to sim_;
-        sim_->setLastDebuggerInput(line);
-      }
-      // Use sscanf to parse the individual parts of the command line. At the
-      // moment no command expects more than two parameters.
-      int argc = sscanf(
+      // Ownership is transferred to sim_;
+      sim_->setLastDebuggerInput(line);
+    }
+    // Use sscanf to parse the individual parts of the command line. At the
+    // moment no command expects more than two parameters.
+    int argc = sscanf(
             line,
             "%" XSTR(COMMAND_SIZE) "s "
             "%" XSTR(ARG_SIZE) "s "
             "%" XSTR(ARG_SIZE) "s",
             cmd, arg1, arg2);
-      if ((strcmp(cmd, "si") == 0) || (strcmp(cmd, "stepi") == 0)) {
-        SimInstruction* instr =
-            reinterpret_cast<SimInstruction*>(sim_->get_pc());
-        if (!(instr->IsTrap()) ||
-            instr->InstructionBits() == rtCallRedirInstr) {
-          sim_->icount_++;
-          sim_->InstructionDecode(
-              reinterpret_cast<Instruction*>(sim_->get_pc()));
-        } else {
-          // Allow si to jump over generated breakpoints.
-          printf("/!\\ Jumping over generated breakpoint.\n");
-          sim_->set_pc(sim_->get_pc() + kInstrSize);
-        }
-      } else if ((strcmp(cmd, "c") == 0) || (strcmp(cmd, "cont") == 0)) {
-        // Leave the debugger shell.
-        done = true;
-      } else if ((strcmp(cmd, "p") == 0) || (strcmp(cmd, "print") == 0)) {
-        if (argc == 2) {
-          int64_t value;
-          int64_t fvalue;
-          double dvalue;
-          if (strcmp(arg1, "all") == 0) {
-            printAllRegs();
-          } else if (strcmp(arg1, "allf") == 0) {
-            printAllRegsIncludingFPU();
-          } else {
-            int regnum = Registers::FromName(arg1);
-            int fpuregnum = FloatRegisters::FromName(arg1);
-#  ifdef CAN_USE_RVV_INSTRUCTIONS
-            int vregnum = VRegisters::FromName(arg1);
-#  endif
-            if (regnum != Registers::invalid_reg) {
-              value = GetRegisterValue(regnum);
-              printf("%s: 0x%08" REGIx_FORMAT "  %" REGId_FORMAT "  \n", arg1,
-                     value, value);
-            } else if (fpuregnum != FloatRegisters::invalid_reg) {
-              fvalue = GetFPURegisterValue(fpuregnum);
-              dvalue = GetFPURegisterValueDouble(fpuregnum);
-              printf("%3s: 0x%016" PRIx64 "  %16.4e\n",
-                     FloatRegisters::GetName(fpuregnum), fvalue, dvalue);
-#  ifdef CAN_USE_RVV_INSTRUCTIONS
-            } else if (vregnum != kInvalidVRegister) {
-              __int128_t v = GetVRegisterValue(vregnum);
-              printf("\t%s:0x%016" REGIx_FORMAT "%016" REGIx_FORMAT "\n",
-                     VRegisters::GetName(vregnum), (uint64_t)(v >> 64),
-                     (uint64_t)v);
-#  endif
-            } else {
-              printf("%s unrecognized\n", arg1);
-            }
-          }
-        } else {
-          if (argc == 3) {
-            if (strcmp(arg2, "single") == 0) {
-              int64_t value;
-              float fvalue;
-              int fpuregnum = FloatRegisters::FromName(arg1);
-
-              if (fpuregnum != FloatRegisters::invalid_reg) {
-                value = GetFPURegisterValue(fpuregnum);
-                value &= 0xFFFFFFFFUL;
-                fvalue = GetFPURegisterValueFloat(fpuregnum);
-                printf("%s: 0x%08" PRIx64 "  %11.4e\n", arg1, value, fvalue);
-              } else {
-                printf("%s unrecognized\n", arg1);
-              }
-            } else {
-              printf("print <fpu register> single\n");
-            }
-          } else {
-            printf("print <register> or print <fpu register> single\n");
-          }
-        }
-      } else if ((strcmp(cmd, "po") == 0) ||
-                 (strcmp(cmd, "printobject") == 0)) {
-        UNIMPLEMENTED();
-      } else if (strcmp(cmd, "stack") == 0 || strcmp(cmd, "mem") == 0) {
-        int64_t* cur = nullptr;
-        int64_t* end = nullptr;
-        int next_arg = 1;
-        if (argc < 2) {
-          printf("Need to specify <address> to memhex command\n");
-          continue;
-        }
+    if ((strcmp(cmd, "si") == 0) || (strcmp(cmd, "stepi") == 0)) {
+      SimInstruction instr(reinterpret_cast<Instruction*>(sim_->get_pc()));
+      if (!(instr.IsTrap()) || instr.InstructionBits() == rtCallRedirInstr) {
+        sim_->icount_++;
+        sim_->InstructionDecode(instr);
+      } else {
+        // Allow si to jump over generated breakpoints.
+        printf("/!\\ Jumping over generated breakpoint.\n");
+        sim_->set_pc(sim_->get_pc() + kInstrSize);
+      }
+    } else if ((strcmp(cmd, "c") == 0) || (strcmp(cmd, "cont") == 0)) {
+      // Leave the debugger shell.
+      done = true;
+    } else if ((strcmp(cmd, "p") == 0) || (strcmp(cmd, "print") == 0)) {
+      if (argc == 2) {
         int64_t value;
-        if (!GetValue(arg1, &value)) {
-          printf("%s unrecognized\n", arg1);
-          continue;
-        }
-        cur = reinterpret_cast<int64_t*>(value);
-        next_arg++;
-
-        int64_t words;
-        if (argc == next_arg) {
-          words = 10;
+        int64_t fvalue;
+        double dvalue;
+        if (strcmp(arg1, "all") == 0) {
+          printAllRegs();
+        } else if (strcmp(arg1, "allf") == 0) {
+          printAllRegsIncludingFPU();
         } else {
-          if (!GetValue(argv[next_arg], &words)) {
-            words = 10;
-          }
-        }
-        end = cur + words;
-
-        while (cur < end) {
-          printf("  0x%012" PRIxPTR " :  0x%016" REGIx_FORMAT
-                 "  %14" REGId_FORMAT " ",
-                 reinterpret_cast<intptr_t>(cur), *cur, *cur);
-          printf("\n");
-          cur++;
-        }
-      } else if ((strcmp(cmd, "watch") == 0)) {
-        if (argc < 2) {
-          printf("Need to specify <address> to mem command\n");
-          continue;
-        }
-        int64_t value;
-        if (!GetValue(arg1, &value)) {
-          printf("%s unrecognized\n", arg1);
-          continue;
-        }
-        sim_->watch_address_ = reinterpret_cast<intptr_t*>(value);
-        sim_->watch_value_ = *(sim_->watch_address_);
-      } else if ((strcmp(cmd, "disasm") == 0) || (strcmp(cmd, "dpc") == 0) ||
-                 (strcmp(cmd, "di") == 0)) {
-        disasm::NameConverter converter;
-        disasm::Disassembler dasm(converter);
-        // Use a reasonably large buffer.
-        EmbeddedVector<char, 256> buffer;
-
-        byte* cur = nullptr;
-        byte* end = nullptr;
-
-        if (argc == 1) {
-          cur = reinterpret_cast<byte*>(sim_->get_pc());
-          end = cur + (10 * kInstrSize);
-        } else if (argc == 2) {
-          auto regnum = Registers::FromName(arg1);
-          if (regnum != Registers::invalid_reg || strncmp(arg1, "0x", 2) == 0) {
-            // The argument is an address or a register name.
-            sreg_t value;
-            if (GetValue(arg1, &value)) {
-              cur = reinterpret_cast<byte*>(value);
-              // Disassemble 10 instructions at <arg1>.
-              end = cur + (10 * kInstrSize);
-            }
-          } else {
-            // The argument is the number of instructions.
-            sreg_t value;
-            if (GetValue(arg1, &value)) {
-              cur = reinterpret_cast<byte*>(sim_->get_pc());
-              // Disassemble <arg1> instructions.
-              end = cur + (value * kInstrSize);
-            }
-          }
-        } else {
-          sreg_t value1;
-          sreg_t value2;
-          if (GetValue(arg1, &value1) && GetValue(arg2, &value2)) {
-            cur = reinterpret_cast<byte*>(value1);
-            end = cur + (value2 * kInstrSize);
-          }
-        }
-        while (cur < end) {
-          dasm.InstructionDecode(buffer, cur);
-          printf("  0x%08" PRIxPTR "   %s\n", reinterpret_cast<intptr_t>(cur),
-                 buffer.start());
-          cur += kInstrSize;
-        }
-      } else if (strcmp(cmd, "trace") == 0) {
-        Simulator::FLAG_trace_sim = true;
-        Simulator::FLAG_riscv_print_watchpoint = true;
-      } else if (strcmp(cmd, "break") == 0 || strcmp(cmd, "b") == 0 ||
-                 strcmp(cmd, "tbreak") == 0) {
-        bool is_tbreak = strcmp(cmd, "tbreak") == 0;
-        if (argc == 2) {
-          int64_t value;
-          if (GetValue(arg1, &value)) {
-            sim_->SetBreakpoint(reinterpret_cast<SimInstruction*>(value),
-                                is_tbreak);
+          int regnum = Registers::FromName(arg1);
+          int fpuregnum = FloatRegisters::FromName(arg1);
+#  ifdef CAN_USE_RVV_INSTRUCTIONS
+          int vregnum = VRegisters::FromName(arg1);
+#  endif
+          if (regnum != Registers::invalid_reg) {
+            value = GetRegisterValue(regnum);
+            printf("%s: 0x%08" REGIx_FORMAT "  %" REGId_FORMAT "  \n", arg1,
+                   value, value);
+          } else if (fpuregnum != FloatRegisters::invalid_reg) {
+            fvalue = GetFPURegisterValue(fpuregnum);
+            dvalue = GetFPURegisterValueDouble(fpuregnum);
+            printf("%3s: 0x%016" PRIx64 "  %16.4e\n",
+                   FloatRegisters::GetName(fpuregnum), fvalue, dvalue);
+#  ifdef CAN_USE_RVV_INSTRUCTIONS
+          } else if (vregnum != kInvalidVRegister) {
+            __int128_t v = GetVRegisterValue(vregnum);
+            printf("\t%s:0x%016" REGIx_FORMAT "%016" REGIx_FORMAT "\n",
+                   VRegisters::GetName(vregnum), (uint64_t)(v >> 64),
+                   (uint64_t)v);
+#  endif
           } else {
             printf("%s unrecognized\n", arg1);
           }
-        } else {
-          sim_->ListBreakpoints();
-          printf("Use `break <address>` to set or disable a breakpoint\n");
-          printf(
-              "Use `tbreak <address>` to set or disable a temporary "
-              "breakpoint\n");
         }
-      } else if (strcmp(cmd, "flags") == 0) {
-        printf("No flags on RISC-V !\n");
-      } else if (strcmp(cmd, "stop") == 0) {
-        int64_t value;
+      } else {
         if (argc == 3) {
-          // Print information about all/the specified breakpoint(s).
-          if (strcmp(arg1, "info") == 0) {
-            if (strcmp(arg2, "all") == 0) {
-              printf("Stop information:\n");
-              for (uint32_t i = kMaxWatchpointCode + 1; i <= kMaxStopCode;
-                   i++) {
-                sim_->printStopInfo(i);
-              }
-            } else if (GetValue(arg2, &value)) {
-              sim_->printStopInfo(value);
+          if (strcmp(arg2, "single") == 0) {
+            int64_t value;
+            float fvalue;
+            int fpuregnum = FloatRegisters::FromName(arg1);
+
+            if (fpuregnum != FloatRegisters::invalid_reg) {
+              value = GetFPURegisterValue(fpuregnum);
+              value &= 0xFFFFFFFFUL;
+              fvalue = GetFPURegisterValueFloat(fpuregnum);
+              printf("%s: 0x%08" PRIx64 "  %11.4e\n", arg1, value, fvalue);
             } else {
-              printf("Unrecognized argument.\n");
+              printf("%s unrecognized\n", arg1);
             }
-          } else if (strcmp(arg1, "enable") == 0) {
-            // Enable all/the specified breakpoint(s).
-            if (strcmp(arg2, "all") == 0) {
-              for (uint32_t i = kMaxWatchpointCode + 1; i <= kMaxStopCode;
-                   i++) {
-                sim_->enableStop(i);
-              }
-            } else if (GetValue(arg2, &value)) {
-              sim_->enableStop(value);
-            } else {
-              printf("Unrecognized argument.\n");
-            }
-          } else if (strcmp(arg1, "disable") == 0) {
-            // Disable all/the specified breakpoint(s).
-            if (strcmp(arg2, "all") == 0) {
-              for (uint32_t i = kMaxWatchpointCode + 1; i <= kMaxStopCode;
-                   i++) {
-                sim_->disableStop(i);
-              }
-            } else if (GetValue(arg2, &value)) {
-              sim_->disableStop(value);
-            } else {
-              printf("Unrecognized argument.\n");
-            }
+          } else {
+            printf("print <fpu register> single\n");
           }
         } else {
-          printf("Wrong usage. Use help command for more information.\n");
+          printf("print <register> or print <fpu register> single\n");
         }
-      } else if ((strcmp(cmd, "stat") == 0) || (strcmp(cmd, "st") == 0)) {
-        UNIMPLEMENTED();
-      } else if ((strcmp(cmd, "h") == 0) || (strcmp(cmd, "help") == 0)) {
-        printf("cont (alias 'c')\n");
-        printf("  Continue execution\n");
-        printf("stepi (alias 'si')\n");
-        printf("  Step one instruction\n");
-        printf("print (alias 'p')\n");
-        printf("  print <register>\n");
-        printf("  Print register content\n");
-        printf("  Use register name 'all' to print all GPRs\n");
-        printf("  Use register name 'allf' to print all GPRs and FPRs\n");
-        printf("printobject (alias 'po')\n");
-        printf("  printobject <register>\n");
-        printf("  Print an object from a register\n");
-        printf("stack\n");
-        printf("  stack [<words>]\n");
-        printf("  Dump stack content, default dump 10 words)\n");
-        printf("mem\n");
-        printf("  mem <address> [<words>]\n");
-        printf("  Dump memory content, default dump 10 words)\n");
-        printf("watch\n");
-        printf("  watch <address> \n");
-        printf("  watch memory content.)\n");
-        printf("flags\n");
-        printf("  print flags\n");
-        printf("disasm (alias 'di')\n");
-        printf("  disasm [<instructions>]\n");
-        printf("  disasm [<address/register>] (e.g., disasm pc) \n");
-        printf("  disasm [[<address/register>] <instructions>]\n");
-        printf("  Disassemble code, default is 10 instructions\n");
-        printf("  from pc\n");
-        printf("gdb \n");
-        printf("  Return to gdb if the simulator was started with gdb\n");
-        printf("break (alias 'b')\n");
-        printf("  break : list all breakpoints\n");
-        printf("  break <address> : set / enable / disable a breakpoint.\n");
-        printf("tbreak\n");
-        printf("  tbreak : list all breakpoints\n");
-        printf(
-            "  tbreak <address> : set / enable / disable a temporary "
-            "breakpoint.\n");
-        printf("  Set a breakpoint enabled only for one stop. \n");
-        printf("stop feature:\n");
-        printf("  Description:\n");
-        printf("    Stops are debug instructions inserted by\n");
-        printf("    the Assembler::stop() function.\n");
-        printf("    When hitting a stop, the Simulator will\n");
-        printf("    stop and give control to the Debugger.\n");
-        printf("    All stop codes are watched:\n");
-        printf("    - They can be enabled / disabled: the Simulator\n");
-        printf("       will / won't stop when hitting them.\n");
-        printf("    - The Simulator keeps track of how many times they \n");
-        printf("      are met. (See the info command.) Going over a\n");
-        printf("      disabled stop still increases its counter. \n");
-        printf("  Commands:\n");
-        printf("    stop info all/<code> : print infos about number <code>\n");
-        printf("      or all stop(s).\n");
-        printf("    stop enable/disable all/<code> : enables / disables\n");
-        printf("      all or number <code> stop(s)\n");
-      } else {
-        printf("Unknown command: %s\n", cmd);
       }
+    } else if ((strcmp(cmd, "po") == 0) || (strcmp(cmd, "printobject") == 0)) {
+      UNIMPLEMENTED();
+    } else if (strcmp(cmd, "stack") == 0 || strcmp(cmd, "mem") == 0) {
+      int64_t* cur = nullptr;
+      int64_t* end = nullptr;
+      int next_arg = 1;
+      if (argc < 2) {
+        printf("Need to specify <address> to memhex command\n");
+        continue;
+      }
+      int64_t value;
+      if (!GetValue(arg1, &value)) {
+        printf("%s unrecognized\n", arg1);
+        continue;
+      }
+      cur = reinterpret_cast<int64_t*>(value);
+      next_arg++;
+
+      int64_t words;
+      if (argc == next_arg) {
+        words = 10;
+      } else {
+        if (!GetValue(argv[next_arg], &words)) {
+          words = 10;
+        }
+      }
+      end = cur + words;
+
+      while (cur < end) {
+        printf("  0x%012" PRIxPTR " :  0x%016" REGIx_FORMAT "  %14" REGId_FORMAT
+               " ",
+               reinterpret_cast<intptr_t>(cur), *cur, *cur);
+        printf("\n");
+        cur++;
+      }
+    } else if ((strcmp(cmd, "watch") == 0)) {
+      if (argc < 2) {
+        printf("Need to specify <address> to mem command\n");
+        continue;
+      }
+      int64_t value;
+      if (!GetValue(arg1, &value)) {
+        printf("%s unrecognized\n", arg1);
+        continue;
+      }
+      sim_->watch_address_ = reinterpret_cast<intptr_t*>(value);
+      sim_->watch_value_ = *(sim_->watch_address_);
+    } else if ((strcmp(cmd, "disasm") == 0) || (strcmp(cmd, "dpc") == 0) ||
+               (strcmp(cmd, "di") == 0)) {
+      disasm::NameConverter converter;
+      disasm::Disassembler dasm(converter);
+      // Use a reasonably large buffer.
+      EmbeddedVector<char, 256> buffer;
+
+      byte* cur = nullptr;
+      byte* end = nullptr;
+
+      if (argc == 1) {
+        cur = reinterpret_cast<byte*>(sim_->get_pc());
+        end = cur + (10 * kInstrSize);
+      } else if (argc == 2) {
+        auto regnum = Registers::FromName(arg1);
+        if (regnum != Registers::invalid_reg || strncmp(arg1, "0x", 2) == 0) {
+          // The argument is an address or a register name.
+          sreg_t value;
+          if (GetValue(arg1, &value)) {
+            cur = reinterpret_cast<byte*>(value);
+            // Disassemble 10 instructions at <arg1>.
+            end = cur + (10 * kInstrSize);
+          }
+        } else {
+          // The argument is the number of instructions.
+          sreg_t value;
+          if (GetValue(arg1, &value)) {
+            cur = reinterpret_cast<byte*>(sim_->get_pc());
+            // Disassemble <arg1> instructions.
+            end = cur + (value * kInstrSize);
+          }
+        }
+      } else {
+        sreg_t value1;
+        sreg_t value2;
+        if (GetValue(arg1, &value1) && GetValue(arg2, &value2)) {
+          cur = reinterpret_cast<byte*>(value1);
+          end = cur + (value2 * kInstrSize);
+        }
+      }
+      while (cur < end) {
+        dasm.InstructionDecode(buffer, cur);
+        printf("  0x%08" PRIxPTR "   %s\n", reinterpret_cast<intptr_t>(cur),
+               buffer.start());
+        cur += kInstrSize;
+      }
+    } else if (strcmp(cmd, "trace") == 0) {
+      Simulator::FLAG_trace_sim = true;
+      Simulator::FLAG_riscv_print_watchpoint = true;
+    } else if (strcmp(cmd, "break") == 0 || strcmp(cmd, "b") == 0 ||
+               strcmp(cmd, "tbreak") == 0) {
+      bool is_tbreak = strcmp(cmd, "tbreak") == 0;
+      if (argc == 2) {
+        int64_t value;
+        if (GetValue(arg1, &value)) {
+          sim_->SetBreakpoint(
+              SimInstruction(reinterpret_cast<Instruction*>(value)), is_tbreak);
+        } else {
+          printf("%s unrecognized\n", arg1);
+        }
+      } else {
+        sim_->ListBreakpoints();
+        printf("Use `break <address>` to set or disable a breakpoint\n");
+        printf(
+            "Use `tbreak <address>` to set or disable a temporary "
+            "breakpoint\n");
+      }
+    } else if (strcmp(cmd, "flags") == 0) {
+      printf("No flags on RISC-V !\n");
+    } else if (strcmp(cmd, "stop") == 0) {
+      int64_t value;
+      if (argc == 3) {
+        // Print information about all/the specified breakpoint(s).
+        if (strcmp(arg1, "info") == 0) {
+          if (strcmp(arg2, "all") == 0) {
+            printf("Stop information:\n");
+            for (uint32_t i = kMaxWatchpointCode + 1; i <= kMaxStopCode; i++) {
+              sim_->printStopInfo(i);
+            }
+          } else if (GetValue(arg2, &value)) {
+            sim_->printStopInfo(value);
+          } else {
+            printf("Unrecognized argument.\n");
+          }
+        } else if (strcmp(arg1, "enable") == 0) {
+          // Enable all/the specified breakpoint(s).
+          if (strcmp(arg2, "all") == 0) {
+            for (uint32_t i = kMaxWatchpointCode + 1; i <= kMaxStopCode; i++) {
+              sim_->enableStop(i);
+            }
+          } else if (GetValue(arg2, &value)) {
+            sim_->enableStop(value);
+          } else {
+            printf("Unrecognized argument.\n");
+          }
+        } else if (strcmp(arg1, "disable") == 0) {
+          // Disable all/the specified breakpoint(s).
+          if (strcmp(arg2, "all") == 0) {
+            for (uint32_t i = kMaxWatchpointCode + 1; i <= kMaxStopCode; i++) {
+              sim_->disableStop(i);
+            }
+          } else if (GetValue(arg2, &value)) {
+            sim_->disableStop(value);
+          } else {
+            printf("Unrecognized argument.\n");
+          }
+        }
+      } else {
+        printf("Wrong usage. Use help command for more information.\n");
+      }
+    } else if ((strcmp(cmd, "stat") == 0) || (strcmp(cmd, "st") == 0)) {
+      UNIMPLEMENTED();
+    } else if ((strcmp(cmd, "h") == 0) || (strcmp(cmd, "help") == 0)) {
+      printf("cont (alias 'c')\n");
+      printf("  Continue execution\n");
+      printf("stepi (alias 'si')\n");
+      printf("  Step one instruction\n");
+      printf("print (alias 'p')\n");
+      printf("  print <register>\n");
+      printf("  Print register content\n");
+      printf("  Use register name 'all' to print all GPRs\n");
+      printf("  Use register name 'allf' to print all GPRs and FPRs\n");
+      printf("printobject (alias 'po')\n");
+      printf("  printobject <register>\n");
+      printf("  Print an object from a register\n");
+      printf("stack\n");
+      printf("  stack [<words>]\n");
+      printf("  Dump stack content, default dump 10 words)\n");
+      printf("mem\n");
+      printf("  mem <address> [<words>]\n");
+      printf("  Dump memory content, default dump 10 words)\n");
+      printf("watch\n");
+      printf("  watch <address> \n");
+      printf("  watch memory content.)\n");
+      printf("flags\n");
+      printf("  print flags\n");
+      printf("disasm (alias 'di')\n");
+      printf("  disasm [<instructions>]\n");
+      printf("  disasm [<address/register>] (e.g., disasm pc) \n");
+      printf("  disasm [[<address/register>] <instructions>]\n");
+      printf("  Disassemble code, default is 10 instructions\n");
+      printf("  from pc\n");
+      printf("gdb \n");
+      printf("  Return to gdb if the simulator was started with gdb\n");
+      printf("break (alias 'b')\n");
+      printf("  break : list all breakpoints\n");
+      printf("  break <address> : set / enable / disable a breakpoint.\n");
+      printf("tbreak\n");
+      printf("  tbreak : list all breakpoints\n");
+      printf(
+          "  tbreak <address> : set / enable / disable a temporary "
+          "breakpoint.\n");
+      printf("  Set a breakpoint enabled only for one stop. \n");
+      printf("stop feature:\n");
+      printf("  Description:\n");
+      printf("    Stops are debug instructions inserted by\n");
+      printf("    the Assembler::stop() function.\n");
+      printf("    When hitting a stop, the Simulator will\n");
+      printf("    stop and give control to the Debugger.\n");
+      printf("    All stop codes are watched:\n");
+      printf("    - They can be enabled / disabled: the Simulator\n");
+      printf("       will / won't stop when hitting them.\n");
+      printf("    - The Simulator keeps track of how many times they \n");
+      printf("      are met. (See the info command.) Going over a\n");
+      printf("      disabled stop still increases its counter. \n");
+      printf("  Commands:\n");
+      printf("    stop info all/<code> : print infos about number <code>\n");
+      printf("      or all stop(s).\n");
+      printf("    stop enable/disable all/<code> : enables / disables\n");
+      printf("      all or number <code> stop(s)\n");
+    } else {
+      printf("Unknown command: %s\n", cmd);
     }
   }
 
@@ -797,27 +787,27 @@ void RiscvDebugger::Debug() {
 #  undef XSTR
 }
 
-void Simulator::SetBreakpoint(SimInstruction* location, bool is_tbreak) {
+void Simulator::SetBreakpoint(const SimInstruction& location, bool is_tbreak) {
   for (unsigned i = 0; i < breakpoints_.size(); i++) {
-    if (breakpoints_.at(i).location == location) {
+    if (breakpoints_.at(i).location == location.instr()) {
       if (breakpoints_.at(i).is_tbreak != is_tbreak) {
         printf("Change breakpoint at %p to %s breakpoint\n",
-               reinterpret_cast<void*>(location),
+               reinterpret_cast<void*>(location.instr()),
                is_tbreak ? "temporary" : "regular");
         breakpoints_.at(i).is_tbreak = is_tbreak;
         return;
       }
       printf("Existing breakpoint at %p was %s\n",
-             reinterpret_cast<void*>(location),
+             reinterpret_cast<void*>(location.instr()),
              breakpoints_.at(i).enabled ? "disabled" : "enabled");
       breakpoints_.at(i).enabled = !breakpoints_.at(i).enabled;
       return;
     }
   }
-  Breakpoint new_breakpoint = {location, true, is_tbreak};
+  Breakpoint new_breakpoint = {location.instr(), true, is_tbreak};
   breakpoints_.push_back(new_breakpoint);
   printf("Set a %sbreakpoint at %p\n", is_tbreak ? "temporary " : "",
-         reinterpret_cast<void*>(location));
+         reinterpret_cast<void*>(location.instr()));
 }
 
 void Simulator::ListBreakpoints() {
@@ -833,9 +823,10 @@ void Simulator::ListBreakpoints() {
 void Simulator::CheckBreakpoints() {
   bool hit_a_breakpoint = false;
   bool is_tbreak = false;
-  SimInstruction* pc_ = reinterpret_cast<SimInstruction*>(get_pc());
+  SimInstruction pc_(reinterpret_cast<Instruction*>(get_pc()));
   for (unsigned i = 0; i < breakpoints_.size(); i++) {
-    if ((breakpoints_.at(i).location == pc_) && breakpoints_.at(i).enabled) {
+    if ((breakpoints_.at(i).location == pc_.instr()) &&
+        breakpoints_.at(i).enabled) {
       hit_a_breakpoint = true;
       if (breakpoints_.at(i).is_tbreak) {
         // Disable a temporary breakpoint.
@@ -847,7 +838,7 @@ void Simulator::CheckBreakpoints() {
   }
   if (hit_a_breakpoint) {
     printf("Hit %sa breakpoint at %p.\n", is_tbreak ? "and disabled " : "",
-           reinterpret_cast<void*>(pc_));
+           reinterpret_cast<void*>(pc_.instr()));
     RiscvDebugger dbg(this);
     dbg.Debug();
   }
@@ -914,8 +905,8 @@ static void FlushICacheLocked(SimulatorProcess::ICacheMap& i_cache,
 }
 
 /* static */
-void SimulatorProcess::checkICacheLocked(SimInstruction* instr) {
-  intptr_t address = reinterpret_cast<intptr_t>(instr);
+void SimulatorProcess::checkICacheLocked(const SimInstruction& instr) {
+  intptr_t address = reinterpret_cast<intptr_t>(instr.instr());
   void* page = reinterpret_cast<void*>(address & (~CachePage::kPageMask));
   void* line = reinterpret_cast<void*>(address & (~CachePage::kLineMask));
   int offset = (address & CachePage::kPageMask);
@@ -925,12 +916,11 @@ void SimulatorProcess::checkICacheLocked(SimInstruction* instr) {
   char* cached_line = cache_page->cachedData(offset & ~CachePage::kLineMask);
 
   if (cache_hit) {
-#  ifdef DEBUG
     // Check that the data in memory matches the contents of the I-cache.
-    int cmpret = memcmp(reinterpret_cast<void*>(instr),
-                        cache_page->cachedData(offset), kInstrSize);
+    mozilla::DebugOnly<int> cmpret =
+        memcmp(reinterpret_cast<void*>(instr.instr()),
+               cache_page->cachedData(offset), kInstrSize);
     MOZ_ASSERT(cmpret == 0);
-#  endif
   } else {
     // Cache miss.  Load memory into the cache.
     memcpy(cached_line, line, CachePage::kLineLength);
@@ -1556,9 +1546,9 @@ bool Simulator::overRecursedWithExtra(uint32_t extra) const {
 }
 
 // Unsupported instructions use format to print an error and stop execution.
-void Simulator::format(SimInstruction* instr, const char* format) {
+void Simulator::format(const SimInstruction& instr, const char* format) {
   printf("Simulator found unsupported instruction:\n 0x%016" PRIxPTR ": %s\n",
-         reinterpret_cast<intptr_t>(instr), format);
+         reinterpret_cast<intptr_t>(instr.instr()), format);
   MOZ_CRASH();
 }
 
@@ -1573,10 +1563,10 @@ static inline uint32_t get_ebreak_code(Instruction* instr) {
   MOZ_ASSERT(instr->InstructionBits() == kBreakInstr);
   uint8_t* cur = reinterpret_cast<uint8_t*>(instr);
   Instruction* next_instr = reinterpret_cast<Instruction*>(cur + kInstrSize);
-  if (next_instr->BaseOpcodeFieldRaw() == LUI)
+  if (next_instr->BaseOpcodeFieldRaw() == LUI) {
     return (next_instr->Imm20UValue());
-  else
-    return -1;
+  }
+  return -1;
 }
 
 // Software interrupt instructions are used by the simulator to call into C++.
@@ -1679,9 +1669,9 @@ void Simulator::SoftwareInterrupt() {
     //     uint8_t code = get_ebreak_code(instr_.instr()) - kMaxStopCode - 1;
     //     switch (LNode::Opcode(code)) {
     // #define EMIT_OP(OP, ...)  \
-//       case LNode::Opcode::OP:\
-//            std::cout << #OP << std::endl; \
-//            break;
+    //       case LNode::Opcode::OP:\
+    //            std::cout << #OP << std::endl; \
+    //            break;
     //     LIR_OPCODE_LIST(EMIT_OP);
     // #undef EMIT_OP
     //     }
@@ -1720,9 +1710,9 @@ void Simulator::handleStop(uint32_t code) {
   }
 }
 
-bool Simulator::isStopInstruction(SimInstruction* instr) {
-  if (instr->InstructionBits() != kBreakInstr) return false;
-  int32_t code = get_ebreak_code(instr->instr());
+bool Simulator::isStopInstruction(const SimInstruction& instr) {
+  if (instr.InstructionBits() != kBreakInstr) return false;
+  int32_t code = get_ebreak_code(instr.instr());
   return code != -1 && static_cast<uint32_t>(code) > kMaxWatchpointCode &&
          static_cast<uint32_t>(code) <= kMaxStopCode;
 }
@@ -1764,7 +1754,8 @@ void Simulator::printStopInfo(uint32_t code) {
   if (code <= kMaxWatchpointCode) {
     printf("That is a watchpoint, not a stop.\n");
     return;
-  } else if (code > kMaxStopCode) {
+  }
+  if (code > kMaxStopCode) {
     printf("Code too large, only %u stops can be used\n", kMaxStopCode + 1);
     return;
   }
@@ -1798,10 +1789,11 @@ void Simulator::DieOrDebug() {
 }
 
 // Executes the current instruction.
-void Simulator::InstructionDecode(Instruction* instr) {
-  // if (FLAG_check_icache) {
-  //   CheckICache(SimulatorProcess::icache(), instr);
-  // }
+void Simulator::InstructionDecode(const SimInstruction& instr) {
+  if (!SimulatorProcess::ICacheCheckingDisableCount) {
+    AutoLockSimulatorCache als;
+    SimulatorProcess::checkICacheLocked(instr);
+  }
   pc_modified_ = false;
 
   EmbeddedVector<char, 256> buffer;
@@ -1811,13 +1803,10 @@ void Simulator::InstructionDecode(Instruction* instr) {
     disasm::NameConverter converter;
     disasm::Disassembler dasm(converter);
     // Use a reasonably large buffer.
-    dasm.InstructionDecode(buffer, reinterpret_cast<byte*>(instr));
-
-    // printf("EXECUTING  0x%08" PRIxPTR "   %-44s\n",
-    //        reinterpret_cast<intptr_t>(instr), buffer.begin());
+    dasm.InstructionDecode(buffer, reinterpret_cast<byte*>(instr.instr()));
   }
 
-  instr_ = instr;
+  instr_ = instr.instr();
   switch (instr_.InstructionType()) {
     case Instruction::kRType:
       DecodeRVRType();
@@ -1878,12 +1867,13 @@ void Simulator::InstructionDecode(Instruction* instr) {
 
   if (FLAG_trace_sim) {
     printf("  0x%012" PRIxPTR "      %-44s\t%s\n",
-           reinterpret_cast<intptr_t>(instr), buffer.start(),
+           reinterpret_cast<intptr_t>(instr.instr()), buffer.start(),
            trace_buf_.start());
   }
 
   if (!pc_modified_) {
-    setRegister(pc, reinterpret_cast<sreg_t>(instr) + instr->InstructionSize());
+    setRegister(
+        pc, reinterpret_cast<sreg_t>(instr.instr()) + instr.InstructionSize());
   }
 
   if (watch_address_ != nullptr) {
@@ -1935,7 +1925,7 @@ void Simulator::execute() {
       single_step_callback_(single_step_callback_arg_, this,
                             (void*)program_counter);
     }
-    Instruction* instr = reinterpret_cast<Instruction*>(program_counter);
+    SimInstruction instr(reinterpret_cast<Instruction*>(program_counter));
     InstructionDecode(instr);
     icount_++;
     program_counter = get_pc();
@@ -1989,11 +1979,23 @@ void Simulator::DecodeRVRType() {
       set_rd(rs1() & rs2());
       break;
     }
+    case RO_ANDN:
+      set_rd(rs1() & ~rs2());
+      break;
+    case RO_ORN:
+      set_rd(rs1() | (~rs2()));
+      break;
+    case RO_XNOR:
+      set_rd((~rs1()) ^ (~rs2()));
+      break;
 #  ifdef JS_CODEGEN_RISCV64
     case RO_ADDW: {
       set_rd(sext32(rs1() + rs2()));
       break;
     }
+    case RO_ADDUW:
+      set_rd(zext32(rs1()) + rs2());
+      break;
     case RO_SUBW: {
       set_rd(sext32(rs1() - rs2()));
       break;
@@ -2008,6 +2010,30 @@ void Simulator::DecodeRVRType() {
     }
     case RO_SRAW: {
       set_rd(sext32(int32_t(rs1()) >> (rs2() & 0x1F)));
+      break;
+    }
+    case RO_SH1ADDUW: {
+      set_rd(rs2() + (zext32(rs1()) << 1));
+      break;
+    }
+    case RO_SH2ADDUW: {
+      set_rd(rs2() + (zext32(rs1()) << 2));
+      break;
+    }
+    case RO_SH3ADDUW: {
+      set_rd(rs2() + (zext32(rs1()) << 3));
+      break;
+    }
+    case RO_ROLW: {
+      reg_t extz_rs1 = zext32(rs1());
+      sreg_t shamt = rs2() & 31;
+      set_rd(sext32((extz_rs1 << shamt) | (extz_rs1 >> (32 - shamt))));
+      break;
+    }
+    case RO_RORW: {
+      reg_t extz_rs1 = zext32(rs1());
+      sreg_t shamt = rs2() & 31;
+      set_rd(sext32((extz_rs1 >> shamt) | (extz_rs1 << (32 - shamt))));
       break;
     }
 #  endif /* JS_CODEGEN_RISCV64 */
@@ -2122,6 +2148,64 @@ void Simulator::DecodeRVRType() {
       break;
     }
 #  endif /*JS_CODEGEN_RISCV64*/
+    case RO_SH1ADD:
+      set_rd(rs2() + (rs1() << 1));
+      break;
+    case RO_SH2ADD:
+      set_rd(rs2() + (rs1() << 2));
+      break;
+    case RO_SH3ADD:
+      set_rd(rs2() + (rs1() << 3));
+      break;
+    case RO_MAX:
+      set_rd(rs1() < rs2() ? rs2() : rs1());
+      break;
+    case RO_MAXU:
+      set_rd(static_cast<reg_t>(rs1()) < static_cast<reg_t>(rs2()) ? rs2()
+                                                                   : rs1());
+      break;
+    case RO_MIN:
+      set_rd(rs1() < rs2() ? rs1() : rs2());
+      break;
+    case RO_MINU:
+      set_rd(static_cast<reg_t>(rs1()) < static_cast<reg_t>(rs2()) ? rs1()
+                                                                   : rs2());
+      break;
+    case RO_ZEXTH:
+      set_rd(zext_xlen(uint16_t(rs1())));
+      break;
+    case RO_ROL: {
+      sreg_t shamt = rs2() & (xlen - 1);
+      set_rd((static_cast<reg_t>(rs1()) << shamt) |
+             (static_cast<reg_t>(rs1()) >> (xlen - shamt)));
+      break;
+    }
+    case RO_ROR: {
+      sreg_t shamt = rs2() & (xlen - 1);
+      set_rd((static_cast<reg_t>(rs1()) >> shamt) |
+             (static_cast<reg_t>(rs1()) << (xlen - shamt)));
+      break;
+    }
+    case RO_BCLR: {
+      sreg_t index = rs2() & (xlen - 1);
+      set_rd(rs1() & ~(1l << index));
+      break;
+    }
+    case RO_BEXT: {
+      sreg_t index = rs2() & (xlen - 1);
+      set_rd((rs1() >> index) & 1);
+      break;
+    }
+    case RO_BINV: {
+      sreg_t index = rs2() & (xlen - 1);
+      set_rd(rs1() ^ (1 << index));
+      break;
+    }
+    case RO_BSET: {
+      sreg_t index = rs2() & (xlen - 1);
+      set_rd(rs1() | (1 << index));
+      break;
+    }
       // TODO(riscv): End Add RISCV M extension macro
     default: {
       switch (instr_.BaseOpcode()) {
@@ -2264,10 +2348,9 @@ I_TYPE Simulator::RoundF2IHelper(F_TYPE original, int rmode) {
     if (std::isnan(original) ||
         original == std::numeric_limits<F_TYPE>::infinity()) {
       return max_i;
-    } else {
-      MOZ_ASSERT(original == -std::numeric_limits<F_TYPE>::infinity());
-      return min_i;
     }
+    MOZ_ASSERT(original == -std::numeric_limits<F_TYPE>::infinity());
+    return min_i;
   }
 
   F_TYPE rounded = RoundF2FHelper(original, rmode);
@@ -2278,10 +2361,9 @@ I_TYPE Simulator::RoundF2IHelper(F_TYPE original, int rmode) {
     if (std::isnan(rounded) ||
         rounded == std::numeric_limits<F_TYPE>::infinity()) {
       return max_i;
-    } else {
-      MOZ_ASSERT(rounded == -std::numeric_limits<F_TYPE>::infinity());
-      return min_i;
     }
+    MOZ_ASSERT(rounded == -std::numeric_limits<F_TYPE>::infinity());
+    return min_i;
   }
 
   // Since integer max values are either all 1s (for unsigned) or all 1s
@@ -2408,7 +2490,7 @@ static inline bool is_invalid_fsqrt(T src1) {
   return (src1 < 0);
 }
 
-int Simulator::loadLinkedW(uint64_t addr, SimInstruction* instr) {
+int Simulator::loadLinkedW(uint64_t addr, const SimInstruction& instr) {
   if ((addr & 3) == 0) {
     if (handleWasmSegFault(addr, 4)) {
       return -1;
@@ -2424,20 +2506,20 @@ int Simulator::loadLinkedW(uint64_t addr, SimInstruction* instr) {
     return value;
   }
   printf("Unaligned write at 0x%016" PRIx64 ", pc=0x%016" PRIxPTR "\n", addr,
-         reinterpret_cast<intptr_t>(instr));
+         reinterpret_cast<intptr_t>(instr.instr()));
   MOZ_CRASH();
   return 0;
 }
 
 int Simulator::storeConditionalW(uint64_t addr, int value,
-                                 SimInstruction* instr) {
+                                 const SimInstruction& instr) {
   // Correct behavior in this case, as defined by architecture, is to just
   // return 0, but there is no point at allowing that. It is certainly an
   // indicator of a bug.
   if (addr != LLAddr_) {
     printf("SC to bad address: 0x%016" PRIx64 ", pc=0x%016" PRIxPTR
            ", expected: 0x%016" PRIxPTR "\n",
-           addr, reinterpret_cast<intptr_t>(instr), LLAddr_);
+           addr, reinterpret_cast<intptr_t>(instr.instr()), LLAddr_);
     MOZ_CRASH();
   }
 
@@ -2457,12 +2539,12 @@ int Simulator::storeConditionalW(uint64_t addr, int value,
     return (old == expected) ? 0 : 1;
   }
   printf("Unaligned SC at 0x%016" PRIx64 ", pc=0x%016" PRIxPTR "\n", addr,
-         reinterpret_cast<intptr_t>(instr));
+         reinterpret_cast<intptr_t>(instr.instr()));
   MOZ_CRASH();
   return 0;
 }
 
-int64_t Simulator::loadLinkedD(uint64_t addr, SimInstruction* instr) {
+int64_t Simulator::loadLinkedD(uint64_t addr, const SimInstruction& instr) {
   if ((addr & kPointerAlignmentMask) == 0) {
     if (handleWasmSegFault(addr, 8)) {
       return -1;
@@ -2478,20 +2560,20 @@ int64_t Simulator::loadLinkedD(uint64_t addr, SimInstruction* instr) {
     return value;
   }
   printf("Unaligned write at 0x%016" PRIx64 ", pc=0x%016" PRIxPTR "\n", addr,
-         reinterpret_cast<intptr_t>(instr));
+         reinterpret_cast<intptr_t>(instr.instr()));
   MOZ_CRASH();
   return 0;
 }
 
 int Simulator::storeConditionalD(uint64_t addr, int64_t value,
-                                 SimInstruction* instr) {
+                                 const SimInstruction& instr) {
   // Correct behavior in this case, as defined by architecture, is to just
   // return 0, but there is no point at allowing that. It is certainly an
   // indicator of a bug.
   if (addr != LLAddr_) {
     printf("SC to bad address: 0x%016" PRIx64 ", pc=0x%016" PRIxPTR
            ", expected: 0x%016" PRIxPTR "\n",
-           addr, reinterpret_cast<intptr_t>(instr), LLAddr_);
+           addr, reinterpret_cast<intptr_t>(instr.instr()), LLAddr_);
     MOZ_CRASH();
   }
 
@@ -2511,7 +2593,7 @@ int Simulator::storeConditionalD(uint64_t addr, int64_t value,
     return (old == expected) ? 0 : 1;
   }
   printf("Unaligned SC at 0x%016" PRIx64 ", pc=0x%016" PRIxPTR "\n", addr,
-         reinterpret_cast<intptr_t>(instr));
+         reinterpret_cast<intptr_t>(instr.instr()));
   MOZ_CRASH();
   return 0;
 }
@@ -2524,7 +2606,7 @@ void Simulator::DecodeRVRAType() {
   switch (instr_.InstructionBits() & kRATypeMask) {
     case RO_LR_W: {
       sreg_t addr = rs1();
-      set_rd(loadLinkedW(addr, &instr_));
+      set_rd(loadLinkedW(addr, instr_));
       TraceLr(addr, getRegister(rd_reg()), getRegister(rd_reg()));
       break;
     }
@@ -2532,7 +2614,7 @@ void Simulator::DecodeRVRAType() {
       sreg_t addr = rs1();
       auto value = static_cast<int32_t>(rs2());
       auto result =
-          storeConditionalW(addr, static_cast<int32_t>(rs2()), &instr_);
+          storeConditionalW(addr, static_cast<int32_t>(rs2()), instr_);
       set_rd(result);
       if (!result) {
         TraceSc(addr, value);
@@ -2623,7 +2705,7 @@ void Simulator::DecodeRVRAType() {
 #  ifdef JS_CODEGEN_RISCV64
     case RO_LR_D: {
       sreg_t addr = rs1();
-      set_rd(loadLinkedD(addr, &instr_));
+      set_rd(loadLinkedD(addr, instr_));
       TraceLr(addr, getRegister(rd_reg()), getRegister(rd_reg()));
       break;
     }
@@ -2631,7 +2713,7 @@ void Simulator::DecodeRVRAType() {
       sreg_t addr = rs1();
       auto value = static_cast<int64_t>(rs2());
       auto result =
-          storeConditionalD(addr, static_cast<int64_t>(rs2()), &instr_);
+          storeConditionalD(addr, static_cast<int64_t>(rs2()), instr_);
       set_rd(result);
       if (!result) {
         TraceSc(addr, value);
@@ -2712,9 +2794,8 @@ void Simulator::DecodeRVRFPType() {
         if (is_invalid_fadd(frs1, frs2)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<float>::quiet_NaN();
-        } else {
-          return frs1 + frs2;
         }
+        return frs1 + frs2;
       };
       set_frd(CanonicalizeFPUOp2<float>(fn));
       break;
@@ -2725,9 +2806,8 @@ void Simulator::DecodeRVRFPType() {
         if (is_invalid_fsub(frs1, frs2)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<float>::quiet_NaN();
-        } else {
-          return frs1 - frs2;
         }
+        return frs1 - frs2;
       };
       set_frd(CanonicalizeFPUOp2<float>(fn));
       break;
@@ -2738,9 +2818,8 @@ void Simulator::DecodeRVRFPType() {
         if (is_invalid_fmul(frs1, frs2)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<float>::quiet_NaN();
-        } else {
-          return frs1 * frs2;
         }
+        return frs1 * frs2;
       };
       set_frd(CanonicalizeFPUOp2<float>(fn));
       break;
@@ -2751,14 +2830,14 @@ void Simulator::DecodeRVRFPType() {
         if (is_invalid_fdiv(frs1, frs2)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<float>::quiet_NaN();
-        } else if (frs2 == 0.0f) {
+        }
+        if (frs2 == 0.0f) {
           this->set_fflags(kDivideByZero);
           return (std::signbit(frs1) == std::signbit(frs2)
                       ? std::numeric_limits<float>::infinity()
                       : -std::numeric_limits<float>::infinity());
-        } else {
-          return frs1 / frs2;
         }
+        return frs1 / frs2;
       };
       set_frd(CanonicalizeFPUOp2<float>(fn));
       break;
@@ -2770,9 +2849,8 @@ void Simulator::DecodeRVRFPType() {
           if (is_invalid_fsqrt(frs)) {
             this->set_fflags(kInvalidOperation);
             return std::numeric_limits<float>::quiet_NaN();
-          } else {
-            return std::sqrt(frs);
           }
+          return std::sqrt(frs);
         };
         set_frd(CanonicalizeFPUOp1<float>(fn));
       } else {
@@ -2928,9 +3006,8 @@ void Simulator::DecodeRVRFPType() {
         if (is_invalid_fadd(drs1, drs2)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<double>::quiet_NaN();
-        } else {
-          return drs1 + drs2;
         }
+        return drs1 + drs2;
       };
       set_drd(CanonicalizeFPUOp2<double>(fn));
       break;
@@ -2941,9 +3018,8 @@ void Simulator::DecodeRVRFPType() {
         if (is_invalid_fsub(drs1, drs2)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<double>::quiet_NaN();
-        } else {
-          return drs1 - drs2;
         }
+        return drs1 - drs2;
       };
       set_drd(CanonicalizeFPUOp2<double>(fn));
       break;
@@ -2954,9 +3030,8 @@ void Simulator::DecodeRVRFPType() {
         if (is_invalid_fmul(drs1, drs2)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<double>::quiet_NaN();
-        } else {
-          return drs1 * drs2;
         }
+        return drs1 * drs2;
       };
       set_drd(CanonicalizeFPUOp2<double>(fn));
       break;
@@ -2967,14 +3042,14 @@ void Simulator::DecodeRVRFPType() {
         if (is_invalid_fdiv(drs1, drs2)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<double>::quiet_NaN();
-        } else if (drs2 == 0.0) {
+        }
+        if (drs2 == 0.0) {
           this->set_fflags(kDivideByZero);
           return (std::signbit(drs1) == std::signbit(drs2)
                       ? std::numeric_limits<double>::infinity()
                       : -std::numeric_limits<double>::infinity());
-        } else {
-          return drs1 / drs2;
         }
+        return drs1 / drs2;
       };
       set_drd(CanonicalizeFPUOp2<double>(fn));
       break;
@@ -2986,9 +3061,8 @@ void Simulator::DecodeRVRFPType() {
           if (is_invalid_fsqrt(drs)) {
             this->set_fflags(kInvalidOperation);
             return std::numeric_limits<double>::quiet_NaN();
-          } else {
-            return std::sqrt(drs);
           }
+          return std::sqrt(drs);
         };
         set_drd(CanonicalizeFPUOp1<double>(fn));
       } else {
@@ -3171,9 +3245,8 @@ void Simulator::DecodeRVR4Type() {
         if (is_invalid_fmul(frs1, frs2) || is_invalid_fadd(frs1 * frs2, frs3)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<float>::quiet_NaN();
-        } else {
-          return std::fma(frs1, frs2, frs3);
         }
+        return std::fma(frs1, frs2, frs3);
       };
       set_frd(CanonicalizeFPUOp3<float>(fn));
       break;
@@ -3184,9 +3257,8 @@ void Simulator::DecodeRVR4Type() {
         if (is_invalid_fmul(frs1, frs2) || is_invalid_fsub(frs1 * frs2, frs3)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<float>::quiet_NaN();
-        } else {
-          return std::fma(frs1, frs2, -frs3);
         }
+        return std::fma(frs1, frs2, -frs3);
       };
       set_frd(CanonicalizeFPUOp3<float>(fn));
       break;
@@ -3197,9 +3269,8 @@ void Simulator::DecodeRVR4Type() {
         if (is_invalid_fmul(frs1, frs2) || is_invalid_fsub(frs3, frs1 * frs2)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<float>::quiet_NaN();
-        } else {
-          return -std::fma(frs1, frs2, -frs3);
         }
+        return -std::fma(frs1, frs2, -frs3);
       };
       set_frd(CanonicalizeFPUOp3<float>(fn));
       break;
@@ -3210,9 +3281,8 @@ void Simulator::DecodeRVR4Type() {
         if (is_invalid_fmul(frs1, frs2) || is_invalid_fadd(frs1 * frs2, frs3)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<float>::quiet_NaN();
-        } else {
-          return -std::fma(frs1, frs2, frs3);
         }
+        return -std::fma(frs1, frs2, frs3);
       };
       set_frd(CanonicalizeFPUOp3<float>(fn));
       break;
@@ -3224,9 +3294,8 @@ void Simulator::DecodeRVR4Type() {
         if (is_invalid_fmul(drs1, drs2) || is_invalid_fadd(drs1 * drs2, drs3)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<double>::quiet_NaN();
-        } else {
-          return std::fma(drs1, drs2, drs3);
         }
+        return std::fma(drs1, drs2, drs3);
       };
       set_drd(CanonicalizeFPUOp3<double>(fn));
       break;
@@ -3237,9 +3306,8 @@ void Simulator::DecodeRVR4Type() {
         if (is_invalid_fmul(drs1, drs2) || is_invalid_fsub(drs1 * drs2, drs3)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<double>::quiet_NaN();
-        } else {
-          return std::fma(drs1, drs2, -drs3);
         }
+        return std::fma(drs1, drs2, -drs3);
       };
       set_drd(CanonicalizeFPUOp3<double>(fn));
       break;
@@ -3250,9 +3318,8 @@ void Simulator::DecodeRVR4Type() {
         if (is_invalid_fmul(drs1, drs2) || is_invalid_fsub(drs3, drs1 * drs2)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<double>::quiet_NaN();
-        } else {
-          return -std::fma(drs1, drs2, -drs3);
         }
+        return -std::fma(drs1, drs2, -drs3);
       };
       set_drd(CanonicalizeFPUOp3<double>(fn));
       break;
@@ -3263,9 +3330,8 @@ void Simulator::DecodeRVR4Type() {
         if (is_invalid_fmul(drs1, drs2) || is_invalid_fadd(drs1 * drs2, drs3)) {
           this->set_fflags(kInvalidOperation);
           return std::numeric_limits<double>::quiet_NaN();
-        } else {
-          return -std::fma(drs1, drs2, drs3);
         }
+        return -std::fma(drs1, drs2, drs3);
       };
       set_drd(CanonicalizeFPUOp3<double>(fn));
       break;
@@ -3488,18 +3554,137 @@ void Simulator::DecodeRVIType() {
       set_rd(imm12() & rs1());
       break;
     }
-    case RO_SLLI: {
-      require(shamt6() < xlen);
-      set_rd(sext_xlen(rs1() << shamt6()));
+    case OP_SHL: {
+      switch (instr_.Funct6FieldRaw() | OP_SHL) {
+        case RO_SLLI:
+          require(shamt6() < xlen);
+          set_rd(sext_xlen(rs1() << shamt6()));
+          break;
+        case RO_BCLRI: {
+          require(shamt6() < xlen);
+          sreg_t index = shamt6() & (xlen - 1);
+          set_rd(rs1() & ~(1l << index));
+          break;
+        }
+        case RO_BINVI: {
+          require(shamt6() < xlen);
+          sreg_t index = shamt6() & (xlen - 1);
+          set_rd(rs1() ^ (1l << index));
+          break;
+        }
+        case RO_BSETI: {
+          require(shamt6() < xlen);
+          sreg_t index = shamt6() & (xlen - 1);
+          set_rd(rs1() | (1l << index));
+          break;
+        }
+        case OP_COUNT:
+          switch (instr_.Shamt()) {
+            case 0: {  // clz
+              sreg_t x = rs1();
+              int highest_setbit = -1;
+              for (auto i = xlen - 1; i >= 0; i--) {
+                if ((x & (1l << i))) {
+                  highest_setbit = i;
+                  break;
+                }
+              }
+              set_rd(xlen - 1 - highest_setbit);
+              break;
+            }
+            case 1: {  // ctz
+              sreg_t x = rs1();
+              int lowest_setbit = xlen;
+              for (auto i = 0; i < xlen; i++) {
+                if ((x & (1l << i))) {
+                  lowest_setbit = i;
+                  break;
+                }
+              }
+              set_rd(lowest_setbit);
+              break;
+            }
+            case 2: {  // cpop
+              int i = 0;
+              sreg_t n = rs1();
+              while (n) {
+                n &= (n - 1);
+                i++;
+              }
+              set_rd(i);
+              break;
+            }
+            case 4:
+              set_rd(static_cast<int8_t>(rs1()));
+              break;
+            case 5:
+              set_rd(static_cast<int16_t>(rs1()));
+              break;
+            default:
+              UNSUPPORTED();
+          }
+          break;
+        default:
+          UNSUPPORTED();
+      }
       break;
     }
-    case RO_SRLI: {  //  RO_SRAI
-      if (!instr_.IsArithShift()) {
-        require(shamt6() < xlen);
-        set_rd(sext_xlen(zext_xlen(rs1()) >> shamt6()));
-      } else {
-        require(shamt6() < xlen);
-        set_rd(sext_xlen(sext_xlen(rs1()) >> shamt6()));
+    case OP_SHR: {  //  RO_SRAI
+      switch (instr_.Funct6FieldRaw() | OP_SHR) {
+        case RO_SRLI:
+          require(shamt6() < xlen);
+          set_rd(sext_xlen(zext_xlen(rs1()) >> shamt6()));
+          break;
+        case RO_SRAI:
+          require(shamt6() < xlen);
+          set_rd(sext_xlen(sext_xlen(rs1()) >> shamt6()));
+          break;
+        case RO_BEXTI: {
+          require(shamt6() < xlen);
+          sreg_t index = shamt6() & (xlen - 1);
+          set_rd((rs1() >> index) & 1);
+          break;
+        }
+        case RO_ORCB&(kFunct6Mask | OP_SHR): {
+          reg_t rs1_val = rs1();
+          reg_t result = 0;
+          reg_t mask = 0xFF;
+          reg_t step = 8;
+          for (reg_t i = 0; i < xlen; i += step) {
+            if ((rs1_val & mask) != 0) {
+              result |= mask;
+            }
+            mask <<= step;
+          }
+          set_rd(result);
+          break;
+        }
+        case RO_RORI: {
+#  ifdef JS_CODEGEN_RISCV64
+          int16_t shamt = shamt6();
+#  else
+          int16_t shamt = shamt5();
+#  endif
+          set_rd((static_cast<reg_t>(rs1()) >> shamt) |
+                 (static_cast<reg_t>(rs1()) << (xlen - shamt)));
+          break;
+        }
+        case RO_REV8: {
+          if (imm12() == RO_REV8_IMM12) {
+            reg_t input = rs1();
+            reg_t output = 0;
+            reg_t j = xlen - 1;
+            for (int i = 0; i < xlen; i += 8) {
+              output |= ((input >> (j - 7)) & 0xff) << i;
+              j -= 8;
+            }
+            set_rd(output);
+            break;
+          }
+          UNSUPPORTED();
+        }
+        default:
+          UNSUPPORTED();
       }
       break;
     }
@@ -3508,15 +3693,75 @@ void Simulator::DecodeRVIType() {
       set_rd(sext32(rs1() + imm12()));
       break;
     }
-    case RO_SLLIW: {
-      set_rd(sext32(rs1() << shamt5()));
+    case OP_SHLW:
+      switch (instr_.Funct7FieldRaw() | OP_SHLW) {
+        case RO_SLLIW:
+          set_rd(sext32(rs1() << shamt5()));
+          break;
+        case RO_SLLIUW:
+          set_rd(zext32(rs1()) << shamt6());
+          break;
+        case OP_COUNTW: {
+          switch (instr_.Shamt()) {
+            case 0: {  // clzw
+              sreg_t x = rs1();
+              int highest_setbit = -1;
+              for (auto i = 31; i >= 0; i--) {
+                if ((x & (1l << i))) {
+                  highest_setbit = i;
+                  break;
+                }
+              }
+              set_rd(31 - highest_setbit);
+              break;
+            }
+            case 1: {  // ctzw
+              sreg_t x = rs1();
+              int lowest_setbit = 32;
+              for (auto i = 0; i < 32; i++) {
+                if ((x & (1l << i))) {
+                  lowest_setbit = i;
+                  break;
+                }
+              }
+              set_rd(lowest_setbit);
+              break;
+            }
+            case 2: {  // cpopw
+              int i = 0;
+              int32_t n = static_cast<int32_t>(rs1());
+              while (n) {
+                n &= (n - 1);
+                i++;
+              }
+              set_rd(i);
+              break;
+            }
+            default:
+              UNSUPPORTED();
+          }
+          break;
+        }
+        default:
+          UNSUPPORTED();
+      }
       break;
-    }
-    case RO_SRLIW: {  //  RO_SRAIW
-      if (!instr_.IsArithShift()) {
-        set_rd(sext32(uint32_t(rs1()) >> shamt5()));
-      } else {
-        set_rd(sext32(int32_t(rs1()) >> shamt5()));
+    case OP_SHRW: {  //  RO_SRAI
+      switch (instr_.Funct7FieldRaw() | OP_SHRW) {
+        case RO_SRLIW:
+          set_rd(sext32(uint32_t(rs1()) >> shamt5()));
+          break;
+        case RO_SRAIW:
+          set_rd(sext32(int32_t(rs1()) >> shamt5()));
+          break;
+        case RO_RORIW: {
+          reg_t extz_rs1 = zext32(rs1());
+          int16_t shamt = shamt5();
+          set_rd(sext32((extz_rs1 >> shamt) | (extz_rs1 << (32 - shamt))));
+          break;
+        }
+        default:
+          UNSUPPORTED();
       }
       break;
     }
@@ -3791,10 +4036,11 @@ void Simulator::DecodeCAType() {
 void Simulator::DecodeCIType() {
   switch (instr_.RvcOpcode()) {
     case RO_C_NOP_ADDI:
-      if (instr_.RvcRdValue() == 0)  // c.nop
+      if (instr_.RvcRdValue() == 0) {  // c.nop
         break;
-      else  // c.addi
+      } else {  // c.addi
         set_rvc_rd(sext_xlen(rvc_rs1() + rvc_imm6()));
+      }
       break;
 #  if JS_CODEGEN_RISCV64
     case RO_C_ADDIW:

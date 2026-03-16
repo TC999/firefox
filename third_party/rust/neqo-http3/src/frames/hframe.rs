@@ -10,7 +10,7 @@ use neqo_common::{Buffer, Decoder, Encoder};
 use neqo_crypto::random;
 use neqo_transport::StreamId;
 
-use crate::{frames::reader::FrameDecoder, settings::HSettings, Error, Priority, PushId, Res};
+use crate::{Error, Priority, PushId, Res, frames::reader::FrameDecoder, settings::HSettings};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HFrameType(pub u64);
@@ -154,6 +154,9 @@ impl HFrame {
 }
 
 impl FrameDecoder<Self> for HFrame {
+    #[cfg(feature = "build-fuzzing-corpus")]
+    const FUZZING_CORPUS: Option<&'static str> = Some("hframe");
+
     fn frame_type_allowed(frame_type: HFrameType) -> Res<()> {
         if HFrameType::RESERVED.contains(&frame_type) {
             return Err(Error::HttpFrameUnexpected);

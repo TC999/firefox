@@ -137,7 +137,7 @@ class Preferences final : public nsIPrefService,
   }
 
   // Gets the type of the pref.
-  static int32_t GetType(const char* aPrefName);
+  static nsIPrefBranch::PreferenceType GetType(const char* aPrefName);
 
   // Fallible value getters. When `aKind` is `User` they will get the user
   // value if possible, and fall back to the default value otherwise.
@@ -428,6 +428,8 @@ class Preferences final : public nsIPrefService,
   static void AddSizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf,
                                      PrefsSizes& aSizes);
 
+  static uint32_t GetCallbackCount();
+
   static void HandleDirty();
 
   // Explicitly choosing synchronous or asynchronous (if allowed) preferences
@@ -500,6 +502,8 @@ class Preferences final : public nsIPrefService,
                                       const char* const* aPrefs, void* aClosure,
                                       MatchKind aMatchKind);
 
+  static uint32_t UnregisterCallbacksForBranch(nsPrefBranch* aBranch);
+
   template <typename T>
   static nsresult RegisterCallbackImpl(PrefChangedFunc aCallback, T& aPref,
                                        void* aClosure, MatchKind aMatchKind,
@@ -529,6 +533,7 @@ class Preferences final : public nsIPrefService,
 
  private:
   nsCOMPtr<nsIFile> mCurrentFile;
+  nsCOMPtr<nsISerialEventTarget> mAsyncTarget;
   // Time since unix epoch in ms (JS Date compatible)
   PRTime mUserPrefsFileLastModifiedAtStartup = 0;
   bool mDirty = false;

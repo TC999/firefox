@@ -4,6 +4,10 @@
 
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
+plugins {
+    alias(libs.plugins.dependency.analysis)
+}
+
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
@@ -35,6 +39,8 @@ dependencies {
     androidTestImplementation libs.androidx.test.junit
     androidTestImplementation libs.androidx.test.rules
     androidTestImplementation libs.androidx.test.runner
+
+    androidTestRuntimeOnly libs.okhttp
 }
 
 apply from: '../../../common-config.gradle'

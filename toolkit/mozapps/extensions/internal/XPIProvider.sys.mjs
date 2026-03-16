@@ -1474,8 +1474,11 @@ var XPIStates = {
           // here. See bug 1830136.
           delete data.startupData.lwtData?.darkTheme?._processedColors;
           delete data.startupData.lwtData?.theme?._processedColors;
-          delete data.startupData.lwtDarkStyles?._processedColors;
-          delete data.startupData.lwtStyles?._processedColors;
+          // These properties are obsolete since bug 2004905, let's clean them up
+          // while at it.
+          delete data.startupData.lwtDarkStyles;
+          delete data.startupData.lwtStyles;
+          delete data.startupData.experiment;
         }
       }
     }
@@ -2697,7 +2700,6 @@ export var XPIProvider = {
    */
   startup(aAppChanged, aOldAppVersion, aOldPlatformVersion) {
     try {
-      AddonManagerPrivate.recordTimestamp("XPI_startup_begin");
       Glean.addonsManager.startupTimeline.XPI_startup_begin.set(
         Services.telemetry.msSinceProcessStart()
       );
@@ -2792,7 +2794,6 @@ export var XPIProvider = {
       }
 
       try {
-        AddonManagerPrivate.recordTimestamp("XPI_bootstrap_addons_begin");
         Glean.addonsManager.startupTimeline.XPI_bootstrap_addons_begin.set(
           Services.telemetry.msSinceProcessStart()
         );
@@ -2839,7 +2840,6 @@ export var XPIProvider = {
             );
           }
         }
-        AddonManagerPrivate.recordTimestamp("XPI_bootstrap_addons_end");
         Glean.addonsManager.startupTimeline.XPI_bootstrap_addons_end.set(
           Services.telemetry.msSinceProcessStart()
         );
@@ -2915,7 +2915,6 @@ export var XPIProvider = {
 
       // Detect final-ui-startup for telemetry reporting
       Services.obs.addObserver(function observer() {
-        AddonManagerPrivate.recordTimestamp("XPI_finalUIStartup");
         Glean.addonsManager.startupTimeline.XPI_finalUIStartup.set(
           Services.telemetry.msSinceProcessStart()
         );
@@ -2968,7 +2967,6 @@ export var XPIProvider = {
         }
       }
 
-      AddonManagerPrivate.recordTimestamp("XPI_startup_end");
       Glean.addonsManager.startupTimeline.XPI_startup_end.set(
         Services.telemetry.msSinceProcessStart()
       );

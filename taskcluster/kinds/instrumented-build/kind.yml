@@ -42,6 +42,7 @@ task-defaults:
     fetches:
         toolchain:
             - linux64-sccache
+            - terser
 
 tasks:
     linux64-shippable/opt:
@@ -127,6 +128,9 @@ tasks:
                 - name: public/build/security/plugin-container.xml
                   path: checkouts/gecko/security/mac/hardenedruntime/{entitlement_directory}/plugin-container.xml
                   type: file
+                - name: public/build/security/security-module-helper.xml
+                  path: checkouts/gecko/security/mac/hardenedruntime/{entitlement_directory}/security-module-helper.xml
+                  type: file
         run:
             using: mozharness
             actions: [get-secrets, build]
@@ -172,6 +176,9 @@ tasks:
                   type: file
                 - name: public/build/security/plugin-container.xml
                   path: checkouts/gecko/security/mac/hardenedruntime/{entitlement_directory}/plugin-container.xml
+                  type: file
+                - name: public/build/security/security-module-helper.xml
+                  path: checkouts/gecko/security/mac/hardenedruntime/{entitlement_directory}/security-module-helper.xml
                   type: file
         run:
             using: mozharness
@@ -244,6 +251,8 @@ tasks:
                 - android-gradle-dependencies
                 - android-ndk-linux
                 - android-sdk-linux
+                - linux64-embedded-uniffi-bindgen
+                - linux64-nimbus-fml
                 - linux64-jdk
                 - linux64-clang
                 - linux64-rust-android
@@ -299,6 +308,8 @@ tasks:
                 - android-gradle-dependencies
                 - android-ndk-linux
                 - android-sdk-linux
+                - linux64-embedded-uniffi-bindgen
+                - linux64-nimbus-fml
                 - linux64-jdk
                 - linux64-clang
                 - linux64-rust-android
@@ -354,6 +365,8 @@ tasks:
                 - android-gradle-dependencies
                 - android-ndk-linux
                 - android-sdk-linux
+                - linux64-embedded-uniffi-bindgen
+                - linux64-nimbus-fml
                 - linux64-jdk
                 - linux64-clang
                 - linux64-rust-android
@@ -393,15 +406,15 @@ tasks:
                 - linux64-node
                 - linux64-cbindgen
                 - linux64-dump_syms
-                - linux64-wine
+                - linux64-upx
                 - linux64-winchecksec
+                - linux64-wine
                 - nsis
                 - sysroot-x86_64-linux-gnu
                 - sysroot-wasm32-wasi
                 - vs
                 - winappsdk-x86-pc-windows-msvc
             fetch:
-                - upx-3.95-win
                 - windows-rs
 
     win64-nightlyasrelease/opt:
@@ -434,8 +447,9 @@ tasks:
                 - linux64-node
                 - linux64-cbindgen
                 - linux64-dump_syms
-                - linux64-wine
+                - linux64-upx
                 - linux64-winchecksec
+                - linux64-wine
                 - nsis
                 - sysroot-x86_64-linux-gnu
                 - sysroot-wasm32-wasi
@@ -443,7 +457,6 @@ tasks:
                 - dxc-x86_64-pc-windows-msvc
                 - winappsdk-x86_64-pc-windows-msvc
             fetch:
-                - upx-3.95-win
                 - windows-rs
 
     win64-shippable/opt:
@@ -474,8 +487,9 @@ tasks:
                 - linux64-node
                 - linux64-cbindgen
                 - linux64-dump_syms
-                - linux64-wine
+                - linux64-upx
                 - linux64-winchecksec
+                - linux64-wine
                 - nsis
                 - sysroot-x86_64-linux-gnu
                 - sysroot-wasm32-wasi
@@ -483,7 +497,6 @@ tasks:
                 - dxc-x86_64-pc-windows-msvc
                 - winappsdk-x86_64-pc-windows-msvc
             fetch:
-                - upx-3.95-win
                 - windows-rs
 
     win64-aarch64-shippable/opt:
@@ -514,8 +527,8 @@ tasks:
                 - linux64-node
                 - linux64-cbindgen
                 - linux64-dump_syms
-                - linux64-wine
                 - linux64-winchecksec
+                - linux64-wine
                 - nsis
                 - sysroot-x86_64-linux-gnu
                 - sysroot-wasm32-wasi
@@ -523,5 +536,4 @@ tasks:
                 - dxc-aarch64-pc-windows-msvc
                 - winappsdk-aarch64-pc-windows-msvc
             fetch:
-                - upx-3.95-win
                 - windows-rs

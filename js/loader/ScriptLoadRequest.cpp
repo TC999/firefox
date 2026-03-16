@@ -29,8 +29,6 @@ namespace JS::loader {
 // ScriptFetchOptions
 //////////////////////////////////////////////////////////////
 
-NS_IMPL_CYCLE_COLLECTION(ScriptFetchOptions, mTriggeringPrincipal)
-
 ScriptFetchOptions::ScriptFetchOptions(
     mozilla::CORSMode aCORSMode, const nsAString& aNonce,
     mozilla::dom::RequestPriority aFetchPriority,
@@ -94,6 +92,7 @@ ScriptLoadRequest::ScriptLoadRequest(ScriptKind aKind,
       mFetchSourceOnly(false),
       mHasSourceMapURL_(false),
       mHasDirtyCache_(false),
+      mHadPostponed_(false),
       mDiskCachingPlan(CachingPlan::Uninitialized),
       mMemoryCachingPlan(CachingPlan::Uninitialized),
       mIntegrity(aIntegrity),
@@ -163,28 +162,34 @@ const ModuleLoadRequest* ScriptLoadRequest::AsModuleRequest() const {
   return static_cast<const ModuleLoadRequest*>(this);
 }
 
-void ScriptLoadRequest::CacheEntryFound(LoadedScript* aLoadedScript) {
+void ScriptLoadRequest::CacheEntryFound(LoadedScript* aLoadedScript,
+                                        ScriptFetchOptions* aFetchOptions) {
   MOZ_ASSERT(IsCheckingCache());
 
-  SetCacheEntry(aLoadedScript);
+  SetCacheEntry(aLoadedScript, aFetchOptions);
 }
 
 void ScriptLoadRequest::CacheEntryRevived(LoadedScript* aLoadedScript) {
   MOZ_ASSERT(IsFetching());
 
-  SetCacheEntry(aLoadedScript);
+  SetCacheEntry(aLoadedScript, mLoadedScript->GetFetchOptions());
 
   // NOTE: The caller should keep using the "fetching" path, with the
   //       cached stencil, and skip the compilation.
   mState = State::Fetching;
 }
 
-void ScriptLoadRequest::SetCacheEntry(LoadedScript* aLoadedScript) {
+void ScriptLoadRequest::SetCacheEntry(LoadedScript* aLoadedScript,
+                                      ScriptFetchOptions* aFetchOptions) {
   switch (mKind) {
     case ScriptKind::eClassic:
       MOZ_ASSERT(aLoadedScript->IsClassicScript());
 
-      mLoadedScript = aLoadedScript;
+      if (aLoadedScript->GetFetchOptions()->mNonce != aFetchOptions->mNonce) {
+        mLoadedScript = LoadedScript::FromCache(*aLoadedScript, aFetchOptions);
+      } else {
+        mLoadedScript = aLoadedScript;
+      }
 
       // Classic scripts can be set ready once the script itself is ready.
       mState = State::Ready;
@@ -192,7 +197,11 @@ void ScriptLoadRequest::SetCacheEntry(LoadedScript* aLoadedScript) {
     case ScriptKind::eImportMap:
       MOZ_ASSERT(aLoadedScript->IsImportMapScript());
 
-      mLoadedScript = aLoadedScript;
+      if (aLoadedScript->GetFetchOptions()->mNonce != aFetchOptions->mNonce) {
+        mLoadedScript = LoadedScript::FromCache(*aLoadedScript, aFetchOptions);
+      } else {
+        mLoadedScript = aLoadedScript;
+      }
 
       mState = State::Ready;
       break;
@@ -201,7 +210,7 @@ void ScriptLoadRequest::SetCacheEntry(LoadedScript* aLoadedScript) {
       //       instance, given ModuleScript has GC pointers.
       MOZ_ASSERT(aLoadedScript->IsModuleScript());
 
-      mLoadedScript = ModuleScript::FromCache(*aLoadedScript);
+      mLoadedScript = ModuleScript::FromCache(*aLoadedScript, aFetchOptions);
 
       // Modules need to wait for fetching dependencies before setting to
       // Ready.

@@ -150,6 +150,11 @@ class CompositorBridgeParentBase : public PCompositorBridgeParent,
   virtual void NotifyMemoryPressure() {}
   virtual void AccumulateMemoryReport(wr::MemoryReport*) {}
 
+  // Ensures the WebRenderBridgeParent has completed initialization (either
+  // successfully or with failure) by the time this returns. Must be called
+  // from the Compositor thread.
+  virtual void EnsureWebRenderBridgeParentInitialized() = 0;
+
  protected:
   virtual ~CompositorBridgeParentBase();
 
@@ -188,10 +193,6 @@ class CompositorBridgeParentBase : public PCompositorBridgeParent,
       EndRecordingResolver&& aResolve) = 0;
   virtual mozilla::ipc::IPCResult RecvInitialize(
       const LayersId& rootLayerTreeId) = 0;
-  virtual mozilla::ipc::IPCResult RecvInitAPZInputBridge(
-      Endpoint<PAPZInputBridgeParent>&& aEndpoint) = 0;
-  virtual mozilla::ipc::IPCResult RecvInitUiCompositorController(
-      Endpoint<PUiCompositorControllerParent>&& aEndpoint) = 0;
   virtual mozilla::ipc::IPCResult RecvWillClose() = 0;
   virtual mozilla::ipc::IPCResult RecvPause() = 0;
   virtual mozilla::ipc::IPCResult RecvRequestFxrOutput() = 0;
@@ -214,6 +215,8 @@ class CompositorBridgeParentBase : public PCompositorBridgeParent,
       const uint32_t& startIndex, nsTArray<float>* intervals) = 0;
   virtual mozilla::ipc::IPCResult RecvCheckContentOnlyTDR(
       const uint32_t& sequenceNum, bool* isContentOnlyTDR) = 0;
+  virtual mozilla::ipc::IPCResult RecvCheckAndClearWRDidRasterize(
+      const LayersId& aId, bool* aDidRasterize) = 0;
   virtual mozilla::ipc::IPCResult RecvDynamicToolbarOffsetChanged(
       const int32_t& aOffset) = 0;
 
@@ -263,10 +266,6 @@ class CompositorBridgeParent final : public CompositorBridgeParentBase,
 #endif
   mozilla::ipc::IPCResult RecvInitialize(
       const LayersId& aRootLayerTreeId) override;
-  mozilla::ipc::IPCResult RecvInitAPZInputBridge(
-      Endpoint<PAPZInputBridgeParent>&& aEndpoint) override;
-  mozilla::ipc::IPCResult RecvInitUiCompositorController(
-      Endpoint<PUiCompositorControllerParent>&& aEndpoint) override;
   mozilla::ipc::IPCResult RecvWillClose() override;
   mozilla::ipc::IPCResult RecvPause() override;
   mozilla::ipc::IPCResult RecvRequestFxrOutput() override;
@@ -297,6 +296,9 @@ class CompositorBridgeParent final : public CompositorBridgeParentBase,
       const uint32_t& sequenceNum, bool* isContentOnlyTDR) override {
     return IPC_OK();
   }
+
+  mozilla::ipc::IPCResult RecvCheckAndClearWRDidRasterize(
+      const LayersId& aId, bool* aDidRasterize) override;
 
   mozilla::ipc::IPCResult RecvDynamicToolbarOffsetChanged(
       const int32_t& aOffset) override;
@@ -519,6 +521,7 @@ class CompositorBridgeParent final : public CompositorBridgeParentBase,
       const wr::PipelineId& aPipelineId, const LayoutDeviceIntSize& aSize,
       const WindowKind& aWindowKind) override;
   bool DeallocPWebRenderBridgeParent(PWebRenderBridgeParent* aActor) override;
+  void EnsureWebRenderBridgeParentInitialized() override;
   RefPtr<WebRenderBridgeParent> GetWebRenderBridgeParent() const;
   Maybe<TimeStamp> GetTestingTimeStamp() const;
 
@@ -631,6 +634,14 @@ class CompositorBridgeParent final : public CompositorBridgeParentBase,
   static uint32_t sFramesComposited;
 
   RefPtr<AsyncImagePipelineManager> mAsyncImageManager;
+  // Whether mWrBridge has finished initialization (either successfully or with
+  // failure).
+  bool mWrBridgeInitialized = false;
+  Monitor mWrApiResultMonitor{"CompositorBridgeParent::mWrApiMonitor"};
+  // Holds the result of WebRenderAPI creation. Set from the Renderer thread
+  // and read by the Compositor thread.
+  Maybe<mozilla::Result<RefPtr<wr::WebRenderAPI>, nsCString>> mWrApiResult
+      MOZ_GUARDED_BY(mWrApiResultMonitor);
   RefPtr<WebRenderBridgeParent> mWrBridge;
   widget::CompositorWidget* mWidget;
   Maybe<TimeStamp> mTestTime;

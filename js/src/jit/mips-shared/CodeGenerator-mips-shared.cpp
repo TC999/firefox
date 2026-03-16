@@ -8,8 +8,9 @@
 
 #include "mozilla/MathAlgorithms.h"
 
-#include "jsnum.h"
+#include <bit>
 
+#include "builtin/Number.h"
 #include "jit/CodeGenerator.h"
 #include "jit/InlineScriptTree.h"
 #include "jit/JitRuntime.h"
@@ -97,7 +98,7 @@ void CodeGeneratorMIPSShared::bailoutFrom(Label* label, LSnapshot* snapshot) {
   encode(snapshot);
 
   InlineScriptTree* tree = snapshot->mir()->block()->trackedTree();
-  auto* ool = new (alloc()) LambdaOutOfLineCode([=](OutOfLineCode& ool) {
+  auto* ool = new (alloc()) LambdaOutOfLineCode([=, this](OutOfLineCode& ool) {
     // Push snapshotOffset and make sure stack is aligned.
     masm.subPtr(Imm32(sizeof(Value)), StackPointer);
     masm.storePtr(ImmWord(snapshot->snapshotOffset()),
@@ -296,7 +297,7 @@ void CodeGenerator::visitMulI(LMulI* ins) {
     }
 
     if (constant > 0) {
-      uint32_t shift = mozilla::FloorLog2(constant);
+      uint32_t shift = mozilla::FloorLog2(uint32_t(constant));
 
       if (!mul->canOverflow()) {
         // If it cannot overflow, we can do lots of optimizations.
@@ -395,8 +396,8 @@ void CodeGeneratorMIPSShared::emitMulI64(Register lhs, int64_t rhs,
   }
 
   if (rhs > 0) {
-    if (mozilla::IsPowerOfTwo(static_cast<uint64_t>(rhs + 1))) {
-      int32_t shift = mozilla::FloorLog2(rhs + 1);
+    if (std::has_single_bit(static_cast<uint64_t>(rhs + 1))) {
+      int32_t shift = mozilla::FloorLog2(uint64_t(rhs + 1));
 
       UseScratchRegisterScope temps(masm);
       Register savedLhs = lhs;
@@ -409,8 +410,8 @@ void CodeGeneratorMIPSShared::emitMulI64(Register lhs, int64_t rhs,
       return;
     }
 
-    if (mozilla::IsPowerOfTwo(static_cast<uint64_t>(rhs - 1))) {
-      int32_t shift = mozilla::FloorLog2(rhs - 1u);
+    if (std::has_single_bit(static_cast<uint64_t>(rhs - 1))) {
+      int32_t shift = mozilla::FloorLog2(uint64_t(rhs - 1u));
 
       UseScratchRegisterScope temps(masm);
       Register savedLhs = lhs;
@@ -424,7 +425,7 @@ void CodeGeneratorMIPSShared::emitMulI64(Register lhs, int64_t rhs,
     }
 
     // Use shift if constant is power of 2.
-    int32_t shift = mozilla::FloorLog2(rhs);
+    int32_t shift = mozilla::FloorLog2(uint64_t(rhs));
     if (int64_t(1) << shift == rhs) {
       masm.lshiftPtr(Imm32(shift), lhs, dest);
       return;

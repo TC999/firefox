@@ -12,6 +12,7 @@ include HttpChannelParams;
 include PURLClassifierInfo;
 
 include "mozilla/net/NeckoMessageUtils.h";
+using class mozilla::net::nsHttpHeaderArray from "nsHttpHeaderArray.h";
 
 namespace mozilla {
 namespace net {
@@ -34,7 +35,6 @@ child:
   async OnTransportAndData(nsresult  channelStatus,
                            nsresult  transportStatus,
                            uint64_t  offset,
-                           uint32_t  count,
                            nsCString data,
                            bool dataFromSocketProcess,
                            TimeStamp onDataAvailableStart);

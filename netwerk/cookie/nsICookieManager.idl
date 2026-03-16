@@ -331,6 +331,11 @@ interface nsICookieManager : nsISupports
   // Test getter to inspect remote exception list state.
   Array<ACString> testGet3PCBExceptions();
 
+  // Test-only: close and reopen the cookie database, simulating a profile
+  // change. Notifies "cookie-db-closed" and "cookie-db-read" as usual.
+  void testCloseCookieDB();
+  void testOpenCookieDB();
+
   /**
    * Helper to cap an expiry time using the network.cookie.maxageCap pref.
    *

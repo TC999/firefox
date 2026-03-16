@@ -5,7 +5,7 @@
 import contextlib
 import os
 from pathlib import Path
-from typing import Union
+from typing import Callable, Optional, Union
 
 from mozpack.files import FileListFinder
 
@@ -59,6 +59,9 @@ class SrcRepository(Repository):
 
     def get_upstream(self):
         pass
+
+    def get_remote_url(self, remote=None, push=False):
+        return None
 
     def get_changed_files(self, diff_filter="ADM", mode="unstaged", rev=None):
         return []
@@ -140,6 +143,9 @@ class SrcRepository(Repository):
     def update(self, ref):
         pass
 
+    def push(self, remote: Optional[str] = None, ref: Optional[str] = None):
+        pass
+
     def push_to_try(
         self,
         message: str,
@@ -159,6 +165,11 @@ class SrcRepository(Repository):
 
     def try_commit(self, commit_message: str, changed_files=None):
         return contextlib.nullcontext()
+
+    def prepare_try_push(
+        self, commit_message: str, changed_files: Optional[dict[str, str]] = None
+    ) -> tuple[Optional[str], Callable]:
+        return "", lambda: None
 
     def get_last_modified_time_for_file(self, path: Path):
         """Return last modified in VCS time for the specified file."""

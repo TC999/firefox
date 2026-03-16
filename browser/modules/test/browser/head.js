@@ -54,8 +54,8 @@ function waitForCondition(condition, nextTest, errorMsg) {
 let typeInSearchField = async function (browser, text, fieldName) {
   await SpecialPowers.spawn(
     browser,
-    [[fieldName, text]],
-    async function ([contentFieldName, contentText]) {
+    [fieldName, text],
+    async function (contentFieldName, contentText) {
       // Put the focus on the search box.
       let searchInput = content.document.getElementById(contentFieldName);
       searchInput.focus();
@@ -170,7 +170,7 @@ function clickSecondaryAction(actionIndex) {
     // secondary action (index 0) is the button shown directly in the panel.
     let actionMenuItem =
       popupNotification.querySelectorAll("menuitem")[actionIndex - 1];
-    await EventUtils.synthesizeMouseAtCenter(actionMenuItem, {});
+    popupNotification.menupopup.activateItem(actionMenuItem);
     await removePromise;
   })();
 }

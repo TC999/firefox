@@ -121,11 +121,8 @@ nsDocShellLoadState::nsDocShellLoadState(
   mIsInitialAboutBlankHandlingProhibited =
       aLoadState.IsInitialAboutBlankHandlingProhibited();
 
-  if (aLoadState.NavigationAPIState()) {
-    mNavigationAPIState = MakeRefPtr<nsStructuredCloneContainer>();
-    mNavigationAPIState->CopyFromClonedMessageData(
-        *aLoadState.NavigationAPIState());
-  }
+  mNavigationAPIState = aLoadState.NavigationAPIState();
+
   // We know this was created remotely, as we just received it over IPC.
   mWasCreatedRemotely = true;
 
@@ -782,8 +779,20 @@ void nsDocShellLoadState::SetSHEntry(nsISHEntry* aSHEntry) {
   nsCOMPtr<SessionHistoryEntry> she = do_QueryInterface(aSHEntry);
   if (she) {
     mLoadingSessionHistoryInfo = MakeUnique<LoadingSessionHistoryInfo>(she);
+    mLoadingSessionHistoryInfo->mTriggeringNavigationType =
+        NavigationUtils::NavigationTypeFromLoadType(LoadType());
+    MOZ_ASSERT(mLoadingSessionHistoryInfo->mTriggeringNavigationType);
   } else {
     mLoadingSessionHistoryInfo = nullptr;
+  }
+}
+
+void nsDocShellLoadState::SetPreviousEntryForActivation(nsISHEntry* aSHEntry) {
+  MOZ_DIAGNOSTIC_ASSERT(mSHEntry);
+  nsCOMPtr<SessionHistoryEntry> she = do_QueryInterface(aSHEntry);
+  if (mLoadingSessionHistoryInfo) {
+    mLoadingSessionHistoryInfo->mPreviousEntry =
+        Some(PreviousSessionHistoryInfo(she->Info()));
   }
 }
 
@@ -1459,13 +1468,7 @@ DocShellLoadStateInit nsDocShellLoadState::Serialize(
   loadState.IsCaptivePortalTab() = mIsCaptivePortalTab;
   loadState.IsInitialAboutBlankHandlingProhibited() =
       mIsInitialAboutBlankHandlingProhibited;
-
-  if (mNavigationAPIState) {
-    loadState.NavigationAPIState().emplace();
-    DebugOnly<bool> success = mNavigationAPIState->BuildClonedMessageData(
-        *loadState.NavigationAPIState());
-    MOZ_ASSERT(success);
-  }
+  loadState.NavigationAPIState() = mNavigationAPIState;
 
   if (XRE_IsParentProcess()) {
     mozilla::ipc::IToplevelProtocol* top = aActor->ToplevelProtocol();

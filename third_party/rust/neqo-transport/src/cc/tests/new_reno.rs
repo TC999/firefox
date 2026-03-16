@@ -17,7 +17,7 @@ use test_fixture::now;
 
 use super::{IP_ADDR, MTU, RTT};
 use crate::{
-    cc::{new_reno::NewReno, ClassicCongestionControl, CongestionControl as _},
+    cc::{ClassicCongestionControl, CongestionControl as _, new_reno::NewReno},
     packet,
     pmtud::Pmtud,
     recovery::{self, sent},
@@ -250,4 +250,9 @@ fn issue_1465() {
     // this shouldn't introduce further cwnd reduction, but it did before https://github.com/mozilla/neqo/pull/1465
     cc.on_packets_lost(Some(now), None, PTO, &[p6], now, &mut cc_stats);
     assert_eq!(cc.cwnd(), cur_cwnd / 2);
+}
+
+#[test]
+fn new_reno_display() {
+    assert_eq!(NewReno::default().to_string(), "NewReno");
 }

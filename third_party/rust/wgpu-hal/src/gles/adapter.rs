@@ -190,6 +190,8 @@ impl super::Adapter {
             device_pci_bus_id: String::new(),
             driver_info: version,
             backend: wgt::Backend::Gl,
+            subgroup_min_size: wgt::MINIMUM_SUBGROUP_MIN_SIZE,
+            subgroup_max_size: wgt::MAXIMUM_SUBGROUP_MAX_SIZE,
             transient_saves_memory: false,
         }
     }
@@ -327,7 +329,7 @@ impl super::Adapter {
                 // Windows doesn't recognize `GL_MAX_VERTEX_ATTRIB_STRIDE`.
                 let new = (unsafe { gl.get_parameter_i32(glow::MAX_COMPUTE_SHADER_STORAGE_BLOCKS) }
                     as u32);
-                log::warn!("Max vertex shader storage blocks is zero, but GL_ARB_shader_storage_buffer_object is specified. Assuming the compute value {new}");
+                log::debug!("Max vertex shader storage blocks is zero, but GL_ARB_shader_storage_buffer_object is specified. Assuming the compute value {new}");
                 new
             } else {
                 value
@@ -366,7 +368,7 @@ impl super::Adapter {
             vertex_shader_storage_blocks == 0 && vertex_shader_storage_textures != 0;
         if vertex_ssbo_false_zero {
             // We only care about fragment here as the 0 is a lie.
-            log::warn!("Max vertex shader SSBO == 0 and SSTO != 0. Interpreting as false zero.");
+            log::debug!("Max vertex shader SSBO == 0 and SSTO != 0. Interpreting as false zero.");
         }
 
         let max_storage_buffers_per_shader_stage = if vertex_shader_storage_blocks == 0 {
@@ -382,12 +384,17 @@ impl super::Adapter {
         // NOTE: GL_ARB_compute_shader adds support for indirect dispatch
         let indirect_execution = supported((3, 1), (4, 3))
             || (extensions.contains("GL_ARB_draw_indirect") && supports_compute);
+        let supports_cube_array = supported((3, 2), (4, 0))
+            || (supported((3, 1), (4, 0)) && extensions.contains("GL_EXT_texture_cube_map_array"));
 
         let mut downlevel_flags = wgt::DownlevelFlags::empty()
             | wgt::DownlevelFlags::NON_POWER_OF_TWO_MIPMAPPED_TEXTURES
-            | wgt::DownlevelFlags::CUBE_ARRAY_TEXTURES
             | wgt::DownlevelFlags::COMPARISON_SAMPLERS
             | wgt::DownlevelFlags::SHADER_F16_IN_F32;
+        downlevel_flags.set(
+            wgt::DownlevelFlags::CUBE_ARRAY_TEXTURES,
+            supports_cube_array,
+        );
         downlevel_flags.set(wgt::DownlevelFlags::COMPUTE_SHADERS, supports_compute);
         downlevel_flags.set(
             wgt::DownlevelFlags::FRAGMENT_WRITABLE_STORAGE,
@@ -443,7 +450,7 @@ impl super::Adapter {
         let mut features = wgt::Features::empty()
             | wgt::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
             | wgt::Features::CLEAR_TEXTURE
-            | wgt::Features::PUSH_CONSTANTS
+            | wgt::Features::IMMEDIATES
             | wgt::Features::DEPTH32FLOAT_STENCIL8;
         features.set(
             wgt::Features::ADDRESS_MODE_CLAMP_TO_BORDER | wgt::Features::ADDRESS_MODE_CLAMP_TO_ZERO,
@@ -630,7 +637,13 @@ impl super::Adapter {
             super::PrivateCapabilities::TEXTURE_STORAGE,
             supported((3, 0), (4, 2)),
         );
-        private_caps.set(super::PrivateCapabilities::DEBUG_FNS, gl.supports_debug());
+        let is_mali = renderer.to_lowercase().contains("mali");
+        let debug_fns_enabled = match backend_options.debug_fns {
+            wgt::GlDebugFns::Auto => gl.supports_debug() && !is_mali,
+            wgt::GlDebugFns::ForceEnabled => gl.supports_debug(),
+            wgt::GlDebugFns::Disabled => false,
+        };
+        private_caps.set(super::PrivateCapabilities::DEBUG_FNS, debug_fns_enabled);
         private_caps.set(
             super::PrivateCapabilities::INVALIDATE_FRAMEBUFFER,
             supported((3, 0), (4, 3)),
@@ -677,15 +690,14 @@ impl super::Adapter {
 
         let max_color_attachments = unsafe {
             gl.get_parameter_i32(glow::MAX_COLOR_ATTACHMENTS)
-                .min(gl.get_parameter_i32(glow::MAX_DRAW_BUFFERS))
-                .min(crate::MAX_COLOR_ATTACHMENTS as i32) as u32
+                .min(gl.get_parameter_i32(glow::MAX_DRAW_BUFFERS)) as u32
         };
 
         // 16 bytes per sample is the maximum size of a color attachment.
         let max_color_attachment_bytes_per_sample =
             max_color_attachments * wgt::TextureFormat::MAX_TARGET_PIXEL_BYTE_COST;
 
-        let limits = wgt::Limits {
+        let limits = crate::auxil::apply_hal_limits(wgt::Limits {
             max_texture_dimension_1d: max_texture_size,
             max_texture_dimension_2d: max_texture_size,
             max_texture_dimension_3d: max_texture_3d_size,
@@ -705,20 +717,19 @@ impl super::Adapter {
             max_binding_array_sampler_elements_per_shader_stage: 0,
             max_uniform_buffer_binding_size: unsafe {
                 gl.get_parameter_i32(glow::MAX_UNIFORM_BLOCK_SIZE)
-            } as u32,
+            } as u64,
             max_storage_buffer_binding_size: if supports_storage {
                 unsafe { gl.get_parameter_i32(glow::MAX_SHADER_STORAGE_BLOCK_SIZE) }
             } else {
                 0
-            } as u32,
+            } as u64,
             max_vertex_buffers: if private_caps
                 .contains(super::PrivateCapabilities::VERTEX_BUFFER_LAYOUT)
             {
                 (unsafe { gl.get_parameter_i32(glow::MAX_VERTEX_ATTRIB_BINDINGS) } as u32)
             } else {
                 16 // should this be different?
-            }
-            .min(crate::MAX_VERTEX_BUFFERS as u32),
+            },
             max_vertex_attributes: (unsafe { gl.get_parameter_i32(glow::MAX_VERTEX_ATTRIBS) }
                 as u32)
                 .min(super::MAX_VERTEX_ATTRIBUTES as u32),
@@ -736,13 +747,13 @@ impl super::Adapter {
                             // This should be at least 2048, but the driver for AMD Radeon HD 5870 on
                             // Windows doesn't recognize `GL_MAX_VERTEX_ATTRIB_STRIDE`.
 
-                            log::warn!("Max vertex attribute stride is 0. Assuming it is 2048");
+                            log::debug!("Max vertex attribute stride is 0. Assuming it is the OpenGL minimum spec 2048");
                             2048
                         } else {
                             value
                         }
                     } else {
-                        log::warn!("Max vertex attribute stride unknown. Assuming it is 2048");
+                        log::debug!("Max vertex attribute stride unknown. Assuming it is the OpenGL minimum spec 2048");
                         2048
                     }
                 } else {
@@ -751,22 +762,20 @@ impl super::Adapter {
             } else {
                 !0
             },
-            min_subgroup_size: 0,
-            max_subgroup_size: 0,
-            max_push_constant_size: super::MAX_PUSH_CONSTANTS as u32 * 4,
+            max_immediate_size: super::MAX_IMMEDIATES as u32 * 4,
             min_uniform_buffer_offset_alignment,
             min_storage_buffer_offset_alignment,
-            max_inter_stage_shader_components: {
+            max_inter_stage_shader_variables: {
                 // MAX_VARYING_COMPONENTS may return 0, because it is deprecated since OpenGL 3.2 core,
                 // and an OpenGL Context with the core profile and with forward-compatibility=true,
                 // will make deprecated constants unavailable.
                 let max_varying_components =
                     unsafe { gl.get_parameter_i32(glow::MAX_VARYING_COMPONENTS) } as u32;
                 if max_varying_components == 0 {
-                    // default value for max_inter_stage_shader_components
-                    60
+                    // default value for max_inter_stage_shader_variables
+                    15
                 } else {
-                    max_varying_components
+                    max_varying_components / 4
                 }
             },
             max_color_attachments,
@@ -803,10 +812,17 @@ impl super::Adapter {
             max_buffer_size: i32::MAX as u64,
             max_non_sampler_bindings: u32::MAX,
 
-            max_task_workgroup_total_count: 0,
-            max_task_workgroups_per_dimension: 0,
-            max_mesh_multiview_view_count: 0,
+            max_task_mesh_workgroup_total_count: 0,
+            max_task_mesh_workgroups_per_dimension: 0,
+            max_task_invocations_per_workgroup: 0,
+            max_task_invocations_per_dimension: 0,
+            max_mesh_invocations_per_workgroup: 0,
+            max_mesh_invocations_per_dimension: 0,
+            max_task_payload_size: 0,
+            max_mesh_output_vertices: 0,
+            max_mesh_output_primitives: 0,
             max_mesh_output_layers: 0,
+            max_mesh_multiview_view_count: 0,
 
             max_blas_primitive_count: 0,
             max_blas_geometry_count: 0,
@@ -814,7 +830,7 @@ impl super::Adapter {
             max_acceleration_structures_per_shader_stage: 0,
 
             max_multiview_view_count: 0,
-        };
+        });
 
         let mut workarounds = super::Workarounds::empty();
 
@@ -832,7 +848,7 @@ impl super::Adapter {
             && r.split(&[' ', '(', ')'][..])
                 .any(|substr| substr.len() == 3 && substr.chars().nth(2) == Some('l'))
         {
-            log::warn!(
+            log::debug!(
                 "Detected skylake derivative running on mesa i915. Clears to srgb textures will \
                 use manual shader clears."
             );
@@ -889,6 +905,7 @@ impl super::Adapter {
                     raw_tlas_instance_size: 0,
                     ray_tracing_scratch_buffer_alignment: 0,
                 },
+                cooperative_matrix_properties: Vec::new(),
             },
         })
     }
@@ -955,7 +972,7 @@ impl super::Adapter {
         let linked_ok = unsafe { gl.get_program_link_status(program) };
         let msg = unsafe { gl.get_program_info_log(program) };
         if !msg.is_empty() {
-            log::warn!("Shader link error: {msg}");
+            log::error!("Shader link error: {msg}");
         }
         if !linked_ok {
             return None;

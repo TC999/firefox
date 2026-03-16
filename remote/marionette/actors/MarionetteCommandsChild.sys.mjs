@@ -151,17 +151,12 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
   #toBrowserWindowCoordinates(options, _context) {
     const { position } = options;
 
-    const [x, y] = position;
-    const dpr = this.contentWindow.devicePixelRatio;
-
-    const val = lazy.LayoutUtils.rectToTopLevelWidgetRect(this.contentWindow, {
-      left: x,
-      top: y,
+    return lazy.LayoutUtils.rectToTopLevelWidgetRect(this.contentWindow, {
+      left: position[0],
+      top: position[1],
       height: 0,
       width: 0,
     });
-
-    return [val.x / dpr, val.y / dpr];
   }
 
   // eslint-disable-next-line complexity
@@ -219,6 +214,16 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
           break;
         case "MarionetteCommandsParent:findElements":
           result = await this.findElements(data);
+          break;
+        case "MarionetteCommandsParent:generateTestReport":
+          result = await this.generateTestReport(data);
+          break;
+        case "MarionetteCommandsParent:getAccessibilityPropertiesForAccessibilityNode":
+          result =
+            await this.getAccessibilityPropertiesForAccessibilityNode(data);
+          break;
+        case "MarionetteCommandsParent:getAccessibilityPropertiesForElement":
+          result = await this.getAccessibilityPropertiesForElement(data);
           break;
         case "MarionetteCommandsParent:getActiveElement":
           result = await this.getActiveElement();
@@ -384,6 +389,37 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
 
     const container = { frame: this.document.defaultView };
     return lazy.dom.find(container, strategy, selector, opts);
+  }
+
+  /**
+   * Generates and sends a test report to be observed by any registered reporting observers
+   */
+  async generateTestReport(options = {}) {
+    const { message, group } = options;
+    return this.browsingContext.window.TestReportGenerator.generateReport({
+      message,
+      group,
+    });
+  }
+
+  /**
+   * Return the properties for the accessibility node with the given id.
+   */
+  async getAccessibilityPropertiesForAccessibilityNode(options = {}) {
+    const { id } = options;
+
+    return lazy.accessibility.getAccessibilityPropertiesForAccessibilityNode(
+      id
+    );
+  }
+
+  /**
+   * Return the accessibility properties for a given element.
+   */
+  async getAccessibilityPropertiesForElement(options = {}) {
+    const { elem } = options;
+
+    return lazy.accessibility.getAccessibilityPropertiesForElement(elem);
   }
 
   /**

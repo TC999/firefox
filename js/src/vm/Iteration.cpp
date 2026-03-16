@@ -44,6 +44,7 @@
 #include "gc/StoreBuffer-inl.h"
 #include "vm/NativeObject-inl.h"
 #include "vm/PlainObject-inl.h"  // js::PlainObject::createWithTemplate
+#include "vm/Shape-inl.h"        // js::GetPropertyAttributes
 
 using namespace js;
 
@@ -97,6 +98,7 @@ class PropertyEnumerator {
   uint32_t ownPropertyCount_;
 
   bool enumeratingProtoChain_ = false;
+  bool forObjectKeys_ = false;
 
   enum class IndicesState {
     // Every property that has been enumerated so far can be represented as a
@@ -141,6 +143,8 @@ class PropertyEnumerator {
     return indicesState_ == IndicesState::Allocating;
   }
   uint32_t ownPropertyCount() const { return ownPropertyCount_; }
+
+  void setForObjectKeys(bool value) { forObjectKeys_ = value; }
 
  private:
   template <bool CheckForDuplicates>
@@ -611,6 +615,10 @@ static bool ProtoMayHaveEnumerableProperties(JSObject* obj) {
 }
 
 bool PropertyEnumerator::snapshot(JSContext* cx) {
+  if (forObjectKeys_) {
+    flags_ |= JSITER_OWNONLY;
+  }
+
   // If we're only interested in enumerable properties and the proto chain has
   // no enumerable properties (the common case), we can optimize this to ignore
   // the proto chain. This also lets us take advantage of the no-duplicate-check
@@ -690,7 +698,8 @@ bool PropertyEnumerator::snapshot(JSContext* cx) {
   } while (obj_ != nullptr);
 
 #ifdef DEBUG
-  if (js::SupportDifferentialTesting() && !supportsIndices()) {
+  if (js::SupportDifferentialTesting() && !supportsIndices() &&
+      !forObjectKeys_) {
     /*
      * In some cases the enumeration order for an object depends on the
      * execution mode (interpreter vs. JIT), especially for native objects
@@ -1241,11 +1250,8 @@ static PropertyIteratorObject* GetIteratorImpl(JSContext* cx, HandleObject obj,
       return nullptr;
     }
   } else {
-    uint32_t flags = 0;
-    if (forObjectKeys) {
-      flags |= JSITER_OWNONLY;
-    }
-    PropertyEnumerator enumerator(cx, obj, flags, &keys, &indices);
+    PropertyEnumerator enumerator(cx, obj, /*flags*/ 0, &keys, &indices);
+    enumerator.setForObjectKeys(forObjectKeys);
     if (!enumerator.snapshot(cx)) {
       return nullptr;
     }
@@ -1377,35 +1383,15 @@ PlainObject* GlobalObject::getOrCreateIterResultTemplateObject(JSContext* cx) {
     return obj;
   }
 
-  PlainObject* templateObj =
-      createIterResultTemplateObject(cx, WithObjectPrototype::Yes);
+  PlainObject* templateObj = createIterResultTemplateObject(cx);
   obj.init(templateObj);
   return obj;
 }
 
 /* static */
-PlainObject* GlobalObject::getOrCreateIterResultWithoutPrototypeTemplateObject(
-    JSContext* cx) {
-  GCPtr<PlainObject*>& obj =
-      cx->global()->data().iterResultWithoutPrototypeTemplate;
-  if (obj) {
-    return obj;
-  }
-
-  PlainObject* templateObj =
-      createIterResultTemplateObject(cx, WithObjectPrototype::No);
-  obj.init(templateObj);
-  return obj;
-}
-
-/* static */
-PlainObject* GlobalObject::createIterResultTemplateObject(
-    JSContext* cx, WithObjectPrototype withProto) {
+PlainObject* GlobalObject::createIterResultTemplateObject(JSContext* cx) {
   // Create template plain object
-  Rooted<PlainObject*> templateObject(
-      cx, withProto == WithObjectPrototype::Yes
-              ? NewPlainObject(cx, TenuredObject)
-              : NewPlainObjectWithProto(cx, nullptr));
+  Rooted<PlainObject*> templateObject(cx, NewPlainObject(cx, TenuredObject));
   if (!templateObject) {
     return nullptr;
   }
@@ -1808,10 +1794,9 @@ static bool SuppressDeletedProperty(JSContext* cx, NativeIterator* ni,
   }
 
   // Check whether id is still to come.
-  Rooted<JSLinearString*> idStr(cx);
   IteratorProperty* cursor = ni->nextProperty();
   for (; cursor < ni->propertiesEnd(); ++cursor) {
-    idStr = cursor->asString();
+    JSLinearString* idStr = cursor->asString();
     // Common case: both strings are atoms.
     if (idStr->isAtom() && str->isAtom()) {
       if (idStr != str) {
@@ -1825,27 +1810,25 @@ static bool SuppressDeletedProperty(JSContext* cx, NativeIterator* ni,
 
     // Check whether another property along the prototype chain became
     // visible as a result of this deletion.
-    RootedObject proto(cx);
-    if (!GetPrototype(cx, obj, &proto)) {
-      return false;
-    }
-    if (proto) {
-      RootedId id(cx);
-      RootedValue idv(cx, StringValue(idStr));
-      if (!PrimitiveValueToId<CanGC>(cx, idv, &id)) {
-        return false;
-      }
-
-      Rooted<mozilla::Maybe<PropertyDescriptor>> desc(cx);
-      RootedObject holder(cx);
-      if (!GetPropertyDescriptor(cx, proto, id, &desc, &holder)) {
-        return false;
-      }
-
-      // If deletion just made something up the chain visible, no need to
-      // do anything.
-      if (desc.isSome() && desc->enumerable()) {
-        return true;
+    if (obj->hasStaticPrototype()) {
+      JSObject* proto = obj->staticPrototype();
+      if (proto) {
+        JSAtom* atom = AtomizeString(cx, str);
+        if (!atom) {
+          return false;
+        }
+        PropertyKey key = AtomToId(atom);
+        NativeObject* holder = nullptr;
+        PropertyResult prop;
+        if (LookupPropertyPure(cx, proto, key, &holder, &prop) &&
+            prop.isFound()) {
+          // If deletion just made something up the chain visible, no need to
+          // do anything.
+          JS::PropertyAttributes attrs = GetPropertyAttributes(holder, prop);
+          if (attrs.enumerable()) {
+            return true;
+          }
+        }
       }
     }
 
@@ -1955,9 +1938,9 @@ static const JSFunctionSpec iterator_static_methods[] = {
     JS_SELF_HOSTED_FN("concat", "IteratorConcat", 0, 0),
 #ifdef NIGHTLY_BUILD
     JS_SELF_HOSTED_FN("range", "IteratorRange", 3, 0),
+#endif
     JS_SELF_HOSTED_FN("zip", "IteratorZip", 2, 0),
     JS_SELF_HOSTED_FN("zipKeyed", "IteratorZipKeyed", 2, 0),
-#endif
     JS_FS_END,
 };
 
@@ -2320,33 +2303,32 @@ IteratorHelperObject* js::NewIteratorHelper(JSContext* cx) {
   return NewObjectWithGivenProto<IteratorHelperObject>(cx, proto);
 }
 
-bool js::IterableToArray(JSContext* cx, HandleValue iterable,
-                         MutableHandle<ArrayObject*> array) {
+ArrayObject* js::IterableToArray(JSContext* cx, HandleValue iterable) {
   JS::ForOfIterator iterator(cx);
   if (!iterator.init(iterable, JS::ForOfIterator::ThrowOnNonIterable)) {
-    return false;
+    return nullptr;
   }
 
-  array.set(NewDenseEmptyArray(cx));
+  Rooted<ArrayObject*> array(cx, NewDenseEmptyArray(cx));
   if (!array) {
-    return false;
+    return nullptr;
   }
 
   RootedValue nextValue(cx);
   while (true) {
     bool done;
     if (!iterator.next(&nextValue, &done)) {
-      return false;
+      return nullptr;
     }
     if (done) {
       break;
     }
 
     if (!NewbornArrayPush(cx, array, nextValue)) {
-      return false;
+      return nullptr;
     }
   }
-  return true;
+  return array;
 }
 
 bool js::HasOptimizableArrayIteratorPrototype(JSContext* cx) {

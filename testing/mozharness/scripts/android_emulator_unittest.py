@@ -14,6 +14,7 @@ import sys
 here = os.path.abspath(os.path.dirname(__file__))
 sys.path.insert(1, os.path.dirname(here))
 
+from mozfile import load_source
 from mozharness.base.log import WARNING
 from mozharness.base.script import BaseScript, PreScriptAction
 from mozharness.mozilla.automation import TBPL_RETRY
@@ -413,13 +414,11 @@ class AndroidEmulatorTest(
             )
 
         if self.java_code_coverage_enabled:
-            cmd.extend(
-                [
-                    "--enable-coverage",
-                    "--coverage-output-dir",
-                    self.java_coverage_output_dir,
-                ]
-            )
+            cmd.extend([
+                "--enable-coverage",
+                "--coverage-output-dir",
+                self.java_coverage_output_dir,
+            ])
 
         if self.config.get("restartAfterFailure", False):
             cmd.append("--restartAfterFailure")
@@ -508,9 +507,9 @@ class AndroidEmulatorTest(
         if install_needed is False:
             self.info("Skipping apk installation for %s" % self.test_suite)
             return
-        assert (
-            self.installer_path is not None
-        ), "Either add installer_path to the config or use --installer-path."
+        assert self.installer_path is not None, (
+            "Either add installer_path to the config or use --installer-path."
+        )
         self.install_android_app(self.installer_path)
         self.info("Finished installing apps for %s" % self.device_serial)
 
@@ -574,6 +573,16 @@ class AndroidEmulatorTest(
                     log_obj=self.log_obj,
                     error_list=[],
                 )
+
+                if "reftest" in suite_category:
+                    ref_formatter = load_source(
+                        "ReftestFormatter",
+                        os.path.join(
+                            self.query_abs_dirs()["abs_reftest_dir"], "output.py"
+                        ),
+                    )
+                    parser.formatter = ref_formatter.ReftestFormatter()
+
                 self.run_command(final_cmd, cwd=cwd, env=env, output_parser=parser)
                 tbpl_status, log_level, summary = parser.evaluate_parser(
                     0, previous_summary=summary

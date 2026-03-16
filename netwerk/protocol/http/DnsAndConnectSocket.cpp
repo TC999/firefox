@@ -22,6 +22,7 @@
 #include "mozilla/SyncRunnable.h"
 #include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
 #include "nsHttpHandler.h"
+#include "nsHttpConnectionMgr.h"
 #include "ConnectionEntry.h"
 #include "HttpConnectionUDP.h"
 #include "NullHttpTransaction.h"
@@ -38,8 +39,8 @@ namespace mozilla {
 namespace net {
 
 //////////////////////// DnsAndConnectSocket
-NS_IMPL_ADDREF(DnsAndConnectSocket)
-NS_IMPL_RELEASE(DnsAndConnectSocket)
+NS_IMPL_ADDREF_INHERITED(DnsAndConnectSocket, ConnectionAttempt)
+NS_IMPL_RELEASE_INHERITED(DnsAndConnectSocket, ConnectionAttempt)
 
 NS_INTERFACE_MAP_BEGIN(DnsAndConnectSocket)
   NS_INTERFACE_MAP_ENTRY(nsISupportsWeakReference)
@@ -64,13 +65,8 @@ static void NotifyActivity(nsHttpConnectionInfo* aConnInfo, uint32_t aSubtype) {
 DnsAndConnectSocket::DnsAndConnectSocket(nsHttpConnectionInfo* ci,
                                          nsAHttpTransaction* trans,
                                          uint32_t caps, bool speculative,
-                                         bool isFromPredictor, bool urgentStart)
-    : mTransaction(trans),
-      mCaps(caps),
-      mSpeculative(speculative),
-      mUrgentStart(urgentStart),
-      mIsFromPredictor(isFromPredictor),
-      mConnInfo(ci) {
+                                         bool urgentStart)
+    : ConnectionAttempt(ci, trans, caps, speculative, urgentStart) {
   MOZ_ASSERT(ci && trans, "constructor with null arguments");
   LOG(("Creating DnsAndConnectSocket [this=%p trans=%p ent=%s key=%s]\n", this,
        trans, mConnInfo->Origin(), mConnInfo->HashKey().get()));
@@ -302,7 +298,7 @@ nsresult DnsAndConnectSocket::SetupEvent(SetupEvents event) {
     RefPtr<ConnectionEntry> ent =
         gHttpHandler->ConnMgr()->FindConnectionEntry(mConnInfo);
     if (ent) {
-      ent->RemoveDnsAndConnectSocket(this, false);
+      ent->RemoveConnectionAttempt(this, false);
     }
     return rv;
   }
@@ -691,8 +687,8 @@ nsresult DnsAndConnectSocket::SetupConn(bool isPrimary, nsresult status) {
     // therefore we need to use a Nulltransaction.
     // Ensure that the fallback transacion is always dispatched.
     if (!connTCP || ent->mConnInfo->GetFallbackConnection() ||
-        (ent->mConnInfo->FirstHopSSL() && !ent->UrgentStartQueueLength() &&
-         !ent->PendingQueueLength() && !ent->mConnInfo->UsingConnect())) {
+        (ent->mConnInfo->FirstHopSSL() && ent->UrgentStartQueueIsEmpty() &&
+         ent->PendingQueueIsEmpty() && !ent->mConnInfo->UsingConnect())) {
       LOG(
           ("DnsAndConnectSocket::SetupConn null transaction will "
            "be used to finish SSL handshake on conn %p\n",
@@ -852,13 +848,9 @@ DnsAndConnectSocket::GetInterface(const nsIID& iid, void** result) {
   return NS_ERROR_NO_INTERFACE;
 }
 
-bool DnsAndConnectSocket::AcceptsTransaction(nsHttpTransaction* trans) {
-  // When marked as urgent start, only accept urgent start marked transactions.
-  // Otherwise, accept any kind of transaction.
-  return !mUrgentStart || (trans->Caps() & nsIClassOfService::UrgentStart);
-}
-
-bool DnsAndConnectSocket::Claim() {
+// newTransaction is not used here. It's only used for
+// HappyEyeballsConnectionAttempt.
+bool DnsAndConnectSocket::Claim(nsHttpTransaction* newTransaction) {
   if (mSpeculative) {
     mSpeculative = false;
     mAllow1918 = true;
@@ -901,20 +893,12 @@ bool DnsAndConnectSocket::Claim() {
   return false;
 }
 
-void DnsAndConnectSocket::Unclaim() {
-  MOZ_ASSERT(!mSpeculative && !mFreeToUse);
-  // We will keep the backup-timer running. Most probably this halfOpen will
-  // be used by a transaction from which this transaction took the halfOpen.
-  // (this is happening because of the transaction priority.)
-  mFreeToUse = true;
-}
-
-void DnsAndConnectSocket::CloseTransports(nsresult error) {
+void DnsAndConnectSocket::OnTimeout() {
   if (mPrimaryTransport.mSocketTransport) {
-    mPrimaryTransport.mSocketTransport->Close(error);
+    mPrimaryTransport.mSocketTransport->Close(NS_ERROR_NET_TIMEOUT);
   }
   if (mBackupTransport.mSocketTransport) {
-    mBackupTransport.mSocketTransport->Close(error);
+    mBackupTransport.mSocketTransport->Close(NS_ERROR_NET_TIMEOUT);
   }
 }
 
@@ -1243,6 +1227,7 @@ nsresult DnsAndConnectSocket::TransportSetup::SetupStreams(
   }
 
   (void)socketTransport->SetIsPrivate(ci->GetPrivate());
+  (void)socketTransport->SetIsTRRConnection(ci->GetIsTrrServiceChannel());
 
   if (dnsAndSock->mCaps & NS_HTTP_DISALLOW_ECH) {
     tmpFlags |= nsISocketTransport::DONT_TRY_ECH;

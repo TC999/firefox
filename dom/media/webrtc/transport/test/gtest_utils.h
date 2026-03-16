@@ -36,8 +36,8 @@
  */
 
 // Original author: ekr@rtfm.com
-#ifndef gtest_utils__h__
-#define gtest_utils__h__
+#ifndef gtest_utils_h_
+#define gtest_utils_h_
 
 #include <iostream>
 
@@ -50,12 +50,9 @@
 #include "gtest_ringbuffer_dumper.h"
 #include "mtransport_test_utils.h"
 #include "nss.h"
-#include "ssl.h"
-
-extern "C" {
 #include "registry.h"
+#include "ssl.h"
 #include "transport_addr.h"
-}
 
 // Wait up to timeout seconds for expression to be true
 #define WAIT(expression, timeout)                                   \

@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_NavigationHistoryEntry_h___
-#define mozilla_dom_NavigationHistoryEntry_h___
+#ifndef mozilla_dom_NavigationHistoryEntry_h_
+#define mozilla_dom_NavigationHistoryEntry_h_
 
 #include "mozilla/DOMEventTargetHelper.h"
 
@@ -30,6 +30,7 @@ class NavigationHistoryEntry final : public DOMEventTargetHelper {
   void GetKey(nsAString& aResult) const;
   void GetId(nsAString& aResult) const;
   int64_t Index() const;
+  void SetIndex(int64_t aIndex) { mIndex = aIndex; }
   bool SameDocument() const;
 
   void GetState(JSContext* aCx, JS::MutableHandle<JS::Value> aResult,
@@ -53,6 +54,9 @@ class NavigationHistoryEntry final : public DOMEventTargetHelper {
 
   void ResetIndexForDisposal();
 
+  MOZ_CAN_RUN_SCRIPT
+  void FireDisposeEvent();
+
  private:
   ~NavigationHistoryEntry();
 
@@ -67,4 +71,4 @@ class NavigationHistoryEntry final : public DOMEventTargetHelper {
 
 }  // namespace mozilla::dom
 
-#endif  // mozilla_dom_NavigationHistoryEntry_h___
+#endif  // mozilla_dom_NavigationHistoryEntry_h_

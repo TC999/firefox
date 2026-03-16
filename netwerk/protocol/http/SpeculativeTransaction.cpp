@@ -9,6 +9,7 @@
 #include "SpeculativeTransaction.h"
 #include "HTTPSRecordResolver.h"
 #include "nsICachingChannel.h"
+#include "nsHttpConnectionMgr.h"
 #include "nsHttpHandler.h"
 
 namespace mozilla {
@@ -16,7 +17,7 @@ namespace net {
 
 SpeculativeTransaction::SpeculativeTransaction(
     nsHttpConnectionInfo* aConnInfo, nsIInterfaceRequestor* aCallbacks,
-    uint32_t aCaps, std::function<void(bool)>&& aCallback)
+    uint32_t aCaps, std::function<void(nsresult)>&& aCallback)
     : NullHttpTransaction(aConnInfo, aCallbacks, aCaps),
       mCloseCallback(std::move(aCallback)) {}
 
@@ -28,7 +29,6 @@ SpeculativeTransaction::CreateWithNewConnInfo(nsHttpConnectionInfo* aConnInfo) {
       new SpeculativeTransaction(aConnInfo, mCallbacks, mCaps);
   trans->mParallelSpeculativeConnectLimit = mParallelSpeculativeConnectLimit;
   trans->mIgnoreIdle = mIgnoreIdle;
-  trans->mIsFromPredictor = mIsFromPredictor;
   trans->mAllow1918 = mAllow1918;
   return trans.forget();
 }
@@ -92,14 +92,15 @@ void SpeculativeTransaction::Close(nsresult aReason) {
     aReason = NS_OK;
   }
   if (mCloseCallback) {
-    mCloseCallback(mTriedToWrite && NS_SUCCEEDED(aReason));
+    mCloseCallback(mTriedToWrite || NS_FAILED(aReason) ? aReason
+                                                       : NS_ERROR_FAILURE);
     mCloseCallback = nullptr;
   }
 }
 
 void SpeculativeTransaction::InvokeCallback() {
   if (mCloseCallback) {
-    mCloseCallback(true);
+    mCloseCallback(NS_OK);
     mCloseCallback = nullptr;
   }
 }

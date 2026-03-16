@@ -197,12 +197,14 @@ def backfill_modifier(task, input):
         task.task["payload"]["env"]["MOZHARNESS_TEST_PATHS"] = json.dumps(
             test_manifests
         )
-        # The name/label might have been modify in new_label, thus, change it here as well
-        task.task["metadata"]["name"] = task.label
+        original_label = input.get("original_label", task.label)
+        task.task["metadata"]["name"] = original_label
         th_info = task.task["extra"]["treeherder"]
-        # Use a job symbol of the originating task as defined in the backfill action
+        # Use the symbol of the originating task to preserve the chunk
+        # identity even when new_label hijacked a different chunk.
+        symbol = input.get("symbol", th_info["symbol"])
         th_info["symbol"] = add_backfill_suffix(
-            SYMBOL_REGEX, th_info["symbol"], f"-{revision[0:11]}-bk"
+            SYMBOL_REGEX, symbol, f"-{revision[0:11]}-bk"
         )
         if th_info.get("groupSymbol"):
             # Group all backfilled tasks together
@@ -278,7 +280,7 @@ def new_label(label, tasks):
                 "maximum": 10,
                 "title": "Times",
                 "description": (
-                    "The number of times to execute each job " "you are backfilling."
+                    "The number of times to execute each job you are backfilling."
                 ),
             },
             "retrigger": {
@@ -318,8 +320,11 @@ def add_task_with_original_manifests(
         )
         return
 
+    original_label = label
     if label not in full_task_graph.tasks:
         label = new_label(label, full_task_graph.tasks)
+        input["label"] = label
+    input["original_label"] = original_label
 
     to_run = [label]
 
@@ -398,7 +403,7 @@ def filter_raptor_jobs(full_task_graph, label_to_taskid, project):
         if entry.task.get("extra", {}).get("suite", "") != "raptor":
             continue
         if not match_run_on_projects(
-            project, entry.attributes.get("run_on_projects", [])
+            {"project": project}, entry.attributes.get("run_on_projects", [])
         ):
             continue
         if "macosx1500" in entry.attributes.get("test_platform", ""):

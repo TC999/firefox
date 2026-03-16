@@ -8,6 +8,7 @@
 
 #include "mozilla/net/NeckoChannelParams.h"
 #include "nsCOMPtr.h"
+#include "nsIProtocolProxyService.h"
 
 namespace mozilla {
 namespace net {
@@ -60,6 +61,10 @@ nsProxyInfo::nsProxyInfo(const nsACString& aType, const nsACString& aHost,
     mType = kProxyType_MASQUE;
   } else {
     mType = kProxyType_DIRECT;
+  }
+
+  if (mFlags & nsIProxyInfo::ALWAYS_TUNNEL_VIA_PROXY) {
+    mResolveFlags |= nsIProtocolProxyService::RESOLVE_ALWAYS_TUNNEL;
   }
 }
 
@@ -200,25 +205,26 @@ void nsProxyInfo::SerializeProxyInfo(nsProxyInfo* aProxyInfo,
 }
 
 /* static */
-nsProxyInfo* nsProxyInfo::DeserializeProxyInfo(
+already_AddRefed<nsProxyInfo> nsProxyInfo::DeserializeProxyInfo(
     const nsTArray<ProxyInfoCloneArgs>& aArgs) {
-  nsProxyInfo *pi = nullptr, *first = nullptr, *last = nullptr;
-  for (const ProxyInfoCloneArgs& info : aArgs) {
-    pi = new nsProxyInfo(info.type(), info.host(), info.port(), info.username(),
-                         info.password(), info.flags(), info.timeout(),
-                         info.resolveFlags(), info.proxyAuthorizationHeader(),
-                         info.connectionIsolationKey(), info.masqueTemplate());
+  RefPtr<nsProxyInfo> first;
+  nsProxyInfo* last = nullptr;
+  for (const auto& info : aArgs) {
+    RefPtr<nsProxyInfo> pi =
+        new nsProxyInfo(info.type(), info.host(), info.port(), info.username(),
+                        info.password(), info.flags(), info.timeout(),
+                        info.resolveFlags(), info.proxyAuthorizationHeader(),
+                        info.connectionIsolationKey(), info.masqueTemplate());
     if (last) {
       last->mNext = pi;
-      // |mNext| will be released in |last|'s destructor.
-      NS_IF_ADDREF(last->mNext);
+      NS_ADDREF(last->mNext);
     } else {
       first = pi;
     }
     last = pi;
   }
 
-  return first;
+  return first.forget();
 }
 
 already_AddRefed<nsProxyInfo> nsProxyInfo::CloneProxyInfoWithNewResolveFlags(
@@ -230,8 +236,7 @@ already_AddRefed<nsProxyInfo> nsProxyInfo::CloneProxyInfoWithNewResolveFlags(
     arg.resolveFlags() = aResolveFlags;
   }
 
-  RefPtr<nsProxyInfo> result = DeserializeProxyInfo(args);
-  return result.forget();
+  return DeserializeProxyInfo(args);
 }
 
 already_AddRefed<nsProxyInfo> nsProxyInfo::CreateFallbackProxyInfo() {
@@ -244,8 +249,7 @@ already_AddRefed<nsProxyInfo> nsProxyInfo::CreateFallbackProxyInfo() {
     }
   }
 
-  RefPtr<nsProxyInfo> result = DeserializeProxyInfo(args);
-  return result.forget();
+  return DeserializeProxyInfo(args);
 }
 
 }  // namespace net

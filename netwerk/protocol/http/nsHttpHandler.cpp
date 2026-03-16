@@ -13,6 +13,7 @@
 #include "nsCORSListenerProxy.h"
 #include "nsError.h"
 #include "nsHttp.h"
+#include "nsHttpConnectionMgr.h"
 #include "nsHttpHandler.h"
 #include "nsHttpChannel.h"
 #include "nsHTTPCompressConv.h"
@@ -37,6 +38,7 @@
 #include "mozilla/Sprintf.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/StaticPrefs_privacy.h"
+#include "mozilla/StaticPrefs_security.h"
 #include "mozilla/StoragePrincipalHelper.h"
 #include "nsAsyncRedirectVerifyHelper.h"
 #include "nsSocketTransportService2.h"
@@ -46,6 +48,7 @@
 #include "nsIXULAppInfo.h"
 #include "nsICookieService.h"
 #include "nsIObserverService.h"
+#include "nsISiteIntegrityService.h"
 #include "nsISiteSecurityService.h"
 #include "nsIStreamConverterService.h"
 #include "nsCRT.h"
@@ -64,6 +67,7 @@
 #include "nsCharSeparatedTokenizer.h"
 #include "nsRFPService.h"
 #include "mozilla/net/rust_helper.h"
+#include "SerializedLoadContext.h"
 
 #include "mozilla/net/HttpConnectionMgrParent.h"
 #include "mozilla/net/NeckoChild.h"
@@ -219,9 +223,11 @@ static nsCString ImageAcceptHeader() {
   mimeTypes.Append("image/avif,");
 #endif
 
+#ifdef MOZ_JXL
   if (mozilla::StaticPrefs::image_jxl_enabled()) {
     mimeTypes.Append("image/jxl,");
   }
+#endif
 
   mimeTypes.Append("image/webp,");
 
@@ -244,9 +250,11 @@ static nsCString DocumentAcceptHeader() {
     mimeTypes.Append("image/avif,");
 #endif
 
+#ifdef MOZ_JXL
     if (mozilla::StaticPrefs::image_jxl_enabled()) {
       mimeTypes.Append("image/jxl,");
     }
+#endif
 
     mimeTypes.Append("image/webp,image/png,image/svg+xml,");
   }
@@ -259,7 +267,9 @@ static nsCString DocumentAcceptHeader() {
 Atomic<bool, Relaxed> nsHttpHandler::sParentalControlsEnabled(false);
 
 nsHttpHandler::nsHttpHandler()
-    : mIdleTimeout(PR_SecondsToInterval(10)),
+    : mAuthCache(new nsHttpAuthCache()),
+      mPrivateAuthCache(new nsHttpAuthCache()),
+      mIdleTimeout(PR_SecondsToInterval(10)),
       mSpdyTimeout(
           PR_SecondsToInterval(StaticPrefs::network_http_http2_timeout())),
       mResponseTimeout(PR_SecondsToInterval(300)),
@@ -362,6 +372,7 @@ nsresult nsHttpHandler::Init() {
   if (!IsNeckoChild()) {
     if (XRE_IsParentProcess()) {
       mDictionaryCache = DictionaryCache::GetInstance();
+      // mDictionaryCache can be null if shutdown has occurred
 
       std::bitset<3> usageOfHTTPSRRPrefs;
       usageOfHTTPSRRPrefs[0] = StaticPrefs::network_dns_upgrade_with_https_rr();
@@ -669,7 +680,7 @@ nsresult nsHttpHandler::AddAcceptAndDictionaryHeaders(
   // Add the "Accept-Encoding" header and possibly Dictionary headers
   if (aSecure) {
     // The dictionary info may require us to check the cache.
-    if (StaticPrefs::network_http_dictionaries_enable()) {
+    if (StaticPrefs::network_http_dictionaries_enable() && mDictionaryCache) {
       // Note: this is async; the lambda can happen later
       // aCallback will now be owned by GetDictionaryFor
       guard.release();
@@ -850,6 +861,16 @@ bool nsHttpHandler::IsAcceptableEncoding(const char* enc, bool isSecure) {
   LOG(("nsHttpHandler::IsAceptableEncoding %s https=%d %d\n", enc, isSecure,
        rv));
   return rv;
+}
+
+nsISiteIntegrityService* nsHttpHandler::GetSiteIntegrityService() {
+  if (!mSiteIntegrityService) {
+    nsCOMPtr<nsISiteIntegrityService> service;
+    service = mozilla::components::SiteIntegrity::Service();
+    mSiteIntegrityService = new nsMainThreadPtrHolder<nsISiteIntegrityService>(
+        "nsHttpHandler::mSiteIntegrityService", service);
+  }
+  return mSiteIntegrityService;
 }
 
 nsISiteSecurityService* nsHttpHandler::GetSSService() {
@@ -2269,8 +2290,8 @@ nsHttpHandler::GetAltSvcCacheKeys(nsTArray<nsCString>& value) {
 
 NS_IMETHODIMP
 nsHttpHandler::GetAuthCacheKeys(nsTArray<nsCString>& aValues) {
-  mAuthCache.CollectKeys(aValues);
-  mPrivateAuthCache.CollectKeys(aValues);
+  mAuthCache->CollectKeys(aValues);
+  mPrivateAuthCache->CollectKeys(aValues);
   return NS_OK;
 }
 
@@ -2290,8 +2311,8 @@ nsHttpHandler::Observe(nsISupports* subject, const char* topic,
     mHandlerActive = false;
 
     // clear cache of all authentication credentials.
-    mAuthCache.ClearAll();
-    mPrivateAuthCache.ClearAll();
+    mAuthCache->ClearAll();
+    mPrivateAuthCache->ClearAll();
     if (mWifiTickler) mWifiTickler->Cancel();
 
     // Inform nsIOService that network is tearing down.
@@ -2320,8 +2341,8 @@ nsHttpHandler::Observe(nsISupports* subject, const char* topic,
     MOZ_ASSERT(NS_SUCCEEDED(rv));
     mAltSvcCache = MakeUnique<AltSvcCache>();
   } else if (!strcmp(topic, "net:clear-active-logins")) {
-    mAuthCache.ClearAll();
-    mPrivateAuthCache.ClearAll();
+    mAuthCache->ClearAll();
+    mPrivateAuthCache->ClearAll();
   } else if (!strcmp(topic, "net:cancel-all-connections")) {
     if (mConnMgr) {
       mConnMgr->AbortAndCloseAllConnections(0, nullptr);
@@ -2354,7 +2375,7 @@ nsHttpHandler::Observe(nsISupports* subject, const char* topic,
          nsCOMPtr<nsIURI> uri = do_QueryInterface(subject);
 #endif
   } else if (!strcmp(topic, "last-pb-context-exited")) {
-    mPrivateAuthCache.ClearAll();
+    mPrivateAuthCache->ClearAll();
     if (mAltSvcCache) {
       mAltSvcCache->ClearAltServiceMappings();
     }
@@ -2441,8 +2462,11 @@ nsresult nsHttpHandler::SpeculativeConnectInternal(
     Maybe<OriginAttributes>&& aOriginAttributes,
     nsIInterfaceRequestor* aCallbacks, bool anonymous) {
   if (IsNeckoChild()) {
+    nsCOMPtr<nsILoadContext> loadContext = do_GetInterface(aCallbacks);
+
     gNeckoChild->SendSpeculativeConnect(
-        aURI, aPrincipal, std::move(aOriginAttributes), anonymous);
+        nullptr, IPC::SerializedLoadContext(loadContext), aURI, aPrincipal,
+        std::move(aOriginAttributes), anonymous);
     return NS_OK;
   }
 
@@ -2751,26 +2775,24 @@ void nsHttpHandler::NotifyActiveTabLoadOptimization() {
 }
 
 TimeStamp nsHttpHandler::GetLastActiveTabLoadOptimizationHit() {
-  MutexAutoLock lock(mLastActiveTabLoadOptimizationLock);
-
-  return mLastActiveTabLoadOptimizationHit;
+  auto lastTimestamp = mLastActiveTabLoadOptimizationHit.Lock();
+  return *lastTimestamp;
 }
 
 void nsHttpHandler::SetLastActiveTabLoadOptimizationHit(TimeStamp const& when) {
-  MutexAutoLock lock(mLastActiveTabLoadOptimizationLock);
-
-  if (mLastActiveTabLoadOptimizationHit.IsNull() ||
-      (!when.IsNull() && mLastActiveTabLoadOptimizationHit < when)) {
-    mLastActiveTabLoadOptimizationHit = when;
+  if (when.IsNull()) {
+    return;
+  }
+  auto lastTimestamp = mLastActiveTabLoadOptimizationHit.Lock();
+  if (lastTimestamp->IsNull() || *lastTimestamp < when) {
+    *lastTimestamp = when;
   }
 }
 
 bool nsHttpHandler::IsBeforeLastActiveTabLoadOptimization(
     TimeStamp const& when) {
-  MutexAutoLock lock(mLastActiveTabLoadOptimizationLock);
-
-  return !mLastActiveTabLoadOptimizationHit.IsNull() &&
-         when <= mLastActiveTabLoadOptimizationHit;
+  auto lastTimestamp = mLastActiveTabLoadOptimizationHit.Lock();
+  return !lastTimestamp->IsNull() && when <= *lastTimestamp;
 }
 
 void nsHttpHandler::ExcludeHttp2OrHttp3Internal(

@@ -693,8 +693,7 @@ browser.backup:
             - "encryption" if the password was added, changed, or removed;
             - "location" if the location changed (not implemented yet, see
               bug 1996377);
-            - "first" if scheduled backups were just enabled (not implemented
-              yet, see bug 1900125);
+            - "first" if scheduled backups were just enabled;
             - or "unknown" if the reason wasn't specified.
 
   backup_throttled:
@@ -715,8 +714,7 @@ browser.backup:
     type: string
     description: >
       Only set if `browser.backup.enabled` is `false`. Possible reasons are
-      "nimbus", "pref" (non-Nimbus), "policy", "sanitizeOnShutdown",
-      "selectable profiles", "os version".
+      "nimbus", "pref" (non-Nimbus), "policy", "sanitizeOnShutdown", "os version".
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1992808
     data_reviews:
@@ -731,8 +729,7 @@ browser.backup:
     type: string
     description: >
       Only set if `browser.backup.enabled` is `false`. Possible reasons are
-      "nimbus", "pref" (non-Nimbus), "policy", "sanitizeOnShutdown",
-      "selectable profiles".
+      "nimbus", "pref" (non-Nimbus), "policy", "sanitizeOnShutdown".
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1992808
     data_reviews:
@@ -820,6 +817,9 @@ browser.backup:
       restore_id:
         type: string
         description: The identifier for the potential profile restore event.
+      replace:
+        type: boolean
+        description: Indicates if the restore will replace the current running profile.
 
   restore_failed:
     type: event

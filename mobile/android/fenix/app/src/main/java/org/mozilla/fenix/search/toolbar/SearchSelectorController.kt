@@ -4,12 +4,12 @@
 
 package org.mozilla.fenix.search.toolbar
 
+import android.app.Activity
 import androidx.navigation.NavController
-import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.NavGraphDirections
 import org.mozilla.fenix.R
-import org.mozilla.fenix.browser.BrowserAnimator
 import org.mozilla.fenix.ext.nav
+import org.mozilla.fenix.home.toolbar.ToolbarNavOptionsHelper
 
 /**
  * An interface that handles the view manipulation of the search selector menu.
@@ -25,7 +25,7 @@ interface SearchSelectorController {
  * The default implementation of [SearchSelectorController].
  */
 class DefaultSearchSelectorController(
-    private val activity: HomeActivity,
+    private val activity: Activity,
     private val navController: NavController,
 ) : SearchSelectorController {
 
@@ -46,7 +46,7 @@ class DefaultSearchSelectorController(
                 navController.nav(
                     R.id.homeFragment,
                     directions,
-                    BrowserAnimator.getToolbarNavOptions(activity),
+                    ToolbarNavOptionsHelper.getToolbarNavOptions(activity),
                 )
             }
         }

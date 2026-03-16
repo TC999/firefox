@@ -191,7 +191,7 @@
   <!-- Short description for the bookmarksInfo data collection permission -->
   <string name="mozac_feature_addons_permissions_data_collection_bookmarksInfo_short_description">záložky</string>
   <!-- Short description for the browsingActivity data collection permission -->
-  <string name="mozac_feature_addons_permissions_data_collection_browsingActivity_short_description">aktivita při procházení</string>
+  <string name="mozac_feature_addons_permissions_data_collection_browsingActivity_short_description">aktivita při procházení stránek</string>
   <!-- Short description for the financialAndPaymentInfo data collection permission -->
   <string name="mozac_feature_addons_permissions_data_collection_financialAndPaymentInfo_short_description">finanční a platební informace</string>
   <!-- Short description for the healthInfo data collection permission -->
@@ -205,7 +205,7 @@
   <!-- Short description for the searchTerms data collection permission -->
   <string name="mozac_feature_addons_permissions_data_collection_searchTerms_short_description">hledané výrazy</string>
   <!-- Short description for the technicalAndInteraction data collection permission -->
-  <string name="mozac_feature_addons_permissions_data_collection_technicalAndInteraction_short_description">technická data a data interakce</string>
+  <string name="mozac_feature_addons_permissions_data_collection_technicalAndInteraction_short_description">technické údaje a údaje o interakcích</string>
   <!-- Short description for the websiteActivity data collection permission -->
   <string name="mozac_feature_addons_permissions_data_collection_websiteActivity_short_description">aktivity na webových stránkách</string>
   <!-- Short description for the websiteContent data collection permission -->
@@ -229,7 +229,7 @@
   <!-- Long description for the searchTerms data collection permission -->
   <string name="mozac_feature_addons_permissions_data_collection_searchTerms_long_description">Sdílet hledané výrazy s vývojářem rozšíření</string>
   <!-- Long description for the technicalAndInteraction data collection permission -->
-  <string name="mozac_feature_addons_permissions_data_collection_technicalAndInteraction_long_description">Sdílet technická data a data o interakci s vývojářem rozšíření</string>
+  <string name="mozac_feature_addons_permissions_data_collection_technicalAndInteraction_long_description">Sdílet s vývojářem rozšíření technické údaje a údaje o interakcích</string>
   <!-- Long description for the websiteActivity data collection permission -->
   <string name="mozac_feature_addons_permissions_data_collection_websiteActivity_long_description">Sdílet aktivity na webových stránkách s vývojářem rozšíření</string>
   <!-- Long description for the websiteContent data collection permission -->
@@ -303,7 +303,7 @@
   <!-- Text link to learn more about permission requests on the add-on permissions dialog . -->
   <string name="mozac_feature_addons_permissions_dialog_learn_more">Zjistit více</string>
   <!-- This is the text for the "technical and interaction" checkbox shown in the add-on permissions dialog. -->
-  <string name="mozac_feature_addons_permissions_dialog_technical_and_interaction_data">Sdílet technická data a data o interakci s vývojářem rozšíření</string>
+  <string name="mozac_feature_addons_permissions_dialog_technical_and_interaction_data">Sdílet s vývojářem rozšíření technické údaje a údaje o interakcích</string>
   <!-- This is a button to cancel the add-on installation . -->
   <string name="mozac_feature_addons_permissions_dialog_cancel">Zrušit</string>
   <!-- Accessibility content description to install add-on button. %1$s is the add-on name. -->
@@ -381,8 +381,6 @@
   <!-- Text shown when attempting to install an add-on that can only be install via Enterprise Policies, which is not supported on Android.  %1$s is the add-on name. -->
   <string name="mozac_feature_addons_admin_install_only">Doplněk %1$s nebylo možné nainstalovat, protože jej může nainstalovat pouze organizace pomocí podnikových zásad, což na této platformě není podporováno.</string>
   <!-- Text shown when attempting to install an add-on that is soft-blocked. %1$s is the add-on name. %2$s is the app name. -->
-  <string name="mozac_feature_addons_soft_blocked_1" moz:removedIn="147" tools:ignore="UnusedResources">Doplněk %1$s porušuje pravidla Mozilly, a proto nemůže být nainstalován do aplikace %2$s.</string>
-  <!-- Text shown when attempting to install an add-on that is soft-blocked. %1$s is the add-on name. %2$s is the app name. -->
   <string name="mozac_feature_addons_soft_blocked_2">Doplněk %1$s je omezený a nemůže být nainstalován do aplikace %2$s.</string>
   <!-- Text shown after failed to enable an add-on. %1$s is the add-on name. -->
   <string name="mozac_feature_addons_failed_to_enable">Doplněk %1$s se nepodařilo povolit</string>
@@ -429,11 +427,7 @@
   <!-- Status message below an add-on in the add-ons manager when this add-on has been blocklisted. %1$s is the add-on name. -->
   <string name="mozac_feature_addons_status_blocklisted_1">Toto rozšíření bylo zablokováno z důvodu porušování pravidel Mozilly a bylo zakázáno.</string>
   <!-- Status message below an add-on in the add-ons manager when this add-on has been soft-blocked. -->
-  <string name="mozac_feature_addons_status_softblocked_1" moz:removedIn="147" tools:ignore="UnusedResources">Toto rozšíření porušuje pravidla Mozilly a bylo proto zakázáno. Můžete jej povolit, ale může to být riskantní.</string>
-  <!-- Status message below an add-on in the add-ons manager when this add-on has been soft-blocked. -->
   <string name="mozac_feature_addons_status_softblocked_2">Toto rozšíření je omezeno a bylo zakázáno. Můžete jej povolit, ale může to být riskantní.</string>
-  <!-- Status message below an add-on in the add-ons manager when this add-on has been soft-blocked but the user re-enabled it. -->
-  <string name="mozac_feature_addons_status_softblocked_re_enabled" moz:removedIn="147" tools:ignore="UnusedResources">Toto rozšíření porušuje pravidla Mozilly. Jeho používání je na vlastní riziko.</string>
   <!-- Status message below an add-on in the add-ons manager when this add-on has been soft-blocked but the user re-enabled it. -->
   <string name="mozac_feature_addons_status_softblocked_re_enabled_2">Toto rozšíření je omezeno. Jeho používání může být riskantní.</string>
   <!-- Status message below an add-on in the add-ons manager when this add-on hasn't been signed correctly. %1$s is the add-on name. -->

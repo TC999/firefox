@@ -64,8 +64,8 @@ class PannerNode final : public AudioNode {
     SendInt32ParameterToTrack(DISTANCE_MODEL, int32_t(mDistanceModel));
   }
 
-  void SetPosition(double aX, double aY, double aZ, ErrorResult& aRv);
-  void SetOrientation(double aX, double aY, double aZ, ErrorResult& aRv);
+  void SetPosition(float aX, float aY, float aZ, ErrorResult& aRv);
+  void SetOrientation(float aX, float aY, float aZ, ErrorResult& aRv);
 
   double RefDistance() const { return mRefDistance; }
   void SetRefDistance(double aRefDistance, ErrorResult& aRv) {

@@ -5,8 +5,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef __MOZ_WAYLAND_DISPLAY_H__
-#define __MOZ_WAYLAND_DISPLAY_H__
+#ifndef MOZ_WAYLAND_DISPLAY_H_
+#define MOZ_WAYLAND_DISPLAY_H_
 
 #include "DMABufDevice.h"
 
@@ -46,7 +46,11 @@ class nsWaylandDisplay {
  public:
   // Create nsWaylandDisplay object on top of native Wayland wl_display
   // connection.
+  // Split nsWaylandDisplay setup to constructor & Init() call
+  // to allow calls WaylandDisplayGet() from Init() where we query
+  // wayland display setup.
   explicit nsWaylandDisplay(wl_display* aDisplay);
+  void Init();
 
   static uint32_t GetLastEventSerial();
   wl_display* GetDisplay() { return mDisplay; };
@@ -135,12 +139,15 @@ class nsWaylandDisplay {
   void RequestAsyncRoundtrip();
   void WaitForAsyncRoundtrips();
 
+  void RefreshScreens();
+
   struct MonitorConfig {
     int id = 0;
     int x = 0;
     int y = 0;
     int pixelWidth = 0;
     int pixelHeight = 0;
+    bool pendingChanges = true;
     explicit MonitorConfig(int aId) : id(aId) {}
   };
 
@@ -235,4 +242,4 @@ static inline T* WaylandRegistryBind(struct wl_registry* wl_registry,
   return reinterpret_cast<T*>(id);
 }
 
-#endif  // __MOZ_WAYLAND_DISPLAY_H__
+#endif  // MOZ_WAYLAND_DISPLAY_H_

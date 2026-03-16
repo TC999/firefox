@@ -47,6 +47,7 @@ run-if = [
 ]
 skip-if = [
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && debug && msix", # Bug 1775837
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && debug && msix", # Bug 1775837
 ]
 
 ["browser_domainPolicy.js"]
@@ -66,6 +67,9 @@ skip-if = [
 skip-if = [
   "os == 'mac' && os_version == '10.15' && arch == 'x86_64' && opt", # Bug 1971068
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && opt", # Bug 1971068
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && opt", # Bug 1971068
+  "os == 'win' && os_version == '11.26100' && arch == 'x86' && opt", # Bug 1971068
+  "os == 'win' && os_version == '11.26200' && arch == 'x86' && opt", # Bug 1971068
 ]
 
 ["browser_isactiveintab.js"]
@@ -82,6 +86,8 @@ skip-if = [
 ["browser_pbrowser_creation_failure.js"]
 
 ["browser_subframesPreferUsed.js"]
+
+["browser_transparent.js"]
 
 ["browser_very_fission.js"]
 support-files = ["file_dummy.html"]

@@ -74,11 +74,7 @@ class HTMLTextAreaElement final : public TextControlElement,
   void SetLastValueChangeWasInteractive(bool);
 
   // TextControlElement
-  bool IsSingleLineTextControlOrTextArea() const override { return true; }
   void SetValueChanged(bool aValueChanged) override;
-  bool IsSingleLineTextControl() const override;
-  bool IsTextArea() const override;
-  bool IsPasswordTextControl() const override;
   Maybe<int32_t> GetCols() override;
   int32_t GetWrapCols() override;
   int32_t GetRows() override;
@@ -90,20 +86,12 @@ class HTMLTextAreaElement final : public TextControlElement,
   nsISelectionController* GetSelectionController() override;
   nsFrameSelection* GetIndependentFrameSelection() const override;
   TextControlState* GetTextControlState() const override { return mState; }
-  nsresult BindToFrame(nsTextControlFrame* aFrame) override;
-  MOZ_CAN_RUN_SCRIPT void UnbindFromFrame(nsTextControlFrame* aFrame) override;
-  MOZ_CAN_RUN_SCRIPT nsresult CreateEditor() override;
-  void SetPreviewValue(const nsAString& aValue) override;
-  void GetPreviewValue(nsAString& aValue) override;
   void SetAutofillState(const nsAString& aState) override {
     SetFormAutofillState(aState);
   }
   void GetAutofillState(nsAString& aState) override {
     GetFormAutofillState(aState);
   }
-  void EnablePreview() override;
-  bool IsPreviewEnabled() override;
-  void InitializeKeyboardEventListeners() override;
   void UpdatePlaceholderShownState();
   void OnValueChanged(ValueChangeKind, bool aNewValueEmpty,
                       const nsAString* aKnownNewValue) override;
@@ -124,9 +112,9 @@ class HTMLTextAreaElement final : public TextControlElement,
                                       AttrModType aModType) const override;
   NS_IMETHOD_(bool) IsAttributeMapped(const nsAtom* aAttribute) const override;
 
-  void GetEventTargetParent(EventChainPreVisitor& aVisitor) override;
-  nsresult PreHandleEvent(EventChainVisitor& aVisitor) override;
-  nsresult PostHandleEvent(EventChainPostVisitor& aVisitor) override;
+  void GetEventTargetParent(EventChainPreVisitor&) override;
+  nsresult PreHandleEvent(EventChainVisitor&) override;
+  MOZ_CAN_RUN_SCRIPT nsresult PostHandleEvent(EventChainPostVisitor&) override;
 
   bool IsHTMLFocusable(IsFocusableFlags, bool* aIsFocusable,
                        int32_t* aTabIndex) override;
@@ -188,8 +176,9 @@ class HTMLTextAreaElement final : public TextControlElement,
   void SetDisabled(bool aDisabled, ErrorResult& aError) {
     SetHTMLBoolAttr(nsGkAtoms::disabled, aDisabled, aError);
   }
-  // nsGenericHTMLFormControlElementWithState::GetForm is fine
-  using nsGenericHTMLFormControlElementWithState::GetForm;
+  // nsGenericHTMLFormControlElementWithState::GetForm* is fine
+  using nsGenericHTMLFormControlElementWithState::GetFormForBindings;
+  using nsGenericHTMLFormControlElementWithState::GetFormInternal;
   int32_t MaxLength() const { return GetIntAttr(nsGkAtoms::maxlength, -1); }
   int32_t UsedMaxLength() const final { return MaxLength(); }
   void SetMaxLength(int32_t aMaxLength, ErrorResult& aError) {
@@ -330,7 +319,6 @@ class HTMLTextAreaElement final : public TextControlElement,
   /** The state of the text editor (selection controller and the editor) **/
   TextControlState* mState;
 
-  MOZ_CAN_RUN_SCRIPT void SelectAll();
   /**
    * Get the value, whether it is from the content or the frame.
    * @param aValue the value [out]

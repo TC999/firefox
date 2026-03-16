@@ -132,7 +132,7 @@ already_AddRefed<Document> DOMParser::ParseFromSafeString(const nsAString& aStr,
   }
 
   RefPtr<Document> ret = ParseFromStringInternal(aStr, aType, aRv);
-  mPrincipal = docPrincipal;
+  mPrincipal = std::move(docPrincipal);
   return ret.forget();
 }
 
@@ -189,7 +189,7 @@ already_AddRefed<Document> DOMParser::ParseFromStream(nsIInputStream* aStream,
       return nullptr;
     }
 
-    stream = bufferedStream;
+    stream = std::move(bufferedStream);
   }
 
   nsCOMPtr<Document> document = SetUpDocument(

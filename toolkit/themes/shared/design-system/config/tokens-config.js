@@ -2,35 +2,165 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* eslint-env node */
-
+const fs = require("node:fs");
+const path = require("node:path");
 const StyleDictionary = require("style-dictionary");
 const { createPropertyFormatter } = StyleDictionary.formatHelpers;
 const figmaConfig = require("./figma-tokens-config");
 
-const TOKEN_SECTIONS = {
-  "Attention Dot": "attention-dot",
-  "Background Color": ["background-color", "promo", "table-row"],
-  Border: "border",
-  "Box Shadow": "box-shadow",
-  Button: "button",
-  Checkbox: "checkbox",
-  Color: ["brand-color", "color", "platform-color"],
-  "Focus Outline": "focus-outline",
-  "Font Size": "font-size",
-  "Font Weight": "font-weight",
-  Heading: "heading",
-  Icon: "icon",
-  "Input - Text": "input-text",
-  "Input - Space": "input-space",
-  Link: "link",
-  "Outline Color": "outline-color",
-  Page: "page",
-  Size: "size",
-  Space: "space",
-  Text: "text",
-  Unspecified: "",
+const PURPOSE = {
+  SEMANTIC: "semantic",
+  STORYBOOK: "storybook",
 };
+
+/**
+ * @typedef {object[]} TokenCategories
+ * @property {string} name - A name used to group tokens into a category for storybook/stylelint to reference.
+ * @property {string[]} alternateNames - Names not matching standard token naming conventions (e.g. "width" instead of "size").
+ * @property {string[]} purposes - What the token category is used for, either semantic tokens used by stylelint or tokens to be demonstrated in storybook.
+ */
+const TOKEN_CATEGORIES = [
+  {
+    name: "table-background",
+    purposes: [PURPOSE.STORYBOOK],
+  },
+  {
+    name: "table-border",
+    purposes: [PURPOSE.STORYBOOK],
+  },
+  {
+    name: "table-header",
+    purposes: [PURPOSE.STORYBOOK],
+  },
+  {
+    name: "background-color",
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "text-color",
+    alternateNames: ["link-color"],
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "border-color",
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "border-radius",
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "border-width",
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "border",
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "outline-color",
+    purposes: [PURPOSE.SEMANTIC],
+  },
+  {
+    name: "outline-radius",
+    purposes: [PURPOSE.SEMANTIC],
+  },
+  {
+    name: "outline-width",
+    purposes: [PURPOSE.SEMANTIC],
+  },
+  {
+    name: "outline-offset",
+    alternateNames: ["outline-inset"],
+    purposes: [PURPOSE.SEMANTIC],
+  },
+  {
+    name: "outline",
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "focus-outline",
+    purposes: [PURPOSE.SEMANTIC],
+  },
+  {
+    name: "box-shadow",
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "font-size",
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "font-weight",
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "icon-size",
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "icon-color",
+    alternateNames: ["fill", "stroke"],
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "size",
+    alternateNames: ["height", "width"],
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "space",
+    alternateNames: ["padding", "margin"],
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "dimension",
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "opacity",
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+  {
+    name: "color",
+    purposes: [PURPOSE.SEMANTIC, PURPOSE.STORYBOOK],
+  },
+];
+
+const getTokenSections = () => {
+  const fileNames = fs.readdirSync(
+    path.join(__dirname, "../src/tokens/components/")
+  );
+
+  const componentSections = fileNames.reduce((components, fileName) => {
+    const componentName = fileName.replace(".tokens.json", "");
+    return {
+      ...components,
+      [componentName]: componentName,
+    };
+  }, {});
+
+  const baseSections = TOKEN_CATEGORIES.filter(category =>
+    category.purposes.includes(PURPOSE.SEMANTIC)
+  ).reduce((sections, category) => {
+    return {
+      ...sections,
+      [category.name]: category.name,
+    };
+  }, {});
+
+  const allSections = {
+    ...baseSections,
+    ...componentSections,
+  };
+
+  return Object.fromEntries(
+    Object.keys(allSections)
+      .sort()
+      .map(key => [key, allSections[key]])
+  );
+};
+
 const TSHIRT_ORDER = [
   "circle",
   "xxxsmall",
@@ -43,6 +173,7 @@ const TSHIRT_ORDER = [
   "xxlarge",
   "xxxlarge",
 ];
+
 const STATE_ORDER = [
   "base",
   "default",
@@ -335,14 +466,16 @@ function formatVariables({ format, dictionary, outputReferences, formatting }) {
     return [name, ""];
   }
 
-  for (let [label, selector] of Object.entries(TOKEN_SECTIONS)) {
+  for (let [label, selector] of Object.entries(getTokenSections())) {
     let sectionMatchers = Array.isArray(selector) ? selector : [selector];
     let sectionParts = [];
 
     remainingTokens = remainingTokens.filter(token => {
       if (
         sectionMatchers.some(m =>
-          m.test ? m.test(token.name) : token.name.startsWith(m)
+          m.test
+            ? m.test(token.name)
+            : token.name.startsWith(`${m}-`) || token.name === m
         )
       ) {
         sectionParts.push(token);
@@ -404,7 +537,7 @@ function formatVariables({ format, dictionary, outputReferences, formatting }) {
 // Easy way to grab variable values later for display.
 let variableLookupTable = {};
 
-function tokensTableFormat(args) {
+function tokensTableFormat(args, isSemanticTable = false) {
   let dictionary = Object.assign({}, args.dictionary);
   let resolvedTokens = dictionary.allTokens.map(token => {
     let tokenVal = resolveReferences(dictionary, token.original);
@@ -425,7 +558,7 @@ function tokensTableFormat(args) {
       .trim()
       .replaceAll(/(^module\.exports\s*=\s*|\;$)/g, "")
   );
-  let tokensTable = formatTokensTableData(parsedData);
+  let tokensTable = formatTokensTableData(parsedData, isSemanticTable);
 
   return `${customFileHeader({ platform: "tokens-table" })}
   export const tokensTable = ${JSON.stringify(tokensTable)};
@@ -460,7 +593,7 @@ function getValueWithReferences(dictionary, value) {
   return valWithRefs;
 }
 
-function formatTokensTableData(tokensData) {
+function formatTokensTableData(tokensData, isSemanticTable = false) {
   let tokensTable = {};
   Object.entries(tokensData).forEach(([key, value]) => {
     variableLookupTable[key] = value;
@@ -469,7 +602,11 @@ function formatTokensTableData(tokensData) {
       name: `--${key}`,
     };
 
-    let tableName = getTableName(key);
+    const tableName = getTokenCategoryName(
+      key,
+      isSemanticTable ? PURPOSE.SEMANTIC : PURPOSE.STORYBOOK
+    );
+
     if (tokensTable[tableName]) {
       tokensTable[tableName].push(formattedToken);
     } else {
@@ -479,64 +616,55 @@ function formatTokensTableData(tokensData) {
   return tokensTable;
 }
 
-const SINGULAR_TABLE_CATEGORIES = [
-  "button",
-  "color",
-  "size",
-  "space",
-  "opacity",
-  "outline",
-];
+function getTokenCategoryName(tokenName, purpose) {
+  // Use the token's name to determine the category it belongs to.
+  // e.g. --button-background-color-primary goes to "background-color"
+  const matchingCategory = TOKEN_CATEGORIES.find(
+    ({ name, alternateNames, purposes }) => {
+      if (!purposes.includes(purpose)) {
+        return false;
+      }
 
-function getTableName(tokenName) {
-  if (tokenName.includes("page-main") || tokenName.includes("min-height")) {
-    return "size";
+      const matchesAsSegment = n =>
+        new RegExp(`(^|-)${n}(-|$)`).test(tokenName);
+
+      return matchesAsSegment(name) || alternateNames?.some(matchesAsSegment);
+    }
+  );
+
+  if (!matchingCategory) {
+    return "uncategorized";
   }
 
-  if (tokenName.includes("padding") || tokenName.includes("margin")) {
-    return "space";
-  }
+  return matchingCategory.name;
+}
 
-  if (tokenName.includes("icon-fill") || tokenName.includes("icon-stroke")) {
-    return "icon-color";
-  }
+function getTokenCategory(filePath) {
+  const fileName = path.basename(filePath);
+  const tokenCategory = fileName.replace(".tokens.json", "");
 
-  if (tokenName.includes("heading-font-size")) {
-    return "font-size";
-  }
-
-  if (tokenName.includes("heading-font-weight")) {
-    return "font-weight";
-  }
-
-  if (tokenName.includes("link-color")) {
-    return "text-color";
-  }
-
-  if (tokenName.includes("outline-offset")) {
-    return "outline";
-  }
-
-  let replacePattern =
-    /^(button-|input-text-|input-|focus-|checkbox-|table-row-|attention-dot-|promo-)/;
-  if (tokenName.match(replacePattern)) {
-    tokenName = tokenName.replace(replacePattern, "");
-  }
-  let [category, type] = tokenName.split("-");
-  return SINGULAR_TABLE_CATEGORIES.includes(category) || !type
-    ? category
-    : `${category}-${type}`;
+  return tokenCategory;
 }
 
 module.exports = {
-  source: ["src/design-tokens.json"],
+  source: ["src/tokens/**/*.json"],
   format: {
     "css/variables/shared": createDesktopFormat(),
     "css/variables/brand": createDesktopFormat("brand"),
     "css/variables/platform": createDesktopFormat("platform"),
-    "javascript/tokens-table": tokensTableFormat,
+    // Organize tokens to be consumed by Storybook.
+    "javascript/tokens-table": args => tokensTableFormat(args, false),
+    // Organize tokens to be used by stylelint rules.
+    "javascript/semantic-categories": args => tokensTableFormat(args, true),
     ...figmaConfig.formats,
   },
+  parsers: [
+    {
+      pattern: /\.json$/,
+      parse: ({ filePath, contents }) =>
+        JSON.parse(`{"${getTokenCategory(filePath)}": ${contents}}`),
+    },
+  ],
   platforms: {
     css: {
       options: {
@@ -581,6 +709,10 @@ module.exports = {
         {
           destination: "dist/tokens-table.mjs",
           format: "javascript/tokens-table",
+        },
+        {
+          destination: "dist/semantic-categories.mjs",
+          format: "javascript/semantic-categories",
         },
       ],
     },

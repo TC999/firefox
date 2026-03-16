@@ -74,6 +74,7 @@
 #ifndef mozilla_HashTable_h
 #define mozilla_HashTable_h
 
+#include <bit>
 #include <utility>
 #include <type_traits>
 
@@ -162,8 +163,6 @@ class MOZ_STANDALONE_DEBUG HashMap {
 
   using Impl = detail::HashTable<TableEntry, MapHashPolicy, AllocPolicy>;
   Impl mImpl;
-
-  friend class Impl::Enum;
 
  public:
   using Lookup = typename HashPolicy::Lookup;
@@ -420,17 +419,33 @@ class MOZ_STANDALONE_DEBUG HashMap {
   using ModIterator = typename Impl::ModIterator;
   ModIterator modIter() { return mImpl.modIter(); }
 
-  // These are similar to Iterator/ModIterator/iter(), but use different
-  // terminology.
-  using Range = typename Impl::Range;
-  using Enum = typename Impl::Enum;
-  Range all() const { return mImpl.all(); }
+  // -- Alloc policy ---------------------------------------------------------
+
+  // Get the alloc policy.
+  const AllocPolicy& allocPolicy() const { return mImpl.allocPolicy(); }
+  AllocPolicy& allocPolicy() { return mImpl.allocPolicy(); }
+
+  // For internal use by allocation policies that provide garbage collected
+  // memory.
+  //
+  // Trace any allocations owned by this object that were made with AllocPolicy.
+  // Call the supplied closure |aTraceFunc| for each of them, passing a double
+  // pointer to the memory held (e.g. a void** pointer).
+  template <typename F>
+  void traceOwnedAllocs(F&& aTraceFunc) {
+    mImpl.traceOwnedAllocs(std::forward<F>(aTraceFunc));
+  }
+
+  // -- Layout information for JIT access ------------------------------------
 
   static size_t offsetOfHashShift() {
     return offsetof(HashMap, mImpl) + Impl::offsetOfHashShift();
   }
   static size_t offsetOfTable() {
     return offsetof(HashMap, mImpl) + Impl::offsetOfTable();
+  }
+  static size_t offsetOfEntryCount() {
+    return offsetof(HashMap, mImpl) + Impl::offsetOfEntryCount();
   }
 };
 
@@ -469,8 +484,6 @@ class HashSet {
 
   using Impl = detail::HashTable<const T, SetHashPolicy, AllocPolicy>;
   Impl mImpl;
-
-  friend class Impl::Enum;
 
  public:
   using Lookup = typename HashPolicy::Lookup;
@@ -724,11 +737,22 @@ class HashSet {
   using ModIterator = typename Impl::ModIterator;
   ModIterator modIter() { return mImpl.modIter(); }
 
-  // These are similar to Iterator/ModIterator/iter(), but use different
-  // terminology.
-  using Range = typename Impl::Range;
-  using Enum = typename Impl::Enum;
-  Range all() const { return mImpl.all(); }
+  // -- Alloc policy ---------------------------------------------------------
+
+  // Get the alloc policy.
+  const AllocPolicy& allocPolicy() const { return mImpl.allocPolicy(); }
+  AllocPolicy& allocPolicy() { return mImpl.allocPolicy(); }
+
+  // For internal use by allocation policies that provide garbage collected
+  // memory.
+  //
+  // Trace any allocations owned by this object that were made with AllocPolicy.
+  // Call the supplied closure |aTraceFunc| for each of them, passing a double
+  // pointer to the memory held (e.g. a void** pointer).
+  template <typename F>
+  void traceOwnedAllocs(F&& aTraceFunc) {
+    mImpl.traceOwnedAllocs(std::forward<F>(aTraceFunc));
+  }
 };
 
 //---------------------------------------------------------------------------
@@ -1110,7 +1134,7 @@ class HashTableEntry {
 
   void destroy() { destroyStoredT(); }
 
-  void swap(HashTableEntry* aOther, bool aIsLive) {
+  void swap(HashTableEntry* aOther, bool aOtherIsLive) {
     // This allows types to use Argument-Dependent-Lookup, and thus use a custom
     // std::swap, which is needed by types like JS::Heap and such.
     using std::swap;
@@ -1118,10 +1142,10 @@ class HashTableEntry {
     if (this == aOther) {
       return;
     }
-    if (aIsLive) {
+    if (aOtherIsLive) {
       swap(*valuePtr(), *aOther->valuePtr());
     } else {
-      *aOther->valuePtr() = std::move(*valuePtr());
+      new (KnownNotNull, aOther->valuePtr()) NonConstT(std::move(*valuePtr()));
       destroy();
     }
   }
@@ -1442,7 +1466,7 @@ class MOZ_STANDALONE_DEBUG HashTable : private AllocPolicy {
   };
 
   // A hash table iterator that permits modification, removal and rekeying.
-  // Since rehashing when elements were removed during enumeration would be
+  // Since rehashing when elements were removed during iteration would be
   // bad, it is postponed until the ModIterator is destructed. Since the
   // ModIterator's destructor touches the hash table, the user must ensure
   // that the hash table is still alive when the destructor runs.
@@ -1527,56 +1551,6 @@ class MOZ_STANDALONE_DEBUG HashTable : private AllocPolicy {
     }
   };
 
-  // Range is similar to Iterator, but uses different terminology.
-  class Range {
-    friend class HashTable;
-
-    Iterator mIter;
-
-   protected:
-    explicit Range(const HashTable& table) : mIter(table) {}
-
-   public:
-    bool empty() const { return mIter.done(); }
-
-    T& front() const { return mIter.get(); }
-
-    void popFront() { return mIter.next(); }
-  };
-
-  // Enum is similar to ModIterator, but uses different terminology.
-  class Enum {
-    ModIterator mIter;
-
-    // Enum is movable but not copyable.
-    Enum(const Enum&) = delete;
-    void operator=(const Enum&) = delete;
-
-   public:
-    template <class Map>
-    explicit Enum(Map& map) : mIter(map.mImpl) {}
-
-    MOZ_IMPLICIT Enum(Enum&& other) : mIter(std::move(other.mIter)) {}
-
-    bool empty() const { return mIter.done(); }
-
-    T& front() const { return mIter.get(); }
-
-    void popFront() { return mIter.next(); }
-
-    // See the comments on ~ModIterator about table resizing after removing
-    // entries.
-    void removeFront() { mIter.remove(); }
-
-    NonConstT& mutableFront() { return mIter.getMutable(); }
-
-    void rekeyFront(const Lookup& aLookup, const Key& aKey) {
-      mIter.rekey(aLookup, aKey);
-    }
-
-    void rekeyFront(const Key& aKey) { mIter.rekey(aKey); }
-  };
-
   // HashTable is movable
   HashTable(HashTable&& aRhs) : AllocPolicy(std::move(aRhs)) { moveFrom(aRhs); }
   HashTable& operator=(HashTable&& aRhs) {
@@ -1601,6 +1575,16 @@ class MOZ_STANDALONE_DEBUG HashTable : private AllocPolicy {
     std::swap(mMutationCount, aOther.mMutationCount);
     std::swap(mEntered, aOther.mEntered);
 #endif
+  }
+
+  AllocPolicy& allocPolicy() { return *this; }
+  const AllocPolicy& allocPolicy() const { return *this; }
+
+  template <typename F>
+  void traceOwnedAllocs(F&& aTraceFunc) {
+    if (mTable) {
+      aTraceFunc(&mTable);
+    }
   }
 
  private:
@@ -1912,7 +1896,7 @@ class MOZ_STANDALONE_DEBUG HashTable : private AllocPolicy {
 
   RebuildStatus changeTableSize(
       uint32_t newCapacity, FailureBehavior aReportFailure = ReportFailure) {
-    MOZ_ASSERT(IsPowerOfTwo(newCapacity));
+    MOZ_ASSERT(std::has_single_bit(newCapacity));
     MOZ_ASSERT(!!mTable == !!capacity());
 
     // Look, but don't touch, until we succeed in getting new entry store.
@@ -2137,8 +2121,6 @@ class MOZ_STANDALONE_DEBUG HashTable : private AllocPolicy {
 
   ModIterator modIter() { return ModIterator(*this); }
 
-  Range all() const { return Range(*this); }
-
   bool empty() const { return mEntryCount == 0; }
 
   uint32_t count() const { return mEntryCount; }
@@ -2359,6 +2341,9 @@ class MOZ_STANDALONE_DEBUG HashTable : private AllocPolicy {
 #endif
   }
   static size_t offsetOfTable() { return offsetof(HashTable, mTable); }
+  static size_t offsetOfEntryCount() {
+    return offsetof(HashTable, mEntryCount);
+  }
 };
 
 }  // namespace detail

@@ -31,23 +31,21 @@ class Perfherder(Layer):
     activated = False
 
     arguments = COMMON_ARGS
-    arguments.update(
-        {
-            "stats": {
-                "action": "store_true",
-                "default": False,
-                "help": "If set, browsertime statistics will be reported.",
-            },
-            "timestamp": {
-                "type": float,
-                "default": None,
-                "help": (
-                    "Timestamp to use for the perfherder data. Can be the "
-                    "current date or a past date if needed."
-                ),
-            },
-        }
-    )
+    arguments.update({
+        "stats": {
+            "action": "store_true",
+            "default": False,
+            "help": "If set, browsertime statistics will be reported.",
+        },
+        "timestamp": {
+            "type": float,
+            "default": None,
+            "help": (
+                "Timestamp to use for the perfherder data. Can be the "
+                "current date or a past date if needed."
+            ),
+        },
+    })
 
     def run(self, metadata):
         """Processes the given results into a perfherder-formatted data blob.
@@ -160,10 +158,12 @@ class Perfherder(Layer):
         sequence = int(time.monotonic() * 1000)
         payload = json.dumps(all_perfherder_data, sort_keys=True).encode("utf-8")
         digest = hashlib.sha1(payload).hexdigest()[:8]
-        file = f"perfherder-data-{sequence}-{digest}.json"
+        perfherder_file = f"perfherder-data-{sequence}-{digest}.json"
         if prefix:
-            file = f"{prefix}-{file}"
-        self.info(f"Writing perfherder results to {os.path.join(output, file)}")
+            perfherder_file = f"{prefix}-{perfherder_file}"
+        self.info(
+            f"Writing perfherder results to {os.path.join(output, perfherder_file)}"
+        )
 
         # XXX "suites" key error occurs when using self.info so a print
         # is being done for now.
@@ -175,7 +175,7 @@ class Perfherder(Layer):
         sys.stdout.write("\n")
         sys.stdout.flush()
 
-        metadata.set_output(write_json(all_perfherder_data, output, file))
+        metadata.set_output(write_json(all_perfherder_data, output, perfherder_file))
         return metadata
 
     def _build_blob(

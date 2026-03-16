@@ -6,9 +6,9 @@ const {
   Dialog,
   Sections,
   Pocket,
-  Personalization,
   DiscoveryStream,
   Search,
+  ExternalComponents,
 } = reducers;
 import { actionTypes as at } from "common/Actions.mjs";
 
@@ -715,29 +715,6 @@ describe("Reducers", () => {
       assert.equal(state.pocketCta.useCta, data.use_cta);
     });
   });
-  describe("Personalization", () => {
-    it("should return INITIAL_STATE by default", () => {
-      assert.equal(
-        Personalization(undefined, { type: "some_action" }),
-        INITIAL_STATE.Personalization
-      );
-    });
-    it("should set lastUpdated with DISCOVERY_STREAM_PERSONALIZATION_LAST_UPDATED", () => {
-      const state = Personalization(undefined, {
-        type: at.DISCOVERY_STREAM_PERSONALIZATION_LAST_UPDATED,
-        data: {
-          lastUpdated: 123,
-        },
-      });
-      assert.equal(state.lastUpdated, 123);
-    });
-    it("should set initialized to true with DISCOVERY_STREAM_PERSONALIZATION_INIT", () => {
-      const state = Personalization(undefined, {
-        type: at.DISCOVERY_STREAM_PERSONALIZATION_INIT,
-      });
-      assert.equal(state.initialized, true);
-    });
-  });
   describe("DiscoveryStream", () => {
     it("should return INITIAL_STATE by default", () => {
       assert.equal(
@@ -1161,14 +1138,76 @@ describe("Reducers", () => {
       const nextState = Search(undefined, { type: "DISABLE_SEARCH" });
       assert.propertyVal(nextState, "disable", true);
     });
-    it("should set focus to true on FAKE_FOCUS_SEARCH", () => {
-      const nextState = Search(undefined, { type: "FAKE_FOCUS_SEARCH" });
-      assert.propertyVal(nextState, "fakeFocus", true);
-    });
     it("should set focus and disable to false on SHOW_SEARCH", () => {
       const nextState = Search(undefined, { type: "SHOW_SEARCH" });
-      assert.propertyVal(nextState, "fakeFocus", false);
       assert.propertyVal(nextState, "disable", false);
+    });
+  });
+  describe("ExternalComponents", () => {
+    it("should return INITIAL_STATE by default", () => {
+      const nextState = ExternalComponents(undefined, { type: "some_action" });
+      assert.equal(nextState, INITIAL_STATE.ExternalComponents);
+    });
+    it("should return initial state with empty components array", () => {
+      const nextState = ExternalComponents(undefined, { type: "some_action" });
+      assert.deepEqual(nextState.components, []);
+    });
+    it("should update components on REFRESH_EXTERNAL_COMPONENTS", () => {
+      const testComponents = [
+        {
+          type: "SEARCH",
+          componentURL: "chrome://test/content/component.mjs",
+          tagName: "test-component",
+          l10nURLs: [],
+        },
+      ];
+      const nextState = ExternalComponents(undefined, {
+        type: at.REFRESH_EXTERNAL_COMPONENTS,
+        data: testComponents,
+      });
+      assert.deepEqual(nextState.components, testComponents);
+    });
+    it("should preserve other state when updating components", () => {
+      const testComponents = [
+        {
+          type: "SEARCH",
+          componentURL: "chrome://test/content/component.mjs",
+          tagName: "test-component",
+          l10nURLs: [],
+        },
+      ];
+      const prevState = { components: [], otherProp: "value" };
+      const nextState = ExternalComponents(prevState, {
+        type: at.REFRESH_EXTERNAL_COMPONENTS,
+        data: testComponents,
+      });
+      assert.deepEqual(nextState.components, testComponents);
+      assert.propertyVal(nextState, "otherProp", "value");
+    });
+    it("should replace existing components on REFRESH_EXTERNAL_COMPONENTS", () => {
+      const oldComponents = [
+        {
+          type: "OLD",
+          componentURL: "chrome://old/content/component.mjs",
+          tagName: "old-component",
+          l10nURLs: [],
+        },
+      ];
+      const newComponents = [
+        {
+          type: "NEW",
+          componentURL: "chrome://new/content/component.mjs",
+          tagName: "new-component",
+          l10nURLs: [],
+        },
+      ];
+      const prevState = { components: oldComponents };
+      const nextState = ExternalComponents(prevState, {
+        type: at.REFRESH_EXTERNAL_COMPONENTS,
+        data: newComponents,
+      });
+      assert.deepEqual(nextState.components, newComponents);
+      assert.notDeepEqual(nextState.components, oldComponents);
     });
   });
 });

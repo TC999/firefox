@@ -176,6 +176,12 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
 
   bool ShouldBypassCache() const;
 
+#ifdef NIGHTLY_BUILD
+  // The return value depends on the Integrity-Policy-WAICT-v1 header and
+  // doesn't change after the document started loading.
+  bool WAICTHandlesScripts() const;
+#endif
+
   template <typename T>
   bool HasLoaded(const T& aKey) {
     // NOTE: ScriptLoader doesn't cache pending/loading requests, and
@@ -256,7 +262,6 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
   ModuleLoader* GetModuleLoader() { return mModuleLoader; }
 
   void RegisterContentScriptModuleLoader(ModuleLoader* aLoader);
-  void RegisterShadowRealmModuleLoader(ModuleLoader* aLoader);
 
   /**
    *  Check whether to speculatively OMT parse scripts as soon as
@@ -353,8 +358,7 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
    * loading the script. The streamed content is expected to be stored on the
    * aRequest argument.
    */
-  nsresult OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
-                            ScriptLoadRequest* aRequest,
+  nsresult OnStreamComplete(nsIChannel* aChannel, ScriptLoadRequest* aRequest,
                             nsresult aChannelStatus, nsresult aSRIStatus,
                             SRICheckDataVerifier* aSRIDataVerifier);
 
@@ -493,12 +497,12 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
   /**
    * Helper function to notify network observers for cached request.
    */
-  void EmulateNetworkEvents(ScriptLoadRequest* aRequest);
+  void EmulateNetworkEvents(ScriptLoadRequest* aRequest,
+                            const Maybe<nsAutoString>& aCharsetForPreload);
 
   void NotifyObserversForCachedScript(
-      nsIURI* aURI, nsINode* aContext, nsIPrincipal* aTriggeringPrincipal,
-      nsSecurityFlags aSecurityFlags, nsContentPolicyType aContentPolicyType,
-      SubResourceNetworkMetadataHolder* aNetworkMetadata);
+      ScriptLoadRequest* aRequest,
+      const Maybe<nsAutoString>& aCharsetForPreload);
 
   /**
    * Unblocks the creator parser of the parser-blocking scripts.
@@ -640,8 +644,8 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
    */
   bool ReadyToExecuteScripts() { return mEnabled && !mBlockerCount; }
 
-  nsresult VerifySRI(ScriptLoadRequest* aRequest,
-                     nsIIncrementalStreamLoader* aLoader, nsresult aSRIStatus,
+  nsresult VerifySRI(ScriptLoadRequest* aRequest, nsIChannel* aChannel,
+                     nsresult aSRIStatus,
                      SRICheckDataVerifier* aSRIDataVerifier) const;
 
   nsresult SaveSRIHash(ScriptLoadRequest* aRequest,
@@ -653,6 +657,8 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
   void ReportWarningToConsole(
       ScriptLoadRequest* aRequest, const char* aMessageName,
       const nsTArray<nsString>& aParams = nsTArray<nsString>()) const override;
+
+  bool IsImportMapSupported() const override { return true; }
 
   void ReportPreloadErrorsToConsole(ScriptLoadRequest* aRequest);
 
@@ -795,8 +801,7 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
   int32_t PhysicalSizeOfMemoryInGB();
 
   nsresult PrepareLoadedRequest(ScriptLoadRequest* aRequest,
-                                nsIIncrementalStreamLoader* aLoader,
-                                nsresult aStatus);
+                                nsIChannel* aChannel, nsresult aStatus);
 
   void AddDeferRequest(ScriptLoadRequest* aRequest);
   void AddAsyncRequest(ScriptLoadRequest* aRequest);
@@ -809,6 +814,8 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
 
   void MaybeMoveToLoadedList(ScriptLoadRequest* aRequest);
 
+  bool IsBeforeFCP();
+
  public:
   struct DiskCacheStrategy {
     bool mIsDisabled = false;
@@ -819,6 +826,16 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
   };
 
   static DiskCacheStrategy GetDiskCacheStrategy();
+
+  uint16_t GetLoadedFromNeckoAsText() const { return mLoadedFromNeckoAsText; }
+  uint16_t GetLoadedFromNeckoAsSerializedStencil() const {
+    return mLoadedFromNeckoAsSerializedStencil;
+  }
+  uint16_t GetMemoryCacheUsed() const { return mMemoryCacheUsed; }
+  uint16_t GetMemoryCacheRevived() const { return mMemoryCacheRevived; }
+  uint16_t GetMemoryCacheEvictedDirty() const {
+    return mMemoryCacheEvictedDirty;
+  }
 
  private:
   // Check whether the request should be saved to the following or not:
@@ -911,19 +928,63 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
   nsCOMPtr<nsIScriptElement> mCurrentScript;
   nsCOMPtr<nsIScriptElement> mCurrentParserInsertedScript;
   nsTArray<RefPtr<ScriptLoader>> mPendingChildLoaders;
-  uint32_t mParserBlockingBlockerCount;
-  uint32_t mBlockerCount;
-  uint32_t mNumberOfProcessors;
-  uint32_t mTotalFullParseSize;
-  int32_t mPhysicalSizeOfMemory;
-  bool mEnabled;
-  bool mDeferEnabled;
-  bool mSpeculativeOMTParsingEnabled;
-  bool mDeferCheckpointReached;
-  bool mBlockingDOMContentLoaded;
-  bool mLoadEventFired;
-  bool mGiveUpDiskCaching;
-  bool mContinueParsingDocumentAfterCurrentScript;
+  uint32_t mParserBlockingBlockerCount = 0;
+  uint32_t mBlockerCount = 0;
+  uint32_t mNumberOfProcessors = 0;
+  uint32_t mTotalFullParseSize = 0;
+  int32_t mPhysicalSizeOfMemory = -1;
+
+  // Telemetry data for the memory cache usage per document.
+  //
+  //   Load
+  //     |
+  //     v         YES              NO
+  //   has cache? -----> is dirty? ----> mMemoryCacheUsed++
+  //     |                 |
+  //     | NO              | YES
+  //     |                 v           YES
+  //     |               still valid? -----> mMemoryCacheRevived++
+  //     |                 |
+  //     |                 | NO
+  //     |                 v
+  //     |               mMemoryCacheEvictedDirty++
+  //     v                 |
+  //     +<----------------+
+  //     |
+  //     v       NO
+  //   is text? ----> mLoadedFromNeckoAsSerializedStencil++
+  //     |
+  //     | YES
+  //     v
+  //   mLoadedFromNeckoAsText++
+  //
+  // TotalLoads = mLoadedFromNeckoAsText +
+  //              mLoadedFromNeckoAsSerializedStencil +
+  //              mMemoryCacheUsed +
+  //              mMemoryCacheRevived
+  //
+  // SkippedIPC = mMemoryCacheUsed / TotalLoads
+  //
+  // UsedRawStencil = (mMemoryCacheUsed + mMemoryCacheRevived) / TotalLoads
+  //
+  // SkippedCompilation = (mMemoryCacheUsed + mMemoryCacheRevived +
+  //                       mLoadedFromNeckoAsSerializedStencil) / TotalLoads
+  //
+  uint16_t mLoadedFromNeckoAsText = 0;
+  uint16_t mLoadedFromNeckoAsSerializedStencil = 0;
+  uint16_t mMemoryCacheUsed = 0;
+  uint16_t mMemoryCacheRevived = 0;
+  uint16_t mMemoryCacheEvictedDirty = 0;
+
+  bool mEnabled = true;
+  bool mDeferEnabled = false;
+  bool mSpeculativeOMTParsingEnabled = false;
+  bool mDeferCheckpointReached = false;
+  bool mBlockingDOMContentLoaded = false;
+  bool mLoadEventFired = false;
+  bool mGiveUpDiskCaching = false;
+  bool mContinueParsingDocumentAfterCurrentScript = false;
+  bool mHadFCPDoNotUseDirectly = false;
 
   TimeDuration mMainThreadParseTime;
 
@@ -934,7 +995,6 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
 
   RefPtr<ModuleLoader> mModuleLoader;
   nsTArray<RefPtr<ModuleLoader>> mWebExtModuleLoaders;
-  nsTArray<RefPtr<ModuleLoader>> mShadowRealmModuleLoaders;
 
   RefPtr<SharedScriptCache> mCache;
 

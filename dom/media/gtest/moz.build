@@ -10,6 +10,7 @@ DEFINES["VISIBLE_TIMEUNIT_INTERNALS"] = True
 
 LOCAL_INCLUDES += [
     "!/dist/include/libwebrtc_overrides",
+    "!/xpcom/components",
     "/dom/media/driftcontrol",
     "/dom/media/mediasink",
     "/dom/media/systemservices",
@@ -17,6 +18,8 @@ LOCAL_INCLUDES += [
     "/dom/media/webrtc/common",
     "/third_party/abseil-cpp",
     "/third_party/libwebrtc",
+    "/xpcom/build",
+    "/xpcom/components",
 ]
 
 UNIFIED_SOURCES += [
@@ -37,6 +40,7 @@ UNIFIED_SOURCES += [
     "TestAudioTrackGraph.cpp",
     "TestBitWriter.cpp",
     "TestBlankVideoDataCreator.cpp",
+    "TestBufferMediaResource.cpp",
     "TestBufferReader.cpp",
     "TestCubebInputStream.cpp",
     "TestDataMutex.cpp",
@@ -64,6 +68,7 @@ UNIFIED_SOURCES += [
     "TestOggWriter.cpp",
     "TestOpusParser.cpp",
     "TestRust.cpp",
+    "TestSimpleMap.cpp",
     "TestTimeUnit.cpp",
     "TestVideoFrameContainer.cpp",
     "TestVideoSegment.cpp",
@@ -83,6 +88,7 @@ if CONFIG["MOZ_WEBRTC"]:
 
     UNIFIED_SOURCES += [
         "TestAudioInputProcessing.cpp",
+        "TestCamerasParent.cpp",
         "TestRTCStatsTimestampMaker.cpp",
         "TestWebrtcTaskQueueWrapper.cpp",
     ]
@@ -99,6 +105,7 @@ if CONFIG["MOZ_WEBRTC"] and CONFIG["OS_TARGET"] != "Android":
         "TestAudioDeviceEnumerator.cpp",
         "TestPacer.cpp",
         "TestVideoFrameConverter.cpp",
+        "TestWebrtcGmpCodec.cpp",
     ]
 
 TEST_HARNESS_FILES.gtest += [

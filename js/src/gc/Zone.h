@@ -16,10 +16,12 @@
 #include "mozilla/TimeStamp.h"
 
 #include <array>
+#include <bit>
 
 #include "jstypes.h"
 
 #include "ds/Bitmap.h"
+#include "ds/SlimLinkedList.h"
 #include "gc/ArenaList.h"
 #include "gc/Barrier.h"
 #include "gc/BufferAllocator.h"
@@ -344,7 +346,7 @@ class AtomCacheHashTable {
   // This value was picked empirically based on performance testing using SP2
   // and SP3. 2k was better than 1k but 4k was not much better than 2k.
   static constexpr uint32_t sSize = 2 * 1024;
-  static_assert(mozilla::IsPowerOfTwo(sSize));
+  static_assert(std::has_single_bit(sSize));
   std::array<EntrySet, sSize> mEntrySets;
 };
 
@@ -460,9 +462,15 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   // Number of allocations since the most recent minor GC for this thread.
   uint32_t tenuredAllocsSinceMinorGC_ = 0;
 
-  // Live weakmaps in this zone.
-  js::MainThreadOrGCTaskData<mozilla::LinkedList<js::WeakMapBase>>
-      gcWeakMapList_;
+  // Live weakmaps in this zone, used internally by the JS engine and used to
+  // implement JS WeakMap objects respectively.
+  js::MainThreadOrGCTaskData<js::SlimLinkedList<js::WeakMapBase>>
+      gcSystemWeakMaps_;
+  js::MainThreadOrGCTaskData<js::SlimLinkedList<js::WeakMapBase>>
+      gcUserWeakMaps_;
+  // During marking this holds user weak maps that have been marked.
+  js::MainThreadOrGCTaskData<js::SlimLinkedList<js::WeakMapBase>>
+      gcMarkedUserWeakMaps_;
 
   // The set of compartments in this zone.
   using CompartmentVector =
@@ -524,6 +532,11 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   js::MainThreadData<bool> gcPreserveCode_;
   js::MainThreadData<bool> keepPropMapTables_;
   js::MainThreadData<bool> wasCollected_;
+
+  // Cached information about weak maps in the zone, to speed up finding sweep
+  // group edges.
+  js::MainThreadOrGCTaskData<bool> gcUserWeakMapsMayHaveKeyDelegates_;
+  js::MainThreadOrGCTaskData<bool> gcWeakMapsMayHaveSymbolKeys_;
 
   js::MainThreadOrIonCompileData<JSObject**> preservedWrappers_;
   js::MainThreadOrIonCompileData<size_t> preservedWrappersCount_;
@@ -640,7 +653,7 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
     return lastDiscardedCodeTime_;
   }
 
-  void changeGCState(GCState prev, GCState next);
+  void changeGCState(js::gc::GCRuntime* gc, GCState prev, GCState next);
 
   bool isCollecting() const {
     MOZ_ASSERT(js::CurrentThreadCanAccessRuntime(runtimeFromMainThread()));
@@ -648,7 +661,7 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   }
 
   inline bool isCollectingFromAnyThread() const {
-    return needsIncrementalBarrier() || wasGCStarted();
+    return needsMarkingBarrier() || wasGCStarted();
   }
 
   GCState initialMarkingState() const;
@@ -669,13 +682,13 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   bool wasCollected() const { return wasCollected_; }
   void setWasCollected(bool v) { wasCollected_ = v; }
 
-  void setNeedsIncrementalBarrier(bool needs);
-  const BarrierState* addressOfNeedsIncrementalBarrier() const {
-    return &needsIncrementalBarrier_;
+  void setNeedsMarkingBarrier(js::gc::GCRuntime* gc, bool needs);
+  const BarrierState* addressOfNeedsMarkingBarrier() const {
+    return &needsMarkingBarrier_;
   }
 
-  static constexpr size_t offsetOfNeedsIncrementalBarrier() {
-    return offsetof(Zone, needsIncrementalBarrier_);
+  static constexpr size_t offsetOfNeedsMarkingBarrier() {
+    return offsetof(Zone, needsMarkingBarrier_);
   }
   static constexpr size_t offsetOfJitZone() { return offsetof(Zone, jitZone_); }
 
@@ -773,8 +786,29 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
     return res;
   }
 
-  mozilla::LinkedList<js::WeakMapBase>& gcWeakMapList() {
-    return gcWeakMapList_.ref();
+  js::SlimLinkedList<js::WeakMapBase>& gcSystemWeakMaps() {
+    return gcSystemWeakMaps_.ref();
+  }
+  js::SlimLinkedList<js::WeakMapBase>& gcUserWeakMaps() {
+    return gcUserWeakMaps_.ref();
+  }
+  js::SlimLinkedList<js::WeakMapBase>& gcMarkedUserWeakMaps() {
+    return gcMarkedUserWeakMaps_.ref();
+  }
+
+  bool gcUserWeakMapsMayHaveKeyDelegates() const {
+    return gcUserWeakMapsMayHaveKeyDelegates_;
+  }
+  void setGCWeakMapsMayHaveKeyDelegates() {
+    gcUserWeakMapsMayHaveKeyDelegates_ = true;
+  }
+  bool gcWeakMapsMayHaveSymbolKeys() const {
+    return gcWeakMapsMayHaveSymbolKeys_;
+  }
+  void setGCWeakMapsMayHaveSymbolKeys() { gcWeakMapsMayHaveSymbolKeys_ = true; }
+  void clearGCCachedWeakMapKeyData() {
+    gcUserWeakMapsMayHaveKeyDelegates_ = false;
+    gcWeakMapsMayHaveSymbolKeys_ = false;
   }
 
   CompartmentVector& compartments() { return compartments_.ref(); }
@@ -846,7 +880,7 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   }
 
   void beforeClearDelegate(JSObject* wrapper, JSObject* delegate) {
-    if (needsIncrementalBarrier()) {
+    if (needsMarkingBarrier()) {
       beforeClearDelegateInternal(wrapper, delegate);
     }
   }

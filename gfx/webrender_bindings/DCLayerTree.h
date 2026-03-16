@@ -67,6 +67,7 @@ class DCTile;
 class DCLayerDCompositionTexture;
 class DCSurface;
 class DCSwapChain;
+class DCSurfaceDCompositionTextureOverlay;
 class DCSurfaceVideo;
 class DCSurfaceHandle;
 class RenderTextureHost;
@@ -76,15 +77,19 @@ class RenderDcompSurfaceTextureHost;
 struct GpuOverlayInfo {
   bool mSupportsOverlays = false;
   bool mSupportsHardwareOverlays = false;
+  bool mSupportsHardwareOverlayRGB10A2 = false;
+  bool mSupportsHardwareOverlayRGBA16F = false;
   DXGI_FORMAT mOverlayFormatUsed = DXGI_FORMAT_B8G8R8A8_UNORM;
-  DXGI_FORMAT mOverlayFormatUsedHdr = DXGI_FORMAT_R10G10B10A2_UNORM;
+  DXGI_FORMAT mOverlayFormatUsedHdr = DXGI_FORMAT_R16G16B16A16_FLOAT;
   UINT mNv12OverlaySupportFlags = 0;
   UINT mYuy2OverlaySupportFlags = 0;
   UINT mBgra8OverlaySupportFlags = 0;
   UINT mRgb10a2OverlaySupportFlags = 0;
+  UINT mRgba16fOverlaySupportFlags = 0;
 
   bool mSupportsVpSuperResolution = false;
   bool mSupportsVpAutoHDR = false;
+  bool mSupportsHDR = false;
 };
 
 // -
@@ -136,6 +141,7 @@ class DCLayerTree {
   void MaybeCommit();
   void WaitForCommitCompletion();
 
+  bool UseCompositor() const;
   bool UseNativeCompositor() const;
   bool UseLayerCompositor() const;
   void DisableNativeCompositor();
@@ -196,14 +202,18 @@ class DCLayerTree {
   GLuint GetOrCreateFbo(int aWidth, int aHeight);
 
   bool SupportsHardwareOverlays();
+  bool SupportsHardwareOverlayRGB10A2();
+  bool SupportsHardwareOverlayRGBA16F();
   DXGI_FORMAT GetOverlayFormatForSDR();
 
   bool SupportsSwapChainTearing();
-  bool SupportsDCompositionTexture();
+  bool UseDCLayerDCompositionTexture();
 
   void SetUsedOverlayTypeInFrame(DCompOverlayTypes aTypes);
 
   int GetFrameId() { return mCurrentFrame; }
+
+  void SetPendingCommit() { mPendingCommit = true; }
 
  protected:
   bool Initialize(HWND aHwnd, nsACString& aError);
@@ -218,7 +228,12 @@ class DCLayerTree {
   void ReleaseNativeCompositorResources();
   layers::OverlayInfo GetOverlayInfo();
 
-  bool mUseNativeCompositor = true;
+  enum class WebRenderOsCompositorKind {
+    NativeCompositor,
+    LayerCompositor,
+  };
+
+  Maybe<WebRenderOsCompositorKind> mCompositorKind;
   bool mEnableAsyncScreenshot = false;
   bool mEnableAsyncScreenshotInNextFrame = false;
   int mAsyncScreenshotLastFrameUsed = 0;
@@ -358,6 +373,10 @@ class DCSurface {
   virtual DCLayerSurface* AsDCLayerSurface() { return nullptr; }
   virtual DCSwapChain* AsDCSwapChain() { return nullptr; }
   virtual DCLayerDCompositionTexture* AsDCLayerDCompositionTexture() {
+    return nullptr;
+  }
+  virtual DCSurfaceDCompositionTextureOverlay*
+  AsDCSurfaceDCompositionTextureOverlay() {
     return nullptr;
   }
 
@@ -551,12 +570,38 @@ class DCExternalSurfaceWrapper : public DCSurface {
     return mSurface ? mSurface->AsDCSurfaceHandle() : nullptr;
   }
 
+  DCSurfaceDCompositionTextureOverlay* AsDCSurfaceDCompositionTextureOverlay()
+      override {
+    return mSurface ? mSurface->AsDCSurfaceDCompositionTextureOverlay()
+                    : nullptr;
+  }
+
  private:
   DCSurface* EnsureSurfaceForExternalImage(wr::ExternalImageId aExternalImage);
 
   UniquePtr<DCSurface> mSurface;
   const bool mIsOpaque;
   Maybe<ColorManagementChain> mCManageChain;
+};
+
+class DCSurfaceDCompositionTextureOverlay : public DCSurface {
+ public:
+  DCSurfaceDCompositionTextureOverlay(bool aIsOpaque,
+                                      DCLayerTree* aDCLayerTree);
+
+  void AttachExternalImage(wr::ExternalImageId aExternalImage) override;
+  void Present();
+
+  DCSurfaceDCompositionTextureOverlay* AsDCSurfaceDCompositionTextureOverlay()
+      override {
+    return this;
+  }
+
+ protected:
+  virtual ~DCSurfaceDCompositionTextureOverlay();
+
+  RefPtr<RenderTextureHost> mRenderTextureHost;
+  RefPtr<RenderTextureHost> mPrevRenderTextureHost;
 };
 
 class DCSurfaceVideo : public DCSurface {
@@ -573,7 +618,8 @@ class DCSurfaceVideo : public DCSurface {
  protected:
   virtual ~DCSurfaceVideo();
 
-  DXGI_FORMAT GetSwapChainFormat(bool aUseVpAutoHDR);
+  DXGI_FORMAT GetSwapChainFormat(bool aUseVpAutoHDR, bool aUseRGB10A2,
+                                 bool aUseRGBA16F);
   bool CreateVideoSwapChain(DXGI_FORMAT aFormat);
   bool CallVideoProcessorBlt();
   void ReleaseDecodeSwapChainResources();
@@ -596,6 +642,8 @@ class DCSurfaceVideo : public DCSurface {
   bool mUseVpAutoHDR = false;
   bool mVpAutoHDRFailed = false;
   bool mVpSuperResolutionFailed = false;
+  bool mContentIsHDR = false;
+  bool mUseHDR = false;
 };
 
 /**

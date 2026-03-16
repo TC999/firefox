@@ -34,7 +34,9 @@ SIGNING_FORMATS = {
 transforms = TransformSequence()
 
 
-def generate_partials_artifacts(job, release_history, platform, locale=None):
+def generate_partials_artifacts(
+    job, release_history, platform, upstream_kind, locale=None
+):
     artifact_prefix = get_artifact_prefix(job)
     if locale:
         artifact_prefix = f"{artifact_prefix}/{locale}"
@@ -45,7 +47,7 @@ def generate_partials_artifacts(job, release_history, platform, locale=None):
 
     upstream_artifacts = [
         {
-            "taskId": {"task-reference": "<partials>"},
+            "taskId": {"task-reference": f"<{upstream_kind}>"},
             "taskType": "partials",
             "paths": [f"{artifact_prefix}/{path}" for path, version in artifacts],
             "formats": ["gcp_prod_autograph_hash_only_mar384"],
@@ -62,14 +64,12 @@ def generate_complete_artifacts(job, kind):
     for artifact in job.attributes["release_artifacts"]:
         basename = os.path.basename(artifact)
         if basename in SIGNING_FORMATS[kind]:
-            upstream_artifacts.append(
-                {
-                    "taskId": {"task-reference": f"<{job.kind}>"},
-                    "taskType": "build",
-                    "paths": [artifact],
-                    "formats": SIGNING_FORMATS[kind][basename],
-                }
-            )
+            upstream_artifacts.append({
+                "taskId": {"task-reference": f"<{job.kind}>"},
+                "taskType": "build",
+                "paths": [artifact],
+                "formats": SIGNING_FORMATS[kind][basename],
+            })
 
     return upstream_artifacts
 
@@ -106,13 +106,18 @@ def make_task_description(config, jobs):
         build_platform = attributes.get("build_platform")
         if config.kind == "partials-signing":
             upstream_artifacts = generate_partials_artifacts(
-                dep_job, config.params["release_history"], build_platform, locale
+                dep_job,
+                config.params["release_history"],
+                build_platform,
+                dep_job.kind,
+                locale,
             )
         else:
             upstream_artifacts = generate_complete_artifacts(dep_job, config.kind)
 
         is_shippable = job.get(
-            "shippable", dep_job.attributes.get("shippable")  # First check current job
+            "shippable",
+            dep_job.attributes.get("shippable"),  # First check current job
         )  # Then dep job for 'shippable'
         signing_type = get_signing_type_per_platform(
             build_platform, is_shippable, config
@@ -137,5 +142,7 @@ def make_task_description(config, jobs):
             "run-on-repo-type": job.get("run-on-repo-type", ["git", "hg"]),
             "treeherder": treeherder,
         }
+        if (git_branches := job.get("run-on-git-branches")) is not None:
+            task["run-on-git-branches"] = git_branches
 
         yield task

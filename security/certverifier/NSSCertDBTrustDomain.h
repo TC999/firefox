@@ -236,7 +236,7 @@ class NSSCertDBTrustDomain : public mozilla::pkix::TrustDomain {
       const nsTArray<uint8_t>& issuerSubjectPublicKeyInfoBytes,
       const nsTArray<uint8_t>& serialNumberBytes,
       const nsTArray<RefPtr<nsICRLiteTimestamp>>& crliteTimestamps,
-      bool& filterCoversCertificate);
+      mozilla::pkix::Time time, bool& filterCoversCertificate);
 
   enum EncodedResponseSource {
     ResponseIsFromNetwork = 1,
@@ -255,14 +255,13 @@ class NSSCertDBTrustDomain : public mozilla::pkix::TrustDomain {
   Result CheckRevocationByOCSP(
       const mozilla::pkix::CertID& certID, mozilla::pkix::Time time,
       mozilla::pkix::Duration validityDuration, const nsCString& aiaLocation,
-      const bool crliteCoversCertificate, const Result crliteResult,
       /*optional*/ const mozilla::pkix::Input* stapledOCSPResponse);
 
   Result SynchronousCheckRevocationWithServer(
       const mozilla::pkix::CertID& certID, const nsCString& aiaLocation,
       mozilla::pkix::Time time, uint16_t maxOCSPLifetimeInDays,
-      const Result cachedResponseResult, const Result stapledOCSPResponseResult,
-      const bool crliteFilterCoversCertificate, const Result crliteResult);
+      const Result cachedResponseResult,
+      const Result stapledOCSPResponseResult);
   Result HandleOCSPFailure(const Result cachedResponseResult,
                            const Result stapledOCSPResponseResult,
                            const Result error);

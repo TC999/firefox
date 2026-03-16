@@ -148,6 +148,7 @@ struct LoadInfoArgs
   bool                        forceInheritPrincipalDropped;
   uint64_t                    innerWindowID;
   uint64_t                    browsingContextID;
+  uint64_t                    associatedBrowsingContextID;
   uint64_t                    frameBrowsingContextID;
   bool                        initialSecurityCheckDone;
   bool                        isInThirdPartyContext;
@@ -223,6 +224,9 @@ struct LoadInfoArgs
   InterceptionInfoArg?        interceptionInfo;
   bool                        isNewWindowTarget;
   UserNavigationInvolvement   userNavigationInvolvement;
+  FeaturePolicyInfo?          containerFeaturePolicyInfo;
+  // https://html.spec.whatwg.org/#dom-location-ancestororigins
+  PrincipalInfo?[]             ancestorOrigins;
 };
 
 /**
@@ -476,6 +480,7 @@ struct HttpConnectionInfoCloneArgs
   uint64_t webTransportId;
   bool hasIPHintAddress;
   nsCString echConfig;
+  bool happyEyeballsEnabled;
   ProxyInfoCloneArgs[] proxyInfo;
 };
 
@@ -648,7 +653,6 @@ struct TransactionObserverResult
 struct SpeculativeConnectionOverriderArgs {
   uint32_t parallelSpeculativeConnectLimit;
   bool ignoreIdle;
-  bool isFromPredictor;
   bool allow1918;
 };
 

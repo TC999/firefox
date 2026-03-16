@@ -108,7 +108,7 @@ add_task(async function () {
     monitor,
     1 + Object.keys(TEST_PAGES).length
   );
-  await reloadBrowser();
+  await reloadSelectedTab();
   await onNetworkEvent;
 
   // The new lines are stripped when using outerHTML to retrieve HTML content of the preview iframe
@@ -177,8 +177,8 @@ add_task(async function () {
     if (name == "csp") {
       await SpecialPowers.spawn(browser.browsingContext, [], async function () {
         is(
-          content.document.querySelector("img").complete,
-          false,
+          content.document.querySelector("img").naturalWidth,
+          0,
           "img was blocked"
         );
         is(

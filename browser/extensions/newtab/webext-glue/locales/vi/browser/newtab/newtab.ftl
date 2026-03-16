@@ -23,6 +23,9 @@ newtab-personalize-dialog-label =
     .aria-label = Cá nhân hóa
 newtab-logo-and-wordmark =
     .aria-label = { -brand-full-name }
+newtab-card-dismiss-button =
+    .title = Bỏ qua
+    .aria-label = Bỏ qua
 
 ## Search box component.
 
@@ -49,7 +52,7 @@ newtab-search-box-input =
     .placeholder = Tìm kiếm trên mạng
     .aria-label = Tìm kiếm trên mạng
 
-## Top Sites - General form dialog.
+## Clear text button for the URL and image URL input fields in the Top Sites form.
 
 newtab-topsites-add-search-engine-header = Thêm công cụ tìm kiếm
 newtab-topsites-add-shortcut-header = Lối tắt mới
@@ -69,6 +72,11 @@ newtab-topsites-url-validation = Yêu cầu URL hợp lệ
 newtab-topsites-image-url-label = Hình ảnh Tuỳ chỉnh URL
 newtab-topsites-use-image-link = Sử dụng hình ảnh tùy chỉnh…
 newtab-topsites-image-validation = Không tải được hình ảnh. Hãy thử một URL khác.
+
+## Clear text button for the URL and image URL input fields in the Top Sites form.
+
+newtab-topsites-clear-input =
+    .aria-label = Xoá văn bản
 
 ## Top Sites - General form dialog buttons. These are verbs/actions.
 
@@ -328,18 +336,18 @@ newtab-custom-recent-subtitle = Tuyển chọn các trang và nội dung gần �
 newtab-custom-weather-toggle =
     .label = Thời tiết
     .description = Sơ lược về dự báo hôm nay
-newtab-custom-trending-search-toggle =
-    .label = Tìm kiếm thịnh hành
-    .description = Các chủ đề phổ biến và được tìm kiếm thường xuyên
 newtab-custom-widget-weather-toggle =
     .label = Thời tiết
-newtab-custom-widget-trending-search-toggle =
-    .label = Tìm kiếm thịnh hành
 newtab-custom-widget-lists-toggle =
     .label = Danh sách
 newtab-custom-widget-timer-toggle =
     .label = Bộ hẹn giờ
 newtab-custom-widget-section-title = Widget
+newtab-custom-widget-section-toggle =
+    .label = Widget
+newtab-widget-manage-title = Widget
+newtab-widget-manage-widget-button =
+    .label = Quản lý widget
 # Tooltip for close button
 newtab-custom-close-menu-button =
     .title = Đóng
@@ -467,6 +475,8 @@ newtab-weather-change-location-search-input-placeholder =
     .placeholder = Tìm kiếm khu vực
     .aria-label = Tìm kiếm khu vực
 newtab-weather-menu-weather-display = Cách hiển thị thời tiết
+newtab-weather-todays-forecast = Dự báo thời tiết hôm nay
+newtab-weather-see-full-forecast = Xem dự báo thời tiết đầy đủ
 # Display options are:
 # - Simple: Displays a current weather condition icon and the current temperature
 # - Detailed: Include simple information plus a short text summary: e.g. "Mostly cloudy"
@@ -479,6 +489,7 @@ newtab-weather-menu-temperature-option-fahrenheit = Độ F
 newtab-weather-menu-temperature-option-celsius = Độ C
 newtab-weather-menu-change-temperature-units-fahrenheit = Chuyển sang độ F
 newtab-weather-menu-change-temperature-units-celsius = Chuyển sang độ C
+newtab-weather-menu-hide-weather-v2 = Ẩn thời tiết
 newtab-weather-menu-hide-weather = Ẩn thời tiết trên thẻ mới
 newtab-weather-menu-learn-more = Tìm hiểu thêm
 newtab-weather-menu-detect-my-location = Phát hiện vị trí của tôi
@@ -491,6 +502,11 @@ newtab-weather-opt-in-yes =
     .label = Đồng ý
 # We'll be showing static (fake) weather data if the user has not opted in to using their location
 newtab-weather-static-city = Thành phố New York
+# Variables:
+#   $provider (string) - Service provider for weather data
+newtab-weather-see-forecast-description =
+    .title = Xem dự báo với { $provider }
+    .aria-description = { $provider } ∙ Được tài trợ
 
 ## Topic Labels
 
@@ -595,7 +611,7 @@ newtab-download-mobile-highlight-image =
 newtab-shortcuts-highlight-title = Những mục yêu thích của bạn trong tầm tay bạn
 newtab-shortcuts-highlight-subtitle = Thêm lối tắt để truy cập các trang web yêu thích chỉ bằng một cú nhấp chuột.
 
-## Strings for reporting ads and content
+## Strings for reporting issues with ads and content
 
 newtab-report-content-why-reporting-this =
     .label = Tại sao bạn báo cáo điều này?
@@ -613,21 +629,13 @@ newtab-report-content-inappropriate-offensive =
     .label = Không phù hợp hoặc xúc phạm
 newtab-report-content-spam-misleading =
     .label = Spam hoặc gây hiểu lầm
+newtab-report-content-requires-payment-subscription =
+    .label = Yêu cầu thanh toán hoặc gói đăng ký
+newtab-report-content-requires-payment-subscription-learn-more = Tìm hiểu thêm
 newtab-report-cancel = Hủy bỏ
 newtab-report-submit = Gửi
 newtab-toast-thanks-for-reporting =
     .message = Cảm ơn bạn đã báo cáo điều này.
-
-## Strings for trending searches
-
-newtab-trending-searches-show-trending =
-    .title = Hiển thị tìm kiếm thịnh hành
-newtab-trending-searches-hide-trending =
-    .title = Ẩn tìm kiếm thịnh hành
-newtab-trending-searches-learn-more = Tìm hiểu thêm
-newtab-trending-searches-dismiss = Ẩn tìm kiếm thịnh hành
-# "Trending searches refers to popular searches from search engines
-newtab-trending-searches-title = Tìm kiếm thịnh hành
 
 ## Strings for task / to-do list productivity widget
 
@@ -700,6 +708,12 @@ newtab-widget-timer-menu-notifications = Tắt thông báo
 newtab-widget-timer-menu-notifications-on = Bật thông báo
 newtab-widget-timer-menu-hide = Ẩn bộ hẹn giờ
 newtab-widget-timer-menu-learn-more = Tìm hiểu thêm
+# The title displays above a set of top news headlines.
+newtab-daily-briefing-card-title = Tin tức nổi bật
+newtab-daily-briefing-card-menu-dismiss = Bỏ qua
+# Variables:
+#   $minutes (number) - Time since the feed has been refreshed
+newtab-daily-briefing-card-timestamp = Đã cập nhật { $minutes } phút trước
 newtab-widget-message-title = Giữ tập trung với danh sách và bộ đếm thời gian tích hợp
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Từ những lời nhắc nhở nhanh đến những việc cần làm hàng ngày, các buổi tập trung đến những giờ nghỉ giải lao — hãy tập trung vào nhiệm vụ và đúng giờ.
@@ -709,3 +723,25 @@ newtab-promo-card-cta = Tìm hiểu thêm
 newtab-promo-card-dismiss-button =
     .title = Bỏ qua
     .aria-label = Bỏ qua
+
+## Strings for activation window message variants. In certain experiment configurations,
+## the strings from these variants may be displayed in a message below the search input
+## for the first 48 hours of a new profile's lifetime. Some messages include buttons with
+## labels, but not all.
+
+newtab-activation-window-message-dismiss-button =
+    .title = Bỏ qua
+    .aria-label = Bỏ qua
+# "This space" refers to about:newtab. The call to action here ("make it your own")
+# is to customize newtab with a background image or colour, or by tweaking the
+# existing widgetry that appears on it.
+newtab-activation-window-message-customization-focus-header = Hãy biến không gian này thành của riêng bạn.
+newtab-activation-window-message-customization-focus-message = Chọn hình nền mới, thêm lối tắt đến các trang web yêu thích của bạn và cập nhật những câu chuyện mà bạn quan tâm.
+newtab-activation-window-message-customization-focus-primary-button =
+    .label = Bắt đầu tuỳ chỉnh
+# "This space" refers to about:newtab. The sentiment of "plays by your rules" is
+# meant to evoke the idea that newtab is malleable and customizable. The call to
+# action is to customize newtab with a background image or colour, or by tweaking
+# the existing widgetry that appears on it.
+newtab-activation-window-message-values-focus-header = Không gian này tuân theo luật lệ của bạn.
+newtab-activation-window-message-values-focus-message = { -brand-product-name } cho phép bạn duyệt web theo cách bạn thích, với cách thức cá nhân hơn để bắt đầu ngày mới trực tuyến. Biến { -brand-product-name } thành của riêng bạn.

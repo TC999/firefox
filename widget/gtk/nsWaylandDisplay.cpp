@@ -22,6 +22,7 @@
 #include "nsLayoutUtils.h"
 #include "nsWindow.h"
 #include "wayland-proxy.h"
+#include "ScreenHelperGTK.h"
 
 #undef LOG
 #undef LOG_VERBOSE
@@ -76,6 +77,7 @@ nsWaylandDisplay* WaylandDisplayGet() {
     // value.
     wl_display_set_max_buffer_size(waylandDisplay, 1024 * 1024);
     gWaylandDisplay = new nsWaylandDisplay(waylandDisplay);
+    gWaylandDisplay->Init();
   }
   return gWaylandDisplay;
 }
@@ -663,24 +665,36 @@ static void output_handle_geometry(void* data, struct wl_output* wl_output,
       monitor->id, x, y, physical_width, physical_height, subpixel, transform);
   monitor->x = x;
   monitor->y = y;
+  monitor->pendingChanges = true;
 }
-
-static void output_handle_done(void* data, struct wl_output* wl_output) {}
-
-static void output_handle_scale(void* data, struct wl_output* wl_output,
-                                int32_t scale) {}
 
 static void output_handle_mode(void* data, struct wl_output* wl_output,
                                uint32_t flags, int width, int height,
                                int refresh) {
   auto* monitor = static_cast<nsWaylandDisplay::MonitorConfig*>(data);
-  LOG("nsWaylandDisplay ID %d mode output size %d x %d", monitor->id, width,
-      height);
   if ((flags & WL_OUTPUT_MODE_CURRENT) == 0) {
     return;
   }
+  LOG("nsWaylandDisplay ID %d mode output size %d x %d", monitor->id, width,
+      height);
   monitor->pixelWidth = width;
   monitor->pixelHeight = height;
+  monitor->pendingChanges = true;
+}
+
+static void output_handle_scale(void* data, struct wl_output* wl_output,
+                                int32_t scale) {
+  auto* monitor = static_cast<nsWaylandDisplay::MonitorConfig*>(data);
+  LOG("nsWaylandDisplay ID %d Scale change [%d]", monitor->id, scale);
+  monitor->pendingChanges = true;
+}
+
+static void output_handle_done(void* data, struct wl_output* wl_output) {
+  auto* monitor = static_cast<nsWaylandDisplay::MonitorConfig*>(data);
+  LOG("nsWaylandDisplay ID %d Done", monitor->id);
+  monitor->pendingChanges = false;
+
+  WaylandDisplayGet()->RefreshScreens();
 }
 
 static const struct wl_output_listener output_listener = {
@@ -689,6 +703,17 @@ static const struct wl_output_listener output_listener = {
     output_handle_done,
     output_handle_scale,
 };
+
+void nsWaylandDisplay::RefreshScreens() {
+  LOG("nsWaylandDisplay::RefreshScreens()");
+  for (unsigned int i = 0; i < mMonitors.Length(); i++) {
+    if (mMonitors[i]->pendingChanges) {
+      LOG("  monitor ID %d is not complete", mMonitors[i]->id);
+      return;
+    }
+  }
+  ScreenHelperGTK::RequestRefreshScreens();
+}
 
 void nsWaylandDisplay::AddWlOutput(wl_output* aWlOutput, int aId) {
   wl_output_add_listener(aWlOutput, &output_listener, AddMonitorConfig(aId));
@@ -803,7 +828,7 @@ static void global_registry_handler(void* data, wl_registry* registry,
     display->SetPointerGestures(gestures);
   } else if (iface.EqualsLiteral("wp_color_manager_v1")) {
     auto* colorManager = WaylandRegistryBind<wp_color_manager_v1>(
-        registry, id, &wp_color_manager_v1_interface, version);
+        registry, id, &wp_color_manager_v1_interface, 1);
     display->SetColorManager(colorManager);
   } else if (iface.EqualsLiteral("wp_color_representation_manager_v1")) {
     auto* colorRepresentationManager =
@@ -812,11 +837,12 @@ static void global_registry_handler(void* data, wl_registry* registry,
     display->SetColorRepresentationManager(colorRepresentationManager);
   } else if (iface.EqualsLiteral("xx_pip_shell_v1")) {
     auto* pipShell = WaylandRegistryBind<xx_pip_shell_v1>(
-        registry, id, &xx_pip_shell_v1_interface, version);
+        registry, id, &xx_pip_shell_v1_interface, 1);
     display->SetPipShell(pipShell);
   } else if (iface.EqualsLiteral("xdg_wm_base")) {
+    uint32_t vers = MIN(version, (uint32_t)xdg_wm_base_interface.version);
     auto* xdgWm = WaylandRegistryBind<xdg_wm_base>(
-        registry, id, &xdg_wm_base_interface, version);
+        registry, id, &xdg_wm_base_interface, vers);
     display->SetXdgWm(xdgWm);
   } else if (iface.EqualsLiteral("wl_output") && version > 1) {
     auto* output =
@@ -1058,12 +1084,20 @@ void WlCompositorCrashHandler() {
 nsWaylandDisplay::nsWaylandDisplay(wl_display* aDisplay)
     : mThreadId(PR_GetCurrentThread()), mDisplay(aDisplay) {
   MOZ_DIAGNOSTIC_ASSERT(XRE_IsParentProcess());
+  for (auto& e : mSupportedTransfer) {
+    e = -1;
+  };
+  for (auto& e : mSupportedPrimaries) {
+    e = -1;
+  };
+}
 
+void nsWaylandDisplay::Init() {
   // GTK sets the log handler on display creation, thus we overwrite it here
   // in a similar fashion
   wl_log_set_handler_client(WlLogHandler);
 
-  LOG("nsWaylandDisplay::nsWaylandDisplay()");
+  LOG("nsWaylandDisplay::Init()");
 
   mFormats = new DMABufFormats();
   mRegistry = wl_display_get_registry(mDisplay);
@@ -1073,14 +1107,7 @@ nsWaylandDisplay::nsWaylandDisplay(wl_display* aDisplay)
   WaitForAsyncRoundtrips();
   EnsureDMABufFormats();
 
-  LOG("nsWaylandDisplay::nsWaylandDisplay() init finished");
-
-  for (auto& e : mSupportedTransfer) {
-    e = -1;
-  };
-  for (auto& e : mSupportedPrimaries) {
-    e = -1;
-  };
+  LOG("  init finished");
 
   // Check we have critical Wayland interfaces.
   // Missing ones indicates a compositor bug and we can't continue.

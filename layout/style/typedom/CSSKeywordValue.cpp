@@ -9,6 +9,7 @@
 #include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/RefPtr.h"
+#include "mozilla/ServoStyleConsts.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/CSSKeywordValueBinding.h"
 
@@ -16,8 +17,14 @@ namespace mozilla::dom {
 
 CSSKeywordValue::CSSKeywordValue(nsCOMPtr<nsISupports> aParent,
                                  const nsACString& aValue)
-    : CSSStyleValue(std::move(aParent), ValueType::KeywordValue),
+    : CSSStyleValue(std::move(aParent), StyleValueType::KeywordValue),
       mValue(aValue) {}
+
+// static
+RefPtr<CSSKeywordValue> CSSKeywordValue::Create(
+    nsCOMPtr<nsISupports> aParent, const StyleKeywordValue& aKeywordValue) {
+  return MakeRefPtr<CSSKeywordValue>(std::move(aParent), aKeywordValue._0);
+}
 
 JSObject* CSSKeywordValue::WrapObject(JSContext* aCx,
                                       JS::Handle<JSObject*> aGivenProto) {
@@ -66,8 +73,14 @@ void CSSKeywordValue::ToCssTextWithProperty(const CSSPropertyId& aPropertyId,
   aDest.Append(mValue);
 }
 
+const CSSKeywordValue& CSSStyleValue::GetAsCSSKeywordValue() const {
+  MOZ_DIAGNOSTIC_ASSERT(mStyleValueType == StyleValueType::KeywordValue);
+
+  return *static_cast<const CSSKeywordValue*>(this);
+}
+
 CSSKeywordValue& CSSStyleValue::GetAsCSSKeywordValue() {
-  MOZ_DIAGNOSTIC_ASSERT(mValueType == ValueType::KeywordValue);
+  MOZ_DIAGNOSTIC_ASSERT(mStyleValueType == StyleValueType::KeywordValue);
 
   return *static_cast<CSSKeywordValue*>(this);
 }

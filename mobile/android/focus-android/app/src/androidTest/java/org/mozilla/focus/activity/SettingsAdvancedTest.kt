@@ -4,7 +4,6 @@
 package org.mozilla.focus.activity
 
 import androidx.test.internal.runner.junit4.AndroidJUnit4ClassRunner
-import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -13,7 +12,7 @@ import org.junit.runner.RunWith
 import org.mozilla.focus.activity.robots.homeScreen
 import org.mozilla.focus.helpers.FeatureSettingsHelper
 import org.mozilla.focus.helpers.MainActivityFirstrunTestRule
-import org.mozilla.focus.helpers.MockWebServerHelper
+import org.mozilla.focus.helpers.MockWebServerRule
 import org.mozilla.focus.helpers.TestAssetHelper.getGenericTabAsset
 import org.mozilla.focus.helpers.TestHelper.waitingTimeShort
 import org.mozilla.focus.helpers.TestSetup
@@ -22,9 +21,11 @@ import org.mozilla.focus.testAnnotations.SmokeTest
 // These tests check the advanced settings options
 @RunWith(AndroidJUnit4ClassRunner::class)
 class SettingsAdvancedTest : TestSetup() {
-    private lateinit var webServer: MockWebServer
 
     private val featureSettingsHelper = FeatureSettingsHelper()
+
+    @get:Rule
+    val webServerRule = MockWebServerRule()
 
     @get:Rule
     val mActivityTestRule = MainActivityFirstrunTestRule(showFirstRun = false)
@@ -32,24 +33,19 @@ class SettingsAdvancedTest : TestSetup() {
     @Before
     override fun setUp() {
         super.setUp()
-        webServer = MockWebServer().apply {
-            dispatcher = MockWebServerHelper.AndroidAssetDispatcher()
-            start()
-        }
         featureSettingsHelper.setCfrForTrackingProtectionEnabled(false)
         featureSettingsHelper.setSearchWidgetDialogEnabled(false)
     }
 
     @After
     fun tearDown() {
-        webServer.shutdown()
         featureSettingsHelper.resetAllFeatureFlags()
     }
 
     @SmokeTest
     @Test
     fun openLinksInAppsTest() {
-        val tab3Url = webServer.getGenericTabAsset(3).url
+        val tab3Url = webServerRule.server.getGenericTabAsset(3).url
         val youtubeLink = "https://www.youtube.com/c/MozillaChannel/videos"
 
         homeScreen {

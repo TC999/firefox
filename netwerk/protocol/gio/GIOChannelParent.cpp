@@ -122,7 +122,7 @@ bool GIOChannelParent::DoAsyncOpen(const URIParams& aURI,
     return SendFailedAsyncOpen(rv);
   }
 
-  mChannel = chan;
+  mChannel = std::move(chan);
 
   nsIChannel* gioChan = static_cast<nsIChannel*>(mChannel.get());
 
@@ -237,8 +237,7 @@ GIOChannelParent::OnDataAvailable(nsIRequest* aRequest,
   nsresult channelStatus = NS_OK;
   mChannel->GetStatus(&channelStatus);
 
-  if (mIPCClosed ||
-      !SendOnDataAvailable(channelStatus, data, aOffset, aCount)) {
+  if (mIPCClosed || !SendOnDataAvailable(channelStatus, data, aOffset)) {
     return NS_ERROR_UNEXPECTED;
   }
   return NS_OK;

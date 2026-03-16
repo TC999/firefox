@@ -26,6 +26,7 @@
 #include "mozilla/CycleCollectedJSContext.h"
 #include "mozilla/LoadInfo.h"
 #include "mozilla/Maybe.h"
+#include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StyleSheet.h"
 #include "mozilla/StyleSheetInlines.h"
 #include "mozilla/dom/AutoEntryScript.h"
@@ -97,7 +98,7 @@ bool ModuleLoader::CanStartLoad(ModuleLoadRequest* aRequest, nsresult* aRvOut) {
 
 nsresult ModuleLoader::StartFetch(ModuleLoadRequest* aRequest) {
   if (aRequest->IsCachedStencil()) {
-    GetScriptLoader()->EmulateNetworkEvents(aRequest);
+    GetScriptLoader()->EmulateNetworkEvents(aRequest, Nothing());
     SetModuleFetchStarted(aRequest);
     return aRequest->OnFetchComplete(NS_OK);
   }
@@ -130,7 +131,8 @@ nsresult ModuleLoader::StartFetch(ModuleLoadRequest* aRequest) {
 
   // https://html.spec.whatwg.org/multipage/webappapis.html#fetch-an-import()-module-script-graph
   // Step 1. Disallow further import maps given settings object.
-  if (!aRequest->GetScriptLoadContext()->IsPreload()) {
+  if (!aRequest->GetScriptLoadContext()->IsPreload() &&
+      !StaticPrefs::dom_multiple_import_maps_enabled()) {
     LOG(("ScriptLoadRequest (%p): Disallow further import maps.", aRequest));
     DisallowImportMaps();
   }
@@ -220,8 +222,8 @@ nsresult ModuleLoader::CompileFetchedModule(
   switch (aRequest->mModuleType) {
     case JS::ModuleType::Unknown:
       MOZ_CRASH("Unexpected module type");
-    case JS::ModuleType::JavaScript:
-      return CompileJavaScriptModule(aCx, aOptions, aRequest, aModuleOut);
+    case JS::ModuleType::JavaScriptOrWasm:
+      return CompileJavaScriptOrWasmModule(aCx, aOptions, aRequest, aModuleOut);
     case JS::ModuleType::JSON:
       return CompileJsonModule(aCx, aOptions, aRequest, aModuleOut);
     case JS::ModuleType::CSS:
@@ -233,10 +235,25 @@ nsresult ModuleLoader::CompileFetchedModule(
   MOZ_CRASH("Unhandled module type");
 }
 
-nsresult ModuleLoader::CompileJavaScriptModule(
+nsresult ModuleLoader::CompileJavaScriptOrWasmModule(
     JSContext* aCx, JS::CompileOptions& aOptions, ModuleLoadRequest* aRequest,
     JS::MutableHandle<JSObject*> aModuleOut) {
   GetScriptLoader()->CalculateCacheFlag(aRequest);
+
+#ifdef NIGHTLY_BUILD
+  if (aRequest->HasWasmMimeTypeEssence()) {
+    MOZ_ASSERT(aRequest->IsWasmBytes());
+    auto* wasmModule =
+        JS::CompileWasmModule(aCx, aOptions, aRequest->WasmBytes());
+    if (!wasmModule) {
+      return NS_ERROR_FAILURE;
+    }
+
+    aModuleOut.set(wasmModule);
+    return NS_OK;
+  }
+#endif
+  MOZ_ASSERT(!aRequest->IsWasmBytes());
 
   if (aRequest->IsCachedStencil()) {
     JS::InstantiateOptions instantiateOptions(aOptions);
@@ -386,13 +403,15 @@ nsresult ModuleLoader::CompileCssModule(
     nsCOMPtr<nsPIDOMWindowInner> window =
         do_QueryInterface(aRequest->GetGlobalObject());
     if (!window) {
-      error.ThrowNotSupportedError("Not supported when there is no document");
+      error.ThrowNotSupportedError(
+          "CSS module scripts not supported when there is no window");
       return;
     }
 
     Document* constructorDocument = window->GetExtantDoc();
     if (!constructorDocument) {
-      error.ThrowNotSupportedError("Not supported when there is no document");
+      error.ThrowNotSupportedError(
+          "CSS module scripts not supported when there is no document");
       return;
     }
 
@@ -481,6 +500,9 @@ already_AddRefed<ModuleLoadRequest> ModuleLoader::CreateRequest(
     MOZ_ASSERT(root);
     LoadContextBase* loadContext = root->mLoadContext;
     context->mScriptMode = loadContext->AsWindowContext()->mScriptMode;
+    if (loadContext->AsWindowContext()->mIsPreload) {
+      context->mIsPreload = true;
+    }
     kind = ModuleLoadRequest::Kind::StaticImport;
   }
 

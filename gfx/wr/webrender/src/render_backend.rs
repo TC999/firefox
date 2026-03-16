@@ -12,12 +12,13 @@ use api::{DebugFlags, Parameter, BoolParameter, PrimitiveFlags, MinimapData};
 use api::{DocumentId, ExternalScrollId, HitTestResult};
 use api::{IdNamespace, PipelineId, RenderNotifier, SampledScrollOffset};
 use api::{NotificationRequest, Checkpoint, QualitySettings};
-use api::{FramePublishId, PrimitiveKeyKind, RenderReasons};
+use api::{FramePublishId, RenderReasons};
 use api::units::*;
 use api::channel::{single_msg_channel, Sender, Receiver};
 use crate::bump_allocator::ChunkPool;
 use crate::AsyncPropertySampler;
 use crate::box_shadow::BoxShadow;
+use crate::prim_store::rectangle::RectanglePrim;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use crate::render_api::CaptureBits;
 #[cfg(feature = "replay")]
@@ -36,7 +37,8 @@ use crate::intern::DataStore;
 use crate::internal_types::DebugOutput;
 use crate::internal_types::{FastHashMap, FrameId, FrameStamp, RenderedDocument, ResultMsg};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
-use crate::picture::{PictureScratchBuffer, SliceId, TileCacheInstance, TileCacheParams, SurfaceInfo, RasterConfig};
+use crate::picture::{PictureScratchBuffer, SurfaceInfo, RasterConfig};
+use crate::tile_cache::{SliceId, TileCacheInstance, TileCacheParams};
 use crate::picture::PicturePrimitive;
 use crate::prim_store::{PrimitiveScratchBuffer, PrimitiveInstance};
 use crate::prim_store::{PrimitiveInstanceKind, PrimTemplateCommonData};

@@ -6,6 +6,7 @@ package mozilla.components.support.ktx.android.content
 
 import android.annotation.SuppressLint
 import android.app.ActivityManager
+import android.app.Application.getProcessName
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -25,7 +26,6 @@ import android.content.pm.PackageManager
 import android.content.pm.PackageManager.PERMISSION_GRANTED
 import android.hardware.camera2.CameraManager
 import android.net.Uri
-import android.os.Build
 import android.os.Build.VERSION.SDK_INT
 import android.os.Build.VERSION_CODES
 import android.os.Process
@@ -164,6 +164,19 @@ fun Context.shareLocalPdf(
 ): Boolean = shareMedia(filePath.toUri(), contentType, subject, message)
 
 /**
+ * Shares a file using a content URI via [ACTION_SEND] intent.
+ *
+ * @param contentUri URI of the file to share.
+ * @param contentType Content type (MIME type) to indicate the media type of the resource.
+ *
+ * @return true if the share intent was successfully started, false otherwise.
+ */
+fun Context.shareFile(
+    contentUri: Uri,
+    contentType: String?,
+): Boolean = shareMedia(contentUri = contentUri, contentType = contentType)
+
+/**
  * Shares content via [ACTION_SEND] intent.
  *
  * @param contentUri URI of the file to share.
@@ -191,7 +204,7 @@ internal fun Context.shareMedia(
         if (message != null) {
             putExtra(EXTRA_TEXT, message)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (SDK_INT >= VERSION_CODES.Q) {
             // Android Q allows us to show a thumbnail preview of the file to be shared.
             clipData = ClipData.newRawUri(contentUri.toString(), contentUri)
         }
@@ -346,17 +359,21 @@ internal var isMainProcess: Boolean? = null
 fun Context.isMainProcess(): Boolean {
     if (isMainProcess != null) return isMainProcess as Boolean
 
-    val pid = Process.myPid()
-    val activityManager: ActivityManager? = getSystemService()
+    if (SDK_INT >= VERSION_CODES.P) {
+        isMainProcess = !getProcessName().contains(":")
+        return isMainProcess as Boolean
+    } else {
+        val pid = Process.myPid()
+        val activityManager: ActivityManager? = getSystemService()
 
-    // SDK document says isIsolated is available since API 28, but it is actually available on older versions.
-    isMainProcess =
-        !android.os.Process.isIsolated() &&
-        activityManager?.runningAppProcesses.orEmpty().any { processInfo ->
-            processInfo.pid == pid && processInfo.processName == packageName
-        }
-
-    return isMainProcess as Boolean
+        // SDK document says isIsolated is available since API 28, but it is actually available on older versions.
+        isMainProcess =
+            !Process.isIsolated() &&
+                activityManager?.runningAppProcesses.orEmpty().any { processInfo ->
+                    processInfo.pid == pid && processInfo.processName == packageName
+                }
+        return isMainProcess as Boolean
+    }
 }
 
 /**

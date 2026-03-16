@@ -4,14 +4,10 @@
 
 package org.mozilla.fenix.bookmarks
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import androidx.navigation.NavController
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import mozilla.appservices.places.BookmarkRoot
 import mozilla.components.concept.engine.EngineSession
 import mozilla.components.concept.storage.BookmarkInfo
@@ -20,7 +16,6 @@ import mozilla.components.concept.storage.BookmarkNodeType
 import mozilla.components.concept.storage.BookmarksStorage
 import mozilla.components.feature.tabs.TabsUseCases
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.MiddlewareContext
 import mozilla.components.lib.state.Store
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.components.usecases.FenixBrowserUseCases
@@ -32,7 +27,6 @@ private const val WARN_OPEN_ALL_SIZE = 15
  * A middleware for handling side-effects in response to [BookmarksAction]s.
  *
  * @param bookmarksStorage Storage layer for reading and writing bookmarks.
- * @param clipboardManager For copying bookmark URLs.
  * @param addNewTabUseCase For opening tabs from menus.
  * @param fenixBrowserUseCases [FenixBrowserUseCases] used for loading the bookmark URLs.
  * @param useNewSearchUX Whether to use the new integrated search UX or navigate to a separate search screen.
@@ -51,12 +45,11 @@ private const val WARN_OPEN_ALL_SIZE = 15
  * @param lastSavedFolderCache used to cache the last folder you edited a bookmark in.
  * @param reportResultGlobally Invoked when an error occurs that needs to be reported even if the
  * feature goes out of scope.
- * @param ioDispatcher Coroutine dispatcher for IO operations.
+ * @param lifecycleScope lifecycle bound CoroutineScope scope used to cancel jobs when leaving bookmarks.
  */
-@Suppress("LongParameterList")
+@Suppress("LongParameterList", "LargeClass")
 internal class BookmarksMiddleware(
     private val bookmarksStorage: BookmarksStorage,
-    private val clipboardManager: ClipboardManager?,
     private val addNewTabUseCase: TabsUseCases.AddNewTabUseCase,
     private val fenixBrowserUseCases: FenixBrowserUseCases,
     private val useNewSearchUX: Boolean,
@@ -73,32 +66,29 @@ internal class BookmarksMiddleware(
     private val saveBookmarkSortOrder: suspend (BookmarksListSortOrder) -> Unit,
     private val lastSavedFolderCache: LastSavedFolderCache,
     private val reportResultGlobally: (BookmarksGlobalResultReport) -> Unit,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val lifecycleScope: CoroutineScope,
 ) : Middleware<BookmarksState, BookmarksAction> {
-
-    private val scope = CoroutineScope(ioDispatcher)
 
     @Suppress("LongMethod", "CognitiveComplexMethod", "CyclomaticComplexMethod")
     override fun invoke(
-        context: MiddlewareContext<BookmarksState, BookmarksAction>,
+        store: Store<BookmarksState, BookmarksAction>,
         next: (BookmarksAction) -> Unit,
         action: BookmarksAction,
     ) {
-        val preReductionState = context.state
+        val preReductionState = store.state
         next(action)
 
-        val dialogState = context.state.bookmarksDeletionDialogState
+        val dialogState = store.state.bookmarksDeletionDialogState
         if (dialogState is DeletionDialogState.LoadingCount) {
-            scope.launch {
+            lifecycleScope.launch {
                 val count = bookmarksStorage.countBookmarksInTrees(dialogState.guidsToDelete)
-
-                context.store.dispatch(DeletionDialogAction.CountLoaded(count.toInt()))
+                store.dispatch(DeletionDialogAction.CountLoaded(count.toInt()))
             }
         }
 
         when (action) {
-            Init -> context.store.tryDispatchLoadFor(BookmarkRoot.Mobile.id)
-            is InitEdit -> scope.launch {
+            Init -> store.tryDispatchLoadFor(BookmarkRoot.Mobile.id)
+            is InitEdit -> lifecycleScope.launch {
                 Result.runCatching {
                     val bookmarkNode = bookmarksStorage.getBookmark(action.guid).getOrNull()
                     val bookmark = bookmarkNode?.let {
@@ -116,12 +106,12 @@ internal class BookmarksMiddleware(
 
                     InitEditLoaded(bookmark = bookmark!!, folder = folder!!)
                 }.getOrNull()?.also {
-                    context.store.dispatch(it)
+                    store.dispatch(it)
                 }
             }
             is BookmarkClicked -> {
                 if (preReductionState.selectedItems.isNotEmpty()) {
-                    context.store.tryDispatchReceivedRecursiveCountUpdate()
+                    store.tryDispatchReceivedRecursiveCountUpdate()
                     return
                 }
 
@@ -138,15 +128,15 @@ internal class BookmarksMiddleware(
 
             is FolderClicked -> {
                 if (preReductionState.selectedItems.isNotEmpty()) {
-                    context.store.tryDispatchReceivedRecursiveCountUpdate()
+                    store.tryDispatchReceivedRecursiveCountUpdate()
                     return
                 }
-                context.store.tryDispatchLoadFor(action.item.guid)
+                store.tryDispatchLoadFor(action.item.guid)
             }
             is BookmarkLongClicked,
             is FolderLongClicked,
             -> {
-                context.store.tryDispatchReceivedRecursiveCountUpdate()
+                store.tryDispatchReceivedRecursiveCountUpdate()
             }
             SearchClicked -> if (!useNewSearchUX) {
                 navigateToSearch()
@@ -160,13 +150,14 @@ internal class BookmarksMiddleware(
                     // non-list screen cases need to come first, since we presume if all subscreen
                     // state is null then we are on the list screen
                     preReductionState.bookmarksAddFolderState != null &&
-                        context.state.bookmarksAddFolderState == null -> {
-                        scope.launch(ioDispatcher) {
+                        store.state.bookmarksAddFolderState == null -> {
+                        lifecycleScope.launch {
                             val newFolderTitle =
                                 preReductionState.bookmarksAddFolderState.folderBeingAddedTitle
+                            val parentGuid = preReductionState.bookmarksAddFolderState.parent.guid
                             if (newFolderTitle.isNotEmpty()) {
                                 val guid = bookmarksStorage.addFolder(
-                                    parentGuid = preReductionState.bookmarksAddFolderState.parent.guid,
+                                    parentGuid = parentGuid,
                                     title = newFolderTitle,
                                 ).getOrElse {
                                     reportResultGlobally(BookmarksGlobalResultReport.AddFolderFailed)
@@ -180,24 +171,38 @@ internal class BookmarksMiddleware(
                                     position = position,
                                 )
 
-                                context.store.dispatch(AddFolderAction.FolderCreated(folder))
-
-                                withContext(Dispatchers.Main) {
-                                    if (preReductionState.bookmarksSelectFolderState != null) {
-                                        getNavController().popBackStack(
-                                            BookmarksDestinations.EDIT_BOOKMARK,
-                                            inclusive = false,
-                                        )
-                                    } else {
-                                        getNavController().popBackStack()
+                                // if we are in the middle of moving items, we consider the end of the
+                                // add folder workflow to be terminal, and finish moving the items
+                                // into the newly created folder
+                                preReductionState.createMovePairs()?.forEach {
+                                    val result = bookmarksStorage.updateNode(
+                                        it.first,
+                                        it.second.copy(parentGuid = guid),
+                                    )
+                                    if (result.isFailure) {
+                                        reportResultGlobally(BookmarksGlobalResultReport.SelectFolderFailed)
                                     }
                                 }
-                            } else {
-                                withContext(Dispatchers.Main) {
+
+                                store.dispatch(AddFolderAction.FolderCreated(folder))
+
+                                if (preReductionState.bookmarksEditBookmarkState != null) {
+                                    getNavController().popBackStack(
+                                        BookmarksDestinations.EDIT_BOOKMARK,
+                                        inclusive = false,
+                                    )
+                                } else if (preReductionState.bookmarksSelectFolderState != null) {
+                                    getNavController().popBackStack(
+                                        BookmarksDestinations.LIST,
+                                        false,
+                                    )
+                                } else {
                                     getNavController().popBackStack()
                                 }
+                            } else {
+                                getNavController().popBackStack()
                             }
-                            context.store.tryDispatchLoadFor(preReductionState.currentFolder.guid)
+                            store.tryDispatchLoadFor(preReductionState.currentFolder.guid)
                         }
                     }
 
@@ -207,14 +212,18 @@ internal class BookmarksMiddleware(
                             if (it.destination == preReductionState.currentFolder.guid) {
                                 return@also
                             }
-                            scope.launch {
-                                preReductionState.createMovePairs()?.forEach {
-                                    val result = bookmarksStorage.updateNode(it.first, it.second)
-                                    if (result.isFailure) {
-                                        reportResultGlobally(BookmarksGlobalResultReport.SelectFolderFailed)
-                                    }
+                            lifecycleScope.launch {
+                                val successes = preReductionState.createMovePairs()
+                                    ?.mapNotNull { item ->
+                                        bookmarksStorage.updateNode(item.first, item.second)
+                                            .takeIf { result ->
+                                                result.isSuccess
+                                            }
                                 }
-                                context.store.tryDispatchLoadFor(preReductionState.currentFolder.guid)
+                                if (successes.isNullOrEmpty()) {
+                                    store.dispatch(SnackbarAction.SelectFolderFailed)
+                                }
+                                store.tryDispatchLoadFor(preReductionState.currentFolder.guid)
                             }
                         }
                     }
@@ -222,14 +231,14 @@ internal class BookmarksMiddleware(
                     preReductionState.bookmarksEditFolderState != null -> {
                         val editState = preReductionState.bookmarksEditFolderState
                         getNavController().popBackStack()
-                        scope.launch(ioDispatcher) {
+                        lifecycleScope.launch {
                             preReductionState.createBookmarkInfo()?.also {
                                 val result = bookmarksStorage.updateNode(editState.folder.guid, it)
                                 if (result.isFailure) {
                                     reportResultGlobally(BookmarksGlobalResultReport.EditFolderFailed)
                                 }
                             }
-                            context.store.tryDispatchLoadFor(preReductionState.currentFolder.guid)
+                            store.tryDispatchLoadFor(preReductionState.currentFolder.guid)
                         }
                     }
 
@@ -237,7 +246,7 @@ internal class BookmarksMiddleware(
                         if (!getNavController().popBackStack()) {
                             exitBookmarks()
                         }
-                        scope.launch(ioDispatcher) {
+                        lifecycleScope.launch {
                             preReductionState.createBookmarkInfo()?.also {
                                 val result = bookmarksStorage.updateNode(
                                     guid = preReductionState.bookmarksEditBookmarkState.bookmark.guid,
@@ -251,20 +260,23 @@ internal class BookmarksMiddleware(
                                     }
                                 }
                             }
-                            context.store.tryDispatchLoadFor(preReductionState.currentFolder.guid)
+                            store.tryDispatchLoadFor(preReductionState.currentFolder.guid)
                         }
                     }
                     // list screen cases
                     preReductionState.selectedItems.isNotEmpty() -> { /* noop */ }
+                    // User is clicking back before we've loaded anything
+                    preReductionState.currentFolder.guid.isEmpty() -> {
+                        exitBookmarks()
+                    }
                     preReductionState.currentFolder.guid != BookmarkRoot.Mobile.id -> {
-                        scope.launch {
-                            val parentFolderGuid = withContext(ioDispatcher) {
+                        lifecycleScope.launch {
+                            val parentFolderGuid =
                                 bookmarksStorage
                                     .getBookmark(preReductionState.currentFolder.guid)
                                     .getOrNull()
                                     ?.parentGuid ?: BookmarkRoot.Mobile.id
-                            }
-                            context.store.tryDispatchLoadFor(parentFolderGuid)
+                            store.tryDispatchLoadFor(parentFolderGuid)
                         }
                     }
 
@@ -280,46 +292,26 @@ internal class BookmarksMiddleware(
                 getNavController().navigate(BookmarksDestinations.SELECT_FOLDER)
             }
 
-            EditBookmarkAction.DeleteClicked -> {
-                // 💡When we're in the browser -> edit flow, we back out to the browser bypassing our
-                // snackbar logic. So we have to also do the delete here.
-                if (!getNavController().popBackStack()) {
-                    scope.launch {
-                        preReductionState.bookmarksEditBookmarkState?.also {
-                            bookmarksStorage.deleteNode(it.bookmark.guid)
-                        }
-
-                        withContext(Dispatchers.Main) {
-                            exitBookmarks()
-                        }
-                    }
-                }
-            }
+            EditBookmarkAction.DeleteClicked -> { handleEditDeleteClicked(preReductionState) }
             EditFolderAction.ParentFolderClicked,
             AddFolderAction.ParentFolderClicked,
             -> {
                 getNavController().navigate(BookmarksDestinations.SELECT_FOLDER)
             }
-
-            SelectFolderAction.ViewAppeared -> context.store.tryDispatchLoadFolders()
-            is BookmarksListMenuAction -> action.handleSideEffects(context.store, preReductionState)
-            SnackbarAction.Dismissed -> when (preReductionState.bookmarksSnackbarState) {
-                is BookmarksSnackbarState.UndoDeletion -> scope.launch {
-                    if (preReductionState.bookmarksDeletionSnackbarQueueCount <= 1) {
-                        preReductionState.bookmarksSnackbarState.guidsToDelete.forEach {
-                            bookmarksStorage.deleteNode(it)
-                        }
-                        lastSavedFolderCache.getGuid()?.let {
-                            if (bookmarksStorage.getBookmark(it).getOrNull() == null) {
-                                lastSavedFolderCache.setGuid(null)
-                            }
-                        }
-                    }
+            SelectFolderAction.ViewAppeared -> {
+                if (preReductionState.bookmarksSelectFolderState?.folders.isNullOrEmpty()) {
+                    store.tryDispatchLoadSelectableFolders()
                 }
-                else -> {}
             }
+            is SelectFolderAction.ChevronClicked -> {
+                if (action.folder.expansionState is SelectFolderExpansionState.Closed) {
+                    store.tryDispatchAdditionalSelectableFolders(action.folder)
+                }
+            }
+            is BookmarksListMenuAction -> action.handleSideEffects(store, preReductionState)
+
             is DeletionDialogAction.DeleteTapped -> {
-                scope.launch {
+                lifecycleScope.launch {
                     preReductionState.bookmarksDeletionDialogState.guidsToDelete.forEach {
                         bookmarksStorage.deleteNode(it)
                     }
@@ -334,7 +326,7 @@ internal class BookmarksMiddleware(
                     getNavController().popBackStack()
                 }
             }
-            OpenTabsConfirmationDialogAction.ConfirmTapped -> scope.launch {
+            OpenTabsConfirmationDialogAction.ConfirmTapped -> lifecycleScope.launch {
                 val dialog = preReductionState.openTabsConfirmationDialog
                 if (dialog is OpenTabsConfirmationDialog.Presenting) {
                     bookmarksStorage.getTree(dialog.guidToOpen).getOrNull()?.also {
@@ -346,37 +338,36 @@ internal class BookmarksMiddleware(
                                     private = dialog.isPrivate,
                                 )
                             }
-                        withContext(Dispatchers.Main) {
-                            showTabsTray(dialog.isPrivate)
-                        }
+                        showTabsTray(dialog.isPrivate)
                     }
                 }
             }
             is FirstSyncCompleted -> {
-                context.store.tryDispatchLoadFor(preReductionState.currentFolder.guid)
+                store.tryDispatchLoadFor(preReductionState.currentFolder.guid)
             }
-            ViewDisposed -> {
-                preReductionState.bookmarksSnackbarState.let { snackState ->
-                    if (snackState is BookmarksSnackbarState.UndoDeletion) {
-                        scope.launch {
-                            snackState.guidsToDelete.forEach {
-                                bookmarksStorage.deleteNode(it)
-                            }
-                            lastSavedFolderCache.getGuid()?.let {
-                                if (bookmarksStorage.getBookmark(it).getOrNull() == null) {
-                                    lastSavedFolderCache.setGuid(null)
-                                }
-                            }
+            is SelectFolderAction.SortMenu -> lifecycleScope.launch {
+                store.tryDispatchLoadSelectableFolders()
+                saveBookmarkSortOrder(store.state.sortOrder)
+            }
+            is SelectFolderAction.SearchQueryUpdated -> {
+                lifecycleScope.launch {
+                    val state = store.state.bookmarksSelectFolderState
+                    val filteredFolders = state?.folders
+                        ?.filter {
+                            it.title.startsWith(
+                                state.searchQuery,
+                                ignoreCase = true,
+                            )
                         }
+                    filteredFolders?.let {
+                        store.dispatch(SelectFolderAction.FilteredFoldersLoaded(it))
                     }
                 }
             }
-            is SelectFolderAction.SortMenu -> scope.launch {
-                context.store.tryDispatchLoadFolders()
-                saveBookmarkSortOrder(context.store.state.sortOrder)
-            }
+            SelectFolderAction.SearchClicked,
+            SelectFolderAction.SearchDismissed,
             is InitEditLoaded,
-            SnackbarAction.Undo,
+            SnackbarAction.SelectFolderFailed,
             is OpenTabsConfirmationDialogAction.Present,
             OpenTabsConfirmationDialogAction.CancelTapped,
             DeletionDialogAction.CancelTapped,
@@ -390,49 +381,113 @@ internal class BookmarksMiddleware(
             is AddFolderAction.FolderCreated,
             is AddFolderAction.TitleChanged,
             is SelectFolderAction.FoldersLoaded,
+            is SelectFolderAction.FilteredFoldersLoaded,
+            is SelectFolderAction.ExpandedFolderLoaded,
             is SelectFolderAction.ItemClicked,
             EditFolderAction.DeleteClicked,
             is ReceivedSyncSignInUpdate,
             PrivateBrowsingAuthorized,
+            SnackbarAction.Dismissed,
             -> Unit
         }
     }
 
-    private fun Store<BookmarksState, BookmarksAction>.tryDispatchLoadFolders() =
-        scope.launch {
-            val folders = if (bookmarksStorage.hasDesktopBookmarks()) {
-                bookmarksStorage.getTree(BookmarkRoot.Root.id, recursive = true).getOrNull()?.let { rootNode ->
-                    val excludingMobile =
-                        rootNode.children?.filterNot { it.guid == BookmarkRoot.Mobile.id }
-                    val desktopRoot = rootNode.copy(children = excludingMobile)
-                    rootNode.children?.find { it.guid == BookmarkRoot.Mobile.id }?.let {
-                        val newChildren = listOf(desktopRoot) + it.children.orEmpty()
-                        it.copy(children = newChildren)
-                    }?.let {
-                        collectFolders(
-                            node = it,
-                            comparator = state.sortOrder.comparator,
-                            shouldCollect = { node -> !state.isGuidBeingMoved(node.guid) },
+    private fun Store<BookmarksState, BookmarksAction>.tryDispatchLoadSelectableFolders() =
+        lifecycleScope.launch {
+            val sortOrder = state.sortOrder
+            Result.runCatching {
+                if (!bookmarksStorage.hasDesktopBookmarks()) {
+                    listOf(
+                        loadAsSelectableFolder(
+                            guid = BookmarkRoot.Mobile.id,
+                            indentation = 0,
+                            shouldOpen = false,
+                            sortOrder = sortOrder,
+                        )!!,
+                    )
+                } else {
+                    val rootNode = bookmarksStorage.getTree(BookmarkRoot.Root.id).getOrNull()!!
+                    val (mobileRootNodes, desktopRootNodes) =
+                        rootNode.children!!.partition { it.guid == BookmarkRoot.Mobile.id }
+                    // there should only be one of these
+                    val mobileNode = mobileRootNodes.first()
+
+                    // we want to order these a specific way on mobile
+                    (listOf(mobileNode, rootNode) + desktopRootNodes).mapNotNull { item ->
+                        loadAsSelectableFolder(
+                            guid = item.guid,
+                            indentation = 0,
+                            shouldOpen = false,
+                            sortOrder = sortOrder,
                         )
                     }
                 }
-            } else {
-                bookmarksStorage.getTree(BookmarkRoot.Mobile.id, recursive = true).getOrNull()
-                    ?.let {
-                        collectFolders(
-                            node = it,
-                            comparator = state.sortOrder.comparator,
-                            shouldCollect = { node -> !state.isGuidBeingMoved(node.guid) },
-                        )
-                    }
+            }.onSuccess { folders ->
+                dispatch(SelectFolderAction.FoldersLoaded(folders))
             }
-
-            folders?.also { dispatch(SelectFolderAction.FoldersLoaded(it)) }
         }
 
+    private fun Store<BookmarksState, BookmarksAction>.tryDispatchAdditionalSelectableFolders(
+        folder: SelectFolderItem,
+    ) = lifecycleScope.launch {
+            loadAsSelectableFolder(
+                guid = folder.guid,
+                indentation = folder.indentation,
+                shouldOpen = true,
+                sortOrder = state.sortOrder,
+            )?.let {
+                dispatch(SelectFolderAction.ExpandedFolderLoaded(it))
+            }
+        }
+
+    /**
+     * Load a guid and optionally its immediate children as select folder items.
+     */
+    private suspend fun loadAsSelectableFolder(
+        guid: String,
+        indentation: Int,
+        shouldOpen: Boolean,
+        sortOrder: BookmarksListSortOrder,
+    ): SelectFolderItem? = Result.runCatching {
+        val loadedNode = bookmarksStorage.getTree(guid).getOrNull()!!
+        if (loadedNode.type != BookmarkNodeType.FOLDER) return null
+        val comparator = Comparator<SelectFolderItem> { left, right ->
+            sortOrder.comparator.compare(left.folder, right.folder)
+        }
+        SelectFolderItem(
+            indentation = indentation,
+            folder = BookmarkItem.Folder(
+                title = resolveFolderTitle(loadedNode),
+                guid = loadedNode.guid,
+                position = loadedNode.position,
+                dateAdded = loadedNode.dateAdded,
+            ),
+            expansionState = when {
+                // when we are expanding folders, we need to find all their children that could also be selected
+                shouldOpen -> SelectFolderExpansionState.Open(
+                    children = loadedNode.children.orEmpty().mapNotNull { node ->
+                        loadAsSelectableFolder(
+                            guid = node.guid,
+                            indentation = indentation + 1,
+                            shouldOpen = false,
+                            sortOrder = sortOrder,
+                        )
+                    }.sortedWith(comparator),
+                )
+                // only mark folders as expandable if they have children that could potentially be selected
+                (loadedNode.children?.any { it.type == BookmarkNodeType.FOLDER } == true) -> {
+                    SelectFolderExpansionState.Closed
+                }
+                else -> SelectFolderExpansionState.None
+            },
+        )
+    }.getOrNull()
+
     private fun Store<BookmarksState, BookmarksAction>.tryDispatchLoadFor(guid: String) =
-        scope.launch {
+        lifecycleScope.launch {
             bookmarksStorage.getTree(guid).getOrNull()?.let { rootNode ->
+                ensureActive()
+
                 val folder = BookmarkItem.Folder(
                     guid = guid,
                     title = resolveFolderTitle(rootNode),
@@ -474,7 +529,7 @@ internal class BookmarksMiddleware(
         }
 
     private fun Store<BookmarksState, BookmarksAction>.tryDispatchReceivedRecursiveCountUpdate() {
-        scope.launch {
+        lifecycleScope.launch {
             val count = bookmarksStorage.countBookmarksInTrees(state.selectedItems.map { it.guid })
             dispatch(RecursiveSelectionCountLoaded(count.toInt()))
         }
@@ -546,36 +601,6 @@ internal class BookmarksMiddleware(
         return urls
     }
 
-    private suspend fun collectFolders(
-        node: BookmarkNode,
-        comparator: Comparator<BookmarkItem>,
-        indentation: Int = 0,
-        shouldCollect: (BookmarkNode) -> Boolean = { _ -> true },
-        folders: MutableList<SelectFolderItem> = mutableListOf(),
-    ): List<SelectFolderItem> {
-        if (node.type == BookmarkNodeType.FOLDER && shouldCollect(node)) {
-            folders.add(
-                SelectFolderItem(
-                    indentation = indentation,
-                    folder = BookmarkItem.Folder(
-                        guid = node.guid,
-                        title = resolveFolderTitle(node),
-                        position = node.position,
-                    ),
-                ),
-            )
-
-            val sortedChildren = node.childItems().folders().sortedWith(comparator)
-            sortedChildren.forEach { child ->
-                val childNode = node.children!!.first { it.guid == child.guid }
-                val children = collectFolders(childNode, comparator, indentation + 1, shouldCollect)
-                folders.addAll(children)
-            }
-        }
-
-        return folders
-    }
-
     @Suppress("LongMethod")
     private fun BookmarksListMenuAction.handleSideEffects(
         store: Store<BookmarksState, BookmarksAction>,
@@ -585,11 +610,6 @@ internal class BookmarksMiddleware(
             // bookmark menu actions
             is BookmarksListMenuAction.Bookmark.EditClicked -> {
                 getNavController().navigate(BookmarksDestinations.EDIT_BOOKMARK)
-            }
-
-            is BookmarksListMenuAction.Bookmark.CopyClicked -> {
-                val urlClipData = ClipData.newPlainText(bookmark.url, bookmark.url)
-                clipboardManager?.setPrimaryClip(urlClipData)
             }
 
             is BookmarksListMenuAction.Bookmark.ShareClicked -> {
@@ -612,36 +632,12 @@ internal class BookmarksMiddleware(
                 getNavController().navigate(BookmarksDestinations.EDIT_FOLDER)
             }
 
-            is BookmarksListMenuAction.Folder.OpenAllInNormalTabClicked -> scope.launch {
-                bookmarksStorage.getTree(folder.guid).getOrNull()?.also {
-                    val count = it.children?.count() ?: 0
-                    if (count >= WARN_OPEN_ALL_SIZE) {
-                        store.dispatch(OpenTabsConfirmationDialogAction.Present(folder.guid, count, false))
-                        return@also
-                    }
-                    it.children
-                        ?.mapNotNull { it.url }
-                        ?.forEach { url -> addNewTabUseCase(url = url, private = false) }
-                    withContext(Dispatchers.Main) {
-                        showTabsTray(false)
-                    }
-                }
+            is BookmarksListMenuAction.Folder.OpenAllInNormalTabClicked -> {
+                handleOpenAllInTabs(folder = folder, isPrivate = false, store = store)
             }
 
-            is BookmarksListMenuAction.Folder.OpenAllInPrivateTabClicked -> scope.launch {
-                bookmarksStorage.getTree(folder.guid).getOrNull()?.also {
-                    val count = it.children?.count() ?: 0
-                    if (count >= WARN_OPEN_ALL_SIZE) {
-                        store.dispatch(OpenTabsConfirmationDialogAction.Present(folder.guid, count, true))
-                        return@also
-                    }
-                    it.children
-                        ?.mapNotNull { it.url }
-                        ?.forEach { url -> addNewTabUseCase(url = url, private = true) }
-                    withContext(Dispatchers.Main) {
-                        showTabsTray(true)
-                    }
-                }
+            is BookmarksListMenuAction.Folder.OpenAllInPrivateTabClicked -> {
+                handleOpenAllInTabs(folder = folder, isPrivate = true, store = store)
             }
 
             // top bar menu actions
@@ -649,36 +645,89 @@ internal class BookmarksMiddleware(
                 getNavController().navigate(BookmarksDestinations.EDIT_BOOKMARK)
             }
 
-            BookmarksListMenuAction.MultiSelect.MoveClicked -> {
+            is BookmarksListMenuAction.Bookmark.MoveClicked,
+            is BookmarksListMenuAction.Folder.MoveClicked,
+            BookmarksListMenuAction.MultiSelect.MoveClicked,
+            -> {
                 getNavController().navigate(BookmarksDestinations.SELECT_FOLDER)
             }
 
-            BookmarksListMenuAction.MultiSelect.OpenInNormalTabsClicked -> scope.launch {
+            BookmarksListMenuAction.MultiSelect.OpenInNormalTabsClicked -> lifecycleScope.launch {
                 openSelectedInTabs(preReductionState, isPrivate = false)
-                withContext(Dispatchers.Main) {
-                    showTabsTray(false)
-                }
+                showTabsTray(false)
             }
 
-            BookmarksListMenuAction.MultiSelect.OpenInPrivateTabsClicked -> scope.launch {
+            BookmarksListMenuAction.MultiSelect.OpenInPrivateTabsClicked -> lifecycleScope.launch {
                 openSelectedInTabs(preReductionState, isPrivate = true)
-                withContext(Dispatchers.Main) {
-                    showTabsTray(true)
-                }
+                showTabsTray(true)
             }
 
             BookmarksListMenuAction.MultiSelect.ShareClicked -> {
                 val selectedItems = preReductionState.selectedItems.filterIsInstance<BookmarkItem.Bookmark>()
                 shareBookmarks(selectedItems)
             }
-            is BookmarksListMenuAction.SortMenu -> scope.launch {
+            is BookmarksListMenuAction.SortMenu -> lifecycleScope.launch {
                 saveBookmarkSortOrder(store.state.sortOrder)
             }
             is BookmarksListMenuAction.SelectAll -> store.tryDispatchReceivedRecursiveCountUpdate()
+            is BookmarksListMenuAction.Bookmark.DeleteClicked -> { handleDeleteBookmark(bookmark) }
             is BookmarksListMenuAction.MultiSelect.DeleteClicked,
             is BookmarksListMenuAction.Folder.DeleteClicked,
-            is BookmarksListMenuAction.Bookmark.DeleteClicked,
-            -> { }
+            is BookmarksListMenuAction.Folder.SelectClicked,
+            is BookmarksListMenuAction.Bookmark.SelectClicked,
+            -> Unit
+        }
+    }
+
+    private fun handleDeleteBookmark(bookmark: BookmarkItem.Bookmark) {
+        lifecycleScope.launch {
+            bookmarksStorage.deleteNode(bookmark.guid)
+            lastSavedFolderCache.getGuid()?.let { cachedGuid ->
+                if (bookmarksStorage.getBookmark(cachedGuid).getOrNull() == null) {
+                    lastSavedFolderCache.setGuid(null)
+                }
+            }
+        }
+    }
+
+    private fun handleOpenAllInTabs(
+        folder: BookmarkItem.Folder,
+        isPrivate: Boolean,
+        store: Store<BookmarksState, BookmarksAction>,
+    ) {
+        lifecycleScope.launch {
+            bookmarksStorage.getTree(folder.guid).getOrNull()?.also { tree ->
+                val count = tree.children?.count() ?: 0
+                if (count >= WARN_OPEN_ALL_SIZE) {
+                    store.dispatch(OpenTabsConfirmationDialogAction.Present(folder.guid, count, isPrivate))
+                    return@launch
+                }
+                tree.children?.mapNotNull { it.url }?.forEach { url ->
+                    addNewTabUseCase(url = url, private = isPrivate)
+                }
+                showTabsTray(isPrivate)
+            }
+        }
+    }
+
+    private fun handleEditDeleteClicked(preReductionState: BookmarksState) {
+        val guidToDelete = preReductionState.bookmarksEditBookmarkState?.bookmark?.guid
+
+        lifecycleScope.launch {
+            guidToDelete?.let { guid ->
+                bookmarksStorage.deleteNode(guid)
+
+                // Reset the folder cache if the folder being deleted was the last used for saving.
+                lastSavedFolderCache.getGuid()?.let { cachedGuid ->
+                    if (bookmarksStorage.getBookmark(cachedGuid).getOrNull() == null) {
+                        lastSavedFolderCache.setGuid(null)
+                    }
+                }
+            }
+
+            if (!getNavController().popBackStack()) {
+                exitBookmarks()
+            }
         }
     }
 }
@@ -689,9 +738,12 @@ private suspend fun BookmarksStorage.hasDesktopBookmarks(): Boolean {
     ) > 0u
 }
 
-private fun BookmarksState.createMovePairs() = bookmarksMultiselectMoveState?.let { moveState ->
-    moveState.guidsToMove.map { guid ->
-        val bookmarkItem = bookmarkItems.first { it.guid == guid }
+private fun BookmarksState.createMovePairs(): List<Pair<String, BookmarkInfo>>? {
+    val moveState = bookmarksMultiselectMoveState ?: return null
+
+    return moveState.guidsToMove.mapNotNull { guid ->
+        val bookmarkItem = bookmarkItems.firstOrNull { it.guid == guid } ?: return@mapNotNull null
+
         guid to BookmarkInfo(
             moveState.destination,
             // Setting position to 'null' is treated as a 'move to the end' by the storage API.

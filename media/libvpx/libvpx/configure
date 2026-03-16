@@ -104,6 +104,7 @@ all_platforms="${all_platforms} arm64-darwin21-gcc"
 all_platforms="${all_platforms} arm64-darwin22-gcc"
 all_platforms="${all_platforms} arm64-darwin23-gcc"
 all_platforms="${all_platforms} arm64-darwin24-gcc"
+all_platforms="${all_platforms} arm64-darwin25-gcc"
 all_platforms="${all_platforms} arm64-linux-gcc"
 all_platforms="${all_platforms} arm64-win64-gcc"
 all_platforms="${all_platforms} arm64-win64-vs15"
@@ -169,6 +170,7 @@ all_platforms="${all_platforms} x86_64-darwin21-gcc"
 all_platforms="${all_platforms} x86_64-darwin22-gcc"
 all_platforms="${all_platforms} x86_64-darwin23-gcc"
 all_platforms="${all_platforms} x86_64-darwin24-gcc"
+all_platforms="${all_platforms} x86_64-darwin25-gcc"
 all_platforms="${all_platforms} x86_64-iphonesimulator-gcc"
 all_platforms="${all_platforms} x86_64-linux-gcc"
 all_platforms="${all_platforms} x86_64-linux-icc"
@@ -178,6 +180,7 @@ all_platforms="${all_platforms} x86_64-win64-vs14"
 all_platforms="${all_platforms} x86_64-win64-vs15"
 all_platforms="${all_platforms} x86_64-win64-vs16"
 all_platforms="${all_platforms} x86_64-win64-vs17"
+all_platforms="${all_platforms} x86_64-win64-vs18"
 all_platforms="${all_platforms} generic-gnu"
 
 # all_targets is a list of all targets that can be configured
@@ -292,6 +295,7 @@ ARCH_EXT_LIST="
     msa
     mips64
 
+    x86_asm
     ${ARCH_EXT_LIST_X86}
 
     vsx
@@ -302,6 +306,7 @@ HAVE_LIST="
     ${ARCH_EXT_LIST}
     vpx_ports
     pthread_h
+    pthread_setname_np
     unistd_h
 "
 EXPERIMENT_LIST="

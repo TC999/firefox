@@ -6,8 +6,7 @@
 #
 # For each key, if it is a string the task's attribute must match exactly. If
 # it is a list, the task's attribute must be a value contained in the list.
-# For more information, see the `attrmatch` function in:
-# https://searchfox.org/mozilla-central/source/third_party/python/taskcluster_taskgraph/taskgraph/util/attributes.py
+# For more information, see the `attrmatch` function in `taskgraph.util.attributes`.
 
 ### Unittests
 - kind: &unittest-kinds
@@ -98,6 +97,7 @@
   test_platform: &perf-platforms
       - android-em-14-x86_64-shippable-qr/opt
       - linux1804-64-shippable-qr/opt
+      - linux2404-64-shippable/opt
       - macosx1400-64-shippable-qr/opt
       - macosx1470-64-shippable/opt
       - windows11-64-24h2-shippable/opt

@@ -40,43 +40,22 @@ using namespace mozilla::css;
 using namespace mozilla::dom;
 using namespace mozilla::layout;
 
+AnchorPosResolutionParams AnchorPosResolutionParams::From(
+    const mozilla::SizeComputationInput* aSizingInput,
+    bool aIgnorePositionArea) {
+  auto override = AutoResolutionOverrideParams{
+      aSizingInput->mFrame, aSizingInput->mAnchorPosResolutionCache};
+  if (aIgnorePositionArea) {
+    override.mPositionAreaInUse = false;
+  }
+  return {aSizingInput->mFrame, aSizingInput->mFrame->StyleDisplay()->mPosition,
+          aSizingInput->mAnchorPosResolutionCache, override};
+}
+
 static bool CheckNextInFlowParenthood(nsIFrame* aFrame, nsIFrame* aParent) {
   nsIFrame* frameNext = aFrame->GetNextInFlow();
   nsIFrame* parentNext = aParent->GetNextInFlow();
   return frameNext && parentNext && frameNext->GetParent() == parentNext;
-}
-
-void ComputeAnchorCenterUsage(
-    const nsIFrame* aFrame,
-    mozilla::AnchorPosResolutionCache* aAnchorPosResolutionCache,
-    bool& aInlineUsesAnchorCenter, bool& aBlockUsesAnchorCenter) {
-  aInlineUsesAnchorCenter = false;
-  aBlockUsesAnchorCenter = false;
-  nsIFrame* parent = aFrame->GetParent();
-  if (!parent || !aFrame->HasAnyStateBits(NS_FRAME_OUT_OF_FLOW) ||
-      !aAnchorPosResolutionCache ||
-      !aAnchorPosResolutionCache->mDefaultAnchorCache.mAnchor) {
-    return;
-  }
-
-  const auto* stylePos = aFrame->StylePosition();
-  const auto parentWM = parent->GetWritingMode();
-
-  auto checkAxis = [&](LogicalAxis aAxis) {
-    StyleAlignFlags alignment =
-        stylePos->UsedSelfAlignment(aAxis, parent->Style());
-    if ((alignment & ~StyleAlignFlags::FLAG_BITS) !=
-        StyleAlignFlags::ANCHOR_CENTER) {
-      return false;
-    }
-    LogicalSide startSide = MakeLogicalSide(aAxis, LogicalEdge::Start);
-    LogicalSide endSide = MakeLogicalSide(aAxis, LogicalEdge::End);
-    return stylePos->mOffset.Get(parentWM.PhysicalSide(startSide)).IsAuto() ||
-           stylePos->mOffset.Get(parentWM.PhysicalSide(endSide)).IsAuto();
-  };
-
-  aInlineUsesAnchorCenter = checkAxis(LogicalAxis::Inline);
-  aBlockUsesAnchorCenter = checkAxis(LogicalAxis::Block);
 }
 
 /**
@@ -326,7 +305,6 @@ ReflowInput::ReflowInput(nsPresContext* aPresContext,
   mFlags.mDummyParentReflowInput = false;
   mFlags.mStaticPosIsCBOrigin = aFlags.contains(InitFlag::StaticPosIsCBOrigin);
   mFlags.mIOffsetsNeedCSSAlign = mFlags.mBOffsetsNeedCSSAlign = false;
-  mFlags.mIAnchorCenter = mFlags.mBAnchorCenter = false;
 
   // We don't want the mOrthogonalCellFinalReflow flag to be inherited; it's up
   // to the table row frame to set it for its direct children as needed.
@@ -394,8 +372,8 @@ nscoord SizeComputationInput::ComputeISizeValue(
   const auto borderPadding = ComputedLogicalBorderPadding(wm);
   const auto margin = ComputedLogicalMargin(wm);
   const LogicalSize contentEdgeToBoxSizing =
-      aBoxSizing == StyleBoxSizing::Border ? borderPadding.Size(wm)
-                                           : LogicalSize(wm);
+      aBoxSizing == StyleBoxSizing::BorderBox ? borderPadding.Size(wm)
+                                              : LogicalSize(wm);
   const nscoord boxSizingToMarginEdgeISize = borderPadding.IStartEnd(wm) +
                                              margin.IStartEnd(wm) -
                                              contentEdgeToBoxSizing.ISize(wm);
@@ -443,7 +421,7 @@ nscoord SizeComputationInput::ComputeBSizeValue(
     const LengthPercentage& aSize) const {
   WritingMode wm = GetWritingMode();
   nscoord inside = 0;
-  if (aBoxSizing == StyleBoxSizing::Border) {
+  if (aBoxSizing == StyleBoxSizing::BorderBox) {
     inside = ComputedLogicalBorderPadding(wm).BStartEnd(wm);
   }
   return nsLayoutUtils::ComputeBSizeValue(aContainingBlockBSize, inside, aSize);
@@ -1323,7 +1301,7 @@ void ReflowInput::CalculateBorderPaddingMargin(
 
   nscoord outside = paddingStartEnd + borderStartEnd + marginStartEnd;
   nscoord inside = 0;
-  if (mStylePosition->mBoxSizing == StyleBoxSizing::Border) {
+  if (mStylePosition->mBoxSizing == StyleBoxSizing::BorderBox) {
     inside = borderStartEnd + paddingStartEnd;
   }
   outside -= inside;
@@ -1718,16 +1696,6 @@ void ReflowInput::InitAbsoluteConstraints(const ReflowInput* aCBReflowInput,
   bool bStartIsAuto = bStartOffset->IsAuto();
   bool bEndIsAuto = bEndOffset->IsAuto();
 
-  mFlags.mIAnchorCenter = anchorResolutionParams.mBaseParams.mIAnchorCenter;
-  mFlags.mBAnchorCenter = anchorResolutionParams.mBaseParams.mBAnchorCenter;
-
-  // For anchor-center with both insets auto, insets need to be kept as 0
-  // so hypothetical position should be skipped.
-  const bool inlineBothInsetsAuto =
-      mFlags.mIAnchorCenter && iStartIsAuto && iEndIsAuto;
-  const bool blockBothInsetsAuto =
-      mFlags.mBAnchorCenter && bStartIsAuto && bEndIsAuto;
-
   // If both 'inline-start' and 'inline-end' are 'auto' or both 'block-start'
   // and 'block-end' are 'auto', then compute the hypothetical box position
   // where the element would have if it were in the flow.
@@ -1813,7 +1781,7 @@ void ReflowInput::InitAbsoluteConstraints(const ReflowInput* aCBReflowInput,
         nsLayoutUtils::ComputeCBDependentValue(aCBSize.ISize(cbwm), iEndOffset);
   }
 
-  if (iStartIsAuto && iEndIsAuto && !inlineBothInsetsAuto) {
+  if (iStartIsAuto && iEndIsAuto) {
     if (cbwm.IsInlineReversed() !=
         hypotheticalPos.mWritingMode.IsInlineReversed()) {
       offsets.IEnd(cbwm) = hypotheticalPos.mIStart;
@@ -1837,7 +1805,7 @@ void ReflowInput::InitAbsoluteConstraints(const ReflowInput* aCBReflowInput,
         nsLayoutUtils::ComputeCBDependentValue(aCBSize.BSize(cbwm), bEndOffset);
   }
 
-  if (bStartIsAuto && bEndIsAuto && !blockBothInsetsAuto) {
+  if (bStartIsAuto && bEndIsAuto) {
     // Treat 'top' like 'static-position'
     offsets.BStart(cbwm) = hypotheticalPos.mBStart;
     bStartIsAuto = false;
@@ -2141,19 +2109,6 @@ void ReflowInput::InitConstraints(
     // If we weren't given a containing block size, then compute one.
     if (aContainingBlockSize.isNothing()) {
       cbSize = ComputeContainingBlockRectangle(aPresContext, cbri);
-    } else if (aPresContext->FragmentainerAwarePositioningEnabled() &&
-               mFrame->IsAbsolutelyPositioned(mStyleDisplay) &&
-               mFrame->GetPrevInFlow()) {
-      // AbsoluteContainingBlock always provides a containing-block size to
-      // ReflowInput. However, if the delegating frame is a continuation or an
-      // overflow container (i.e. it has zero block-size), we'll need a
-      // containing-block size (padding-box size) suitable for resolving the
-      // abspos continuation's percentage block-size.
-      //
-      // Bug 1998818 is to fix the containing-block size for resolving
-      // percentage block-size for abspos's first-in-flow.
-      cbSize = ComputeContainingBlockRectangle(aPresContext, cbri) +
-               cbri->ComputedLogicalPadding(wm).Size(wm);
     }
 
     // See if the containing block height is based on the size of its
@@ -2325,13 +2280,29 @@ void ReflowInput::InitConstraints(
     } else {
       AutoMaybeDisableFontInflation an(mFrame);
 
-      nsIFrame* const alignCB = [&] {
-        nsIFrame* cb = mFrame->GetParent();
+      auto* const alignCB = [&] {
+        auto* cb = mFrame->GetParent();
         if (cb->IsTableWrapperFrame()) {
-          nsIFrame* alignCBParent = cb->GetParent();
+          auto* alignCBParent = cb->GetParent();
           if (alignCBParent && alignCBParent->IsGridContainerFrame()) {
             return alignCBParent;
           }
+        }
+        if (cb->Style()->GetPseudoType() ==
+            PseudoStyleType::MozColumnSpanWrapper) {
+          MOZ_ASSERT(mFrame->StyleColumn()->mColumnSpan !=
+                     StyleColumnSpan::None);
+          // Note(dshin, bug 2013429): `:-moz-column-span-wrapper` is a
+          // non-inheriting anon box, so it doesn't inherit writing-mode either.
+          auto* p = cb->GetParent();
+          while (p) {
+            if (p->Style()->GetPseudoType() !=
+                PseudoStyleType::MozColumnSpanWrapper) {
+              return p;
+            }
+            p = p->GetParent();
+          }
+          MOZ_ASSERT_UNREACHABLE("No parent above :-moz-column-span-wrapper?");
         }
         return cb;
       }();
@@ -2441,13 +2412,13 @@ void ReflowInput::InitConstraints(
           return false;
         }
         const auto pseudoType = mFrame->Style()->GetPseudoType();
-        if (pseudoType == PseudoStyleType::marker &&
+        if (pseudoType == PseudoStyleType::Marker &&
             mFrame->GetParent()->StyleList()->mListStylePosition ==
                 StyleListStylePosition::Outside) {
           // Exclude outside ::markers.
           return false;
         }
-        if (pseudoType == PseudoStyleType::columnContent) {
+        if (pseudoType == PseudoStyleType::MozColumnContent) {
           // Exclude -moz-column-content since it cannot have any margin.
           return false;
         }

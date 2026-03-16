@@ -7986,6 +7986,51 @@ var gCSSProperties = {
     other_values: ["center", "justify", "start", "end", "left", "right"],
     invalid_values: [],
   },
+  "text-box": {
+    domProp: "textBox",
+    inherited: false,
+    type: CSS_TYPE_TRUE_SHORTHAND,
+    subproperties: ["text-box-trim", "text-box-edge"],
+    initial_values: ["normal", "none"],
+    other_values: [
+      "none text",
+      "none cap alphabetic",
+      "trim-start ex",
+      "trim-end alphabetic",
+      "trim-both",
+      "ex alphabetic trim-both",
+    ],
+    invalid_values: [
+      "trim-start trim-end",
+      "none alphabetic cap",
+      "ex trim-both auto",
+    ],
+  },
+  "text-box-edge": {
+    domProp: "textBoxEdge",
+    inherited: true,
+    type: CSS_TYPE_LONGHAND,
+    initial_values: ["auto"],
+    other_values: [
+      "text",
+      "ideographic",
+      "ideographic-ink",
+      "cap",
+      "ex",
+      "alphabetic",
+      "cap text",
+      "ex alphabetic",
+    ],
+    invalid_values: ["alphabetic text", "text cap", "text ex"],
+  },
+  "text-box-trim": {
+    domProp: "textBoxTrim",
+    inherited: false,
+    type: CSS_TYPE_LONGHAND,
+    initial_values: ["none"],
+    other_values: ["trim-start", "trim-end", "trim-both"],
+    invalid_values: [],
+  },
   "text-combine-upright": {
     domProp: "textCombineUpright",
     inherited: true,
@@ -8782,10 +8827,11 @@ var gCSSProperties = {
   "vertical-align": {
     domProp: "verticalAlign",
     inherited: false,
-    type: CSS_TYPE_LONGHAND,
+    type: CSS_TYPE_TRUE_SHORTHAND,
     applies_to_first_letter: true,
     applies_to_first_line: true,
     applies_to_placeholder: true,
+    subproperties: ["alignment-baseline", "baseline-shift", "baseline-source"],
     initial_values: ["baseline"],
     other_values: [
       "sub",
@@ -8810,6 +8856,54 @@ var gCSSProperties = {
     ],
     invalid_values: [],
     quirks_values: { 5: "5px" },
+  },
+  "alignment-baseline": {
+    domProp: "alignmentBaseline",
+    inherited: false,
+    type: CSS_TYPE_LONGHAND,
+    applies_to_first_letter: true,
+    applies_to_first_line: true,
+    applies_to_placeholder: true,
+    initial_values: ["baseline"],
+    other_values: [
+      "text-bottom",
+      "middle",
+      "text-top",
+      // TODO Bug 1403440 - Uncomment to enable tests for these keywords
+      // "alphabetic",
+      // "ideographic",
+      // "central",
+      // "mathematical",
+    ],
+    invalid_values: [],
+  },
+  "baseline-shift": {
+    domProp: "baselineShift",
+    inherited: false,
+    type: CSS_TYPE_LONGHAND,
+    applies_to_first_letter: true,
+    applies_to_first_line: true,
+    applies_to_placeholder: true,
+    initial_values: ["0"],
+    other_values: [
+      "sub",
+      "super",
+      "top",
+      "center",
+      "bottom",
+      "15%",
+      "3px",
+      "0.2em",
+      "-5px",
+      "-3%",
+      "calc(2px)",
+      "calc(-2px)",
+      "calc(50%)",
+      "calc(3*25px)",
+      "calc(25px*3)",
+      "calc(3*25px + 50%)",
+    ],
+    invalid_values: [],
   },
   "baseline-source": {
     domProp: "baselineSource",
@@ -9129,6 +9223,8 @@ var gCSSProperties = {
       "mathematical",
       "central",
       "middle",
+      "text-top",
+      "text-bottom",
       "text-after-edge",
       "text-before-edge",
     ],
@@ -14008,9 +14104,21 @@ if (IsCSSPropertyPrefEnabled("layout.css.prefixes.animations")) {
 if (IsCSSPropertyPrefEnabled("layout.css.scroll-driven-animations.enabled")) {
   // Basically, web-platform-tests should cover most cases, so here we only
   // put some basic test cases.
-  gCSSProperties["animation"].subproperties.push("animation-timeline");
-  gCSSProperties["-moz-animation"].subproperties.push("animation-timeline");
-  gCSSProperties["-webkit-animation"].subproperties.push("animation-timeline");
+  gCSSProperties["animation"].subproperties.push(
+    "animation-timeline",
+    "animation-range-start",
+    "animation-range-end"
+  );
+  gCSSProperties["-moz-animation"].subproperties.push(
+    "animation-timeline",
+    "animation-range-start",
+    "animation-range-end"
+  );
+  gCSSProperties["-webkit-animation"].subproperties.push(
+    "animation-timeline",
+    "animation-range-start",
+    "animation-range-end"
+  );
 
   gCSSProperties["animation-duration"].initial_values.push("auto");
 
@@ -14169,6 +14277,92 @@ if (IsCSSPropertyPrefEnabled("layout.css.scroll-driven-animations.enabled")) {
       "--a block, --b inline, --c y",
     ],
     invalid_values: ["", ",", "--abc --abc", "x --a", "block --abc"],
+  };
+
+  gCSSProperties["timeline-scope"] = {
+    domProp: "timelineScope",
+    inherited: false,
+    type: CSS_TYPE_LONGHAND,
+    initial_values: ["none"],
+    other_values: [
+      "all",
+      "--foo",
+      "--foo, --baz",
+      "--foo,--baz",
+      "--foo ,--baz",
+    ],
+    invalid_values: [
+      "all, --foo",
+      "--foo, all",
+      "--foo --bar",
+      "foo",
+      "none bar",
+      "none --baz",
+      "--foo bar",
+      ",--foo",
+      "--foo,",
+    ],
+  };
+
+  gCSSProperties["animation-range-start"] = {
+    domProp: "animationRangeStart",
+    inherited: false,
+    type: CSS_TYPE_LONGHAND,
+    applies_to_marker: true,
+    initial_values: ["normal"],
+    other_values: [
+      "0%",
+      "10px",
+      "-20%",
+      "calc(1em + 10%)",
+      "cover",
+      "contain -123%",
+      "entry calc(1em), entry-crossing 5px",
+      "exit 1%, exit-crossing",
+      "scroll 110%",
+    ],
+    invalid_values: ["abc", "cover contain", "scroll a", "10px cover"],
+  };
+
+  gCSSProperties["animation-range-end"] = {
+    domProp: "animationRangeEnd",
+    inherited: false,
+    type: CSS_TYPE_LONGHAND,
+    applies_to_marker: true,
+    initial_values: ["normal"],
+    other_values: [
+      "100%",
+      "10px",
+      "-20%",
+      "calc(1em + 10%)",
+      "cover",
+      "contain -123%",
+      "entry calc(1em), entry-crossing 5px",
+      "exit 1%, exit-crossing",
+      "scroll 110%",
+    ],
+    invalid_values: ["abc", "cover contain", "scroll a", "10px cover"],
+  };
+
+  gCSSProperties["animation-range"] = {
+    domProp: "animationRange",
+    inherited: false,
+    type: CSS_TYPE_TRUE_SHORTHAND,
+    applies_to_marker: true,
+    subproperties: ["animation-range-start", "animation-range-end"],
+    initial_values: ["normal normal", "normal"],
+    other_values: [
+      "cover",
+      "10%",
+      "cover exit",
+      "0px 100%",
+      "0% cover",
+      "contain 10%",
+      "contain 10px exit 10%",
+      "scroll -10% exit-crossing 123%",
+      "entry 10px exit",
+    ],
+    invalid_values: ["", "10% 10% cover", "normal 10% 13%", "abc", "1s 2s"],
   };
 }
 

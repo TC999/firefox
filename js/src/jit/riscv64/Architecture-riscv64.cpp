@@ -8,7 +8,11 @@
 
 #include "jit/FlushICache.h"  // js::jit::FlushICache
 #include "jit/RegisterSets.h"
-#include "jit/Simulator.h"
+#include "jit/riscv64/Assembler-riscv64.h"
+#if defined(JS_SIMULATOR)
+#  include "jit/riscv64/Simulator-riscv64.h"
+#endif
+
 namespace js {
 namespace jit {
 Registers::Code Registers::FromName(const char* name) {
@@ -90,11 +94,7 @@ void FlushICache(void* code, size_t size) {
 #endif
 }
 
-bool CPUFlagsHaveBeenComputed() {
-  // TODO Add CPU flags support
-  // Flags were computed above.
-  return true;
-}
+bool CPUFlagsHaveBeenComputed() { return RVFlags::FlagsHaveBeenComputed(); }
 
 }  // namespace jit
 }  // namespace js

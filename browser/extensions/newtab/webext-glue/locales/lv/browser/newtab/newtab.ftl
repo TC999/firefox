@@ -46,7 +46,7 @@ newtab-search-box-input =
     .placeholder = Meklēt tīmeklī
     .aria-label = Meklēt tīmeklī
 
-## Top Sites - General form dialog.
+## Clear text button for the URL and image URL input fields in the Top Sites form.
 
 newtab-topsites-add-search-engine-header = Pievienot meklētāju
 newtab-topsites-add-shortcut-header = Jauna saīsne
@@ -410,6 +410,11 @@ newtab-weather-menu-hide-weather = Paslēpt laikapstākļus jaunā cilnē
 newtab-weather-menu-learn-more = Uzzināt vairāk
 # This message is shown if user is working offline
 newtab-weather-error-not-available = Laikapstākļu dati pašlaik nav pieejami.
+# Variables:
+#   $provider (string) - Service provider for weather data
+newtab-weather-see-forecast-description =
+    .title = Skatīt prognozi { $provider }
+    .aria-description = { $provider } ∙ sponsorēts
 
 ## Topic Labels
 

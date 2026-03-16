@@ -291,14 +291,22 @@ impl super::Device {
             != layout.naga_options.zero_initialize_workgroup_memory
             || stage.module.runtime_checks.bounds_checks != layout.naga_options.restrict_indexing
             || stage.module.runtime_checks.force_loop_bounding
-                != layout.naga_options.force_loop_bounding;
-        // Note: ray query initialization tracking not yet implemented
+                != layout.naga_options.force_loop_bounding
+            || stage
+                .module
+                .runtime_checks
+                .ray_query_initialization_tracking
+                != layout.naga_options.ray_query_initialization_tracking;
         let mut temp_options;
         let naga_options = if needs_temp_options {
             temp_options = layout.naga_options.clone();
             temp_options.zero_initialize_workgroup_memory = stage.zero_initialize_workgroup_memory;
             temp_options.restrict_indexing = stage.module.runtime_checks.bounds_checks;
             temp_options.force_loop_bounding = stage.module.runtime_checks.force_loop_bounding;
+            temp_options.ray_query_initialization_tracking = stage
+                .module
+                .runtime_checks
+                .ray_query_initialization_tracking;
             &temp_options
         } else {
             &layout.naga_options
@@ -362,7 +370,7 @@ impl super::Device {
 
                     (source, entry_point)
                 };
-                log::info!(
+                log::debug!(
                     "Naga generated shader for {entry_point:?} at {naga_stage:?}:\n{source}"
                 );
 
@@ -375,11 +383,10 @@ impl super::Device {
             }
             super::ShaderModuleSource::HlslPassthrough(passthrough) => ShaderCacheKey {
                 source: passthrough.shader.clone(),
-                entry_point: passthrough.entry_point.clone(),
+                entry_point: stage.entry_point.to_string(),
                 stage: naga_stage,
                 shader_model: naga_options.shader_model,
             },
-
             super::ShaderModuleSource::DxilPassthrough(passthrough) => {
                 return Ok(super::CompiledShader::Precompiled(
                     passthrough.shader.clone(),
@@ -748,9 +755,7 @@ impl crate::Device for super::Device {
             MipLODBias: 0f32,
             MaxAnisotropy: desc.anisotropy_clamp as u32,
 
-            ComparisonFunc: conv::map_comparison(
-                desc.compare.unwrap_or(wgt::CompareFunction::Always),
-            ),
+            ComparisonFunc: conv::map_comparison(desc.compare.unwrap_or_default()),
             BorderColor: border_color,
             MinLOD: desc.lod_clamp.start,
             MaxLOD: desc.lod_clamp.end,
@@ -867,7 +872,7 @@ impl crate::Device for super::Device {
         use naga::back::hlsl;
         // Pipeline layouts are implemented as RootSignature for D3D12.
         //
-        // Push Constants are implemented as root constants.
+        // Immediates are implemented as root constants.
         //
         // Each bind group layout will be one table entry of the root signature.
         // We have the additional restriction that SRV/CBV/UAV and samplers need to be
@@ -908,20 +913,12 @@ impl crate::Device for super::Device {
         let mut bind_srv = hlsl::BindTarget::default();
         let mut bind_uav = hlsl::BindTarget::default();
         let mut parameters = Vec::new();
-        let mut push_constants_target = None;
+        let mut immediates_target = None;
         let mut root_constant_info = None;
 
-        let mut pc_start = u32::MAX;
-        let mut pc_end = u32::MIN;
-
-        for pc in desc.push_constant_ranges.iter() {
-            pc_start = pc_start.min(pc.range.start);
-            pc_end = pc_end.max(pc.range.end);
-        }
-
-        if pc_start != u32::MAX && pc_end != u32::MIN {
+        if desc.immediate_size != 0 {
             let parameter_index = parameters.len();
-            let size = (pc_end - pc_start) / 4;
+            let size = desc.immediate_size / 4;
             parameters.push(Direct3D12::D3D12_ROOT_PARAMETER {
                 ParameterType: Direct3D12::D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
                 Anonymous: Direct3D12::D3D12_ROOT_PARAMETER_0 {
@@ -937,9 +934,9 @@ impl crate::Device for super::Device {
             bind_cbv.register += 1;
             root_constant_info = Some(super::RootConstantInfo {
                 root_index: parameter_index as u32,
-                range: (pc_start / 4)..(pc_end / 4),
+                range: 0..size,
             });
-            push_constants_target = Some(binding);
+            immediates_target = Some(binding);
 
             bind_cbv.space += 1;
         }
@@ -953,6 +950,10 @@ impl crate::Device for super::Device {
         let mut total_non_dynamic_entries = 0_usize;
         let mut sampler_in_any_bind_group = false;
         for bgl in desc.bind_group_layouts {
+            let Some(bgl) = bgl else {
+                continue;
+            };
+
             let mut sampler_in_bind_group = false;
 
             for entry in &bgl.entries {
@@ -983,9 +984,12 @@ impl crate::Device for super::Device {
 
         let mut ranges = Vec::with_capacity(total_non_dynamic_entries);
 
-        let mut bind_group_infos =
-            ArrayVec::<super::BindGroupInfo, { crate::MAX_BIND_GROUPS }>::default();
+        let mut bind_group_infos = [const { None }; crate::MAX_BIND_GROUPS];
         for (index, bgl) in desc.bind_group_layouts.iter().enumerate() {
+            let Some(bgl) = bgl else {
+                continue;
+            };
+
             let mut info = super::BindGroupInfo {
                 tables: super::TableTypes::empty(),
                 base_root_index: parameters.len() as u32,
@@ -1250,7 +1254,7 @@ impl crate::Device for super::Device {
                 total_dynamic_storage_buffers += dynamic_storage_buffers;
             }
 
-            bind_group_infos.push(info);
+            bind_group_infos[index] = Some(info);
         }
 
         let sampler_heap_target = hlsl::SamplerHeapBindTargets {
@@ -1333,7 +1337,14 @@ impl crate::Device for super::Device {
                 ShaderVisibility: Direct3D12::D3D12_SHADER_VISIBILITY_ALL, // really needed for VS and CS only,
             });
             let binding = bind_cbv;
-            bind_cbv.register += 1;
+            // This is the last time we use this, but lets increment
+            // it so if we add more later, the value behaves correctly.
+
+            // This is an allow as it doesn't trigger on 1.90, hal's MSRV.
+            #[allow(unused_assignments)]
+            {
+                bind_cbv.register += 1;
+            }
             (Some(parameter_index as u32), Some(binding))
         } else {
             (None, None)
@@ -1481,7 +1492,7 @@ impl crate::Device for super::Device {
                 binding_map,
                 fake_missing_bindings: false,
                 special_constants_binding,
-                push_constants_target,
+                immediates_target,
                 dynamic_storage_buffer_offsets_targets,
                 zero_initialize_workgroup_memory: true,
                 restrict_indexing: true,
@@ -1489,6 +1500,7 @@ impl crate::Device for super::Device {
                 sampler_buffer_binding_map,
                 external_texture_binding_map,
                 force_loop_bounding: true,
+                ray_query_initialization_tracking: true,
             },
         })
     }
@@ -1823,12 +1835,10 @@ impl crate::Device for super::Device {
             }),
             crate::ShaderInput::Dxil {
                 shader,
-                entry_point,
                 num_workgroups,
             } => Ok(super::ShaderModule {
                 source: super::ShaderModuleSource::DxilPassthrough(super::DxilPassthroughShader {
                     shader: shader.to_vec(),
-                    entry_point,
                     num_workgroups,
                 }),
                 raw_name,
@@ -1836,18 +1846,17 @@ impl crate::Device for super::Device {
             }),
             crate::ShaderInput::Hlsl {
                 shader,
-                entry_point,
                 num_workgroups,
             } => Ok(super::ShaderModule {
                 source: super::ShaderModuleSource::HlslPassthrough(super::HlslPassthroughShader {
                     shader: shader.to_owned(),
-                    entry_point,
                     num_workgroups,
                 }),
                 raw_name,
                 runtime_checks: desc.runtime_checks,
             }),
             crate::ShaderInput::SpirV(_)
+            | crate::ShaderInput::MetalLib { .. }
             | crate::ShaderInput::Msl { .. }
             | crate::ShaderInput::Glsl { .. } => {
                 unreachable!()
@@ -1953,8 +1962,7 @@ impl crate::Device for super::Device {
         };
         let flags = Direct3D12::D3D12_PIPELINE_STATE_FLAG_NONE;
 
-        let mut view_instancing =
-            core::pin::pin!(ArrayVec::<Direct3D12::D3D12_VIEW_INSTANCE_LOCATION, 32>::new());
+        let mut view_instancing = ArrayVec::<Direct3D12::D3D12_VIEW_INSTANCE_LOCATION, 32>::new();
         if let Some(mask) = desc.multiview_mask {
             let mask = mask.get();
             // This array is just what _could_ be rendered to. We actually apply the mask at
@@ -1968,6 +1976,9 @@ impl crate::Device for super::Device {
                 });
             }
         }
+
+        // Borrow view instancing slice, so we can be sure that it won't be moved while we have pointers into this buffer.
+        let view_instancing_slice = view_instancing.as_slice();
 
         let mut stream_desc = RenderPipelineStateStreamDesc {
             // Shared by vertex and mesh pipelines
@@ -1987,10 +1998,10 @@ impl crate::Device for super::Device {
             node_mask: 0,
             cached_pso,
             flags,
-            view_instancing: if !view_instancing.is_empty() {
+            view_instancing: if !view_instancing_slice.is_empty() {
                 Some(Direct3D12::D3D12_VIEW_INSTANCING_DESC {
-                    ViewInstanceCount: view_instancing.len() as u32,
-                    pViewInstanceLocations: view_instancing.as_ptr(),
+                    ViewInstanceCount: view_instancing_slice.len() as u32,
+                    pViewInstanceLocations: view_instancing_slice.as_ptr(),
                     // This lets us hide/mask certain values later, at renderpass creation time.
                     Flags: Direct3D12::D3D12_VIEW_INSTANCING_FLAG_ENABLE_VIEW_INSTANCE_MASKING,
                 })

@@ -3,6 +3,7 @@ support-files = [
   "Bug422543Child.sys.mjs",
   "dummy_page.html",
   "favicon_bug655270.ico",
+  "file_2007897.html",
   "file_bug234628-1-child.html",
   "file_bug234628-1.html",
   "file_bug234628-10-child.xhtml",
@@ -179,6 +180,7 @@ skip-if = [
 ["browser_bug503832.js"]
 skip-if = [
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && debug && msix && verify-standalone",
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && debug && msix && verify-standalone",
 ]
 
 ["browser_bug554155.js"]
@@ -193,6 +195,7 @@ skip-if = [
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && debug", # Bug 1717403
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && tsan", # Bug 1717403
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && asan", # Bug 1717403
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && asan", # Bug 1717403
 ]
 
 ["browser_bug673087-1.js"]
@@ -274,6 +277,18 @@ skip-if = [
 
 ["browser_bug1798780.js"]
 
+["browser_bug2002654.js"]
+
+["browser_bug2004165.js"]
+skip-if = [
+  "debug", # bug 2005202
+]
+
+["browser_bug2007897.js"]
+skip-if = [
+  "debug", # bug 2005202
+]
+
 ["browser_click_link_within_view_source.js"]
 
 ["browser_closewatcher_integration.js"]
@@ -324,7 +339,7 @@ https_first_disabled = true
 https_first_disabled = true
 
 ["browser_loadURI_forceMediaDocument.js"]
-support-files = ["file_image_header.sjs"]
+support-files = ["file_media_header.sjs"]
 
 ["browser_loadURI_postdata.js"]
 

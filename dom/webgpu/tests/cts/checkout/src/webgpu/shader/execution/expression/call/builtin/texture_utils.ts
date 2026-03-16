@@ -7,13 +7,13 @@ import {
   getBlockInfoForColorTextureFormat,
   getBlockInfoForTextureFormat,
   getTextureFormatType,
-  is32Float,
   isColorTextureFormat,
   isCompressedFloatTextureFormat,
   isCompressedTextureFormat,
   isDepthOrStencilTextureFormat,
   isDepthTextureFormat,
   isEncodableTextureFormat,
+  isTextureFormatFilterable,
   isSintOrUintFormat,
   isStencilTextureFormat,
   kEncodableTextureFormats,
@@ -120,13 +120,7 @@ export function skipIfTextureFormatNotSupportedOrNeedsFilteringAndIsUnfilterable
 ) {
   t.skipIfTextureFormatNotSupported(format);
   if (filter === 'linear') {
-    t.skipIf(isDepthTextureFormat(format), 'depth texture are unfilterable');
-
-    const type = getTextureFormatType(format);
-    if (type === 'unfilterable-float') {
-      assert(is32Float(format));
-      t.skipIfDeviceDoesNotHaveFeature('float32-filterable');
-    }
+    t.skipIfTextureFormatNotFilterable(format);
   }
 }
 
@@ -5320,8 +5314,7 @@ ${stageWGSL}
     ? 'uint'
     : type ?? 'float';
   if (isFiltering && sampleType === 'unfilterable-float') {
-    assert(is32Float(format));
-    assert(hasFeature(t.device.features, 'float32-filterable'));
+    assert(isTextureFormatFilterable(t.device.features, format));
     sampleType = 'float';
   }
   if (sampleCount > 1 && sampleType === 'float') {

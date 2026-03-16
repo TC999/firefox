@@ -18,6 +18,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "resource:///modules/sessionstore/RecentlyClosedTabsAndWindowsMenuUtils.sys.mjs",
   Sanitizer: "resource:///modules/Sanitizer.sys.mjs",
   SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
+  SharingUtils: "resource:///modules/SharingUtils.sys.mjs",
   ShortcutUtils: "resource://gre/modules/ShortcutUtils.sys.mjs",
 });
 
@@ -486,6 +487,50 @@ export const CustomizableWidgets = [
   },
 ];
 
+if (
+  Services.prefs.getBoolPref("browser.toolbars.share-button.enabled", false)
+) {
+  CustomizableWidgets.push({
+    id: "share-tab-button",
+    type: "custom",
+    onBuild(aDocument) {
+      let node = aDocument.createXULElement("toolbarbutton");
+      node.setAttribute("id", "share-tab-button");
+      aDocument.l10n.setAttributes(node, "toolbar-button-share-tab");
+
+      node.classList.add("toolbarbutton-1");
+
+      if (AppConstants.platform == "macosx") {
+        node.setAttribute("type", "menu");
+
+        let popup = aDocument.createXULElement("menupopup");
+        popup.setAttribute("id", "share-tab-popup");
+        popup.addEventListener("popupshowing", () => {
+          let browser = aDocument.defaultView.gBrowser.selectedBrowser;
+          node.browserToShare = Cu.getWeakReference(browser);
+
+          lazy.SharingUtils.populateShareMenu(popup);
+        });
+
+        node.appendChild(popup);
+      } else {
+        node.addEventListener("command", () => {
+          let browser = aDocument.defaultView.gBrowser.selectedBrowser;
+          node.browserToShare = Cu.getWeakReference(browser);
+
+          if (AppConstants.platform == "win") {
+            lazy.SharingUtils.shareOnWindows(node);
+          } else {
+            lazy.SharingUtils.copyLink(node);
+          }
+        });
+      }
+
+      return node;
+    },
+  });
+}
+
 if (Services.prefs.getBoolPref("identity.fxaccounts.enabled")) {
   CustomizableWidgets.push({
     id: "sync-button",
@@ -511,6 +556,7 @@ if (Services.prefs.getBoolPref("identity.fxaccounts.enabled")) {
         lazy.PanelMultiView.getViewNode(doc, "PanelUI-remotetabs-tabslist")
       );
       panelview.addEventListener("command", this);
+      panelview.addEventListener("click", this);
       let syncNowButton = lazy.PanelMultiView.getViewNode(
         aEvent.target.ownerDocument,
         "PanelUI-remotetabs-syncnow"
@@ -522,6 +568,7 @@ if (Services.prefs.getBoolPref("identity.fxaccounts.enabled")) {
       panelview.syncedTabsPanelList.destroy();
       panelview.syncedTabsPanelList = null;
       panelview.removeEventListener("command", this);
+      panelview.removeEventListener("click", this);
       let syncNowButton = lazy.PanelMultiView.getViewNode(
         aEvent.target.ownerDocument,
         "PanelUI-remotetabs-syncnow"
@@ -543,6 +590,11 @@ if (Services.prefs.getBoolPref("identity.fxaccounts.enabled")) {
             case "PanelUI-remotetabs-view-managedevices":
               gSync.openDevicesManagementPage("syncedtabs-menupanel");
               break;
+          }
+          break;
+        }
+        case "click": {
+          switch (button.id) {
             case "PanelUI-remotetabs-tabsdisabledpane-button":
             case "PanelUI-remotetabs-setupsync-button":
             case "PanelUI-remotetabs-syncdisabled-button":
@@ -554,6 +606,7 @@ if (Services.prefs.getBoolPref("identity.fxaccounts.enabled")) {
               gSync.openConnectAnotherDevice("synced-tabs");
               break;
           }
+          break;
         }
       }
     },

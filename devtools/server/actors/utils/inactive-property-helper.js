@@ -87,6 +87,7 @@ const HIGHLIGHT_PSEUDO_ELEMENTS = [
 const REGEXP_HIGHLIGHT_PSEUDO_ELEMENTS = new RegExp(
   `${HIGHLIGHT_PSEUDO_ELEMENTS.join("|")}`
 );
+const REGEXP_UPPERCASE_CHAR = /[A-Z]/;
 
 const FIRST_LINE_PSEUDO_ELEMENT_STYLING_SPEC_URL =
   "https://www.w3.org/TR/css-pseudo-4/#first-line-styling";
@@ -96,6 +97,9 @@ const FIRST_LETTER_PSEUDO_ELEMENT_STYLING_SPEC_URL =
 
 const PLACEHOLDER_PSEUDO_ELEMENT_STYLING_SPEC_URL =
   "https://www.w3.org/TR/css-pseudo-4/#placeholder-pseudo";
+
+const AT_POSITION_TRY_MDN_URL =
+  "https://developer.mozilla.org/docs/Web/CSS/Reference/At-rules/@position-try";
 
 class InactivePropertyHelper {
   /**
@@ -178,7 +182,7 @@ class InactivePropertyHelper {
         fixId: "inactive-css-not-grid-container-fix",
         msgId: "inactive-css-not-grid-container",
       },
-      // Grid item property used on non-grid item.
+      // Grid/absolutely positioned item property used on non-grid/non-absolutely positioned item.
       {
         invalidProperties: [
           "grid-area",
@@ -203,12 +207,21 @@ class InactivePropertyHelper {
       // Absolutely positioned, grid and flex item properties used on non absolutely positioned,
       // non-grid or non-flex item.
       {
-        invalidProperties: ["align-self", "justify-self", "place-self"],
+        invalidProperties: ["align-self", "place-self"],
         when: () =>
           !this.gridItem && !this.flexItem && !this.isAbsolutelyPositioned,
         fixId:
           "inactive-css-not-grid-or-flex-or-absolutely-positioned-item-fix",
         msgId: "inactive-css-not-grid-or-flex-or-absolutely-positioned-item",
+      },
+      // Absolutely positioned and grid item properties used on non absolutely positioned,
+      // or non-grid item.
+      {
+        invalidProperties: ["justify-self"],
+        // This should be updated when justify-self support is added on block level boxes (see Bug 2005203)
+        when: () => !this.gridItem && !this.isAbsolutelyPositioned,
+        fixId: "inactive-css-not-grid-or-absolutely-positioned-item-fix",
+        msgId: "inactive-css-not-grid-or-absolutely-positioned-item",
       },
       // Grid and flex container properties used on non-grid or non-flex container.
       {
@@ -387,7 +400,11 @@ class InactivePropertyHelper {
       // clear property used on non-floating elements.
       {
         invalidProperties: ["clear"],
-        when: () => !this.isBlockLevel(),
+        when: () =>
+          !this.isBlockLevel() &&
+          // The br element is a special case and allows clear for backwards compatibility to make its clear attribute work.
+          // https://html.spec.whatwg.org/multipage/rendering.html#phrasing-content-3
+          this.localName != "br",
         fixId: "inactive-css-not-block-fix",
         msgId: "inactive-css-not-block",
       },
@@ -655,6 +672,27 @@ class InactivePropertyHelper {
         fixId: "inactive-css-no-principal-box-fix",
         msgId: "inactive-css-no-principal-box",
       },
+      // position-area used on element which is not absolutely positionned and the
+      // declaration isn't in a @position-try rule.
+      {
+        invalidProperties: ["position-area"],
+        when: () =>
+          !this.isAbsolutelyPositioned &&
+          ChromeUtils.getClassName(this.cssRule) !== "CSSPositionTryRule",
+        msgId: "inactive-css-not-absolutely-positioned-item",
+        fixId: "inactive-css-not-absolutely-positioned-item-fix",
+      },
+      // position-area for absolutely positionned element without default anchor element,
+      // and the declaration isn't in a @position-try rule.
+      {
+        invalidProperties: ["position-area"],
+        when: () =>
+          this.isAbsolutelyPositioned &&
+          !this.hasDefaultAnchorElement() &&
+          ChromeUtils.getClassName(this.cssRule) !== "CSSPositionTryRule",
+        msgId: "inactive-css-no-default-anchor",
+        fixId: "inactive-css-no-default-anchor-fix",
+      },
     ];
   }
 
@@ -787,6 +825,23 @@ class InactivePropertyHelper {
       fixId: "learn-more",
       learnMoreURL: CUE_PSEUDO_ELEMENT_STYLING_SPEC_URL,
     },
+    // Constrained set of properties on @position-try rules
+    {
+      acceptedProperties: new Set(
+        Object.keys(globalThis.CSSPositionTryDescriptors.prototype).filter(
+          // CSSPositionTryDescriptors.prototype gives us both css property names
+          // and their JS equivalent (e.g. `min-width` and `minWidth`).
+          // We can filter out the latter by checking if the property has an uppercase
+          p => !REGEXP_UPPERCASE_CHAR.test(p)
+        )
+      ),
+      rejectCustomProperties: true,
+      when: () =>
+        ChromeUtils.getClassName(this.cssRule) === "CSSPositionTryRule",
+      msgId: "inactive-css-at-position-try-not-supported",
+      fixId: "learn-more",
+      learnMoreURL: AT_POSITION_TRY_MDN_URL,
+    },
   ];
 
   /**
@@ -851,8 +906,7 @@ class InactivePropertyHelper {
       } else if (validator.acceptedProperties) {
         isRuleConcerned =
           !validator.acceptedProperties.has(property) &&
-          // custom properties can always be set
-          !property.startsWith("--");
+          (!property.startsWith("--") || validator.rejectCustomProperties);
       }
 
       if (!isRuleConcerned) {
@@ -1589,6 +1643,10 @@ class InactivePropertyHelper {
     // Only 'horizontal-tb' has a horizontal writing mode.
     // See https://drafts.csswg.org/css-writing-modes-4/#propdef-writing-mode
     return computedStyle(node).writingMode !== "horizontal-tb";
+  }
+
+  hasDefaultAnchorElement() {
+    return InspectorUtils.getAnchorFor(this.node) !== null;
   }
 
   /**

@@ -46,7 +46,7 @@ newtab-search-box-input =
     .placeholder = Recercar sul web
     .aria-label = Recercar sul web
 
-## Top Sites - General form dialog.
+## Clear text button for the URL and image URL input fields in the Top Sites form.
 
 newtab-topsites-add-search-engine-header = Apondre un motor de recèrca
 newtab-topsites-add-shortcut-header = Acorchi novèl
@@ -361,6 +361,11 @@ newtab-weather-menu-temperature-option-celsius = Celsius
 newtab-weather-menu-change-temperature-units-fahrenheit = Passar en Fahrenheit
 newtab-weather-menu-change-temperature-units-celsius = Passar en Celsius
 newtab-weather-menu-learn-more = Ne saber mai
+# Variables:
+#   $provider (string) - Service provider for weather data
+newtab-weather-see-forecast-description =
+    .title = Mostrar la prevision metèo de { $provider }
+    .aria-description = { $provider } ∙ Esponsorizat
 
 ## Topic Labels
 

@@ -27,6 +27,9 @@ add_setup(function setup() {
   sinon
     .stub(SelectableProfileService, "isEnabled")
     .get(() => gProfileName !== null);
+  sinon
+    .stub(SelectableProfileService, "getCachedProfileCount")
+    .callsFake(() => (gProfileName ? 2 : 1));
   sinon.stub(SelectableProfileService, "currentProfile").get(() => ({
     name: gProfileName,
   }));
@@ -48,7 +51,8 @@ async function phaseBeforeContentTitle(aContainer, aProfileName) {
     return TaskbarTabs.getTaskbarTab(...args);
   });
 
-  const tt = await TaskbarTabs.findOrCreateTaskbarTab(
+  const tt = await createTaskbarTab(
+    TaskbarTabs,
     Services.io.newURI("https://example.com/"),
     aContainer,
     {
@@ -70,7 +74,10 @@ async function phaseBeforeContentTitle(aContainer, aProfileName) {
   // tick and hopefully that's enough.
   await TestUtils.waitForTick();
 
-  return win;
+  return {
+    win,
+    tt,
+  };
 }
 
 async function phaseAfterContentTitle(aWindow) {
@@ -97,7 +104,7 @@ function assertHasContainerName(aPrivate, aTitle) {
 }
 
 async function test_defaultCase(aPrivate) {
-  const win = await phaseBeforeContentTitle(0, null, aPrivate);
+  const { tt, win } = await phaseBeforeContentTitle(0, null, aPrivate);
   const title = win.document.title;
   assertHasTaskbarTabName(aPrivate, title);
   ok(!title.includes(kUserContextLabel), "Doesn't include container name");
@@ -107,10 +114,11 @@ async function test_defaultCase(aPrivate) {
   ok(!title.includes(kUserContextLabel), "Title still has no container name");
 
   await BrowserTestUtils.closeWindow(win);
+  await TaskbarTabs.removeTaskbarTab(tt.id);
 }
 
 async function test_container(aPrivate) {
-  const win = await phaseBeforeContentTitle(1, null, aPrivate);
+  const { tt, win } = await phaseBeforeContentTitle(1, null, aPrivate);
   const title = win.document.title;
   assertHasTaskbarTabName(aPrivate, title);
   assertHasContainerName(aPrivate, title);
@@ -120,10 +128,15 @@ async function test_container(aPrivate) {
   assertHasContainerName(aPrivate, title);
 
   await BrowserTestUtils.closeWindow(win);
+  await TaskbarTabs.removeTaskbarTab(tt.id);
 }
 
 async function test_profile(aPrivate) {
-  const win = await phaseBeforeContentTitle(0, kGenericProfileName, aPrivate);
+  const { tt, win } = await phaseBeforeContentTitle(
+    0,
+    kGenericProfileName,
+    aPrivate
+  );
   const title = win.document.title;
   assertHasTaskbarTabName(aPrivate, title);
   ok(!title.includes(kUserContextLabel), "Doesn't include container name");
@@ -135,10 +148,15 @@ async function test_profile(aPrivate) {
   ok(title.includes(kGenericProfileName), "Does include profile name");
 
   await BrowserTestUtils.closeWindow(win);
+  await TaskbarTabs.removeTaskbarTab(tt.id);
 }
 
 async function test_profileAndContainer(aPrivate) {
-  const win = await phaseBeforeContentTitle(1, kGenericProfileName, aPrivate);
+  const { tt, win } = await phaseBeforeContentTitle(
+    1,
+    kGenericProfileName,
+    aPrivate
+  );
   const title = win.document.title;
   assertHasTaskbarTabName(aPrivate, title);
   assertHasContainerName(aPrivate, title);
@@ -150,6 +168,7 @@ async function test_profileAndContainer(aPrivate) {
   ok(title.includes(kGenericProfileName), "Does include profile name");
 
   await BrowserTestUtils.closeWindow(win);
+  await TaskbarTabs.removeTaskbarTab(tt.id);
 }
 
 async function withoutExposingTitle(aTestCase) {

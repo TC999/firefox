@@ -675,8 +675,7 @@ nsresult FetchDriver::HttpFetch(
 
   if (mAssociatedBrowsingContextID) {
     nsCOMPtr<nsILoadInfo> loadInfo = chan->LoadInfo();
-    rv = loadInfo->SetWorkerAssociatedBrowsingContextID(
-        mAssociatedBrowsingContextID);
+    rv = loadInfo->SetAssociatedBrowsingContextID(mAssociatedBrowsingContextID);
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
@@ -994,7 +993,7 @@ nsresult FetchDriver::HttpFetch(
 
   // Step 4 onwards of "HTTP Fetch" is handled internally by Necko.
 
-  mChannel = chan;
+  mChannel = std::move(chan);
   return NS_OK;
 }
 

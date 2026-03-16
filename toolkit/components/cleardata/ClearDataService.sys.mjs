@@ -60,6 +60,48 @@ XPCOMUtils.defineLazyPreferenceGetter(
 );
 
 /**
+ * Implements nsIPBMCleanupCollector. Passed as the subject of
+ * "last-pb-context-exited" when initiated by clearPrivateBrowsingData().
+ * Async observers call addPendingCleanup() to register their operations;
+ * the collector's promise resolves when all registered callbacks complete.
+ */
+class PBMCleanupCollector {
+  #promises = [];
+
+  addPendingCleanup() {
+    let { promise, resolve } = Promise.withResolvers();
+    this.#promises.push(promise);
+    return {
+      complete(aStatus) {
+        resolve(aStatus);
+      },
+      QueryInterface: ChromeUtils.generateQI(["nsIPBMCleanupCallback"]),
+    };
+  }
+
+  get promise() {
+    return Promise.allSettled(this.#promises).then(results => {
+      let dominated = false;
+      for (let r of results) {
+        if (r.status === "fulfilled" && r.value !== Cr.NS_OK) {
+          dominated = true;
+          break;
+        }
+        if (r.status === "rejected") {
+          dominated = true;
+          break;
+        }
+      }
+      return dominated;
+    });
+  }
+
+  QueryInterface = ChromeUtils.generateQI(["nsIPBMCleanupCollector"]);
+}
+
+let gPBMCleanupInProgress = false;
+
+/**
  * Adds brackets to a host if it's an IPv6 address.
  *
  * @param {string} host - Host which may be an IPv6.
@@ -1131,38 +1173,6 @@ const QuotaCleaner = {
   },
 };
 
-const PredictorNetworkCleaner = {
-  async deleteAll() {
-    // Predictive network data - like cache, no way to clear this per
-    // domain, so just trash it all
-    let np = Cc["@mozilla.org/network/predictor;1"].getService(
-      Ci.nsINetworkPredictor
-    );
-    np.reset();
-  },
-
-  // TODO: We should call the NetworkPredictor to clear by principal, rather
-  // than over-clearing for user requests or bailing out for programmatic calls.
-  async deleteByPrincipal(aPrincipal, aIsUserRequest) {
-    if (!aIsUserRequest) {
-      return;
-    }
-    await this.deleteAll();
-  },
-
-  // TODO: Same as above, but for base domain.
-  async deleteBySite(
-    _aSchemelessSite,
-    _aOriginAttributesPattern,
-    aIsUserRequest
-  ) {
-    if (!aIsUserRequest) {
-      return;
-    }
-    await this.deleteAll();
-  },
-};
-
 const PushNotificationsCleaner = {
   /**
    * Clear entries for aDomain including subdomains of aDomain.
@@ -1516,7 +1526,7 @@ const ShutdownExceptionsCleaner = {
 };
 
 const PermissionsCleaner = {
-  _deleteInternal(filter) {
+  async _deleteInternal(filter) {
     Services.perms.all
       // Skip shutdown exception permission because it is handled by ShutDownExceptionsCleaner
       .filter(({ type }) => type != SHUTDOWN_EXCEPTION_PERMISSION)
@@ -1528,6 +1538,8 @@ const PermissionsCleaner = {
           console.error(ex);
         }
       });
+    // Clean up interaction tracking data for removed permissions.
+    await Services.perms.removeOrphanedInteractionRecords();
   },
 
   _thirdPartyStoragePermissionMatchesHost(permissionType, aHost) {
@@ -1556,7 +1568,7 @@ const PermissionsCleaner = {
   },
 
   async deleteByHost(aHost) {
-    this._deleteInternal(({ principal, type }) => {
+    await this._deleteInternal(({ principal, type }) => {
       let principalHost = this._getPrincipalHost(principal);
       if (!principalHost?.length) {
         return false;
@@ -1570,7 +1582,7 @@ const PermissionsCleaner = {
   },
 
   async deleteByPrincipal(aPrincipal) {
-    this._deleteInternal(({ principal, type }) => {
+    await this._deleteInternal(({ principal, type }) => {
       if (principal.equals(aPrincipal)) {
         return true;
       }
@@ -1594,7 +1606,7 @@ const PermissionsCleaner = {
       delete aOriginAttributesPattern.userContextId;
     }
 
-    this._deleteInternal(
+    await this._deleteInternal(
       ({ principal, type }) =>
         hasSite({ principal }, aSchemelessSite, aOriginAttributesPattern) ||
         this._thirdPartyStoragePermissionMatchesHost(type, aSchemelessSite)
@@ -2177,6 +2189,8 @@ const StoragePermissionsCleaner = {
       }
       Services.perms.removePermission(perm);
     });
+    // Clean up interaction tracking data for removed permissions.
+    await Services.perms.removeOrphanedInteractionRecords();
   },
 
   async deleteByPrincipal(aPrincipal) {
@@ -2195,6 +2209,8 @@ const StoragePermissionsCleaner = {
         Services.perms.removePermission(perm);
       }
     }
+    // Clean up interaction tracking data for removed permissions.
+    await Services.perms.removeOrphanedInteractionRecords();
   },
 
   async deleteBySite(aSchemelessSite, aOriginAttributesPattern) {
@@ -2216,6 +2232,8 @@ const StoragePermissionsCleaner = {
         Services.perms.removePermission(perm);
       }
     }
+    // Clean up interaction tracking data for removed permissions.
+    await Services.perms.removeOrphanedInteractionRecords();
   },
 
   async deleteByLocalFiles() {
@@ -2225,6 +2243,8 @@ const StoragePermissionsCleaner = {
         Services.perms.removePermission(perm);
       }
     }
+    // Clean up interaction tracking data for removed permissions.
+    await Services.perms.removeOrphanedInteractionRecords();
   },
 
   async deleteAll() {
@@ -2241,6 +2261,8 @@ const StoragePermissionsCleaner = {
 
       Services.perms.removePermission(perm);
     });
+    // Clean up interaction tracking data for removed permissions.
+    await Services.perms.removeOrphanedInteractionRecords();
   },
 
   _getStoragePermissions() {
@@ -2330,11 +2352,6 @@ const FLAGS_MAP = [
   },
 
   { flag: Ci.nsIClearDataService.CLEAR_DOM_QUOTA, cleaners: [QuotaCleaner] },
-
-  {
-    flag: Ci.nsIClearDataService.CLEAR_PREDICTOR_NETWORK_DATA,
-    cleaners: [PredictorNetworkCleaner],
-  },
 
   {
     flag: Ci.nsIClearDataService.CLEAR_DOM_PUSH_NOTIFICATIONS,
@@ -2647,6 +2664,55 @@ ClearDataService.prototype = Object.freeze({
         await aCleaner.cleanupAfterDeletionAtShutdown();
       }
     });
+  },
+
+  clearPrivateBrowsingData(aCallback) {
+    if (gPBMCleanupInProgress) {
+      throw Components.Exception(
+        "PBM cleanup already in progress",
+        Cr.NS_ERROR_ABORT
+      );
+    }
+
+    if (!aCallback) {
+      aCallback = {
+        onDataDeleted() {},
+      };
+    }
+
+    gPBMCleanupInProgress = true;
+
+    let timerId = Glean.privateBrowsingCleanup.duration.start();
+    let collector = new PBMCleanupCollector();
+
+    // Fire the notification with collector as subject. Sync observers
+    // complete immediately. Async observers (Quota Manager, Downloads)
+    // QI the subject and call addPendingCleanup() to register their
+    // async operations. When the natural PBM exit path fires this
+    // notification with null subject, observers fire-and-forget as before.
+    Services.obs.notifyObservers(collector, "last-pb-context-exited");
+
+    collector.promise
+      .then(hadFailures => {
+        gPBMCleanupInProgress = false;
+        Glean.privateBrowsingCleanup.duration.stopAndAccumulate(timerId);
+        Glean.privateBrowsingCleanup.errorRate.addToDenominator(1);
+        if (hadFailures) {
+          Glean.privateBrowsingCleanup.errorRate.addToNumerator(1);
+          console.error("PBM cleanup: one or more observers reported failure");
+        }
+        aCallback.onDataDeleted(hadFailures ? 1 : 0);
+      })
+      .catch(e => {
+        gPBMCleanupInProgress = false;
+        Glean.privateBrowsingCleanup.duration.cancel(timerId);
+        Glean.privateBrowsingCleanup.errorRate.addToDenominator(1);
+        Glean.privateBrowsingCleanup.errorRate.addToNumerator(1);
+        console.error("PBM cleanup error:", e);
+        aCallback.onDataDeleted(1);
+      });
+
+    return Cr.NS_OK;
   },
 
   hostMatchesSite(

@@ -136,9 +136,18 @@ class nsSHistory : public mozilla::LinkedListElement<nsSHistory>,
   // works for the root entries. It will do nothing for non-root entries.
   static void WalkContiguousEntries(
       nsISHEntry* aEntry, const std::function<void(nsISHEntry*)>& aCallback);
-  // Same as above, but calls aCallback on the entries in their history order.
-  // Will stop walking when `aCallback` returns false.
+  // This function finds all entries that are contiguous and same-origin with
+  // the aEntry and call the aCallback on them, including the aEntry, in their
+  // history order. Will stop walking when `aCallback` returns false. Finds the
+  // leftmost of entries that share navigation key. Works for all entries, not
+  // just root entries.
   static void WalkContiguousEntriesInOrder(
+      nsISHEntry* aEntry, const std::function<bool(nsISHEntry*)>& aCallback);
+  // Same as above, but calls aCallback on aEntry, then the entries to the left
+  // of aEntry in reverse order, then the entries to the right in normal order.
+  // In case of sequences of adjacent contiguous same ID entries aCallback will
+  // be called on the leftmost entry only.
+  static void WalkClosestContiguousEntriesFrom(
       nsISHEntry* aEntry, const std::function<bool(nsISHEntry*)>& aCallback);
 
   nsTArray<nsCOMPtr<nsISHEntry>>& Entries() { return mEntries; }
@@ -202,10 +211,11 @@ class nsSHistory : public mozilla::LinkedListElement<nsSHistory>,
     }
   }
 
-  int32_t GetIndexForReplace() {
-    // Replace current entry in session history; If the requested index is
-    // valid, it indicates the loading was triggered by a history load, and
-    // we should replace the entry at requested index instead.
+  int32_t GetTargetIndexForHistoryOperation() {
+    // When performing a session history operation, such as replace or
+    // navigation by key that can happen during ongoing history traversals; If
+    // the requested index is valid, it indicates the loading was triggered by a
+    // history load, and we should target the entry at requested index instead.
     return mRequestedIndex == -1 ? mIndex : mRequestedIndex;
   }
 
@@ -217,18 +227,29 @@ class nsSHistory : public mozilla::LinkedListElement<nsSHistory>,
   void SetEpoch(uint64_t aEpoch,
                 mozilla::Maybe<mozilla::dom::ContentParentId> aId) {
     mEpoch = aEpoch;
-    mEpochParentId = aId;
+    mEpochParentId = std::move(aId);
   }
 
   void LogHistory();
 
-  mozilla::dom::SessionHistoryEntry* FindAdjacentContiguousEntryFor(
-      mozilla::dom::SessionHistoryEntry* aEntry, int32_t aSearchDirection);
-  void ReconstructContiguousEntryListFrom(
-      mozilla::dom::SessionHistoryEntry* aEntry);
-  void ReconstructContiguousEntryList();
-  already_AddRefed<mozilla::dom::EntryList> EntryListFor(const nsID& aID);
-  void RemoveEntryList(const nsID& aID);
+  enum class SearchDirection : int8_t { Left = -1, Right = 1 };
+
+  // Finds the adjacent session history entry in search direction.
+  mozilla::dom::SessionHistoryEntry* FindAdjacentEntryFor(
+      mozilla::dom::SessionHistoryEntry* aEntry,
+      SearchDirection aSearchDirection);
+
+  // Finds the adjacent session history entry in search direction that shares ID
+  // with aEntry.
+  mozilla::dom::SessionHistoryEntry* FindClosestAdjacentContiguousEntryFor(
+      mozilla::dom::SessionHistoryEntry* aEntry,
+      SearchDirection aSearchDirection);
+
+  // Finds the leftmost entry in a sequence of entries adjacent to aEntry that
+  // shares ID with entry.
+  mozilla::dom::SessionHistoryEntry* FindLeftmostAdjacentContiguousEntryFor(
+      mozilla::dom::SessionHistoryEntry* aEntry,
+      SearchDirection aSearchDirection);
 
   bool ContainsEntry(nsISHEntry* aEntry);
 
@@ -250,7 +271,7 @@ class nsSHistory : public mozilla::LinkedListElement<nsSHistory>,
                     mozilla::dom::BrowsingContext* aFrameBC, long aLoadType,
                     nsTArray<LoadEntryResult>& aLoadResult,
                     bool aLoadCurrentEntry, bool aUserActivation,
-                    int32_t aOffset);
+                    int32_t aOffset, nsISHEntry* aPreviousEntryForActivation);
 
   nsresult LoadEntry(mozilla::dom::BrowsingContext* aSourceBrowsingContext,
                      int32_t aIndex, long aLoadType, uint32_t aHistCmd,

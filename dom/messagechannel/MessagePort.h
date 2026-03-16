@@ -20,7 +20,6 @@ class nsIGlobalObject;
 
 namespace mozilla::dom {
 
-class MessageData;
 class MessagePortChild;
 class PostMessageRunnable;
 class RefMessageBodyService;
@@ -119,8 +118,9 @@ class MessagePort final : public DOMEventTargetHelper {
 
   // These methods are useful for MessagePortChild
 
-  void Entangled(nsTArray<MessageData>& aMessages);
-  void MessagesReceived(nsTArray<MessageData>& aMessages);
+  void Entangled(nsTArray<NotNull<RefPtr<SharedMessageBody>>>& aMessages);
+  void MessagesReceived(
+      nsTArray<NotNull<RefPtr<SharedMessageBody>>>& aMessages);
   void StopSendingDataConfirmed();
   void Closed();
 
@@ -147,10 +147,9 @@ class MessagePort final : public DOMEventTargetHelper {
     // We are not fully entangled yet but are already closed.
     eStateEntanglingForClose,
 
-    // When entangled() is received we send all the messages in the
-    // mMessagesForTheOtherPort to the actor and we change the state to
-    // StateEntangled. At this point the port is entangled with the other. We
-    // send and receive messages.
+    // When entangled() is received we change the state to StateEntangled.
+    // At this point the port is entangled with the other.
+    // We send and receive messages.
     // If the port queue is not enabled, the received messages are stored in
     // the mMessages.
     eStateEntangled,
@@ -213,8 +212,7 @@ class MessagePort final : public DOMEventTargetHelper {
 
   RefPtr<RefMessageBodyService> mRefMessageBodyService;
 
-  nsTArray<RefPtr<SharedMessageBody>> mMessages;
-  nsTArray<RefPtr<SharedMessageBody>> mMessagesForTheOtherPort;
+  nsTArray<NotNull<RefPtr<SharedMessageBody>>> mMessages;
 
   UniquePtr<MessagePortIdentifier> mIdentifier;
 

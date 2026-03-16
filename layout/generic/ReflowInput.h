@@ -368,6 +368,12 @@ struct ReflowInput : public SizeComputationInput {
   // unconstrained dimensions replaced by zero.
   nsSize ComputedSizeAsContainerIfConstrained() const;
 
+  // Return the physical content box relative to the frame itself.
+  nsRect ComputedPhysicalContentBoxRelativeToSelf() const {
+    auto bp = ComputedPhysicalBorderPadding();
+    return nsRect(nsPoint(bp.left, bp.top), ComputedPhysicalSize());
+  }
+
   // Get the writing mode of the containing block, to resolve float/clear
   // logical sides appropriately.
   WritingMode GetCBWritingMode() const;
@@ -464,6 +470,15 @@ struct ReflowInput : public SizeComputationInput {
     // unconstrained.
     bool mIsInLastColumnBalancingReflow : 1;
 
+    // We have an ancestor nsColumnSetFrame performing a measuring reflow. The
+    // available block-size becomes unconstrained.
+    //
+    // Note: only the top-level fragmentainer (multicol or print page sequence)
+    // can initiate a measuring reflow, so nested fragmentainers will do a
+    // measuring reflow only when the top-level one is doing it. See
+    // nsColumnSetFrame::Reflow() and nsPageSequenceFrame::Reflow() for details.
+    bool mIsInFragmentainerMeasuringReflow : 1;
+
     // True if ColumnSetWrapperFrame has a constrained block-size, and is going
     // to consume all of its block-size in this fragment. This bit is passed to
     // nsColumnSetFrame to determine whether to give up balancing and create
@@ -505,11 +520,6 @@ struct ReflowInput : public SizeComputationInput {
     // with when we set & react to these bits.
     bool mIOffsetsNeedCSSAlign : 1;
     bool mBOffsetsNeedCSSAlign : 1;
-
-    // True when anchor-center is being used with a valid anchor and at least
-    // one inset is auto on this axis. Used to zero out margins.
-    bool mIAnchorCenter : 1;
-    bool mBAnchorCenter : 1;
 
     // Is this frame or one of its ancestors being reflowed in a different
     // continuation than the one in which it was previously reflowed?  In
@@ -973,29 +983,5 @@ struct ReflowInput : public SizeComputationInput {
 };
 
 }  // namespace mozilla
-
-void ComputeAnchorCenterUsage(
-    const nsIFrame* aFrame,
-    mozilla::AnchorPosResolutionCache* aAnchorPosResolutionCache,
-    bool& aInlineUsesAnchorCenter, bool& aBlockUsesAnchorCenter);
-
-inline AnchorPosResolutionParams AnchorPosResolutionParams::From(
-    const mozilla::ReflowInput* aRI, bool aIgnorePositionArea) {
-  const mozilla::StylePositionArea posArea =
-      aIgnorePositionArea ? mozilla::StylePositionArea{}
-                          : aRI->mStylePosition->mPositionArea;
-  bool inlineUsesAnchorCenter = false;
-  bool blockUsesAnchorCenter = false;
-
-  ComputeAnchorCenterUsage(aRI->mFrame, aRI->mAnchorPosResolutionCache,
-                           inlineUsesAnchorCenter, blockUsesAnchorCenter);
-
-  return {aRI->mFrame,
-          aRI->mStyleDisplay->mPosition,
-          posArea,
-          aRI->mAnchorPosResolutionCache,
-          inlineUsesAnchorCenter,
-          blockUsesAnchorCenter};
-}
 
 #endif  // mozilla_ReflowInput_h

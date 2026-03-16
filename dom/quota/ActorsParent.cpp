@@ -131,6 +131,7 @@
 #include "nsError.h"
 #include "nsIBinaryInputStream.h"
 #include "nsIBinaryOutputStream.h"
+#include "nsIClearDataService.h"
 #include "nsIConsoleService.h"
 #include "nsIDUtils.h"
 #include "nsIDirectoryEnumerator.h"
@@ -145,6 +146,7 @@
 #include "nsIOutputStream.h"
 #include "nsIPlatformInfo.h"
 #include "nsIPrincipal.h"
+#include "nsIQuotaCallbacks.h"
 #include "nsIQuotaManagerServiceInternal.h"
 #include "nsIQuotaRequests.h"
 #include "nsIQuotaUtilsService.h"
@@ -750,6 +752,30 @@ Result<mozilla::Ok, nsresult> CollectEachFileEntry(
  ******************************************************************************/
 
 }  // namespace
+
+class PBMQuotaCallback final : public nsIQuotaCallback {
+ public:
+  NS_DECL_ISUPPORTS
+
+  explicit PBMQuotaCallback(nsIPBMCleanupCallback* aCb) : mCallback(aCb) {}
+
+  NS_IMETHOD OnComplete(nsIQuotaRequest* aRequest) override {
+    if (mCallback) {
+      nsresult resultCode = NS_OK;
+      if (aRequest && NS_FAILED(aRequest->GetResultCode(&resultCode))) {
+        resultCode = NS_ERROR_FAILURE;
+      }
+      mCallback->Complete(resultCode);
+    }
+    return NS_OK;
+  }
+
+ private:
+  ~PBMQuotaCallback() = default;
+  nsCOMPtr<nsIPBMCleanupCallback> mCallback;
+};
+
+NS_IMPL_ISUPPORTS(PBMQuotaCallback, nsIQuotaCallback)
 
 class QuotaManager::Observer final : public nsIObserver {
   static Observer* sInstance;
@@ -1729,8 +1755,19 @@ QuotaManager::Observer::Observe(nsISupports* aSubject, const char* aTopic,
   }
 
   if (!strcmp(aTopic, kPrivateBrowsingObserverTopic)) {
+    nsCOMPtr<nsIPBMCleanupCollector> collector = do_QueryInterface(aSubject);
+    nsCOMPtr<nsIPBMCleanupCallback> cb;
+    // collector is only set for clearing PBM data via nsIClearDataService.
+    // If unset we don't need to signal cleanup completion.
+    if (collector) {
+      collector->AddPendingCleanup(getter_AddRefs(cb));
+    }
+
     auto* const quotaManagerService = QuotaManagerService::GetOrCreate();
     if (NS_WARN_IF(!quotaManagerService)) {
+      if (cb) {
+        cb->Complete(NS_ERROR_FAILURE);
+      }
       return NS_ERROR_FAILURE;
     }
 
@@ -1738,7 +1775,15 @@ QuotaManager::Observer::Observe(nsISupports* aSubject, const char* aTopic,
     rv = quotaManagerService->ClearStoragesForPrivateBrowsing(
         nsGetterAddRefs(request));
     if (NS_WARN_IF(NS_FAILED(rv))) {
+      if (cb) {
+        cb->Complete(rv);
+      }
       return rv;
+    }
+
+    if (cb) {
+      RefPtr<PBMQuotaCallback> wrapper = new PBMQuotaCallback(cb);
+      request->SetCallback(wrapper);
     }
 
     return NS_OK;
@@ -3707,7 +3752,7 @@ Result<FullOriginMetadata, nsresult> QuotaManager::LoadFullOriginMetadata(
     ClientUsageArray clientUsages;
     QM_TRY(MOZ_TO_RESULT(clientUsages.Deserialize(clientUsagesText)));
 
-    fullOriginMetadata.mClientUsages = clientUsages;
+    fullOriginMetadata.mClientUsages = std::move(clientUsages);
   } else {
     fullOriginMetadata.mQuotaVersion = kNoQuotaVersion;
     fullOriginMetadata.mOriginUsage = 0;
@@ -7769,6 +7814,29 @@ Result<PrincipalInfo, nsresult> QuotaManager::ParseOrigin(
 // static
 void QuotaManager::InvalidateQuotaCache() { gInvalidateQuotaCache = true; }
 
+OriginMetadataArray QuotaManager::GetTemporaryOrigins(
+    PersistenceType aPersistenceType) const {
+  AssertIsOnIOThread();
+
+  auto ioThreadData = mIOThreadAccessible.Access();
+
+  OriginMetadataArray originMetadataArray;
+
+  for (auto iter = ioThreadData->mAllTemporaryOrigins.ConstIter(); !iter.Done();
+       iter.Next()) {
+    const auto& array = iter.Data();
+    MOZ_ASSERT(!array.IsEmpty());
+
+    for (const auto& fullOriginMetadata : array) {
+      if (fullOriginMetadata.mPersistenceType == aPersistenceType) {
+        originMetadataArray.AppendElement(fullOriginMetadata);
+      }
+    }
+  }
+
+  return originMetadataArray;
+}
+
 uint64_t QuotaManager::LockedCollectOriginsForEviction(
     uint64_t aMinSizeToBeFreed, nsTArray<RefPtr<OriginDirectoryLock>>& aLocks)
     MOZ_REQUIRES(mQuotaMutex) {
@@ -9334,7 +9402,7 @@ nsresult StorageOperationBase::OriginProps::Init(
 
   mLeafName = leafName;
   mSpec = spec;
-  mAttrs = attrs;
+  mAttrs = std::move(attrs);
   mOriginalSuffix = originalSuffix;
   mPersistenceType.init(persistenceType);
   if (result == OriginParser::ObsoleteOrigin) {

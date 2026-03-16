@@ -161,6 +161,33 @@ perf:
           cache disposition for the top level document
         type: quantity
         unit: integer
+      script_from_necko_text:
+        description: |
+          Number of scripts fetched from necko as text
+        type: quantity
+        unit: integer
+      script_from_necko_serialized:
+        description: |
+          Number of scripts fetched from necko as serialized stencil
+        type: quantity
+        unit: integer
+      script_memory_cache_use:
+        description: |
+          Number of scripts retrieved from memory cache, non-dirsty
+        type: quantity
+        unit: integer
+      script_memory_cache_revived:
+        description: |
+          Number of scripts retrieved from memory cache, dirty, but revived
+          after the response from necko
+        type: quantity
+        unit: integer
+      script_memory_cache_evicted_dirty:
+        description: |
+          Number of scripts retrieved from memory cache, dirty, and evicted
+          after the response from necko
+        type: quantity
+        unit: integer
       network_type:
         description: |
           Network link type from nsINetworkLinkService, only available on android. Values as:
@@ -182,6 +209,10 @@ perf:
         description:
           "For android navigations, the time from application launch (i.e parent process start) to navigation start. Only meaningful with android_app_link_launch_type = COLD"
         unit: ms
+      android_isolation_category:
+        description: |
+          Process isolation category: shared_web, site_isolated, coop_isolated, or other
+        type: string
     send_in_pings:
       - pageload
   page_load_domain:
@@ -237,22 +268,6 @@ perf:
         unit: integer
     send_in_pings:
       - pageload-base-domain
-
-  js_exec_asm_js:
-    type: timing_distribution
-    description: >
-      Time in milliseconds spent executing Javascript for top level
-      documents that contain the asm.js use counter.  Measures 5min
-      of activity after the use counter is set then records
-      the value in this histogram.
-    time_unit: millisecond
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1980396
-    data_reviews:
-      - https://phabricator.services.mozilla.com/D259436
-    notification_emails:
-      - perf-telemetry-alerts@mozilla.com
-    expires: never
 
   h3p_page_load_time:
     type: labeled_timing_distribution
@@ -768,6 +783,7 @@ dom.contentprocess:
       - https://bugzil.la/1817104
       - https://bugzil.la/1866197
       - https://bugzil.la/1928259
+      - https://bugzil.la/2010454
     data_reviews:
       - https://bugzil.la/1651133
       - https://bugzil.la/1730045
@@ -776,9 +792,10 @@ dom.contentprocess:
       - https://bugzil.la/1817104
       - https://bugzil.la/1866197
       - https://bugzil.la/1928259
+      - https://bugzil.la/2010454
     notification_emails:
       - alissy@mozilla.com
-    expires: 150
+    expires: 170
     telemetry_mirror: DOM_CONTENTPROCESS_BUILDID_MISMATCH_FALSE_POSITIVE
 
   os_priority_lowered:
@@ -1183,6 +1200,42 @@ dom:
       - nicolas.b.pierron@mozilla.com
     expires: never
     telemetry_mirror: h#DOM_SCRIPT_LOADING_SOURCE
+
+  script_memory_cache_ever_hit:
+    type: custom_distribution
+    description: >
+      The percentage of the stencil navigation cache entries that are
+      ever hit in the process.
+    range_min: 0
+    range_max: 100
+    bucket_count: 101
+    histogram_type: linear
+    unit: percent
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2019337
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2019337
+    notification_emails:
+      - tfujisawa.birchill@mozilla.com
+    expires: never
+
+  script_memory_cache_ref_count:
+    type: custom_distribution
+    description: >
+      Distribution of the refCount of scripts in the stencil navigation
+      cache.
+    range_min: 1
+    range_max: 100
+    bucket_count: 100
+    histogram_type: linear
+    unit: scripts
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2019337
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2019337
+    notification_emails:
+      - tfujisawa.birchill@mozilla.com
+    expires: never
 
   blink_filesystem_used:
     type: labeled_counter

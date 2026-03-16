@@ -26,6 +26,8 @@ namespace mozilla::dom {
 class AbstractRange;
 class Document;
 class Highlight;
+struct HighlightHitResult;
+struct HighlightsFromPointOptions;
 
 /**
  * @brief HighlightRegistry manages all `Highlight`s available to a `Document`.
@@ -92,6 +94,15 @@ class HighlightRegistry final : public nsISupports, public nsWrapperCache {
 
   void RepaintHighlightSelection(Highlight& aHighlight);
 
+  /**
+   * @brief Repaints all highlight selections.
+   *
+   * This is called after style changes to ensure highlight pseudo-element
+   * styles are properly repainted, since they are resolved lazily during
+   * painting and don't generate change hints during restyle.
+   */
+  void RepaintAllHighlightSelections();
+
   // WebIDL interface
 
   Document* GetParentObject() const { return mDocument; };
@@ -129,6 +140,18 @@ class HighlightRegistry final : public nsISupports, public nsWrapperCache {
    * @return true if `aKey` existed and was deleted.
    */
   MOZ_CAN_RUN_SCRIPT bool Delete(const nsAString& aKey, ErrorResult& aRv);
+
+  /**
+   * @brief Returns all `Ranges` for all `Highlights` that are present at
+   *        position (x,y).
+   *
+   * @param aX       x coordinate.
+   * @param aY       y coordinate.
+   * @param aOptions An optional sequence of shadow roots to consider.
+   */
+  void HighlightsFromPoint(float aX, float aY,
+                           const HighlightsFromPointOptions& aOptions,
+                           nsTArray<HighlightHitResult>& aResult);
 
   /**
    * @brief Get the `FrameSelection` object if available. Can return nullptr.

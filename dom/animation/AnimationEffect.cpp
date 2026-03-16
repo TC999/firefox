@@ -56,9 +56,9 @@ bool AnimationEffect::IsCurrent() const {
     return true;
   }
 
-  return (mAnimation->PlaybackRate() > 0 &&
+  return (mAnimation->PlaybackRateInternal() > 0 &&
           computedTiming.mPhase == ComputedTiming::AnimationPhase::Before) ||
-         (mAnimation->PlaybackRate() < 0 &&
+         (mAnimation->PlaybackRateInternal() < 0 &&
           computedTiming.mPhase == ComputedTiming::AnimationPhase::After);
 }
 
@@ -73,7 +73,7 @@ void AnimationEffect::SetSpecifiedTiming(TimingParams&& aTiming) {
     return;
   }
 
-  mTiming = aTiming;
+  mTiming = std::move(aTiming);
 
   UpdateNormalizedTiming();
 
@@ -269,7 +269,8 @@ ComputedTiming AnimationEffect::GetComputedTimingAt(
 
 ComputedTiming AnimationEffect::GetComputedTiming(
     const TimingParams* aTiming, EndpointBehavior aEndpointBehavior) const {
-  const double playbackRate = mAnimation ? mAnimation->PlaybackRate() : 1;
+  const double playbackRate =
+      mAnimation ? mAnimation->PlaybackRateInternal() : 1;
   const auto progressTimelinePosition =
       mAnimation ? mAnimation->AtProgressTimelineBoundary()
                  : Animation::ProgressTimelinePosition::NotBoundary;
@@ -307,7 +308,7 @@ void AnimationEffect::GetComputedTimingAsDict(
   GetEffectTimingDictionary(SpecifiedTiming(), aRetVal);
 
   // Computed timing
-  double playbackRate = mAnimation ? mAnimation->PlaybackRate() : 1;
+  double playbackRate = mAnimation ? mAnimation->PlaybackRateInternal() : 1;
   const Nullable<TimeDuration> currentTime = GetLocalTime();
   const auto progressTimelinePosition =
       mAnimation ? mAnimation->AtProgressTimelineBoundary()
@@ -346,17 +347,29 @@ void AnimationEffect::UpdateTiming(const OptionalEffectTiming& aTiming,
   SetSpecifiedTiming(std::move(timing));
 }
 
+// FIXME: We currently update the normalized timing eagerly, and this may cause
+// unnecessary calculation. The alternative way is to update it lazily and only
+// when needed. In order words, we could set a flag, and update the normalized
+// timing only when we need to use the normalized timing.
 void AnimationEffect::UpdateNormalizedTiming() {
   mNormalizedTiming.reset();
 
-  if (!mAnimation || !mAnimation->UsingScrollTimeline()) {
+  if (!mAnimation) {
     return;
   }
 
-  // Since `mAnimation` has a scroll timeline, we can be sure `GetTimeline()`
-  // and `TimelineDuration()` will not return null.
-  mNormalizedTiming.emplace(
-      mTiming.Normalize(mAnimation->GetTimeline()->TimelineDuration().Value()));
+  const auto* timeline = mAnimation->GetTimeline();
+  // Skip time-based timeline. Only scroll timeline and view timeline update the
+  // normalized timing.
+  if (!timeline || timeline->IsMonotonicallyIncreasing()) {
+    return;
+  }
+
+  const Nullable<TimeDuration>& timelineDuration =
+      timeline->TimelineDuration(mAnimation->GetTimelineRange());
+  MOZ_ASSERT(!timelineDuration.IsNull(),
+             "We always have a timeline duration even for 0 duration");
+  mNormalizedTiming.emplace(mTiming.Normalize(timelineDuration.Value()));
 }
 
 Nullable<TimeDuration> AnimationEffect::GetLocalTime() const {

@@ -401,45 +401,13 @@ export class ContextMenuChild extends JSWindowActorChild {
   }
 
   // Gather all descendent text under given document node.
+  // NOTE: Keep this in sync with gatherTextUnder in
+  // browser/base/content/utilityOverlay.js
   _gatherTextUnder(root) {
-    let text = "";
-    let node = root.firstChild;
-    let depth = 1;
-    while (node && depth > 0) {
-      // See if this node is text.
-      if (node.nodeType == node.TEXT_NODE) {
-        // Add this text to our collection.
-        text += " " + node.data;
-      } else if (this.contentWindow.HTMLImageElement.isInstance(node)) {
-        // If it has an "alt" attribute, add that.
-        let altText = node.getAttribute("alt");
-        if (altText && altText != "") {
-          text += " " + altText;
-        }
-      }
-      // Find next node to test.
-      // First, see if this node has children.
-      if (node.hasChildNodes()) {
-        // Go to first child.
-        node = node.firstChild;
-        depth++;
-      } else {
-        // No children, try next sibling (or parent next sibling).
-        while (depth > 0 && !node.nextSibling) {
-          node = node.parentNode;
-          depth--;
-        }
-        if (node.nextSibling) {
-          node = node.nextSibling;
-        }
-      }
-    }
-
-    // Strip leading and tailing whitespace.
-    text = text.trim();
-    // Compress remaining whitespace.
-    text = text.replace(/\s+/g, " ");
-    return text;
+    const encoder = Cu.createDocumentEncoder("text/plain");
+    encoder.init(root.ownerDocument, "text/plain", 0);
+    encoder.setContainerNode(root);
+    return encoder.encodeToString().trim();
   }
 
   // Returns a "url"-type computed style attribute value, with the url() stripped.
@@ -873,7 +841,6 @@ export class ContextMenuChild extends JSWindowActorChild {
     context.onSpellcheckable = false;
     context.onTextInput = false;
     context.onVideo = false;
-    context.inPDFEditor = false;
 
     const textDirectiveRanges =
       this.document.fragmentDirective?.getTextDirectiveRanges?.() || [];
@@ -894,8 +861,7 @@ export class ContextMenuChild extends JSWindowActorChild {
       context.target.ownerDocument.nodePrincipal.originNoSuffix ==
       "resource://pdf.js";
     if (context.inPDFViewer) {
-      context.pdfEditorStates = context.target.ownerDocument.editorStates;
-      context.inPDFEditor = !!context.pdfEditorStates?.isEditing;
+      context.pdfStates = context.target.ownerDocument.pdfStates;
     }
 
     // Check if we are in a synthetic document (stand alone image, video, etc.).

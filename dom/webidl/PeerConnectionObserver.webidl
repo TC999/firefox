@@ -10,7 +10,8 @@ dictionary PCErrorData
 {
   required PCError name;
   required DOMString message;
-  // Will need to add more stuff (optional) for RTCError
+  DOMString errorDetail;
+  long sdpLineNumber;
 };
 
 [ChromeOnly,
@@ -31,6 +32,7 @@ interface PeerConnectionObserver
   undefined onAddIceCandidateSuccess();
   undefined onAddIceCandidateError(PCErrorData error);
   undefined onIceCandidate(unsigned short level, DOMString mid, DOMString candidate, DOMString ufrag);
+  undefined onIceCandidateError(DOMString address, unsigned short port, DOMString url, unsigned short errorCode, DOMString errorText);
 
   /* Data channel callbacks */
   undefined notifyDataChannel(RTCDataChannel channel);

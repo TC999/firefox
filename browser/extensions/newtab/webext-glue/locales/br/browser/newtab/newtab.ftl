@@ -49,7 +49,7 @@ newtab-search-box-input =
     .placeholder = Klask er web
     .aria-label = Klask er web
 
-## Top Sites - General form dialog.
+## Clear text button for the URL and image URL input fields in the Top Sites form.
 
 newtab-topsites-add-search-engine-header = Ouzhpennañ ul lusker klask
 newtab-topsites-add-shortcut-header = Berradenn nevez
@@ -442,7 +442,7 @@ newtab-section-mangage-topics-followed-topics = O heuliañ
 newtab-section-mangage-topics-blocked-topics = Stanket
 newtab-custom-wallpaper-cta = Esaeañ
 
-## Strings for reporting ads and content
+## Strings for reporting issues with ads and content
 
 newtab-report-cancel = Nullañ
 newtab-report-submit = Kas

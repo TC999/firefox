@@ -25,6 +25,7 @@
 #include "mozilla/RefPtr.h"
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/StaticPrefs_content.h"
+#include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/StoragePrincipalHelper.h"
 #include "mozilla/css/Loader.h"
@@ -452,8 +453,10 @@ void nsContentSink::PreloadHref(
   nsCOMPtr<nsIURI> uri;
   NS_NewURI(getter_AddRefs(uri), aHref, encoding, mDocument->GetDocBaseURI());
   if (!uri) {
-    // URL parsing failed.
-    return;
+    if (!aAs.LowerCaseEqualsASCII("image") || aSrcset.IsEmpty()) {
+      // URL parsing failed.
+      return;
+    }
   }
 
   nsAttrValue asAttr;
@@ -467,7 +470,7 @@ void nsContentSink::PreloadHref(
   if (policyType == nsIContentPolicy::TYPE_INVALID ||
       !mozilla::net::CheckPreloadAttrs(asAttr, mimeType, aMedia, mDocument)) {
     // Ignore preload wrong or empty attributes.
-    mozilla::net::WarnIgnoredPreload(*mDocument, *uri);
+    mozilla::net::WarnIgnoredPreload(*mDocument, uri, aSrcset);
     return;
   }
 
@@ -487,7 +490,8 @@ void nsContentSink::PreloadModule(
   }
   ModuleLoader* moduleLoader = scriptLoader->GetModuleLoader();
 
-  if (!StaticPrefs::network_modulepreload()) {
+  if (!StaticPrefs::network_modulepreload() &&
+      !StaticPrefs::dom_multiple_import_maps_enabled()) {
     // Keep behavior from https://phabricator.services.mozilla.com/D149371,
     // prior to main implementation of modulepreload
     moduleLoader->DisallowImportMaps();
@@ -515,7 +519,9 @@ void nsContentSink::PreloadModule(
     return;
   }
 
-  moduleLoader->DisallowImportMaps();
+  if (!StaticPrefs::dom_multiple_import_maps_enabled()) {
+    moduleLoader->DisallowImportMaps();
+  }
 
   mDocument->Preloads().PreloadLinkHeader(
       uri, aHref, nsIContentPolicy::TYPE_SCRIPT, u"script"_ns,

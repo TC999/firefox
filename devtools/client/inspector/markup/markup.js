@@ -1194,6 +1194,12 @@ class MarkupView extends EventEmitter {
     let scrolled = false;
 
     while (currentNode) {
+      // Don't highlight text in badges (e.g. `flex`, `grid`, …)
+      if (currentNode.parentNode.closest("[data-skip-markupview-search]")) {
+        currentNode = treeWalker.nextNode();
+        continue;
+      }
+
       const text = currentNode.textContent.toLowerCase();
       let startPos = 0;
       while (startPos < text.length) {
@@ -1311,7 +1317,7 @@ class MarkupView extends EventEmitter {
 
   _onCopy(evt) {
     // Ignore copy events from editors
-    if (this._isInputOrTextarea(evt.target)) {
+    if (this.isInputOrTextareaOrInCodeMirrorEditor(evt.target)) {
       return;
     }
 
@@ -1453,7 +1459,7 @@ class MarkupView extends EventEmitter {
    * Key shortcut listener.
    */
   _onShortcut(name, event) {
-    if (this._isInputOrTextarea(event.target)) {
+    if (this.isInputOrTextareaOrInCodeMirrorEditor(event.target)) {
       return;
     }
 
@@ -1477,11 +1483,19 @@ class MarkupView extends EventEmitter {
   }
 
   /**
-   * Check if a node is an input or textarea
+   * Check if a node is used to type text (i.e. an input or textarea, or in a CodeMirror editor)
    */
-  _isInputOrTextarea(element) {
+  isInputOrTextareaOrInCodeMirrorEditor(element) {
     const name = element.tagName.toLowerCase();
-    return name === "input" || name === "textarea";
+    if (name === "input" || name === "textarea") {
+      return true;
+    }
+
+    if (element.closest(".cm-editor")) {
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -2733,14 +2747,6 @@ class MarkupView extends EventEmitter {
     this._walkerEventListener.destroy();
     this._walkerEventListener = null;
 
-    this._prefObserver.off(
-      ATTR_COLLAPSE_ENABLED_PREF,
-      this._onCollapseAttributesPrefChange
-    );
-    this._prefObserver.off(
-      ATTR_COLLAPSE_LENGTH_PREF,
-      this._onCollapseAttributesPrefChange
-    );
     this._prefObserver.destroy();
 
     for (const [, container] of this._containers) {

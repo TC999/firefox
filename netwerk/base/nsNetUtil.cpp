@@ -107,6 +107,7 @@
 #include "mozilla/net/CookieJarSettings.h"
 #include "mozilla/net/MozSrcProtocolHandler.h"
 #include "mozilla/net/ExtensionProtocolHandler.h"
+#include "mozilla/net/MozNewTabWallpaperProtocolHandler.h"
 #include "mozilla/net/PageThumbProtocolHandler.h"
 #include "mozilla/net/SFVService.h"
 #include "nsICookieService.h"
@@ -1433,7 +1434,7 @@ class BufferWriter final : public nsIInputStreamCallback {
                                     mInputStream.forget(), GetBufferSize());
       NS_ENSURE_SUCCESS(rv, rv);
 
-      mInputStream = bufferedStream;
+      mInputStream = std::move(bufferedStream);
     }
 
     mAsyncInputStream = do_QueryInterface(mInputStream);
@@ -1993,6 +1994,15 @@ nsresult NS_NewURI(nsIURI** aURI, const nsACString& aSpec,
     return handler->NewURI(aSpec, aCharset, aBaseURI, aURI);
   }
 
+  if (scheme.EqualsLiteral("moz-newtab-wallpaper")) {
+    RefPtr<mozilla::net::MozNewTabWallpaperProtocolHandler> handler =
+        mozilla::net::MozNewTabWallpaperProtocolHandler::GetSingleton();
+    if (!handler) {
+      return NS_ERROR_NOT_AVAILABLE;
+    }
+    return handler->NewURI(aSpec, aCharset, aBaseURI, aURI);
+  }
+
   if (scheme.EqualsLiteral("about")) {
     return nsAboutProtocolHandler::CreateNewURI(aSpec, aCharset, aBaseURI,
                                                 aURI);
@@ -2464,7 +2474,7 @@ bool NS_SecurityCompareURIs(nsIURI* aSourceURI, nsIURI* aTargetURI,
     auto* basePrin = BasePrincipal::Cast(sourceBlobPrincipal);
     rv = basePrin->GetURI(getter_AddRefs(sourceBlobOwnerURI));
     if (NS_SUCCEEDED(rv)) {
-      sourceBaseURI = sourceBlobOwnerURI;
+      sourceBaseURI = std::move(sourceBlobOwnerURI);
     }
   }
 
@@ -2475,7 +2485,7 @@ bool NS_SecurityCompareURIs(nsIURI* aSourceURI, nsIURI* aTargetURI,
     auto* basePrin = BasePrincipal::Cast(targetBlobPrincipal);
     rv = basePrin->GetURI(getter_AddRefs(targetBlobOwnerURI));
     if (NS_SUCCEEDED(rv)) {
-      targetBaseURI = targetBlobOwnerURI;
+      targetBaseURI = std::move(targetBlobOwnerURI);
     }
   }
 
@@ -4039,11 +4049,14 @@ bool CheckPreloadAttrs(const nsAttrValue& aAs, const nsAString& aType,
   return false;
 }
 
-void WarnIgnoredPreload(const mozilla::dom::Document& aDoc, nsIURI& aURI) {
+void WarnIgnoredPreload(const mozilla::dom::Document& aDoc, nsIURI* aURI,
+                        const nsAString& aSrcset) {
   AutoTArray<nsString, 1> params;
-  {
-    nsCString uri = nsContentUtils::TruncatedURLForDisplay(&aURI);
+  if (aURI) {
+    nsCString uri = nsContentUtils::TruncatedURLForDisplay(aURI);
     AppendUTF8toUTF16(uri, *params.AppendElement());
+  } else {
+    params.AppendElement(aSrcset);
   }
   nsContentUtils::ReportToConsole(nsIScriptError::warningFlag, "DOM"_ns, &aDoc,
                                   nsContentUtils::eDOM_PROPERTIES,
@@ -4212,7 +4225,8 @@ void CheckForBrokenChromeURL(nsILoadInfo* aLoadInfo, nsIURI* aURI) {
   nsAutoCString host;
   aURI->GetHost(host);
   // Ignore test hits.
-  if (host.EqualsLiteral("mochitests") || host.EqualsLiteral("reftest")) {
+  if (host.EqualsLiteral("mochitests") || host.EqualsLiteral("reftest") ||
+      host.EqualsLiteral("testing-common") || host.EqualsLiteral("test")) {
     return;
   }
 
@@ -4263,6 +4277,13 @@ void CheckForBrokenChromeURL(nsILoadInfo* aLoadInfo, nsIURI* aURI) {
   // command line, which is then looked up in both app-specific and toolkit-wide
   // locations.
   if (spec.Find("backgroundtasks") != kNotFound) {
+    return;
+  }
+
+  // SessionStoreFunctions.sys.mjs may be missing at runtime in xpcshell tests:
+  // https://bugzilla.mozilla.org/show_bug.cgi?id=2018078#c3
+  if (spec.EqualsLiteral(
+          "resource:///modules/sessionstore/SessionStoreFunctions.sys.mjs")) {
     return;
   }
 

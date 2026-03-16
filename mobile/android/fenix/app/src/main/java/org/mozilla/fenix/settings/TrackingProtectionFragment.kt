@@ -123,6 +123,7 @@ class TrackingProtectionFragment : PreferenceFragmentCompat() {
 
         val learnMorePreference = requirePreference<Preference>(R.string.pref_key_etp_learn_more)
         learnMorePreference.setOnPreferenceClickListener {
+            @Suppress("DEPRECATION")
             (activity as HomeActivity).openToBrowserAndLoad(
                 searchTermOrURL = SupportUtils.getGenericSumoURLForTopic
                     (SupportUtils.SumoTopic.TRACKING_PROTECTION),
@@ -151,7 +152,7 @@ class TrackingProtectionFragment : PreferenceFragmentCompat() {
         }
 
         args.preferenceToScrollTo?.let {
-            scrollToPreference(it)
+            scrollToPreferenceWithHighlight(it)
         }
     }
 
@@ -441,6 +442,7 @@ class TrackingProtectionFragment : PreferenceFragmentCompat() {
     }
 
     private fun openSumoArticle() {
+        @Suppress("DEPRECATION")
         (activity as HomeActivity).openToBrowserAndLoad(
             searchTermOrURL = SupportUtils.getGenericSumoURLForTopic(
                 SupportUtils.SumoTopic.TRACKING_PROTECTION,

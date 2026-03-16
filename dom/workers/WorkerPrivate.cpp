@@ -75,6 +75,7 @@
 #include "mozilla/dom/RemoteWorkerDebuggerChild.h"
 #include "mozilla/dom/RemoteWorkerNonLifeCycleOpControllerChild.h"
 #include "mozilla/dom/RemoteWorkerService.h"
+#include "mozilla/dom/ReportDeliver.h"
 #include "mozilla/dom/RootedDictionary.h"
 #include "mozilla/dom/ServiceWorkerEvents.h"
 #include "mozilla/dom/ServiceWorkerManager.h"
@@ -101,6 +102,7 @@
 #include "nsIDUtils.h"
 #include "nsIEventTarget.h"
 #include "nsIFile.h"
+#include "nsIHttpChannel.h"
 #include "nsIMemoryReporter.h"
 #include "nsIPermissionManager.h"
 #include "nsIProtocolHandler.h"
@@ -1407,7 +1409,7 @@ nsresult WorkerPrivate::SetCsp(nsIContentSecurityPolicy* aCSP) {
   aCSP->EnsureEventTarget(mMainThreadEventTarget);
 
   mLoadInfo.mCSP = aCSP;
-  auto ctx = WorkerCSPContext::CreateFromCSP(aCSP);
+  auto ctx = OffThreadCSPContext::CreateFromCSP(aCSP);
   if (NS_WARN_IF(ctx.isErr())) {
     return ctx.unwrapErr();
   }
@@ -1475,7 +1477,7 @@ nsresult WorkerPrivate::SetCSPFromHeaderValues(
 
   mLoadInfo.mCSP = csp;
 
-  auto ctx = WorkerCSPContext::CreateFromCSP(csp);
+  auto ctx = OffThreadCSPContext::CreateFromCSP(csp);
   if (NS_WARN_IF(ctx.isErr())) {
     return ctx.unwrapErr();
   }
@@ -2999,6 +3001,7 @@ WorkerPrivate::WorkerPrivate(
 WorkerPrivate::~WorkerPrivate() {
   MOZ_DIAGNOSTIC_ASSERT(mTopLevelWorkerFinishedRunnableCount == 0);
   MOZ_DIAGNOSTIC_ASSERT(mWorkerFinishedRunnableCount == 0);
+  MOZ_DIAGNOSTIC_ASSERT(mPendingJSAsyncTasks.empty());
 
   mWorkerDebuggerEventTarget->ForgetWorkerPrivate(this);
 
@@ -4366,6 +4369,29 @@ void WorkerPrivate::SetGCTimerMode(GCTimerMode aMode) {
       timer->InitWithNamedFuncCallback(callback, this, delay, type, name));
 }
 
+void WorkerPrivate::InitializeGlobalReportingEndpoints() {
+  if (mLoadInfo.mReportingEndpointsHeader.IsEmpty() ||
+      mLoadInfo.mReportingEndpointsHeader.IsVoid()) {
+    return;
+  }
+
+  MOZ_ASSERT(GlobalScope());
+  // We *must* convert to nsIGlobalObject* first, so that when something wants
+  // to report, it uses the right key
+
+  ReportDeliver::WorkerInitializeReportingEndpoints(
+      reinterpret_cast<uintptr_t>(static_cast<nsIGlobalObject*>(GlobalScope())),
+      mLoadInfo.mBaseURI, mLoadInfo.mReportingEndpointsHeader,
+      ShouldResistFingerprinting(RFPTarget::NavigatorUserAgent),
+      CookieJarSettings());
+}
+
+void WorkerPrivate::SetReportingEndpointsHeader(const nsACString& aHeader) {
+  MOZ_ASSERT(mLoadInfo.mReportingEndpointsHeader.IsEmpty(),
+             "Headers set multiple times.");
+  mLoadInfo.mReportingEndpointsHeader = aHeader;
+}
+
 void WorkerPrivate::ShutdownGCTimers() {
   auto data = mWorkerThreadAccessible.Access();
 
@@ -5040,6 +5066,19 @@ nsresult WorkerPrivate::UnregisterShutdownTask(nsITargetShutdownTask* aTask) {
   return mShutdownTasks.RemoveTask(aTask);
 }
 
+void WorkerPrivate::JSAsyncTaskStarted(JS::Dispatchable* aDispatchable) {
+  RefPtr<StrongWorkerRef> ref = StrongWorkerRef::Create(this, "JSAsyncTask");
+  MOZ_ASSERT_DEBUG_OR_FUZZING(ref);
+  if (NS_WARN_IF(!ref)) {
+    return;
+  }
+  MOZ_ALWAYS_TRUE(mPendingJSAsyncTasks.putNew(aDispatchable, std::move(ref)));
+}
+
+void WorkerPrivate::JSAsyncTaskFinished(JS::Dispatchable* aDispatchable) {
+  mPendingJSAsyncTasks.remove(aDispatchable);
+}
+
 void WorkerPrivate::RunShutdownTasks() {
   TargetShutdownTaskSet::TasksArray shutdownTasks;
 
@@ -5620,24 +5659,10 @@ void WorkerPrivate::EnterDebuggerEventLoop() {
     {
       MutexAutoLock lock(mMutex);
 
-      if (StaticPrefs::javascript_options_use_js_microtask_queue()) {
-        // When JS microtask queue is enabled, check for debugger microtasks
-        // directly from the JS engine
-        while (mControlQueue.IsEmpty() &&
-               !(debuggerRunnablesPending = !mDebuggerQueue.IsEmpty()) &&
-               !JS::HasDebuggerMicroTasks(cx)) {
-          WaitForWorkerEvents();
-        }
-      } else {
-        // Legacy path: check the debugger microtask queue in
-        // CycleCollectedJSContext
-        std::deque<RefPtr<MicroTaskRunnable>>& debuggerMtQueue =
-            ccjscx->GetDebuggerMicroTaskQueue();
-        while (mControlQueue.IsEmpty() &&
-               !(debuggerRunnablesPending = !mDebuggerQueue.IsEmpty()) &&
-               debuggerMtQueue.empty()) {
-          WaitForWorkerEvents();
-        }
+      while (mControlQueue.IsEmpty() &&
+             !(debuggerRunnablesPending = !mDebuggerQueue.IsEmpty()) &&
+             !JS::HasDebuggerMicroTasks(cx)) {
+        WaitForWorkerEvents();
       }
 
       ProcessAllControlRunnablesLocked();
@@ -5796,6 +5821,19 @@ bool WorkerPrivate::NotifyInternal(WorkerStatus aStatus) {
 
   if (aStatus >= Closing) {
     CancelAllTimeouts();
+
+    JSContext* cx = GetJSContext();
+    if (cx) {
+      // This will invoke the JS async task finished callback for cancellable
+      // JS tasks, which will invoke JSAsyncTaskFinished and remove from
+      // mPendingJSAsyncTasks.
+      //
+      // There may still be outstanding JS tasks for things that couldn't be
+      // cancelled. These must either finish normally, or be blocked on
+      // through a call to JS::ShutdownAsyncTasks. Cycle collector shutdown
+      // will call this during worker shutdown.
+      JS::CancelAsyncTasks(cx);
+    }
   }
 
   if (aStatus == Closing && GlobalScope()) {
@@ -6703,6 +6741,10 @@ NS_IMETHODIMP
 WorkerPrivate::EventTarget::UnregisterShutdownTask(
     nsITargetShutdownTask* aTask) {
   return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+nsIEventTarget::FeatureFlags WorkerPrivate::EventTarget::GetFeatures() {
+  return SUPPORTS_BASE;
 }
 
 NS_IMETHODIMP

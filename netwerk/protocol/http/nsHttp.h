@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsHttp_h__
-#define nsHttp_h__
+#ifndef nsHttp_h_
+#define nsHttp_h_
 
 #include <stdint.h>
 #include "prtime.h"
@@ -178,6 +178,9 @@ inline bool IsHttp3(SupportedAlpnRank aRank) {
 // When set, setup TLS tunnel even when HTTP proxy is used.
 // Need to be used together with NS_HTTP_CONNECT_ONLY
 #define NS_HTTP_TLS_TUNNEL (1 << 29)
+
+// When set, we use HappyEyeballsConnectionAttempt to establish connection.
+#define NS_HTTP_USE_HAPPY_EYEBALLS (1 << 30)
 
 #define NS_HTTP_TRR_FLAGS_FROM_MODE(x) ((static_cast<uint32_t>(x) & 3) << 19)
 
@@ -391,13 +394,13 @@ namespace nsHttp {
 
 // Declare all atoms
 //
-// The atom names and values are stored in nsHttpAtomList.h and are brought
+// The atom names and values are stored in nsHttpAtomList.inc and are brought
 // to you by the magic of C preprocessing.  Add new atoms to nsHttpAtomList
 // and all support logic will be auto-generated.
 //
 #define HTTP_ATOM(_name, _value) \
   inline constexpr nsHttpAtomLiteral _name(_value);
-#include "nsHttpAtomList.h"
+#include "nsHttpAtomList.inc"
 #undef HTTP_ATOM
 }  // namespace nsHttp
 
@@ -538,4 +541,4 @@ ProxyDNSStrategy GetProxyDNSStrategyHelper(const char* aType, uint32_t aFlag);
 }  // namespace net
 }  // namespace mozilla
 
-#endif  // nsHttp_h__
+#endif  // nsHttp_h_

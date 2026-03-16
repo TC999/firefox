@@ -45,6 +45,14 @@ enum class ModuleType : uint32_t {
   CSS,
   Bytes,
 
+  // The specification has renamed the "javascript" module type to
+  // "javascript-or-wasm". For now, we'll add JavaScriptOrWasm as
+  // an alias of JavaScript. Code that's been updated to handle
+  // wasm modules will use JavaScriptOrWasm, other code will continue
+  // to use JavaScript. Once everything has been updated to use
+  // JavaScriptOrWasm, we'll can just rename JavaScript to JavaScriptOrWasm.
+  JavaScriptOrWasm = JavaScript,
+
   Limit = Bytes,
 };
 
@@ -208,6 +216,14 @@ extern JS_PUBLIC_API JSObject* CreateDefaultExportSyntheticModule(
     JSContext* cx, const Value& defaultExport);
 
 /**
+ * Parse the given source buffer as a module in the scope of the current global
+ * of cx and return a source text module record.
+ */
+extern JS_PUBLIC_API JSObject* CompileWasmModule(
+    JSContext* cx, const ReadOnlyCompileOptions& options,
+    js::Vector<uint8_t, 0, js::MallocAllocPolicy>& srcBuf);
+
+/**
  * Set a private value associated with a source text module record.
  */
 extern JS_PUBLIC_API void SetModulePrivate(JSObject* module,
@@ -229,6 +245,22 @@ extern JS_PUBLIC_API Value GetModulePrivate(JSObject* module);
  * Checks if the given module is a cyclic module.
  */
 extern JS_PUBLIC_API bool IsCyclicModule(JSObject* module);
+
+#ifdef DEBUG
+/**
+ * A helper function to set the isPreload flag on the ModuleObject.
+ * The flag will be verified later when ResetPreloadedModule is called.
+ */
+extern JS_PUBLIC_API void SetModulePreload(JSObject* module, bool isPreload);
+#endif
+
+/**
+ * Set module status to New and clear the [[LoadedModules]] slot and in a Cycloc
+ * Module.
+ * Used to reset modules that were preloaded earlier, in case the resolution of
+ * their specifiers may have changed.
+ */
+extern JS_PUBLIC_API void ResetPreloadedModule(JSObject* module);
 
 /*
  * Perform the ModuleLink operation on the given source text module record.
@@ -290,8 +322,6 @@ extern JS_PUBLIC_API ModuleType GetRequestedModuleType(
  */
 extern JS_PUBLIC_API JSScript* GetModuleScript(Handle<JSObject*> moduleRecord);
 
-extern JS_PUBLIC_API JSObject* CreateModuleRequest(
-    JSContext* cx, Handle<JSString*> specifierArg, ModuleType moduleType);
 extern JS_PUBLIC_API JSString* GetModuleRequestSpecifier(
     JSContext* cx, Handle<JSObject*> moduleRequestArg);
 

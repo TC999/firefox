@@ -13,7 +13,7 @@ with Files("APZTestData.webidl"):
 with Files("AccessibleNode.webidl"):
     BUG_COMPONENT = ("Core", "Disability Access APIs")
 
-with Files("ARIAMixin.webidl"):
+with Files("ARIA*.webidl"):
     BUG_COMPONENT = ("Core", "Disability Access APIs")
 
 with Files("Addon*"):
@@ -87,6 +87,9 @@ with Files("Crypto.webidl"):
 
 with Files("Device*"):
     BUG_COMPONENT = ("Core", "DOM: Device Interfaces")
+
+with Files("DigitalCredential.webidl"):
+    BUG_COMPONENT = ("Core", "DOM: Credential Management")
 
 with Files("Directory.webidl"):
     BUG_COMPONENT = ("Core", "DOM: Device Interfaces")
@@ -395,6 +398,8 @@ with Files("WebTransport*"):
     BUG_COMPONENT = ("Core", "Networking")
 
 GENERATED_WEBIDL_FILES = [
+    "CSSCounterStyleRule.webidl",
+    "CSSFontFaceDescriptors.webidl",
     "CSSPageDescriptors.webidl",
     "CSSPositionTryDescriptors.webidl",
     "CSSStyleProperties.webidl",
@@ -422,6 +427,7 @@ WEBIDL_FILES = [
     "AppInfo.webidl",
     "APZTestData.webidl",
     "ARIAMixin.webidl",
+    "ARIANotifyMixin.webidl",
     "Attr.webidl",
     "AudioBuffer.webidl",
     "AudioBufferSourceNode.webidl",
@@ -492,7 +498,6 @@ WEBIDL_FILES = [
     "CSSColorValue.webidl",
     "CSSConditionRule.webidl",
     "CSSContainerRule.webidl",
-    "CSSCounterStyleRule.webidl",
     "CSSCustomMediaRule.webidl",
     "CSSFontFaceRule.webidl",
     "CSSFontFeatureValuesRule.webidl",
@@ -563,10 +568,13 @@ WEBIDL_FILES = [
     "DedicatedWorkerGlobalScope.webidl",
     "DelayNode.webidl",
     "DeviceMotionEvent.webidl",
+    "DigitalCredential.webidl",
     "Directory.webidl",
     "Document.webidl",
     "DocumentFragment.webidl",
     "DocumentOrShadowRoot.webidl",
+    "DocumentPictureInPicture.webidl",
+    "DocumentPictureInPictureEvent.webidl",
     "DocumentTimeline.webidl",
     "DocumentType.webidl",
     "DOMException.webidl",
@@ -644,6 +652,7 @@ WEBIDL_FILES = [
     "GleanPings.webidl",
     "Headers.webidl",
     "Highlight.webidl",
+    "HighlightRegistry.webidl",
     "History.webidl",
     "HTMLAllCollection.webidl",
     "HTMLAnchorElement.webidl",
@@ -800,6 +809,7 @@ WEBIDL_FILES = [
     "MimeType.webidl",
     "MimeTypeArray.webidl",
     "MLS.webidl",
+    "ModelContext.webidl",
     "MouseEvent.webidl",
     "MouseScrollEvent.webidl",
     "MozFrameLoaderOwner.webidl",
@@ -894,7 +904,6 @@ WEBIDL_FILES = [
     "ServiceWorkerContainer.webidl",
     "ServiceWorkerGlobalScope.webidl",
     "ServiceWorkerRegistration.webidl",
-    "ShadowRealmGlobalScope.webidl",
     "ShadowRoot.webidl",
     "SharedWorker.webidl",
     "SharedWorkerGlobalScope.webidl",
@@ -1128,6 +1137,7 @@ if CONFIG["MOZ_WEBRTC"]:
         "RTCDTMFSender.webidl",
         "RTCEncodedAudioFrame.webidl",
         "RTCEncodedVideoFrame.webidl",
+        "RTCError.webidl",
         "RTCIceCandidate.webidl",
         "RTCIceTransport.webidl",
         "RTCIdentityAssertion.webidl",
@@ -1220,6 +1230,7 @@ GENERATED_EVENTS_WEBIDL_FILES = [
     "ContentVisibilityAutoStateChangeEvent.webidl",
     "DeviceLightEvent.webidl",
     "DeviceOrientationEvent.webidl",
+    "DocumentPictureInPictureEvent.webidl",
     "ErrorEvent.webidl",
     "FontFaceSetLoadEvent.webidl",
     "FormDataEvent.webidl",
@@ -1238,6 +1249,8 @@ GENERATED_EVENTS_WEBIDL_FILES = [
     "NavigationCurrentEntryChangeEvent.webidl",
     "NotificationEvent.webidl",
     "OfflineAudioCompletionEvent.webidl",
+    "PageRevealEvent.webidl",
+    "PageSwapEvent.webidl",
     "PageTransitionEvent.webidl",
     "PerformanceEntryEvent.webidl",
     "PopStateEvent.webidl",
@@ -1266,6 +1279,8 @@ if CONFIG["MOZ_WEBRTC"]:
     GENERATED_EVENTS_WEBIDL_FILES += [
         "RTCDataChannelEvent.webidl",
         "RTCDTMFToneChangeEvent.webidl",
+        "RTCErrorEvent.webidl",
+        "RTCPeerConnectionIceErrorEvent.webidl",
         "RTCPeerConnectionIceEvent.webidl",
         "RTCTrackEvent.webidl",
         "RTCTransformEvent.webidl",

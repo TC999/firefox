@@ -8,9 +8,9 @@
 #define jit_arm_Architecture_arm_h
 
 #include "mozilla/EnumSet.h"
-#include "mozilla/MathAlgorithms.h"
 
 #include <algorithm>
+#include <bit>
 #include <limits.h>
 #include <stdint.h>
 
@@ -127,14 +127,10 @@ class Registers {
 
   static uint32_t SetSize(SetType x) {
     static_assert(sizeof(SetType) == 4, "SetType must be 32 bits");
-    return mozilla::CountPopulation32(x);
+    return std::popcount(x);
   }
-  static uint32_t FirstBit(SetType x) {
-    return mozilla::CountTrailingZeroes32(x);
-  }
-  static uint32_t LastBit(SetType x) {
-    return 31 - mozilla::CountLeadingZeroes32(x);
-  }
+  static uint32_t FirstBit(SetType x) { return std::countr_zero(x); }
+  static uint32_t LastBit(SetType x) { return std::bit_width(x) - 1; }
 };
 
 // Smallest integer type that can hold a register bitmask.
@@ -531,7 +527,7 @@ class VFPRegister {
 
   static uint32_t SetSize(SetType x) {
     static_assert(sizeof(SetType) == 8, "SetType must be 64 bits");
-    return mozilla::CountPopulation32(x);
+    return std::popcount(x);
   }
   static Code FromName(const char* name) {
     return FloatRegisters::FromName(name);
@@ -540,12 +536,8 @@ class VFPRegister {
       const TypedRegisterSet<VFPRegister>& s);
   static uint32_t GetPushSizeInBytes(const TypedRegisterSet<VFPRegister>& s);
   uint32_t getRegisterDumpOffsetInBytes();
-  static uint32_t FirstBit(SetType x) {
-    return mozilla::CountTrailingZeroes64(x);
-  }
-  static uint32_t LastBit(SetType x) {
-    return 63 - mozilla::CountLeadingZeroes64(x);
-  }
+  static uint32_t FirstBit(SetType x) { return std::countr_zero(x); }
+  static uint32_t LastBit(SetType x) { return std::bit_width(x) - 1; }
 };
 
 template <>

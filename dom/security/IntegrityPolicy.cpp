@@ -9,6 +9,7 @@
 #include "mozilla/Logging.h"
 #include "mozilla/StaticPrefs_security.h"
 #include "mozilla/dom/RequestBinding.h"
+#include "mozilla/dom/WindowGlobalChild.h"
 #include "mozilla/ipc/PBackgroundSharedTypes.h"
 #include "mozilla/net/SFVService.h"
 #include "nsCOMPtr.h"
@@ -24,8 +25,6 @@ static LazyLogModule sIntegrityPolicyLogModule("IntegrityPolicy");
   MOZ_LOG_FMT(sIntegrityPolicyLogModule, LogLevel::Debug, fmt, ##__VA_ARGS__)
 
 namespace mozilla::dom {
-
-IntegrityPolicy::~IntegrityPolicy() = default;
 
 RequestDestination ContentTypeToDestination(nsContentPolicyType aType) {
   // From SecFetch.cpp
@@ -73,33 +72,25 @@ IntegrityPolicy::ContentTypeToDestinationType(nsContentPolicyType aType) {
       ContentTypeToDestination(aType));
 }
 
-nsresult GetStringsFromInnerList(nsISFVInnerList* aList, bool aIsToken,
-                                 nsTArray<nsCString>& aStrings) {
+// https://w3c.github.io/webappsec-subresource-integrity/#integrity-policy-section
+// The headers' value is a Dictionary [RFC9651], with every member-value being
+// an inner list of tokens.
+nsresult GetTokenValuesFromInnerList(nsISFVInnerList* aList,
+                                     nsTArray<nsCString>& aValues) {
   nsTArray<RefPtr<nsISFVItem>> items;
-  nsresult rv = aList->GetItems(items);
-  NS_ENSURE_SUCCESS(rv, rv);
+  MOZ_TRY(aList->GetItems(items));
 
   for (auto& item : items) {
     nsCOMPtr<nsISFVBareItem> value;
-    rv = item->GetValue(getter_AddRefs(value));
-    NS_ENSURE_SUCCESS(rv, rv);
+    MOZ_TRY(item->GetValue(getter_AddRefs(value)));
 
-    nsAutoCString itemStr;
-    if (aIsToken) {
-      nsCOMPtr<nsISFVToken> itemToken(do_QueryInterface(value));
-      NS_ENSURE_TRUE(itemToken, NS_ERROR_FAILURE);
+    nsCOMPtr<nsISFVToken> token(do_QueryInterface(value));
+    NS_ENSURE_TRUE(token, NS_ERROR_FAILURE);
 
-      rv = itemToken->GetValue(itemStr);
-      NS_ENSURE_SUCCESS(rv, rv);
-    } else {
-      nsCOMPtr<nsISFVString> itemString(do_QueryInterface(value));
-      NS_ENSURE_TRUE(itemString, NS_ERROR_FAILURE);
+    nsAutoCString tokenValue;
+    MOZ_TRY(token->GetValue(tokenValue));
 
-      rv = itemString->GetValue(itemStr);
-      NS_ENSURE_SUCCESS(rv, rv);
-    }
-
-    aStrings.AppendElement(itemStr);
+    aValues.AppendElement(tokenValue);
   }
 
   return NS_OK;
@@ -123,7 +114,7 @@ Result<IntegrityPolicy::Sources, nsresult> ParseSources(
   NS_ENSURE_TRUE(il, Err(NS_ERROR_FAILURE));
 
   nsTArray<nsCString> sources;
-  rv = GetStringsFromInnerList(il, true, sources);
+  rv = GetTokenValuesFromInnerList(il, sources);
   NS_ENSURE_SUCCESS(rv, Err(rv));
 
   IntegrityPolicy::Sources result;
@@ -140,14 +131,17 @@ Result<IntegrityPolicy::Sources, nsresult> ParseSources(
   return result;
 }
 
-/* static */
-Result<IntegrityPolicy::Destinations, nsresult> ParseDestinations(
-    nsISFVDictionary* aDict) {
+Result<IntegrityPolicy::Destinations, nsresult>
+IntegrityPolicy::ParseDestinations(nsISFVDictionary* aDict, bool aIsWAICT) {
   // blocked destinations, a list of destinations, initially empty.
 
   nsCOMPtr<nsISFVItemOrInnerList> iil;
   nsresult rv = aDict->Get("blocked-destinations"_ns, getter_AddRefs(iil));
   if (NS_FAILED(rv)) {
+    // Required in WAICT.
+    if (aIsWAICT) {
+      return Err(rv);
+    }
     return IntegrityPolicy::Destinations();
   }
 
@@ -156,7 +150,7 @@ Result<IntegrityPolicy::Destinations, nsresult> ParseDestinations(
   NS_ENSURE_TRUE(il, Err(NS_ERROR_FAILURE));
 
   nsTArray<nsCString> destinations;
-  rv = GetStringsFromInnerList(il, true, destinations);
+  rv = GetTokenValuesFromInnerList(il, destinations);
   NS_ENSURE_SUCCESS(rv, Err(rv));
 
   IntegrityPolicy::Destinations result;
@@ -167,6 +161,8 @@ Result<IntegrityPolicy::Destinations, nsresult> ParseDestinations(
       if (StaticPrefs::security_integrity_policy_stylesheet_enabled()) {
         result += IntegrityPolicy::DestinationType::Style;
       }
+    } else if (aIsWAICT && destination.EqualsLiteral("image")) {
+      result += IntegrityPolicy::DestinationType::Image;
     } else {
       LOG("ParseDestinations: Unknown destination: {}", destination.get());
       // Unknown destination, we don't know how to handle it
@@ -177,8 +173,8 @@ Result<IntegrityPolicy::Destinations, nsresult> ParseDestinations(
   return result;
 }
 
-/* static */
-Result<nsTArray<nsCString>, nsresult> ParseEndpoints(nsISFVDictionary* aDict) {
+Result<nsTArray<nsCString>, nsresult> IntegrityPolicy::ParseEndpoints(
+    nsISFVDictionary* aDict) {
   // endpoints, a list of strings, initially empty.
   nsCOMPtr<nsISFVItemOrInnerList> iil;
   nsresult rv = aDict->Get("endpoints"_ns, getter_AddRefs(iil));
@@ -190,7 +186,7 @@ Result<nsTArray<nsCString>, nsresult> ParseEndpoints(nsISFVDictionary* aDict) {
   nsCOMPtr<nsISFVInnerList> il(do_QueryInterface(iil));
   NS_ENSURE_TRUE(il, Err(NS_ERROR_FAILURE));
   nsTArray<nsCString> endpoints;
-  rv = GetStringsFromInnerList(il, true, endpoints);
+  rv = GetTokenValuesFromInnerList(il, endpoints);
   NS_ENSURE_SUCCESS(rv, Err(rv));
 
   return endpoints;
@@ -246,7 +242,7 @@ nsresult IntegrityPolicy::ParseHeaders(const nsACString& aHeader,
     }
 
     // 4. If dictionary["blocked-destinations"] exists:
-    auto destinationsResult = ParseDestinations(dict);
+    auto destinationsResult = ParseDestinations(dict, /* aIsWAICT */ false);
     if (destinationsResult.isErr()) {
       LOG("[{}] Failed to parse destinations for {} header.",
           static_cast<void*>(policy),
@@ -306,6 +302,16 @@ void IntegrityPolicy::PolicyContains(DestinationType aDestination,
   if (mReportOnly && mReportOnly->mDestinations.contains(aDestination) &&
       mReportOnly->mSources.contains(SourceType::Inline)) {
     *aROContains = true;
+  }
+}
+
+void IntegrityPolicy::Endpoints(nsTArray<nsCString>& aEnforcement,
+                                nsTArray<nsCString>& aReportOnly) const {
+  if (mEnforcement) {
+    aEnforcement = mEnforcement->mEndpoints.Clone();
+  }
+  if (mReportOnly) {
+    aReportOnly = mReportOnly->mEndpoints.Clone();
   }
 }
 
@@ -422,11 +428,8 @@ constexpr static const uint32_t kIntegrityPolicySerializationVersion = 1;
 
 NS_IMETHODIMP
 IntegrityPolicy::Read(nsIObjectInputStream* aStream) {
-  nsresult rv;
-
   uint32_t version;
-  rv = aStream->Read32(&version);
-  NS_ENSURE_SUCCESS(rv, rv);
+  MOZ_TRY(aStream->Read32(&version));
 
   if (version != kIntegrityPolicySerializationVersion) {
     LOG("IntegrityPolicy::Read: Unsupported version: {}", version);
@@ -435,36 +438,31 @@ IntegrityPolicy::Read(nsIObjectInputStream* aStream) {
 
   for (const bool& isRO : {false, true}) {
     bool hasPolicy;
-    rv = aStream->ReadBoolean(&hasPolicy);
-    NS_ENSURE_SUCCESS(rv, rv);
+    MOZ_TRY(aStream->ReadBoolean(&hasPolicy));
 
     if (!hasPolicy) {
       continue;
     }
 
     uint32_t sources;
-    rv = aStream->Read32(&sources);
-    NS_ENSURE_SUCCESS(rv, rv);
+    MOZ_TRY(aStream->Read32(&sources));
 
     Sources sourcesSet;
     sourcesSet.deserialize(sources);
 
     uint32_t destinations;
-    rv = aStream->Read32(&destinations);
-    NS_ENSURE_SUCCESS(rv, rv);
+    MOZ_TRY(aStream->Read32(&destinations));
 
     Destinations destinationsSet;
     destinationsSet.deserialize(destinations);
 
     uint32_t endpointsLen;
-    rv = aStream->Read32(&endpointsLen);
-    NS_ENSURE_SUCCESS(rv, rv);
+    MOZ_TRY(aStream->Read32(&endpointsLen));
 
     nsTArray<nsCString> endpoints(endpointsLen);
     for (size_t endpointI = 0; endpointI < endpointsLen; endpointI++) {
       nsCString endpoint;
-      rv = aStream->ReadCString(endpoint);
-      NS_ENSURE_SUCCESS(rv, rv);
+      MOZ_TRY(aStream->ReadCString(endpoint));
       endpoints.AppendElement(std::move(endpoint));
     }
 
@@ -481,29 +479,22 @@ IntegrityPolicy::Read(nsIObjectInputStream* aStream) {
 
 NS_IMETHODIMP
 IntegrityPolicy::Write(nsIObjectOutputStream* aStream) {
-  nsresult rv;
-
-  rv = aStream->Write32(kIntegrityPolicySerializationVersion);
-  NS_ENSURE_SUCCESS(rv, rv);
+  MOZ_TRY(aStream->Write32(kIntegrityPolicySerializationVersion));
 
   for (const auto& entry : {mEnforcement, mReportOnly}) {
     if (!entry) {
-      aStream->WriteBoolean(false);
+      MOZ_TRY(aStream->WriteBoolean(false));
       continue;
     }
 
-    aStream->WriteBoolean(true);
+    MOZ_TRY(aStream->WriteBoolean(true));
 
-    rv = aStream->Write32(entry->mSources.serialize());
-    NS_ENSURE_SUCCESS(rv, rv);
+    MOZ_TRY(aStream->Write32(entry->mSources.serialize()));
+    MOZ_TRY(aStream->Write32(entry->mDestinations.serialize()));
 
-    rv = aStream->Write32(entry->mDestinations.serialize());
-    NS_ENSURE_SUCCESS(rv, rv);
-
-    rv = aStream->Write32(entry->mEndpoints.Length());
+    MOZ_TRY(aStream->Write32(entry->mEndpoints.Length()));
     for (const auto& endpoint : entry->mEndpoints) {
-      rv = aStream->WriteCString(endpoint);
-      NS_ENSURE_SUCCESS(rv, rv);
+      MOZ_TRY(aStream->WriteCString(endpoint));
     }
   }
 

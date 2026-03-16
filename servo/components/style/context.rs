@@ -9,6 +9,7 @@ use crate::animation::DocumentAnimationSet;
 use crate::bloom::StyleBloom;
 use crate::computed_value_flags::ComputedValueFlags;
 use crate::data::{EagerPseudoStyles, ElementData};
+use crate::derives::*;
 use crate::dom::{SendElement, TElement};
 #[cfg(feature = "gecko")]
 use crate::gecko_bindings::structs;
@@ -423,6 +424,8 @@ bitflags! {
         const SCROLL_TIMELINES = structs::UpdateAnimationsTasks_ScrollTimelines;
         /// Update CSS named view progress timelines.
         const VIEW_TIMELINES = structs::UpdateAnimationsTasks_ViewTimelines;
+        /// Update CSS timeline scopes, which affect visibility of both scroll and view timelines.
+        const TIMELINE_SCOPES = structs::UpdateAnimationsTasks_TimelineScopes;
     }
 }
 

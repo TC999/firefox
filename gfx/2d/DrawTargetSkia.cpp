@@ -14,7 +14,9 @@
 #include "mozilla/StaticPrefs_gfx.h"
 #include "mozilla/Vector.h"
 
+#include "skia/include/core/SkAnnotation.h"
 #include "skia/include/core/SkBitmap.h"
+#include "skia/include/core/SkData.h"
 #include "skia/include/core/SkCanvas.h"
 #include "skia/include/core/SkFont.h"
 #include "skia/include/core/SkSurface.h"
@@ -30,6 +32,7 @@
 #include "skia/src/core/SkWriteBuffer.h"
 #include "skia/src/shaders/SkEmptyShader.h"
 #include "Blur.h"
+#include "DataSurfaceHelpers.h"
 #include "Logging.h"
 #include "Tools.h"
 #include "PathHelpers.h"
@@ -335,6 +338,27 @@ DrawTargetSkia::~DrawTargetSkia() {
     mColorSpace = nullptr;
   }
 #endif
+}
+
+void DrawTargetSkia::Link(const char* aDest, const char* aURI,
+                          const Rect& aRect) {
+  if (aURI && *aURI) {
+    SkAnnotateRectWithURL(mCanvas, RectToSkRect(aRect),
+                          SkData::MakeWithCString(aURI).get());
+  }
+  if (aDest && *aDest) {
+    SkAnnotateLinkToDestination(mCanvas, RectToSkRect(aRect),
+                                SkData::MakeWithCString(aDest).get());
+  }
+}
+
+void DrawTargetSkia::Destination(const char* aDestination,
+                                 const Point& aPoint) {
+  if (!aDestination || !*aDestination) {
+    return;
+  }
+  SkAnnotateNamedDestination(mCanvas, PointToSkPoint(aPoint),
+                             SkData::MakeWithCString(aDestination).get());
 }
 
 already_AddRefed<SourceSurface> DrawTargetSkia::Snapshot(
@@ -1201,7 +1225,7 @@ CGContextRef DrawTargetSkia::BorrowCGContext(const DrawOptions& aOptions) {
       mCanvas->restore();
     }
     ReleaseBits(mCanvasData);
-    NS_WARNING("Could not create bitmap around skia data\n");
+    NS_WARNING("Could not create bitmap around skia data");
     return nullptr;
   }
 
@@ -1660,9 +1684,9 @@ already_AddRefed<DrawTarget> DrawTargetSkia::CreateSimilarDrawTarget(
 
 bool DrawTargetSkia::CanCreateSimilarDrawTarget(const IntSize& aSize,
                                                 SurfaceFormat aFormat) const {
-  auto minmaxPair = std::minmax(aSize.width, aSize.height);
-  return minmaxPair.first > 0 &&
-         size_t(minmaxPair.second) < GetMaxSurfaceSize();
+  return aSize.width > 0 && aSize.height > 0 &&
+         size_t(std::max(aSize.width, aSize.height)) <= GetMaxSurfaceSize() &&
+         size_t(aSize.width) * size_t(aSize.height) <= GetMaxSurfaceArea();
 }
 
 RefPtr<DrawTarget> DrawTargetSkia::CreateClippedDrawTarget(
@@ -1806,7 +1830,9 @@ template <typename T>
 }
 
 bool DrawTargetSkia::Init(const IntSize& aSize, SurfaceFormat aFormat) {
-  if (size_t(std::max(aSize.width, aSize.height)) > GetMaxSurfaceSize()) {
+  if (aSize.width <= 0 || aSize.height <= 0 ||
+      size_t(std::max(aSize.width, aSize.height)) > GetMaxSurfaceSize() ||
+      size_t(aSize.width) * size_t(aSize.height) > GetMaxSurfaceArea()) {
     return false;
   }
 

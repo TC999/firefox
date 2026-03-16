@@ -17,6 +17,7 @@ ChromeUtils.defineESModuleGetters(this, {
   HomePage: "resource:///modules/HomePage.sys.mjs",
   JsonSchemaValidator:
     "resource://gre/modules/components-utils/JsonSchemaValidator.sys.mjs",
+  NewTabContentPing: "resource://newtab/lib/NewTabContentPing.sys.mjs",
   sinon: "resource://testing-common/Sinon.sys.mjs",
   TelemetryController: "resource://gre/modules/TelemetryController.sys.mjs",
   TelemetryFeed: "resource://newtab/lib/TelemetryFeed.sys.mjs",
@@ -2438,88 +2439,6 @@ add_task(
 );
 
 add_task(
-  async function test_handleDiscoveryStreamUserEvent_thumbs_down_event() {
-    info(
-      "TelemetryFeed.handleDiscoveryStreamUserEvent instruments a thumbs down" +
-        " event of an organic story"
-    );
-
-    let sandbox = sinon.createSandbox();
-    let instance = new TelemetryFeed();
-    Services.fog.testResetFOG();
-    const ACTION_POSITION = 42;
-    let action = actionCreators.DiscoveryStreamUserEvent({
-      event: "POCKET_THUMBS_DOWN",
-      action_position: ACTION_POSITION,
-      value: {
-        card_type: "organic",
-        recommendation_id: "decaf-c0ff33",
-        tile_id: 314623757745896,
-        thumbs_down: true,
-        thumbs_up: false,
-      },
-    });
-
-    const SESSION_ID = "decafc0ffee";
-    sandbox.stub(instance.sessions, "get").returns({ session_id: SESSION_ID });
-
-    instance.handleDiscoveryStreamUserEvent(action);
-
-    let thumbVotes = Glean.pocket.thumbVotingInteraction.testGetValue();
-    Assert.equal(thumbVotes.length, 1, "Recorded 1 thumbs down");
-    Assert.deepEqual(thumbVotes[0].extra, {
-      newtab_visit_id: SESSION_ID,
-      recommendation_id: "decaf-c0ff33",
-      thumbs_down: String(true),
-      thumbs_up: String(false),
-      content_redacted: String(true),
-    });
-
-    sandbox.restore();
-  }
-);
-
-add_task(async function test_handleDiscoveryStreamUserEvent_thumbs_up_event() {
-  info(
-    "TelemetryFeed.handleDiscoveryStreamUserEvent instruments a thumbs up" +
-      " event of an organic story"
-  );
-
-  let sandbox = sinon.createSandbox();
-  let instance = new TelemetryFeed();
-  Services.fog.testResetFOG();
-  const ACTION_POSITION = 42;
-  let action = actionCreators.DiscoveryStreamUserEvent({
-    event: "POCKET_THUMBS_DOWN",
-    action_position: ACTION_POSITION,
-    value: {
-      card_type: "organic",
-      recommendation_id: "decaf-c0ff33",
-      tile_id: 314623757745896,
-      thumbs_down: false,
-      thumbs_up: true,
-    },
-  });
-
-  const SESSION_ID = "decafc0ffee";
-  sandbox.stub(instance.sessions, "get").returns({ session_id: SESSION_ID });
-
-  instance.handleDiscoveryStreamUserEvent(action);
-
-  let thumbVotes = Glean.pocket.thumbVotingInteraction.testGetValue();
-  Assert.equal(thumbVotes.length, 1, "Recorded 1 thumbs down");
-  Assert.deepEqual(thumbVotes[0].extra, {
-    newtab_visit_id: SESSION_ID,
-    recommendation_id: "decaf-c0ff33",
-    thumbs_down: String(false),
-    thumbs_up: String(true),
-    content_redacted: String(true),
-  });
-
-  sandbox.restore();
-});
-
-add_task(
   async function test_handleAboutSponsoredTopSites_record_showPrivacyClick() {
     info(
       "TelemetryFeed.handleAboutSponsoredTopSites should record a Glean " +
@@ -2711,3 +2630,468 @@ add_task(async function test_handleBlockUrl_no_record_dismiss_on_no_session() {
 
   sandbox.restore();
 });
+
+add_task(function test_randomizeOrganicContentEvent() {
+  info(
+    "TelemetryFeed._randomizeOrganicContentEvent should return true or false" +
+      " based on the given probability"
+  );
+  let sandbox = sinon.createSandbox();
+  let instance = new TelemetryFeed();
+
+  const computeRec = id => ({
+    corpus_item_id: `item-${id}`,
+    topic: "a",
+    is_sponsored: false,
+    section_id: "section",
+    section_position: 3,
+  });
+  const allRecs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(computeRec);
+  sandbox.stub(instance, "getRecommendationCount").returns(allRecs.length);
+  sandbox.stub(instance, "getAllRecommendations").returns(allRecs);
+  instance._privateRandomContentTelemetryProbablityValues = { epsilon: 30 };
+  let decideStub = sandbox.stub(NewTabContentPing, "decideWithProbability");
+  decideStub.returns(true);
+  let result = instance.randomizeOrganicContentEvent(allRecs[0]);
+  Assert.equal(result, allRecs[0]);
+  Assert.ok(decideStub.calledOnce, "decideWithProbability was called once");
+  const [probUsed] = decideStub.firstCall.args;
+  Assert.greater(probUsed, 0.9); // Epsilon 30 is very high probability
+  Assert.less(probUsed, 1.01);
+
+  // Run again - randomization kicks in
+  decideStub.returns(false);
+  sandbox.stub(NewTabContentPing, "secureRandIntInRange").returns(3);
+  result = instance.randomizeOrganicContentEvent(allRecs[0]);
+  Assert.equal(probUsed, decideStub.lastCall.args[0]);
+  Assert.deepEqual(result, allRecs[3]);
+
+  sandbox.restore();
+});
+
+add_task(async function test_handleSpocPlaceholderDuration_records_metric() {
+  info(
+    "TelemetryFeed.handleSpocPlaceholderDuration should record the " +
+      "spoc_placeholder_duration metric"
+  );
+
+  let instance = new TelemetryFeed();
+  Services.fog.testResetFOG();
+
+  const DURATION_MS = 150;
+  let action = {
+    type: actionTypes.DISCOVERY_STREAM_SPOC_PLACEHOLDER_DURATION,
+    data: { duration: DURATION_MS },
+  };
+
+  instance.handleSpocPlaceholderDuration(action);
+
+  let recordedDuration = Glean.pocket.spocPlaceholderDuration.testGetValue();
+  Assert.ok(recordedDuration, "Metric should be recorded");
+  Assert.equal(recordedDuration.count, 1, "Should have 1 sample");
+  Assert.greaterOrEqual(
+    recordedDuration.sum,
+    DURATION_MS,
+    "Duration should be at least the input value"
+  );
+});
+
+add_task(async function test_handleSpocPlaceholderDuration_ignores_negative() {
+  info(
+    "TelemetryFeed.handleSpocPlaceholderDuration should ignore negative durations"
+  );
+
+  let instance = new TelemetryFeed();
+  Services.fog.testResetFOG();
+
+  let action = {
+    type: actionTypes.DISCOVERY_STREAM_SPOC_PLACEHOLDER_DURATION,
+    data: { duration: -1 },
+  };
+
+  instance.handleSpocPlaceholderDuration(action);
+
+  let recordedDuration = Glean.pocket.spocPlaceholderDuration.testGetValue();
+  Assert.equal(
+    recordedDuration,
+    null,
+    "Metric should not be recorded for negative duration"
+  );
+});
+
+add_task(async function test_handleSpocPlaceholderDuration_ignores_undefined() {
+  info(
+    "TelemetryFeed.handleSpocPlaceholderDuration should ignore undefined durations"
+  );
+
+  let instance = new TelemetryFeed();
+  Services.fog.testResetFOG();
+
+  let action = {
+    type: actionTypes.DISCOVERY_STREAM_SPOC_PLACEHOLDER_DURATION,
+    data: {},
+  };
+
+  instance.handleSpocPlaceholderDuration(action);
+
+  let recordedDuration = Glean.pocket.spocPlaceholderDuration.testGetValue();
+  Assert.equal(
+    recordedDuration,
+    null,
+    "Metric should not be recorded for undefined duration"
+  );
+});
+/**
+ * Helper to create a mock store with trainhopConfig
+ */
+function createMockStore(
+  trainhopConfig = {},
+  civState = { initialized: false }
+) {
+  return {
+    getState: () => ({
+      Prefs: {
+        values: {
+          trainhopConfig,
+        },
+      },
+      InferredPersonalization: civState,
+    }),
+  };
+}
+
+add_task(async function test_initializePrivacySession_defaults_to_private() {
+  info(
+    "initializeGleanSession should default to PrivateGleanSession " +
+      "when privatePingEnabled is false"
+  );
+
+  Services.prefs.setBoolPref(PREF_PRIVATE_PING_ENABLED, false);
+
+  let instance = new TelemetryFeed();
+  instance.store = createMockStore({
+    Prefs: {
+      values: {
+        trainhopConfig: { newtabPrivatePing: { clickOnly: true } },
+      },
+    },
+  });
+
+  instance.initializeGleanSession();
+
+  Assert.equal(
+    instance.gleanSessionType,
+    "private",
+    "Should be PrivateGleanSession when privatePingEnabled is false"
+  );
+
+  Services.prefs.clearUserPref(PREF_PRIVATE_PING_ENABLED);
+});
+
+add_task(
+  async function test_initializePrivacySession_defaults_to_private_no_clickOnly() {
+    info(
+      "initializeGleanSession should default to PrivateGleanSession " +
+        "when clickOnly is false"
+    );
+
+    Services.prefs.setBoolPref(PREF_PRIVATE_PING_ENABLED, true);
+
+    let instance = new TelemetryFeed();
+    instance.store = createMockStore({
+      Prefs: {
+        values: {
+          trainhopConfig: { newtabPrivatePing: { clickOnly: false } },
+        },
+      },
+    });
+
+    instance.initializeGleanSession();
+
+    Assert.equal(
+      instance.gleanSessionType,
+      "private",
+      "Should be PrivateGleanSession when clickOnly is false"
+    );
+
+    Services.prefs.clearUserPref(PREF_PRIVATE_PING_ENABLED);
+  }
+);
+
+add_task(
+  async function test_initializePrivacySession_defaults_to_private_sov_enabled() {
+    info(
+      "initializeGleanSession should default to PrivateGleanSession when SOV is enabled"
+    );
+
+    Services.prefs.setBoolPref(PREF_PRIVATE_PING_ENABLED, true);
+
+    let instance = new TelemetryFeed();
+    instance.store = {
+      getState: () => ({
+        Prefs: {
+          values: {
+            trainhopConfig: {
+              sov: { enabled: true },
+              newtabPrivatePing: { clickOnly: true },
+            },
+          },
+        },
+      }),
+    };
+
+    instance.initializeGleanSession();
+
+    Assert.equal(
+      instance.gleanSessionType,
+      "private",
+      "Should be PrivateGleanSession when SOV is enabled"
+    );
+
+    Services.prefs.clearUserPref(PREF_PRIVATE_PING_ENABLED);
+  }
+);
+
+add_task(async function test_hasRecordedClicksInCIV_with_click_count() {
+  info("hasRecordedClicksInCIV should return true when click count > 0");
+
+  let instance = new TelemetryFeed();
+  instance.store = createMockStore(
+    {},
+    {
+      initialized: true,
+      inferredInterests: { clicks: 5 },
+    }
+  );
+
+  Assert.equal(
+    instance.hasRecordedClicksInCIV(),
+    true,
+    "Should return true when clicks > 0"
+  );
+});
+
+add_task(async function test_recordOrQueueEvent_queues_in_normal_session() {
+  info("recordOrQueueEvent should queue events in NormalContentSession mode");
+
+  let sandbox = sinon.createSandbox();
+  let instance = new TelemetryFeed();
+  instance.gleanSessionType = "normal";
+  Services.prefs.setBoolPref(PREF_PRIVATE_PING_ENABLED, true);
+
+  let callbackCalled = false;
+  let callback = () => {
+    callbackCalled = true;
+  };
+
+  let recordEventStub = sandbox.stub(instance.newtabContentPing, "recordEvent");
+
+  instance.recordOrQueueEvent("testEvent", { test: "data" }, callback);
+
+  Assert.ok(
+    !recordEventStub.called,
+    "newtabContentPing.recordEvent should NOT be called"
+  );
+  Assert.ok(!callbackCalled, "callback should NOT be called");
+
+  Services.prefs.clearUserPref(PREF_PRIVATE_PING_ENABLED);
+  sandbox.restore();
+});
+
+add_task(async function test_recordOrQueueEvent_immediate_in_private_session() {
+  info(
+    "recordOrQueueEvent should send events immediately in PrivateContentSession mode"
+  );
+
+  let sandbox = sinon.createSandbox();
+  let instance = new TelemetryFeed();
+  instance.gleanSessionType = "private";
+  Services.prefs.setBoolPref(PREF_PRIVATE_PING_ENABLED, true);
+
+  let callbackCalled = false;
+  let callback = () => {
+    callbackCalled = true;
+  };
+
+  let recordEventStub = sandbox.stub(instance.newtabContentPing, "recordEvent");
+
+  const eventData = { test: "data" };
+  instance.recordOrQueueEvent("testEvent", eventData, callback);
+
+  Assert.ok(callbackCalled, "callback should be called immediately");
+  Assert.ok(
+    recordEventStub.calledOnce,
+    "newtabContentPing.recordEvent should be called once"
+  );
+  Assert.ok(
+    recordEventStub.calledWith("testEvent", eventData),
+    "recordEvent should be called with correct arguments"
+  );
+
+  Services.prefs.clearUserPref(PREF_PRIVATE_PING_ENABLED);
+  sandbox.restore();
+});
+
+add_task(
+  async function test_recordOrQueueEvent_no_private_ping_when_disabled() {
+    info(
+      "recordOrQueueEvent should not send to newtab-content ping when privatePingEnabled is false"
+    );
+
+    let sandbox = sinon.createSandbox();
+    let instance = new TelemetryFeed();
+    instance.gleanSessionType = "private";
+    Services.prefs.setBoolPref(PREF_PRIVATE_PING_ENABLED, false);
+
+    let callbackCalled = false;
+    let callback = () => {
+      callbackCalled = true;
+    };
+
+    let recordEventStub = sandbox.stub(
+      instance.newtabContentPing,
+      "recordEvent"
+    );
+
+    instance.recordOrQueueEvent("testEvent", { test: "data" }, callback);
+
+    Assert.ok(callbackCalled, "callback should still be called");
+    Assert.ok(
+      !recordEventStub.called,
+      "newtabContentPing.recordEvent should NOT be called when pref is false"
+    );
+
+    Services.prefs.clearUserPref(PREF_PRIVATE_PING_ENABLED);
+    sandbox.restore();
+  }
+);
+
+add_task(
+  async function test_handleTopSitesSponsoredImpressionStats_frecency_boosted_queued() {
+    info(
+      "Frecency-boosted topsite events should be queued, not sent immediately"
+    );
+
+    let sandbox = sinon.createSandbox();
+    let instance = new TelemetryFeed();
+    Services.fog.testResetFOG();
+    Services.prefs.setBoolPref(PREF_PRIVATE_PING_ENABLED, true);
+
+    instance.gleanSessionType = "normal";
+    instance.store = createMockStore({
+      sov: { enabled: true },
+      newtabPrivatePing: { clickOnly: true },
+    });
+
+    sandbox.stub(instance.sessions, "get").returns({ session_id: FAKE_UUID });
+
+    let recordEventStub = sandbox.stub(
+      instance.newtabContentPing,
+      "recordEvent"
+    );
+
+    // Send an impression (should be queued)
+    let impressionData = {
+      type: "impression",
+      tile_id: 42,
+      source: "newtab",
+      position: 1,
+      advertiser: "test advertiser",
+      visible_topsites: 8,
+      frecency_boosted: true,
+    };
+    await instance.handleTopSitesSponsoredImpressionStats({
+      data: impressionData,
+    });
+
+    Assert.equal(
+      recordEventStub.callCount,
+      0,
+      "Impression should be queued, not sent to newtab-content"
+    );
+
+    // Send a click (should also be queued, not trigger transition)
+    let clickData = {
+      type: "click",
+      tile_id: 42,
+      source: "newtab",
+      position: 1,
+      advertiser: "test advertiser",
+      visible_topsites: 8,
+      frecency_boosted: true,
+    };
+    await instance.handleTopSitesSponsoredImpressionStats({ data: clickData });
+
+    Assert.equal(
+      instance.gleanSessionType,
+      "normal",
+      "Topsite clicks should NOT transition to private session"
+    );
+    Assert.equal(
+      recordEventStub.callCount,
+      0,
+      "Click should also be queued, not sent immediately"
+    );
+
+    // Manually transition and verify events are flushed
+    instance.transitionToPrivateSession();
+
+    Assert.equal(
+      recordEventStub.callCount,
+      2,
+      "Both impression and click should be sent after transition"
+    );
+
+    Services.prefs.clearUserPref(PREF_PRIVATE_PING_ENABLED);
+    sandbox.restore();
+  }
+);
+
+add_task(
+  async function test_handleTopSitesSponsoredImpressionStats_non_frecency_boosted_content_ping() {
+    info(
+      "Non-frecency-boosted sponsored topsites in SOV mode should go to newtab-content ping"
+    );
+
+    let sandbox = sinon.createSandbox();
+    let instance = new TelemetryFeed();
+    Services.fog.testResetFOG();
+    Services.prefs.setBoolPref(PREF_PRIVATE_PING_ENABLED, true);
+
+    instance.gleanSessionType = "private";
+    instance.store = createMockStore({
+      sov: { enabled: true },
+      newtabPrivatePing: { clickOnly: true },
+    });
+
+    const SESSION_ID = "decafc0ffee";
+    sandbox.stub(instance.sessions, "get").returns({ session_id: SESSION_ID });
+
+    let recordEventStub = sandbox.stub(
+      instance.newtabContentPing,
+      "recordEvent"
+    );
+
+    let impressionData = {
+      type: "impression",
+      tile_id: 42,
+      source: "newtab",
+      position: 1,
+      advertiser: "test advertiser",
+      visible_topsites: 8,
+      frecency_boosted: false,
+    };
+    await instance.handleTopSitesSponsoredImpressionStats({
+      data: impressionData,
+    });
+
+    Assert.equal(
+      recordEventStub.callCount,
+      1,
+      "Non-frecency-boosted impression should go to newtab-content ping in private session"
+    );
+
+    Services.prefs.clearUserPref(PREF_PRIVATE_PING_ENABLED);
+    sandbox.restore();
+  }
+);

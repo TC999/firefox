@@ -8,6 +8,7 @@
 
 use super::{AllowQuirks, Number, Percentage, ToComputedValue};
 use crate::computed_value_flags::ComputedValueFlags;
+use crate::derives::*;
 use crate::font_metrics::{FontMetrics, FontMetricsOrientation};
 #[cfg(feature = "gecko")]
 use crate::gecko_bindings::structs::GeckoFontMetrics;
@@ -25,14 +26,16 @@ use crate::values::specified::NonNegativeNumber;
 use crate::values::CSSFloat;
 use crate::{Zero, ZeroNoPercent};
 use app_units::AU_PER_PX;
-use cssparser::{Parser, Token};
+use cssparser::{match_ignore_ascii_case, Parser, Token};
+use debug_unreachable::debug_unreachable;
 use std::cmp;
 use std::fmt::{self, Write};
 use style_traits::values::specified::AllowedNumericType;
 use style_traits::{
-    CssString, CssWriter, NumericValue, ParseError, SpecifiedValueInfo, StyleParseErrorKind, ToCss,
-    ToTyped, TypedValue,
+    CssString, CssWriter, NumericValue, ParseError, ParsingMode, SpecifiedValueInfo,
+    StyleParseErrorKind, ToCss, ToTyped, TypedValue, UnitValue,
 };
+use thin_vec::ThinVec;
 
 pub use super::image::Image;
 pub use super::image::{EndingShape as GradientEndingShape, Gradient};
@@ -314,7 +317,7 @@ impl FontRelativeLength {
                 FontMetricsOrientation::Horizontal,
                 QueryFontMetricsFlags::empty(),
             );
-            metrics.x_height_or_default(&reference_font_size)
+            metrics.x_height_or_default(reference_font_size.used_size())
         }
 
         fn ch_size(
@@ -336,7 +339,7 @@ impl FontRelativeLength {
                 QueryFontMetricsFlags::NEEDS_CH,
             );
             metrics.zero_advance_measure_or_default(
-                &reference_font_size,
+                reference_font_size.used_size(),
                 context.style().writing_mode.is_upright(),
             )
         }
@@ -362,7 +365,7 @@ impl FontRelativeLength {
                 FontMetricsOrientation::MatchContextPreferVertical,
                 QueryFontMetricsFlags::NEEDS_IC,
             );
-            metrics.ic_width_or_default(&reference_font_size)
+            metrics.ic_width_or_default(reference_font_size.used_size())
         }
 
         let reference_font_size = base_size.resolve(context);
@@ -871,6 +874,27 @@ impl AbsoluteLength {
         }
     }
 
+    // Return the canonical unit for this value.
+    fn canonical_unit(&self) -> Option<&'static str> {
+        Some("px")
+    }
+
+    // Convert this value to the specified unit, if possible.
+    fn to(&self, unit: &str) -> Result<Self, ()> {
+        let px = self.to_px();
+
+        Ok(match_ignore_ascii_case! { unit,
+            "px" => Self::Px(px),
+            "in" => Self::In(px / PX_PER_IN),
+            "cm" => Self::Cm(px / PX_PER_CM),
+            "mm" => Self::Mm(px / PX_PER_MM),
+            "q" => Self::Q(px / PX_PER_Q),
+            "pt" => Self::Pt(px / PX_PER_PT),
+            "pc" => Self::Pc(px / PX_PER_PC),
+             _ => return Err(()),
+        })
+    }
+
     /// Convert this into a pixel value.
     #[inline]
     pub fn to_px(&self) -> CSSFloat {
@@ -1089,14 +1113,30 @@ impl NoCalcLength {
         }
     }
 
-    // Return the unit, as a string.
-    fn unit(&self) -> &'static str {
+    /// Return the unit, as a string.
+    pub fn unit(&self) -> &'static str {
         match *self {
             Self::Absolute(v) => v.unit(),
             Self::FontRelative(v) => v.unit(),
             Self::ViewportPercentage(v) => v.unit(),
             Self::ContainerRelative(v) => v.unit(),
             Self::ServoCharacterWidth(_) => "",
+        }
+    }
+
+    /// Return the canonical unit for this value, if one exists.
+    pub fn canonical_unit(&self) -> Option<&'static str> {
+        match *self {
+            Self::Absolute(v) => v.canonical_unit(),
+            _ => None,
+        }
+    }
+
+    /// Convert this value to the specified unit, if possible.
+    pub fn to(&self, unit: &str) -> Result<Self, ()> {
+        match self {
+            Self::Absolute(v) => Ok(Self::Absolute(v.to(unit)?)),
+            _ => Err(()),
         }
     }
 
@@ -1132,11 +1172,14 @@ impl NoCalcLength {
     }
 
     /// Parse a given absolute or relative dimension.
-    pub fn parse_dimension(
-        context: &ParserContext,
+    pub fn parse_dimension_with_flags(
+        parsing_mode: ParsingMode,
+        in_page_rule: bool,
         value: CSSFloat,
         unit: &str,
     ) -> Result<Self, ()> {
+        let allows_computational_dependence = parsing_mode.allows_computational_dependence();
+
         Ok(match_ignore_ascii_case! { unit,
             "px" => Self::Absolute(AbsoluteLength::Px(value)),
             "in" => Self::Absolute(AbsoluteLength::In(value)),
@@ -1146,113 +1189,122 @@ impl NoCalcLength {
             "pt" => Self::Absolute(AbsoluteLength::Pt(value)),
             "pc" => Self::Absolute(AbsoluteLength::Pc(value)),
             // font-relative
-            "em" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Em(value)),
-            "ex" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Ex(value)),
-            "rex" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Rex(value)),
-            "ch" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Ch(value)),
-            "rch" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Rch(value)),
-            "cap" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Cap(value)),
-            "rcap" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Rcap(value)),
-            "ic" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Ic(value)),
-            "ric" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Ric(value)),
-            "rem" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Rem(value)),
-            "lh" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Lh(value)),
-            "rlh" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Rlh(value)),
+            "em" if allows_computational_dependence => Self::FontRelative(FontRelativeLength::Em(value)),
+            "ex" if allows_computational_dependence => Self::FontRelative(FontRelativeLength::Ex(value)),
+            "rex" if allows_computational_dependence => Self::FontRelative(FontRelativeLength::Rex(value)),
+            "ch" if allows_computational_dependence => Self::FontRelative(FontRelativeLength::Ch(value)),
+            "rch" if allows_computational_dependence => Self::FontRelative(FontRelativeLength::Rch(value)),
+            "cap" if allows_computational_dependence => Self::FontRelative(FontRelativeLength::Cap(value)),
+            "rcap" if allows_computational_dependence => Self::FontRelative(FontRelativeLength::Rcap(value)),
+            "ic" if allows_computational_dependence => Self::FontRelative(FontRelativeLength::Ic(value)),
+            "ric" if allows_computational_dependence => Self::FontRelative(FontRelativeLength::Ric(value)),
+            "rem" if allows_computational_dependence => Self::FontRelative(FontRelativeLength::Rem(value)),
+            "lh" if allows_computational_dependence => Self::FontRelative(FontRelativeLength::Lh(value)),
+            "rlh" if allows_computational_dependence => Self::FontRelative(FontRelativeLength::Rlh(value)),
             // viewport percentages
-            "vw" if !context.in_page_rule() => {
+            "vw" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Vw(value))
             },
-            "svw" if !context.in_page_rule() => {
+            "svw" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Svw(value))
             },
-            "lvw" if !context.in_page_rule() => {
+            "lvw" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Lvw(value))
             },
-            "dvw" if !context.in_page_rule() => {
+            "dvw" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Dvw(value))
             },
-            "vh" if !context.in_page_rule() => {
+            "vh" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Vh(value))
             },
-            "svh" if !context.in_page_rule() => {
+            "svh" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Svh(value))
             },
-            "lvh" if !context.in_page_rule() => {
+            "lvh" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Lvh(value))
             },
-            "dvh" if !context.in_page_rule() => {
+            "dvh" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Dvh(value))
             },
-            "vmin" if !context.in_page_rule() => {
+            "vmin" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Vmin(value))
             },
-            "svmin" if !context.in_page_rule() => {
+            "svmin" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Svmin(value))
             },
-            "lvmin" if !context.in_page_rule() => {
+            "lvmin" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Lvmin(value))
             },
-            "dvmin" if !context.in_page_rule() => {
+            "dvmin" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Dvmin(value))
             },
-            "vmax" if !context.in_page_rule() => {
+            "vmax" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Vmax(value))
             },
-            "svmax" if !context.in_page_rule() => {
+            "svmax" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Svmax(value))
             },
-            "lvmax" if !context.in_page_rule() => {
+            "lvmax" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Lvmax(value))
             },
-            "dvmax" if !context.in_page_rule() => {
+            "dvmax" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Dvmax(value))
             },
-            "vb" if !context.in_page_rule() => {
+            "vb" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Vb(value))
             },
-            "svb" if !context.in_page_rule() => {
+            "svb" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Svb(value))
             },
-            "lvb" if !context.in_page_rule() => {
+            "lvb" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Lvb(value))
             },
-            "dvb" if !context.in_page_rule() => {
+            "dvb" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Dvb(value))
             },
-            "vi" if !context.in_page_rule() => {
+            "vi" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Vi(value))
             },
-            "svi" if !context.in_page_rule() => {
+            "svi" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Svi(value))
             },
-            "lvi" if !context.in_page_rule() => {
+            "lvi" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Lvi(value))
             },
-            "dvi" if !context.in_page_rule() => {
+            "dvi" if !in_page_rule => {
                 Self::ViewportPercentage(ViewportPercentageLength::Dvi(value))
             },
             // Container query lengths. Inherit the limitation from viewport units since
             // we may fall back to them.
-            "cqw" if !context.in_page_rule() && cfg!(feature = "gecko") => {
+            "cqw" if !in_page_rule && cfg!(feature = "gecko") => {
                 Self::ContainerRelative(ContainerRelativeLength::Cqw(value))
             },
-            "cqh" if !context.in_page_rule() && cfg!(feature = "gecko") => {
+            "cqh" if !in_page_rule && cfg!(feature = "gecko") => {
                 Self::ContainerRelative(ContainerRelativeLength::Cqh(value))
             },
-            "cqi" if !context.in_page_rule() && cfg!(feature = "gecko") => {
+            "cqi" if !in_page_rule && cfg!(feature = "gecko") => {
                 Self::ContainerRelative(ContainerRelativeLength::Cqi(value))
             },
-            "cqb" if !context.in_page_rule() && cfg!(feature = "gecko") => {
+            "cqb" if !in_page_rule && cfg!(feature = "gecko") => {
                 Self::ContainerRelative(ContainerRelativeLength::Cqb(value))
             },
-            "cqmin" if !context.in_page_rule() && cfg!(feature = "gecko") => {
+            "cqmin" if !in_page_rule && cfg!(feature = "gecko") => {
                 Self::ContainerRelative(ContainerRelativeLength::Cqmin(value))
             },
-            "cqmax" if !context.in_page_rule() && cfg!(feature = "gecko") => {
+            "cqmax" if !in_page_rule && cfg!(feature = "gecko") => {
                 Self::ContainerRelative(ContainerRelativeLength::Cqmax(value))
             },
             _ => return Err(()),
         })
+    }
+
+    /// Parse a given absolute or relative dimension.
+    pub fn parse_dimension_with_context(
+        context: &ParserContext,
+        value: CSSFloat,
+        unit: &str,
+    ) -> Result<Self, ()> {
+        Self::parse_dimension_with_flags(context.parsing_mode, context.in_page_rule(), value, unit)
     }
 
     pub(crate) fn try_op<O>(&self, other: &Self, op: O) -> Result<Self, ()>
@@ -1360,10 +1412,14 @@ impl ToCss for NoCalcLength {
 }
 
 impl ToTyped for NoCalcLength {
-    fn to_typed(&self) -> Option<TypedValue> {
+    fn to_typed(&self, dest: &mut ThinVec<TypedValue>) -> Result<(), ()> {
         let value = self.unitless_value();
         let unit = CssString::from(self.unit());
-        Some(TypedValue::Numeric(NumericValue::Unit { value, unit }))
+        dest.push(TypedValue::Numeric(NumericValue::Unit(UnitValue {
+            value,
+            unit,
+        })));
+        Ok(())
     }
 }
 
@@ -1560,7 +1616,7 @@ impl Length {
             Token::Dimension {
                 value, ref unit, ..
             } if num_context.is_ok(context.parsing_mode, value) => {
-                NoCalcLength::parse_dimension(context, value, unit)
+                NoCalcLength::parse_dimension_with_context(context, value, unit)
                     .map(Length::NoCalc)
                     .map_err(|()| location.new_unexpected_token_error(token.clone()))
             },
@@ -1725,6 +1781,7 @@ impl NonNegativeLength {
 /// https://drafts.csswg.org/css-values-4/#typedef-length-percentage
 #[allow(missing_docs)]
 #[derive(Clone, Debug, MallocSizeOf, PartialEq, SpecifiedValueInfo, ToCss, ToShmem, ToTyped)]
+#[typed_value(derive_fields)]
 pub enum LengthPercentage {
     Length(NoCalcLength),
     Percentage(computed::Percentage),
@@ -1804,7 +1861,7 @@ impl LengthPercentage {
             Token::Dimension {
                 value, ref unit, ..
             } if num_context.is_ok(context.parsing_mode, value) => {
-                return NoCalcLength::parse_dimension(context, value, unit)
+                return NoCalcLength::parse_dimension_with_context(context, value, unit)
                     .map(LengthPercentage::Length)
                     .map_err(|()| location.new_unexpected_token_error(token.clone()));
             },
@@ -1981,6 +2038,22 @@ impl ZeroNoPercent for LengthPercentage {
         match *self {
             LengthPercentage::Percentage(_) => false,
             _ => self.is_zero(),
+        }
+    }
+}
+
+/// Check if this equal to a specific percentage.
+pub trait EqualsPercentage {
+    /// Returns true if this is a specific percentage value. This should exclude calc() even if it
+    /// only contains percentage component.
+    fn equals_percentage(&self, v: CSSFloat) -> bool;
+}
+
+impl EqualsPercentage for LengthPercentage {
+    fn equals_percentage(&self, v: CSSFloat) -> bool {
+        match *self {
+            LengthPercentage::Percentage(p) => p.0 == v,
+            _ => false,
         }
     }
 }

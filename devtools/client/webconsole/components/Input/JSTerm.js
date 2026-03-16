@@ -135,6 +135,9 @@ class JSTerm extends Component {
     };
   }
 
+  // AbortController to cancel all event listener on destroy.
+  #abortController = null;
+
   constructor(props) {
     super(props);
 
@@ -144,6 +147,7 @@ class JSTerm extends Component {
     this.hudId = this.webConsoleUI.hudId;
 
     this._onEditorChanges = this._onEditorChanges.bind(this);
+    this._onEditorBlur = this._onEditorBlur.bind(this);
     this._onEditorBeforeChange = this._onEditorBeforeChange.bind(this);
     this._onEditorKeyHandled = this._onEditorKeyHandled.bind(this);
     this.onContextMenu = this.onContextMenu.bind(this);
@@ -342,7 +346,7 @@ class JSTerm extends Component {
               return false;
             }
 
-            const isSomethingSelected = this.editor.somethingSelected();
+            const isSomethingSelected = this.editor.isTextSelected();
             const hasSuggestion = this.hasAutocompletionSuggestion();
 
             if (hasSuggestion && !isSomethingSelected) {
@@ -492,13 +496,10 @@ class JSTerm extends Component {
             return "CodeMirror.Pass";
           },
 
-          "Ctrl-Space": () => {
+          "Ctrl-Space": async () => {
             if (!this.autocompletePopup.isOpen) {
-              this.props.autocompleteUpdate(
-                true,
-                null,
-                this._getExpressionVariables()
-              );
+              const variables = await this.editor.getExpressionVariables();
+              this.props.autocompleteUpdate(true, null, variables);
               return null;
             }
 
@@ -572,7 +573,7 @@ class JSTerm extends Component {
       this.resizeObserver.observe(this.node);
 
       // Update the character width needed for the popup offset calculations.
-      this._inputCharWidth = this._getInputCharWidth();
+      this._inputCharWidth = this.editor?.getInputCharWidth() || null;
       this.lastInputValue && this._setValue(this.lastInputValue);
     }
   }
@@ -588,9 +589,6 @@ class JSTerm extends Component {
       this.props.editorMode !== nextProps.editorMode
     );
   }
-
-  // AbortController to cancel all event listener on destroy.
-  #abortController = null;
 
   /**
    * Do all the imperative work needed after a Redux store update.
@@ -713,7 +711,7 @@ class JSTerm extends Component {
     // In editor mode, we only evaluate the text selection if there's one. The feature isn't
     // enabled in inline mode as it can be confusing since input is cleared when evaluating.
     const executeString = this.props.editorMode
-      ? this.getSelectedText() || value
+      ? this.editor.getSelectedText() || value
       : value;
 
     if (!executeString) {
@@ -815,11 +813,7 @@ class JSTerm extends Component {
   }
 
   getSelectionStart() {
-    return this.getInputValueBeforeCursor().length;
-  }
-
-  getSelectedText() {
-    return this.editor.getSelection();
+    return this.editor.getTextBeforeCursor().length;
   }
 
   /**
@@ -899,7 +893,7 @@ class JSTerm extends Component {
    * Even handler for the "blur" event fired by codeMirror.
    */
   _onEditorBlur(cm) {
-    if (cm.somethingSelected()) {
+    if (this.editor.isTextSelected()) {
       // If there's a selection when the input is blurred, then we remove it by setting
       // the cursor at the position that matches the start of the first selection.
       const [{ head }] = cm.listSelections();
@@ -930,42 +924,9 @@ class JSTerm extends Component {
   }
 
   /**
-   * Retrieve variable declared in the expression from the CodeMirror state, in order
-   * to display them in the autocomplete popup.
-   */
-  _getExpressionVariables() {
-    const cm = this.editor.codeMirror;
-    const { state } = cm.getTokenAt(cm.getCursor());
-    const variables = [];
-
-    if (state.context) {
-      for (let c = state.context; c; c = c.prev) {
-        for (let v = c.vars; v; v = v.next) {
-          if (v.name) {
-            variables.push(v.name);
-          }
-        }
-      }
-    }
-
-    const keys = ["localVars", "globalVars"];
-    for (const key of keys) {
-      if (state[key]) {
-        for (let v = state[key]; v; v = v.next) {
-          if (v.name) {
-            variables.push(v.name);
-          }
-        }
-      }
-    }
-
-    return variables;
-  }
-
-  /**
    * The editor "changes" event handler.
    */
-  _onEditorChanges(cm, changes) {
+  async _onEditorChanges(cm, changes) {
     const value = this._getValue();
 
     if (this.lastInputValue !== value) {
@@ -979,7 +940,8 @@ class JSTerm extends Component {
         !isJsTermChangeOnly &&
         (this.props.autocomplete || this.hasAutocompletionSuggestion())
       ) {
-        this.autocompleteUpdate(false, null, this._getExpressionVariables());
+        const variables = await this.editor.getExpressionVariables();
+        this.autocompleteUpdate(false, null, variables);
       }
       this.lastInputValue = value;
       this.terminalInputChanged(value);
@@ -1093,7 +1055,7 @@ class JSTerm extends Component {
       return;
     }
 
-    const inputUntilCursor = this.getInputValueBeforeCursor();
+    const inputUntilCursor = this.editor.getTextBeforeCursor();
 
     const items = matches.map(label => {
       let preLabel = label.substring(0, matchProp.length);
@@ -1192,7 +1154,7 @@ class JSTerm extends Component {
       // If the user is performing an element access, we need to check if we should add
       // starting and ending quotes, as well as a closing bracket.
       if (isElementAccess) {
-        const inputBeforeCursor = this.getInputValueBeforeCursor();
+        const inputBeforeCursor = this.editor.getTextBeforeCursor();
         if (inputBeforeCursor.trim().endsWith("[")) {
           suffix = label;
         }
@@ -1304,7 +1266,7 @@ class JSTerm extends Component {
    *                     quote and/or bracket.
    */
   getInputValueWithCompletionText() {
-    const inputBeforeCursor = this.getInputValueBeforeCursor();
+    const inputBeforeCursor = this.editor.getTextBeforeCursor();
     const inputAfterCursor = this._getValue().substring(
       inputBeforeCursor.length
     );
@@ -1379,14 +1341,6 @@ class JSTerm extends Component {
       numberOfCharsToMoveTheCursorForward,
       numberOfCharsToReplaceCharsBeforeCursor,
     };
-  }
-
-  getInputValueBeforeCursor() {
-    return this.editor
-      ? this.editor
-          .getDoc()
-          .getRange({ line: 0, ch: 0 }, this.editor.getCursor())
-      : null;
   }
 
   /**
@@ -1469,16 +1423,6 @@ class JSTerm extends Component {
     const lineContent = this.editor.getLine(line);
     const textAfterCursor = lineContent.substring(ch);
     return textAfterCursor === "";
-  }
-
-  /**
-   * Calculates and returns the width of a single character of the input box.
-   * This will be used in opening the popup at the correct offset.
-   *
-   * @returns {number | null}: Width off the "x" char, or null if the input does not exist.
-   */
-  _getInputCharWidth() {
-    return this.editor ? this.editor.defaultCharWidth() : null;
   }
 
   onContextMenu(e) {

@@ -100,6 +100,7 @@ Var PostSigningData
 !include defines.nsi
 !include common.nsh
 !include locales.nsi
+!include installer_helpers.nsh
 
 VIAddVersionKey "FileDescription" "${BrandShortName} Installer"
 VIAddVersionKey "OriginalFilename" "setup.exe"
@@ -754,7 +755,6 @@ Section "-InstallEndCleanup"
   SetDetailsPrint none
 
   ; Maybe copy the post-signing data?
-  StrCpy $PostSigningData ""
   ${GetParameters} $0
   ClearErrors
   ; We don't get post-signing data from the MSI.
@@ -767,7 +767,13 @@ Section "-InstallEndCleanup"
       ; We're being run standalone, copy the data.
       ${CopyPostSigningData}
       Pop $PostSigningData
+    ${Else}
+      ; If we see this value in telemetry, it means that we were expecting the stub installer
+      ; to send telemetry for this installation, but the full installer (also?) sent telemetry
+      StrCpy $PostSigningData "full_installer:unexpected"
     ${EndIf}
+  ${Else}
+    StrCpy $PostSigningData "msi:none"
   ${EndIf}
 
   ; Adds a pinned Task Bar shortcut (see MigrateTaskBarShortcut for details).
@@ -973,23 +979,34 @@ Function LaunchApp
   ${GetParameters} $0
   ${GetOptions} "$0" "/UAC:" $1
   ${If} ${Errors}
+    ClearErrors
     ${ExecAndWaitForInputIdle} "$\"$INSTDIR\${FileMainEXE}$\" -first-startup"
+    ${If} ${Errors}
+      StrCpy $LaunchedNewApp false
+    ${Else}
+      StrCpy $LaunchedNewApp true
+    ${EndIf}
   ${Else}
     GetFunctionAddress $0 LaunchAppFromElevatedProcess
     UAC::ExecCodeSegment $0
   ${EndIf}
-
-  StrCpy $LaunchedNewApp true
 FunctionEnd
 
 Function LaunchAppFromElevatedProcess
   ; Set our current working directory to the application's install directory
   ; otherwise the 7-Zip temp directory will be in use and won't be deleted.
   SetOutPath "$INSTDIR"
+  ClearErrors
   ${ExecAndWaitForInputIdle} "$\"$INSTDIR\${FileMainEXE}$\" -first-startup"
+  ${If} ${Errors}
+    StrCpy $LaunchedNewApp false
+  ${Else}
+    StrCpy $LaunchedNewApp true
+  ${EndIf}
 FunctionEnd
 
 Function SendPing
+  ClearErrors
   ${GetParameters} $0
   ${GetOptions} $0 "/LaunchedFromStub" $0
   ${IfNot} ${Errors}
@@ -1226,7 +1243,7 @@ Function WriteInstallationTelemetryData
   ${EndIf}
 
   ; Check for top-level profile directory
-  ; Note: This is the same check used to set $ExistingProfile in stub.nsi
+  ; Note: This is the same check used to set $HadExistingProfile in stub.nsi
   ${GetLocalAppDataFolder} $0
   ${If} ${FileExists} "$0\Mozilla\Firefox"
     StrCpy $1 "true"
@@ -1370,7 +1387,8 @@ FunctionEnd
 
 Function leaveOptions
   ${MUI_INSTALLOPTIONS_READ} $0 "options.ini" "Settings" "State"
-  ${If} $0 != 0
+  ${IfNot} ${Errors}
+  ${AndIf} $0 != 0
     Abort
   ${EndIf}
   ${MUI_INSTALLOPTIONS_READ} $R0 "options.ini" "Field 2" "State"
@@ -1720,6 +1738,9 @@ Function .onInit
   StrCpy $FinishPhaseEnd 0
   StrCpy $InstallResult "cancel"
   StrCpy $LaunchedNewApp false
+  ; initialize postSigningData to explicitly say that it comes from the full installer
+  StrCpy $PostSigningData "full_installer:unset"
+
 
   StrCpy $PageName ""
   StrCpy $LANGUAGE 0
@@ -1733,9 +1754,9 @@ Function .onInit
   ; Windows 8.1/Server 2012 R2 and lower are not supported.
   ${Unless} ${AtLeastWin10}
     ${If} "$R7" == "0"
-      strCpy $R7 "$(WARN_MIN_SUPPORTED_OSVER_CPU_MSG)"
+      strCpy $R7 "$(WARN_MIN_SUPPORTED_OSVER_CPU_MSG2)"
     ${Else}
-      strCpy $R7 "$(WARN_MIN_SUPPORTED_OSVER_MSG)"
+      strCpy $R7 "$(WARN_MIN_SUPPORTED_OSVER_MSG2)"
     ${EndIf}
     MessageBox MB_OKCANCEL|MB_ICONSTOP "$R7" IDCANCEL +2
     ExecShell "open" "${URLSystemRequirements}"
@@ -1752,33 +1773,26 @@ Function .onInit
 !ifdef HAVE_64BIT_BUILD
   ${If} "${ARCH}" == "AArch64"
     ${IfNot} ${IsNativeARM64}
-      MessageBox MB_OKCANCEL|MB_ICONSTOP "$(WARN_MIN_SUPPORTED_OSVER_MSG)" IDCANCEL +2
+      MessageBox MB_OKCANCEL|MB_ICONSTOP "$(WARN_MIN_SUPPORTED_OSVER_MSG2)" IDCANCEL +2
       ExecShell "open" "${URLSystemRequirements}"
       Quit
     ${EndIf}
   ${ElseIfNot} ${RunningX64}
-    MessageBox MB_OKCANCEL|MB_ICONSTOP "$(WARN_MIN_SUPPORTED_OSVER_MSG)" IDCANCEL +2
+    MessageBox MB_OKCANCEL|MB_ICONSTOP "$(WARN_MIN_SUPPORTED_OSVER_MSG2)" IDCANCEL +2
     ExecShell "open" "${URLSystemRequirements}"
     Quit
   ${EndIf}
-  SetRegView 64
 !endif
 
-  SetShellVarContext all
-  ${GetFirstInstallPath} "Software\Mozilla\${BrandFullNameInternal}" $0
-  ${If} "$0" == "false"
-    SetShellVarContext current
-    ${GetFirstInstallPath} "Software\Mozilla\${BrandFullNameInternal}" $0
-    ${If} "$0" == "false"
-      StrCpy $HadOldInstall false
-    ${Else}
-      StrCpy $HadOldInstall true
-    ${EndIf}
+  ${GetExistingInstallPath} $0
+  ${If} "$0" == ""
+    StrCpy $HadOldInstall false
   ${Else}
     StrCpy $HadOldInstall true
+    ${UseExistingInstallPathIfNoParam} $0
   ${EndIf}
 
-  ${InstallOnInitCommon} "$(WARN_MIN_SUPPORTED_OSVER_CPU_MSG)"
+  ${InstallOnInitCommon} "$(WARN_MIN_SUPPORTED_OSVER_CPU_MSG2)"
 
   !insertmacro InitInstallOptionsFile "options.ini"
   !insertmacro InitInstallOptionsFile "shortcuts.ini"

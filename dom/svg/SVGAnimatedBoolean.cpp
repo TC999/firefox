@@ -139,8 +139,9 @@ DOMSVGAnimatedBoolean::~DOMSVGAnimatedBoolean() {
   SVGAnimatedBooleanTearoffTable().RemoveTearoff(mVal);
 }
 
-UniquePtr<SMILAttr> SVGAnimatedBoolean::ToSMILAttr(SVGElement* aSVGElement) {
-  return MakeUnique<SMILBool>(this, aSVGElement);
+std::unique_ptr<SMILAttr> SVGAnimatedBoolean::ToSMILAttr(
+    SVGElement* aSVGElement) {
+  return std::make_unique<SMILBool>(this, aSVGElement);
 }
 
 nsresult SVGAnimatedBoolean::SMILBool::ValueFromString(
@@ -153,7 +154,7 @@ nsresult SVGAnimatedBoolean::SMILBool::ValueFromString(
 
   SMILValue val(SMILBoolType::Singleton());
   val.mU.mBool = value;
-  aValue = val;
+  aValue = std::move(val);
 
   return NS_OK;
 }

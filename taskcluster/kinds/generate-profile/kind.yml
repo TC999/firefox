@@ -5,6 +5,7 @@
 loader: taskgraph.loader.transform:loader
 
 kind-dependencies:
+    - fetch
     - toolchain
     - instrumented-build
 
@@ -24,6 +25,9 @@ task-defaults:
         kind: build
         tier: 1
     use-python: default
+    fetches:
+        fetch:
+            - pgo-extended-corpus
 
 tasks:
     linux64-shippable/opt:
@@ -97,6 +101,8 @@ tasks:
                 - linux64-minidump-stackwalk
                 - linux64-hostutils
                 - android-sdk-linux
+                - linux64-embedded-uniffi-bindgen
+                - linux64-nimbus-fml
                 - android34-system-image-x86_64-linux
                 - android34-avd-x86_64-linux
 
@@ -140,6 +146,8 @@ tasks:
                 - linux64-minidump-stackwalk
                 - linux64-hostutils
                 - android-sdk-linux
+                - linux64-embedded-uniffi-bindgen
+                - linux64-nimbus-fml
                 - android34-system-image-x86_64-linux
                 - android34-avd-x86_64-linux
 
@@ -183,6 +191,8 @@ tasks:
                 - linux64-minidump-stackwalk
                 - linux64-hostutils
                 - android-sdk-linux
+                - linux64-embedded-uniffi-bindgen
+                - linux64-nimbus-fml
                 - android30-system-image-x86-linux
                 - android30-avd-x86-linux
 
@@ -258,7 +268,7 @@ tasks:
         worker-type: b-win-aarch64
         worker:
             chain-of-trust: true
-            max-run-time: 2400
+            max-run-time: 3600
             env:
                 UPLOAD_PATH: "artifacts"
             artifacts:

@@ -8,12 +8,14 @@
 #define mozilla_BounceTrackingState_h
 
 #include "BounceTrackingRecord.h"
+#include "mozilla/RefPtr.h"
 #include "mozilla/WeakPtr.h"
 #include "mozilla/OriginAttributes.h"
 #include "nsIPrincipal.h"
 #include "nsStringFwd.h"
 #include "nsIWebProgressListener.h"
 #include "nsWeakReference.h"
+#include "fmt/format.h"
 
 class nsIChannel;
 class nsITimer;
@@ -61,7 +63,7 @@ class BounceTrackingState : public nsIWebProgressListener,
   static void ResetAllForOriginAttributesPattern(
       const OriginAttributesPattern& aPattern);
 
-  const Maybe<BounceTrackingRecord>& GetBounceTrackingRecord();
+  BounceTrackingRecord* GetBounceTrackingRecord();
 
   void ResetBounceTrackingRecord();
 
@@ -112,9 +114,6 @@ class BounceTrackingState : public nsIWebProgressListener,
 
   const OriginAttributes& OriginAttributesRef();
 
-  // Create a string that describes this object. Used for logging.
-  nsCString Describe();
-
   // Record sites which have accessed storage in the current extended
   // navigation.
   [[nodiscard]] nsresult OnStorageAccess(nsIPrincipal* aPrincipal);
@@ -139,7 +138,7 @@ class BounceTrackingState : public nsIWebProgressListener,
 
   // Record to keep track of extended navigation data. Reset on extended
   // navigation end.
-  Maybe<BounceTrackingRecord> mBounceTrackingRecord;
+  RefPtr<BounceTrackingRecord> mBounceTrackingRecord;
 
   // Timer to wait to wait for a client redirect after a navigation ends.
   RefPtr<nsITimer> mClientBounceDetectionTimeout;
@@ -170,8 +169,30 @@ class BounceTrackingState : public nsIWebProgressListener,
   // Record sites which have activated service workers in the current
   // extended navigation.
   [[nodiscard]] nsresult OnServiceWorkerActivation();
+
+  friend struct fmt::formatter<BounceTrackingState>;
 };
 
 }  // namespace mozilla
+
+template <>
+struct fmt::formatter<mozilla::BounceTrackingState>
+    : fmt::formatter<std::string_view> {
+  auto format(const mozilla::BounceTrackingState& aState,
+              fmt::format_context& aCtx) const {
+    nsAutoCString oaSuffix;
+    aState.mOriginAttributes.CreateSuffix(oaSuffix);
+
+    auto out = aCtx.out();
+    out = fmt::format_to(out, "{{ mBounceTrackingRecord: ");
+    if (aState.mBounceTrackingRecord) {
+      out = fmt::format_to(out, "{}", *aState.mBounceTrackingRecord);
+    } else {
+      out = fmt::format_to(out, "null");
+    }
+    return fmt::format_to(out, ", mOriginAttributes: {}, mBrowserId: {} }}",
+                          oaSuffix, aState.mBrowserId);
+  }
+};
 
 #endif

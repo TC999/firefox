@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import mozilla.appservices.remotesettings.RemoteSettingsClient
 import mozilla.components.browser.state.action.BrowserAction
 import mozilla.components.browser.state.action.SearchAction
+import mozilla.components.browser.state.action.SearchAction.SearchConfigurationAvailabilityChanged
 import mozilla.components.browser.state.search.RegionState
 import mozilla.components.browser.state.search.SearchEngine
 import mozilla.components.browser.state.state.BrowserState
@@ -25,7 +26,6 @@ import mozilla.components.feature.search.storage.SearchEngineSelectorConfig
 import mozilla.components.feature.search.storage.SearchEngineSelectorRepository
 import mozilla.components.feature.search.storage.SearchMetadataStorage
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.MiddlewareContext
 import mozilla.components.lib.state.Store
 import mozilla.components.support.base.log.logger.Logger
 import java.util.Locale
@@ -82,16 +82,16 @@ class SearchMiddleware(
         searchEngineSelectorConfig?.service?.remoteSettingsService?.makeClient(SEARCH_CONFIG_ICONS_COLLECTION_NAME)
     private val searchEngineSelectorRepository: SearchEngineRepository? =
         searchEngineSelectorConfig?.let {
-                SearchEngineSelectorRepository(it, defaultSearchEngineIcon, client)
+                SearchEngineSelectorRepository(context, it, defaultSearchEngineIcon, client)
         }
 
     override fun invoke(
-        context: MiddlewareContext<BrowserState, BrowserAction>,
+        store: Store<BrowserState, BrowserAction>,
         next: (BrowserAction) -> Unit,
         action: BrowserAction,
     ) {
         when (action) {
-            is SearchAction.SetRegionAction -> loadSearchEngines(context.store, action.regionState, action.distribution)
+            is SearchAction.SetRegionAction -> loadSearchEngines(store, action.regionState, action.distribution)
             is SearchAction.UpdateCustomSearchEngineAction -> saveCustomSearchEngine(action)
             is SearchAction.RemoveCustomSearchEngineAction -> removeCustomSearchEngine(action)
             is SearchAction.SelectSearchEngineAction -> updateSearchEngineSelection(action)
@@ -105,11 +105,11 @@ class SearchMiddleware(
         when (action) {
             is SearchAction.ShowSearchEngineAction, is SearchAction.HideSearchEngineAction,
             is SearchAction.RestoreHiddenSearchEnginesAction,
-            -> updateHiddenSearchEngines(context.state.search.hiddenSearchEngines)
+            -> updateHiddenSearchEngines(store.state.search.hiddenSearchEngines)
             is SearchAction.AddAdditionalSearchEngineAction, is SearchAction.RemoveAdditionalSearchEngineAction ->
-                updateAdditionalSearchEngines(context.state.search.additionalSearchEngines)
+                updateAdditionalSearchEngines(store.state.search.additionalSearchEngines)
             is SearchAction.UpdateDisabledSearchEngineIdsAction -> updateDisabledSearchEngineIds(
-                context.store,
+                store,
                 action,
             )
             else -> {
@@ -132,6 +132,18 @@ class SearchMiddleware(
         val allAdditionalSearchEngines: Deferred<List<SearchEngine>>
 
         if (searchEngineSelectorRepository != null) {
+            val shouldRebuildSearchConfiguration = shouldRebuildSearchConfiguration(
+                currentSearchEnginesConfigurationId = store.state.search.searchEnvironmentId,
+                isNewSearchConfigurationAvailable = store.state.search.isNewSearchConfigurationAvailable,
+                searchEngineSelectorRepository = searchEngineSelectorRepository,
+                region = region,
+                distribution = distribution,
+            )
+            if (!shouldRebuildSearchConfiguration) {
+                store.dispatch(SearchConfigurationAvailabilityChanged(false))
+                return@launch
+            }
+
             val result = async(ioDispatcher) {
                 searchEngineSelectorRepository.load(
                     region = region,
@@ -143,6 +155,7 @@ class SearchMiddleware(
             regionBundle = async {
                 result.await().copy(
                     list = result.await().list.filter { !it.isOptional },
+                    searchEnvironmentId = result.await().searchEnvironmentId,
                 )
             }
             allAdditionalSearchEngines = async { result.await().list.filter { it.isOptional } }
@@ -208,9 +221,27 @@ class SearchMiddleware(
             additionalSearchEngines = additionalSearchEngines,
             additionalAvailableSearchEngines = additionalAvailableSearchEngines,
             regionSearchEnginesOrder = regionSearchEngineIds,
+            searchEnginesConfigurationId = regionBundle.await().searchEnvironmentId,
         )
         store.dispatch(action)
     }
+
+    /**
+     * Check whether to avoid rebuilding the search configuration.
+     *
+     * @return `true` if search engines aren't yet configured or new ones are available, `false` otherwise.
+     */
+    private fun shouldRebuildSearchConfiguration(
+        currentSearchEnginesConfigurationId: Int?,
+        isNewSearchConfigurationAvailable: Boolean,
+        searchEngineSelectorRepository: SearchEngineRepository,
+        region: RegionState,
+        distribution: String?,
+    ): Boolean = isNewSearchConfigurationAvailable ||
+        currentSearchEnginesConfigurationId != searchEngineSelectorRepository.computeNewSearchEnvironmentId(
+        region = region,
+        distribution = distribution,
+    )
 
     private fun updateSearchEngineSelection(
         action: SearchAction.SelectSearchEngineAction,
@@ -352,10 +383,15 @@ class SearchMiddleware(
         /**
          * A loaded bundle containing the list of search engines and the ID of the default for
          * the region.
+         *
+         * @property list List of search engines to use.
+         * @property defaultSearchEngineId ID of one of the search engines from [list] to use as the default.
+         * @property searchEnvironmentId Unique identifier of the current search environment.
          */
         data class Bundle(
             val list: List<SearchEngine>,
             val defaultSearchEngineId: String,
+            val searchEnvironmentId: Int?,
         )
     }
 
@@ -363,6 +399,21 @@ class SearchMiddleware(
      * A repository for search engines from Application Services.
      */
     interface SearchEngineRepository {
+        /**
+         * Check whether new search engines are available.
+         * This can help know if [load] would return the same search engines configuration as before
+         * and as such it allows avoiding the complex code and longer execution time from running [load] again.
+         *
+         * @param region Current [RegionState].
+         * @param locale Current [Locale]. Defaults to [Locale.getDefault].
+         * @param distribution Current distribution. Defaults to `null`.
+         */
+        fun computeNewSearchEnvironmentId(
+            region: RegionState,
+            locale: Locale = Locale.getDefault(),
+            distribution: String? = null,
+        ): Int
+
         /**
          * Loads the search engines for the given [locale] and [region] from Application Services.
          *

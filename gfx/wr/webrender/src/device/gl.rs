@@ -1816,9 +1816,12 @@ impl Device {
         // On the android emulator, and possibly some Mali devices, glShaderSource
         // can crash if the source strings are not null-terminated.
         // See bug 1591945 and bug 1799722.
+        // Likewise on Lenovo devices with Adreno 750 GPUs we have seen glCompileShader
+        // failures and subsequent crashes due to glGetShaderInfoLog returning invalid
+        // UTF-8. See bug 2014925.
         let requires_null_terminated_shader_source = is_emulator || renderer_name == "Mali-T628"
             || renderer_name == "Mali-T720" || renderer_name == "Mali-T760"
-            || renderer_name == "Mali-G57";
+            || renderer_name == "Mali-G57" || renderer_name == "Adreno (TM) 750";
 
         // The android emulator gets confused if you don't explicitly unbind any texture
         // from GL_TEXTURE_EXTERNAL_OES before binding another to GL_TEXTURE_2D. See bug 1636085.
@@ -1864,10 +1867,12 @@ impl Device {
 
         // We have encountered several issues when only partially updating render targets on a
         // variety of Mali GPUs. As a precaution avoid doing so on all Midgard and Bifrost GPUs.
-        // Valhall (eg Mali-Gx7 onwards) appears to be unnaffected. See bug 1691955, bug 1558374,
+        // Valhall (eg Mali-Gx7 onwards) appears to be unaffected. See bug 1691955, bug 1558374,
         // and bug 1663355.
-        let supports_render_target_partial_update =
-            !is_mali_midgard(&renderer_name) && !is_mali_bifrost(&renderer_name);
+        // We have Additionally encountered issues on PowerVR D-Series. See bug 2005312.
+        let supports_render_target_partial_update = !is_mali_midgard(&renderer_name)
+            && !is_mali_bifrost(&renderer_name)
+            && !renderer_name.starts_with("PowerVR D-Series");
 
         let supports_shader_storage_object = match gl.get_type() {
             // see https://www.g-truc.net/post-0734.html
@@ -3118,9 +3123,8 @@ impl Device {
     }
 
     #[cfg(feature = "replay")]
-    pub fn delete_external_texture(&mut self, mut external: ExternalTexture) {
+    pub fn delete_external_texture(&mut self, external: ExternalTexture) {
         self.gl.delete_textures(&[external.id]);
-        external.id = 0;
     }
 
     pub fn delete_program(&mut self, mut program: Program) {

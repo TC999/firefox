@@ -29,6 +29,7 @@ import org.mozilla.fenix.home.recentvisits.RecentlyVisitedItem
 import org.mozilla.fenix.home.topsites.TopSiteColors
 import org.mozilla.fenix.home.ui.getAttr
 import org.mozilla.fenix.search.SearchDialogFragment
+import org.mozilla.fenix.termsofuse.store.PrivacyNoticeBannerState
 import org.mozilla.fenix.utils.Settings
 
 /**
@@ -67,6 +68,7 @@ internal sealed class HomepageState {
     /**
      * State corresponding with the homepage in normal browsing mode.
      *
+     * @property shouldShowPrivacyNoticeBanner If the privacy notice banner should show.
      * @property nimbusMessage Optional message to display.
      * @property topSites List of [TopSite] to display.
      * @property recentTabs List of [RecentTab] to display.
@@ -82,6 +84,7 @@ internal sealed class HomepageState {
      * @property showRecentlyVisited Whether to show recent history section.
      * @property showPocketStories Whether to show the pocket stories section.
      * @property showCollections Whether to show the collections section.
+     * @property showPrivacyReport Whether to show the privacy report section.
      * @property headerState State related to the header of the homepage.
      * @property searchBarVisible Whether the middle search bar should be visible or not.
      * @property searchBarEnabled Whether the middle search bar is enabled or not.
@@ -95,6 +98,7 @@ internal sealed class HomepageState {
      * @property bottomPadding Amount of padding to display at the bottom of the homepage.
      */
     internal data class Normal(
+        val shouldShowPrivacyNoticeBanner: Boolean,
         val nimbusMessage: NimbusMessageState?,
         val topSites: List<TopSite>,
         val recentTabs: List<RecentTab>,
@@ -110,6 +114,7 @@ internal sealed class HomepageState {
         val showRecentlyVisited: Boolean,
         val showPocketStories: Boolean,
         val showCollections: Boolean,
+        val showPrivacyReport: Boolean,
         override val headerState: HeaderState,
         val searchBarVisible: Boolean,
         val searchBarEnabled: Boolean,
@@ -148,12 +153,14 @@ internal sealed class HomepageState {
          * Builds a new [HomepageState] from the current [AppState] and [Settings].
          *
          * @param appState State to build the [HomepageState] from.
+         * @param privacyNoticeBannerState State of the privacy notice banner.
          * @param browsingModeManager Manager holding current state of whether the browser is in private mode or not.
          * @param settings [Settings] corresponding to how the homepage should be displayed.
          */
         @Composable
         internal fun build(
             appState: AppState,
+            privacyNoticeBannerState: PrivacyNoticeBannerState,
             browsingModeManager: BrowsingModeManager,
             settings: Settings,
         ): HomepageState {
@@ -165,6 +172,7 @@ internal sealed class HomepageState {
             } else {
                 buildNormalState(
                     appState = appState,
+                    privacyNoticeBannerState = privacyNoticeBannerState,
                     browsingModeManager = browsingModeManager,
                     settings = settings,
                 )
@@ -201,24 +209,26 @@ internal sealed class HomepageState {
          * Builds a new [HomepageState.Normal] from the current [AppState] and [Settings].
          *
          * @param appState State to build the [HomepageState.Normal] from.
+         * @param privacyNoticeBannerState State of the privacy notice banner.
          * @param browsingModeManager Manager holding current state of whether the browser is in private mode or not.
          * @param settings [Settings] corresponding to how the homepage should be displayed.
          */
         @Composable
         private fun buildNormalState(
             appState: AppState,
+            privacyNoticeBannerState: PrivacyNoticeBannerState,
             browsingModeManager: BrowsingModeManager,
             settings: Settings,
         ) = with(appState) {
             Normal(
-                nimbusMessage = NimbusMessageState.build(appState),
+                shouldShowPrivacyNoticeBanner = privacyNoticeBannerState.visible,
+                nimbusMessage = NimbusMessageState.build(appState, privacyNoticeBannerState),
                 topSites = topSites,
                 recentTabs = recentTabs,
                 syncedTab = when (recentSyncedTabState) {
                     RecentSyncedTabState.None,
                     RecentSyncedTabState.Loading,
-                        -> null
-
+                    -> null
                     is RecentSyncedTabState.Success -> recentSyncedTabState.tabs.firstOrNull()
                 },
                 bookmarks = bookmarks,
@@ -235,22 +245,19 @@ internal sealed class HomepageState {
                 showRecentSyncedTab = shouldShowRecentSyncedTabs() && settings.showSyncedTabs,
                 showRecentlyVisited = settings.historyMetadataUIFeature && recentHistory.isNotEmpty(),
                 showPocketStories = settings.showPocketRecommendationsFeature &&
-                        recommendationState.pocketStories.isNotEmpty(),
+                    recommendationState.pocketStories.isNotEmpty(),
                 showCollections = settings.collections,
+                showPrivacyReport = settings.showPrivacyReportSectionToggle &&
+                    settings.showPrivacyReportFeature,
                 headerState = HeaderState(
                     showHeader = settings.showHomepageHeader,
-                    wordmarkTextColor = wallpaperState.currentWallpaper.textColor?.let { Color(it) },
-                    privateBrowsingButtonColor = wallpaperState.currentWallpaper.textColor
-                        ?.let { Color(it) } ?: colorResource(
-                        getAttr(
-                            R.attr.mozac_ic_private_mode_circle_fill_icon_color,
-                        ),
-                    ),
+                    wordmarkTextColor = wallpaperState.textColor,
+                    privateBrowsingButtonColor = wallpaperState.iconColor,
                 ),
                 searchBarVisible = shouldShowSearchBar(appState = appState),
                 searchBarEnabled = settings.enableHomepageSearchBar &&
-                        settings.toolbarPosition == ToolbarPosition.TOP &&
-                        LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT,
+                    settings.toolbarPosition == ToolbarPosition.TOP &&
+                    LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT,
                 firstFrameDrawn = firstFrameDrawn,
                 setupChecklistState = setupChecklistState,
                 topSiteColors = TopSiteColors.colors(wallpaperState = wallpaperState),

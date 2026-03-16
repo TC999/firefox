@@ -486,6 +486,8 @@ void WindowsUIUtils::UpdateInWin10TabletMode() {
   }
 
   HWND winPtr = (HWND)widget->GetNativeData(NS_NATIVE_WINDOW);
+  NS_ENSURE_TRUE_VOID(winPtr);
+
   ComPtr<IUIViewSettingsInterop> uiViewSettingsInterop;
 
   HRESULT hr = GetActivationFactory(

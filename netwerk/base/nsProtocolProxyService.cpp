@@ -1586,7 +1586,7 @@ nsresult nsProtocolProxyService::AsyncResolveInternal(
     nsCOMPtr<nsISystemProxySettings> sp2 =
         do_GetService(NS_SYSTEMPROXYSETTINGS_CONTRACTID);
     if (sp2 != mSystemProxySettings) {
-      mSystemProxySettings = sp2;
+      mSystemProxySettings = std::move(sp2);
       ResetPACThread();
     }
   }
@@ -2108,6 +2108,9 @@ nsresult nsProtocolProxyService::NewProxyInfo_Internal(
   proxyInfo->mPassword = aPassword;
   proxyInfo->mFlags = aFlags;
   proxyInfo->mResolveFlags = aResolveFlags;
+  if (aFlags & nsIProxyInfo::ALWAYS_TUNNEL_VIA_PROXY) {
+    proxyInfo->mResolveFlags |= nsIProtocolProxyService::RESOLVE_ALWAYS_TUNNEL;
+  }
   proxyInfo->mTimeout =
       aFailoverTimeout == UINT32_MAX ? mFailedProxyTimeout : aFailoverTimeout;
   proxyInfo->mProxyAuthorizationHeader = aProxyAuthorizationHeader;

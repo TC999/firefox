@@ -8,6 +8,7 @@
 // compile it out so that people remember it exists.
 
 use crate::context::{CascadeInputs, SharedStyleContext};
+use crate::derives::*;
 use crate::dom::{OpaqueNode, TDocument, TElement, TNode};
 use crate::properties::animated_properties::{AnimationValue, AnimationValueMap};
 use crate::properties::longhands::animation_direction::computed_value::single_value::T as AnimationDirection;
@@ -18,7 +19,7 @@ use crate::properties::{
     ComputedValues, Importance, LonghandId, PropertyDeclarationBlock, PropertyDeclarationId,
     PropertyDeclarationIdSet,
 };
-use crate::rule_tree::CascadeLevel;
+use crate::rule_tree::{CascadeLevel, CascadeOrigin};
 use crate::selector_parser::PseudoElement;
 use crate::shared_lock::{Locked, SharedRwLock};
 use crate::style_resolver::StyleResolverForElement;
@@ -52,7 +53,7 @@ pub struct PropertyAnimation {
 
 impl PropertyAnimation {
     /// Returns the given property longhand id.
-    pub fn property_id(&self) -> PropertyDeclarationId {
+    pub fn property_id(&self) -> PropertyDeclarationId<'_> {
         debug_assert_eq!(self.from.id(), self.to.id());
         self.from.id()
     }
@@ -230,7 +231,7 @@ impl IntermediateComputedKeyframe {
         let mut important_rules_changed = false;
         let rule_node = base_style.rules().clone();
         let new_node = context.stylist.rule_tree().update_rule_at_level(
-            CascadeLevel::Animations,
+            CascadeLevel::new(CascadeOrigin::Animations),
             LayerOrder::root(),
             Some(locked_block.borrow_arc()),
             &rule_node,
@@ -894,13 +895,13 @@ impl ElementAnimationSet {
         let mutable_style = Arc::make_mut(style);
         if let Some(map) = self.get_value_map_for_active_animations(now) {
             for value in map.values() {
-                value.set_in_style_for_servo(mutable_style);
+                value.set_in_style_for_servo(mutable_style, context);
             }
         }
 
         if let Some(map) = self.get_value_map_for_transitions(now, IgnoreTransitions::Canceled) {
             for value in map.values() {
-                value.set_in_style_for_servo(mutable_style);
+                value.set_in_style_for_servo(mutable_style, context);
             }
         }
     }

@@ -124,10 +124,10 @@ class alignas(16) Instance {
   // Set to 1 when wasm should call CheckForInterrupt.
   mozilla::Atomic<uint32_t, mozilla::Relaxed> interrupt_;
 
-  // The address of the realm()->zone()->needsIncrementalBarrier(). This is
+  // The address of the realm()->zone()->needsMarkingBarrier(). This is
   // specific to this instance and not a process wide field, and so it cannot
   // be linked into code.
-  const JS::shadow::Zone::BarrierState* addressOfNeedsIncrementalBarrier_;
+  const JS::shadow::Zone::BarrierState* addressOfNeedsMarkingBarrier_;
 
   // An array of AllocSites allocated for Wasm GC operations such as struct.new,
   // array.new, etc.
@@ -143,14 +143,22 @@ class alignas(16) Instance {
   }
 
   // The number of baseline scratch storage words available.
-  static constexpr size_t N_BASELINE_SCRATCH_WORDS = 4;
+  static constexpr size_t N_BASELINE_SCRATCH_WORDS = 8;
+
+  // The size and offset of baselineScratchWords_.
+  static constexpr size_t sizeofBaselineScratchWords() {
+    return sizeof(baselineScratchWords_);
+  }
+  static constexpr size_t offsetofBaselineScratchWords() {
+    return offsetof(Instance, baselineScratchWords_);
+  }
 
  private:
   // When compiling with tiering, the jumpTable has one entry for each
   // baseline-compiled function.
   void** jumpTable_;
 
-  // 4 words of scratch storage for the baseline compiler, which can't always
+  // 8 words of scratch storage for the baseline compiler, which can't always
   // use the stack for this.
   uintptr_t baselineScratchWords_[N_BASELINE_SCRATCH_WORDS];
 
@@ -280,7 +288,8 @@ class alignas(16) Instance {
   uintptr_t traceFrame(JSTracer* trc, const wasm::WasmFrameIter& wfi,
                        uint8_t* nextPC,
                        uintptr_t highestByteVisitedInPrevFrame);
-  void updateFrameForMovingGC(const wasm::WasmFrameIter& wfi, uint8_t* nextPC);
+  void updateFrameForMovingGC(const wasm::WasmFrameIter& wfi, uint8_t* nextPC,
+                              Nursery& nursery);
 
   static constexpr size_t offsetOfMemory0Base() {
     return offsetof(Instance, memory0Base_);
@@ -321,8 +330,8 @@ class alignas(16) Instance {
   static constexpr size_t offsetOfAddressOfLastBufferedWholeCell() {
     return offsetof(Instance, addressOfLastBufferedWholeCell_);
   }
-  static constexpr size_t offsetOfAddressOfNeedsIncrementalBarrier() {
-    return offsetof(Instance, addressOfNeedsIncrementalBarrier_);
+  static constexpr size_t offsetOfAddressOfNeedsMarkingBarrier() {
+    return offsetof(Instance, addressOfNeedsMarkingBarrier_);
   }
   static constexpr size_t offsetOfJumpTable() {
     return offsetof(Instance, jumpTable_);
@@ -617,8 +626,6 @@ class alignas(16) Instance {
   static int32_t arrayCopy(Instance* instance, void* dstArray,
                            uint32_t dstIndex, void* srcArray, uint32_t srcIndex,
                            uint32_t numElements, uint32_t elementSize);
-  static int32_t arrayFill(Instance* instance, void* array, uint32_t index,
-                           uint32_t numElements);
   static int32_t refTest(Instance* instance, void* refPtr,
                          const wasm::TypeDef* typeDef);
   static int32_t intrI8VecMul(Instance* instance, uint32_t dest, uint32_t src1,
@@ -645,6 +652,8 @@ class alignas(16) Instance {
                               void* secondStringArg);
   static int32_t stringCompare(Instance* instance, void* firstStringArg,
                                void* secondStringArg);
+  static void addSubI128(Instance* instance, uint32_t isAdd);
+  static void mulI64Wide(Instance* instance, uint32_t isSigned);
 };
 
 bool ResultsToJSValue(JSContext* cx, ResultType type, void* registerResultLoc,

@@ -5,6 +5,7 @@
 //! Specified values for font properties
 
 use crate::context::QuirksMode;
+use crate::derives::*;
 use crate::parser::{Parse, ParserContext};
 use crate::values::computed::font::{FamilyName, FontFamilyList, SingleFontFamily};
 use crate::values::computed::Percentage as ComputedPercentage;
@@ -22,7 +23,7 @@ use crate::values::specified::{
 };
 use crate::values::{serialize_atom_identifier, CustomIdent, SelectorParseErrorKind};
 use crate::Atom;
-use cssparser::{Parser, Token};
+use cssparser::{match_ignore_ascii_case, Parser, Token};
 #[cfg(feature = "gecko")]
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps, MallocUnconditionalSizeOf};
 use std::fmt::{self, Write};
@@ -139,6 +140,7 @@ pub const MAX_FONT_WEIGHT: f32 = 1000.;
 #[derive(
     Clone, Copy, Debug, MallocSizeOf, Parse, PartialEq, SpecifiedValueInfo, ToCss, ToShmem, ToTyped,
 )]
+#[typed_value(derive_fields)]
 pub enum FontWeight {
     /// `<font-weight-absolute>`
     Absolute(AbsoluteFontWeight),
@@ -200,7 +202,10 @@ impl ToComputedValue for FontWeight {
 /// An absolute font-weight value for a @font-face rule.
 ///
 /// https://drafts.csswg.org/css-fonts-4/#font-weight-absolute-values
-#[derive(Clone, Copy, Debug, MallocSizeOf, PartialEq, SpecifiedValueInfo, ToCss, ToShmem)]
+#[derive(
+    Clone, Copy, Debug, MallocSizeOf, PartialEq, SpecifiedValueInfo, ToCss, ToShmem, ToTyped,
+)]
+#[typed_value(derive_fields)]
 pub enum AbsoluteFontWeight {
     /// A `<number>`, with the additional constraints specified in:
     ///
@@ -404,6 +409,7 @@ impl ToComputedValue for FontStyle {
 #[derive(
     Clone, Copy, Debug, MallocSizeOf, Parse, PartialEq, SpecifiedValueInfo, ToCss, ToShmem, ToTyped,
 )]
+#[typed_value(derive_fields)]
 pub enum FontStretch {
     Stretch(NonNegativePercentage),
     Keyword(FontStretchKeyword),
@@ -413,7 +419,7 @@ pub enum FontStretch {
 
 /// A keyword value for `font-stretch`.
 #[derive(
-    Clone, Copy, Debug, MallocSizeOf, Parse, PartialEq, SpecifiedValueInfo, ToCss, ToShmem,
+    Clone, Copy, Debug, MallocSizeOf, Parse, PartialEq, SpecifiedValueInfo, ToCss, ToShmem, ToTyped,
 )]
 #[allow(missing_docs)]
 pub enum FontStretchKeyword {
@@ -490,6 +496,7 @@ impl ToComputedValue for FontStretch {
     ToShmem,
     Serialize,
     Deserialize,
+    ToTyped,
 )]
 #[allow(missing_docs)]
 #[repr(u8)]
@@ -553,8 +560,10 @@ impl Default for FontSizeKeyword {
     ToCss,
     ToResolvedValue,
     ToShmem,
+    ToTyped,
 )]
 #[cfg_attr(feature = "servo", derive(Serialize, Deserialize))]
+#[typed_value(derive_fields)]
 /// Additional information for keyword-derived font sizes.
 pub struct KeywordInfo {
     /// The keyword used
@@ -620,6 +629,7 @@ impl SpecifiedValueInfo for KeywordInfo {
 }
 
 #[derive(Clone, Debug, MallocSizeOf, PartialEq, SpecifiedValueInfo, ToCss, ToShmem, ToTyped)]
+#[typed_value(derive_fields)]
 /// A specified font-size value
 pub enum FontSize {
     /// A length; e.g. 10px.
@@ -731,8 +741,9 @@ impl Parse for FamilyName {
 /// A factor for one of the font-size-adjust metrics, which may be either a number
 /// or the `from-font` keyword.
 #[derive(
-    Clone, Copy, Debug, MallocSizeOf, Parse, PartialEq, SpecifiedValueInfo, ToCss, ToShmem,
+    Clone, Copy, Debug, MallocSizeOf, Parse, PartialEq, SpecifiedValueInfo, ToCss, ToShmem, ToTyped,
 )]
+#[typed_value(derive_fields)]
 pub enum FontSizeAdjustFactor {
     /// An explicitly-specified number.
     Number(NonNegativeNumber),
@@ -1160,14 +1171,6 @@ impl FontVariantAlternates {
             | VariantAlternates::CharacterVariant(ref slice) => acc + slice.len(),
             _ => acc,
         })
-    }
-}
-
-impl FontVariantAlternates {
-    #[inline]
-    /// Get initial specified value with VariantAlternatesList
-    pub fn get_initial_specified_value() -> Self {
-        Default::default()
     }
 }
 
@@ -1767,7 +1770,7 @@ impl XTextScale {
     ToShmem,
     ToTyped,
 )]
-#[cfg_attr(feature = "servo", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "servo", derive(Deserialize, Eq, Hash, Serialize))]
 /// Internal property that reflects the lang attribute
 pub struct XLang(#[css(skip)] pub Atom);
 

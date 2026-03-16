@@ -252,7 +252,7 @@ partial interface Navigator {
 
 // http://webaudio.github.io/web-midi-api/#requestmidiaccess
 partial interface Navigator {
-  [NewObject, Func="Navigator::HasMidiSupport"]
+  [UseCounter, NewObject, Func="Navigator::HasMidiSupport"]
   Promise<MIDIAccess> requestMIDIAccess(optional MIDIOptions options = {});
 
   // Deprecated. Use mediaDevices.getUserMedia instead.
@@ -403,4 +403,11 @@ partial interface Navigator {
 [SecureContext]
 partial interface Navigator {
   [SameObject] readonly attribute NavigatorLogin login;
+};
+
+// Model Context API
+[SecureContext]
+partial interface Navigator {
+  [SameObject, Pref="dom.modelcontext.enabled"]
+  readonly attribute ModelContext modelContext;
 };

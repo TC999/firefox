@@ -19,6 +19,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   MigrationUtils: "resource:///modules/MigrationUtils.sys.mjs",
   UIState: "resource://services-sync/UIState.sys.mjs",
   FxAccounts: "resource://gre/modules/FxAccounts.sys.mjs",
+  ChangePasswordURLs: "resource:///modules/ChangePasswordURLs.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "log", () => {
@@ -103,7 +104,7 @@ export class AboutLoginsParent extends JSWindowActorParent {
         break;
       }
       case "AboutLogins:DeleteLogin": {
-        this.#deleteLogin(message.data.login);
+        await this.#deleteLogin(message.data.login);
         break;
       }
       case "AboutLogins:SortChanged": {
@@ -142,7 +143,7 @@ export class AboutLoginsParent extends JSWindowActorParent {
         break;
       }
       case "AboutLogins:UpdateLogin": {
-        this.#updateLogin(message.data.login);
+        await this.#updateLogin(message.data.login);
         break;
       }
       case "AboutLogins:ExportPasswords": {
@@ -154,7 +155,7 @@ export class AboutLoginsParent extends JSWindowActorParent {
         break;
       }
       case "AboutLogins:RemoveAllLogins": {
-        this.#removeAllLogins();
+        await this.#removeAllLogins();
         break;
       }
     }
@@ -207,9 +208,9 @@ export class AboutLoginsParent extends JSWindowActorParent {
     return preselectedLogin || null;
   }
 
-  #deleteLogin(loginObject) {
+  async #deleteLogin(loginObject) {
     let login = lazy.LoginHelper.vanillaObjectToLogin(loginObject);
-    Services.logins.removeLogin(login);
+    await Services.logins.removeLoginAsync(login);
   }
 
   #sortChanged(sort) {
@@ -341,8 +342,8 @@ export class AboutLoginsParent extends JSWindowActorParent {
     }
   }
 
-  #updateLogin(loginUpdates) {
-    let logins = lazy.LoginHelper.searchLoginsWithObject({
+  async #updateLogin(loginUpdates) {
+    let logins = await Services.logins.searchLoginsAsync({
       guid: loginUpdates.guid,
     });
     if (logins.length != 1) {
@@ -360,7 +361,7 @@ export class AboutLoginsParent extends JSWindowActorParent {
       modifiedLogin.password = loginUpdates.password;
     }
     try {
-      Services.logins.modifyLogin(logins[0], modifiedLogin);
+      await Services.logins.modifyLoginAsync(logins[0], modifiedLogin);
     } catch (error) {
       this.#handleLoginStorageErrors(modifiedLogin, error);
     }
@@ -502,8 +503,8 @@ export class AboutLoginsParent extends JSWindowActorParent {
     }
   }
 
-  #removeAllLogins() {
-    Services.logins.removeAllUserFacingLogins();
+  async #removeAllLogins() {
+    await Services.logins.removeAllUserFacingLoginsAsync();
   }
 
   #handleLoginStorageErrors(login, error) {
@@ -543,6 +544,7 @@ class AboutLoginsInternal {
   subscribers = new WeakSet();
   #observersAdded = false;
   authExpirationTime = Number.NEGATIVE_INFINITY;
+  changePasswordURLsByLoginGUID = new Map();
 
   async observe(subject, topic, type) {
     if (!ChromeUtils.nondeterministicGetWeakSetKeys(this.subscribers).length) {
@@ -578,7 +580,7 @@ class AboutLoginsInternal {
             break;
           }
           case "modifyLogin": {
-            this.#modifyLogin(subject);
+            await this.#modifyLogin(subject);
             break;
           }
           case "removeLogin": {
@@ -586,7 +588,7 @@ class AboutLoginsInternal {
             break;
           }
           case "removeAllLogins": {
-            this.#removeAllLogins();
+            await this.#removeAllLogins();
             break;
           }
         }
@@ -614,7 +616,10 @@ class AboutLoginsInternal {
         );
       }
     }
-
+    this.#messageSubscribers(
+      "AboutLogins:UpdateChangePasswordURLs",
+      await lazy.ChangePasswordURLs.getChangePasswordURLsByLoginGUID([login])
+    );
     this.#messageSubscribers("AboutLogins:LoginAdded", login);
   }
 
@@ -647,7 +652,10 @@ class AboutLoginsInternal {
         );
       }
     }
-
+    this.#messageSubscribers(
+      "AboutLogins:UpdateChangePasswordURLs",
+      await lazy.ChangePasswordURLs.getChangePasswordURLsByLoginGUID([login])
+    );
     this.#messageSubscribers("AboutLogins:LoginModified", login);
   }
 
@@ -659,7 +667,7 @@ class AboutLoginsInternal {
     this.#messageSubscribers("AboutLogins:LoginRemoved", login);
   }
 
-  #removeAllLogins() {
+  async #removeAllLogins() {
     this.#messageSubscribers("AboutLogins:RemoveAllLogins", []);
   }
 
@@ -824,6 +832,11 @@ class AboutLoginsInternal {
         );
       }
     }
+
+    sendMessageFn(
+      "AboutLogins:SetChangePasswordURLs",
+      await lazy.ChangePasswordURLs.getChangePasswordURLsByLoginGUID(logins)
+    );
   }
 
   async getSyncState() {

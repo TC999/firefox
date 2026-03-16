@@ -66,12 +66,15 @@ class ImportAttribute {
 
 using ImportAttributeVector = GCVector<ImportAttribute, 0, SystemAllocPolicy>;
 
+enum class ImportPhase : uint8_t { Evaluation, Limit };
+
 class ModuleRequestObject : public NativeObject {
  public:
   enum {
     SpecifierSlot = 0,
     FirstUnsupportedAttributeKeySlot,
     ModuleTypeSlot,
+    PhaseSlot,
     SlotCount
   };
 
@@ -79,13 +82,15 @@ class ModuleRequestObject : public NativeObject {
   static bool isInstance(HandleValue value);
   [[nodiscard]] static ModuleRequestObject* create(
       JSContext* cx, Handle<JSAtom*> specifier,
-      Handle<ImportAttributeVector> maybeAttributes);
-  [[nodiscard]] static ModuleRequestObject* create(JSContext* cx,
-                                                   Handle<JSAtom*> specifier,
-                                                   JS::ModuleType moduleType);
+      Handle<ImportAttributeVector> maybeAttributes,
+      ImportPhase phase = ImportPhase::Evaluation);
+  [[nodiscard]] static ModuleRequestObject* create(
+      JSContext* cx, Handle<JSAtom*> specifier, JS::ModuleType moduleType,
+      ImportPhase phase = ImportPhase::Evaluation);
 
   JSAtom* specifier() const;
   JS::ModuleType moduleType() const;
+  ImportPhase phase() const;
 
   // We process import attributes earlier in the process, but according to the
   // spec, we should error during module evaluation if we encounter an
@@ -209,8 +214,8 @@ class IndirectBindingMap {
       return;
     }
 
-    for (auto r = map_->all(); !r.empty(); r.popFront()) {
-      func(r.front().key());
+    for (auto iter = map_->iter(); !iter.done(); iter.next()) {
+      func(iter.get().key());
     }
   }
 
@@ -390,6 +395,9 @@ class ModuleObject : public NativeObject {
     CyclicModuleFieldsSlot,
     // `SyntheticModuleFields` if a synthetic module. Otherwise `undefined`.
     SyntheticModuleFieldsSlot,
+#ifdef DEBUG
+    PreloadSlot,
+#endif
     SlotCount
   };
 
@@ -496,6 +504,11 @@ class ModuleObject : public NativeObject {
   void initAsyncSlots(JSContext* cx, bool hasTopLevelAwait,
                       Handle<ListObject*> asyncParentModules);
 
+#ifdef DEBUG
+  void setPreload(bool isPreload);
+  bool isPreload() const;
+#endif
+
  private:
   static const JSClassOps classOps_;
 
@@ -579,6 +592,11 @@ JSObject* GetOrCreateModuleMetaObject(JSContext* cx, HandleObject module);
 
 JSObject* StartDynamicModuleImport(JSContext* cx, HandleScript script,
                                    HandleValue specifier, HandleValue options);
+
+#ifdef ENABLE_SOURCE_PHASE_IMPORTS
+JSObject* StartDynamicModuleImportSource(JSContext* cx, HandleScript script,
+                                         HandleValue specifier);
+#endif
 
 }  // namespace js
 

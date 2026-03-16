@@ -46,7 +46,7 @@ newtab-search-box-input =
     .placeholder = Претражите интернет
     .aria-label = Претражите интернет
 
-## Top Sites - General form dialog.
+## Clear text button for the URL and image URL input fields in the Top Sites form.
 
 newtab-topsites-add-search-engine-header = Додај претраживач
 newtab-topsites-add-shortcut-header = Нова пречица
@@ -400,6 +400,11 @@ newtab-weather-menu-hide-weather = Сакриј временску прогно�
 newtab-weather-menu-learn-more = Сазнајте више
 # This message is shown if user is working offline
 newtab-weather-error-not-available = Временска прогноза тренутно није доступна.
+# Variables:
+#   $provider (string) - Service provider for weather data
+newtab-weather-see-forecast-description =
+    .title = Погледајте прогнозу у { $provider }-у
+    .aria-description = { $provider } - Спонзорисано
 
 ## Topic Labels
 

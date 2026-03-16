@@ -15,6 +15,7 @@
 #include "mozilla/MathAlgorithms.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdlib>
 #include <iterator>
@@ -23,10 +24,10 @@
 #include <string_view>
 #include <utility>
 
-#include "jsnum.h"
 #include "jspubtd.h"
 #include "NamespaceImports.h"
 
+#include "builtin/Number.h"
 #include "builtin/temporal/PlainDate.h"
 #include "builtin/temporal/PlainDateTime.h"
 #include "builtin/temporal/PlainMonthDay.h"
@@ -589,7 +590,7 @@ static double FractionToDoubleSlow(const T& numerator, const T& denominator) {
     // and `extraBits` has to be checked if the result has to be rounded up.
 
     // Number of ignored/extra bits in the significand.
-    uint32_t extraBitsCount = 32 - mozilla::CountLeadingZeroes32(ignoredBits);
+    uint32_t extraBitsCount = std::bit_width(ignoredBits);
     MOZ_ASSERT(extraBitsCount > 0);
 
     // Extra bits in the significand.
@@ -598,7 +599,7 @@ static double FractionToDoubleSlow(const T& numerator, const T& denominator) {
     // Move the ignored bits into the proper significand position and adjust the
     // exponent to reflect the now moved out extra bits.
     significand >>= extraBitsCount;
-    exponent += extraBitsCount;
+    exponent += static_cast<int32_t>(extraBitsCount);
 
     MOZ_ASSERT((significand >> SignificandWidthWithImplicitOne) == 0,
                "no excess bits in the significand");
@@ -643,15 +644,15 @@ static double FractionToDoubleSlow(const T& numerator, const T& denominator) {
 
   // Move the significand into the correct position and adjust the exponent
   // accordingly.
-  uint32_t significandZeros = mozilla::CountLeadingZeroes64(significand);
+  uint32_t significandZeros = std::countl_zero(significand);
   if (significandZeros < SignificandLeadingZeros) {
     uint32_t shift = SignificandLeadingZeros - significandZeros;
     significand >>= shift;
-    exponent += shift;
+    exponent += static_cast<int32_t>(shift);
   } else if (significandZeros > SignificandLeadingZeros) {
     uint32_t shift = significandZeros - SignificandLeadingZeros;
     significand <<= shift;
-    exponent -= shift;
+    exponent -= static_cast<int32_t>(shift);
   }
 
   // Combine the individual bits of the double value and return it.

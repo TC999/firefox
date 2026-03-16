@@ -314,12 +314,8 @@ class ScrollContainerFrame : public nsContainerFrame,
   }
   nsRect GetScrollPortRectAccountingForMaxDynamicToolbar() const;
 
-  nsSize GetScrolledFrameSizeAccountingForDynamicToolbar() const {
-    auto size = mScrolledFrame->GetContentRectRelativeToSelf().Size();
-    if (mIsRoot) {
-      size.height += PresContext()->GetBimodalDynamicToolbarHeightInAppUnits();
-    }
-    return size;
+  nsSize GetScrolledFrameSize() const {
+    return mScrolledFrame->GetContentRectRelativeToSelf().Size();
   }
 
   /**
@@ -508,7 +504,7 @@ class ScrollContainerFrame : public nsContainerFrame,
    * main thread scrolling is used to determine best matching snap point
    * when called after a fling gesture on a trackpad or mouse wheel.
    */
-  void ScrollSnap() { return ScrollSnap(ScrollMode::SmoothMsd); }
+  void ScrollSnap() { ScrollSnap(ScrollMode::SmoothMsd); }
 
   /**
    * @note This method might destroy the frame, pres shell and other objects.
@@ -670,8 +666,17 @@ class ScrollContainerFrame : public nsContainerFrame,
   /**
    * Determine whether it is desirable to be able to asynchronously scroll this
    * scroll frame.
+   *
+   * NonZeroScrollRangeOnly::No, this function returns true for scroll container
+   * whose overscroll-behavior properties are not default even if the container
+   * is not scrollable in the direction, overflow: hidden or it's not overflowed
+   * in the direction. In other words, NonZeroScrollRangeOnly::Yes, this
+   * functions returns false in such cases since the container is zero scroll
+   * range, thus it needs no displayport properties.
    */
-  bool WantAsyncScroll() const;
+  enum class NonZeroScrollRangeOnly : bool { No, Yes };
+  bool WantAsyncScroll(NonZeroScrollRangeOnly aNonZeroScrollRangeOnly =
+                           NonZeroScrollRangeOnly::No) const;
 
   /**
    * Returns the ScrollMetadata contributed by this frame, if there is one.
@@ -999,7 +1004,7 @@ class ScrollContainerFrame : public nsContainerFrame,
   void MarkNotRecentlyScrolled();
   nsExpirationState* GetExpirationState() { return &mActivityExpirationState; }
 
-  bool UsesOverlayScrollbars() const;
+  bool UseOverlayScrollbars() const;
   bool IsLastSnappedTarget(const nsIFrame* aFrame) const;
 
   // If aBuilder is non-null, returns the value cached on aBuilder. Pass null
@@ -1053,13 +1058,8 @@ class ScrollContainerFrame : public nsContainerFrame,
   ScrollContainerFrame(ComputedStyle* aStyle, nsPresContext* aPresContext,
                        nsIFrame::ClassID aID, bool aIsRoot);
   ~ScrollContainerFrame();
-  void SetSuppressScrollbarUpdate(bool aSuppress) {
-    mSuppressScrollbarUpdate = aSuppress;
-  }
   bool GuessHScrollbarNeeded(const ScrollReflowInput& aState);
   bool GuessVScrollbarNeeded(const ScrollReflowInput& aState);
-
-  bool IsScrollbarUpdateSuppressed() const { return mSuppressScrollbarUpdate; }
 
   // Return whether we're in an "initial" reflow.  Some reflows with
   // NS_FRAME_FIRST_REFLOW set are NOT "initial" as far as we're concerned.
@@ -1110,6 +1110,7 @@ class ScrollContainerFrame : public nsContainerFrame,
 
   MOZ_CAN_RUN_SCRIPT nsresult FireScrollPortEvent();
   void PostScrollEndEvent();
+  void PostOrDeferScrollEndEvent();
   MOZ_CAN_RUN_SCRIPT void FireScrollEndEvent();
   void PostOverflowEvent();
 
@@ -1154,6 +1155,10 @@ class ScrollContainerFrame : public nsContainerFrame,
     mScrollPort = aNewScrollPort;
   }
 
+  // Gets the node that is a suitable scroll event target for our events.
+  enum class RootTargetsDocument : bool { No, Yes };
+  RefPtr<nsINode> ScrollEventTargetNode(RootTargetsDocument) const;
+
   /**
    * Return the 'optimal viewing region' as a rect suitable for use by
    * scroll anchoring. This rect is in the same coordinate space as
@@ -1175,8 +1180,8 @@ class ScrollContainerFrame : public nsContainerFrame,
     }
     return pt;
   }
-  void ScrollSnap(ScrollMode aMode);
-  void ScrollSnap(const nsPoint& aDestination,
+  bool ScrollSnap(ScrollMode aMode);
+  bool ScrollSnap(const nsPoint& aDestination,
                   ScrollMode aMode = ScrollMode::SmoothMsd);
 
   bool HasPendingScrollRestoration() const {
@@ -1256,6 +1261,7 @@ class ScrollContainerFrame : public nsContainerFrame,
                            UniquePtr<ScrollSnapTargetIds> aSnapTargetIds,
                            ScrollOrigin aOrigin = ScrollOrigin::NotSpecified);
 
+  bool SliderFrameInClickAndHold() const;
   bool HasPerspective() const { return ChildrenHavePerspective(); }
   bool HasBgAttachmentLocal() const;
   StyleDirection GetScrolledFrameDir() const;
@@ -1449,10 +1455,6 @@ class ScrollContainerFrame : public nsContainerFrame,
   bool mDidHistoryRestore : 1;
   // Is this the scrollframe for the document's viewport?
   bool mIsRoot : 1;
-  // If true, don't try to layout the scrollbars in Reflow().  This can be
-  // useful if multiple passes are involved, because we don't want to place the
-  // scrollbars at the wrong size.
-  bool mSuppressScrollbarUpdate : 1;
   // If true, we skipped a scrollbar layout due to mSuppressScrollbarUpdate
   // being set at some point.  That means we should lay out scrollbars even if
   // it might not strictly be needed next time mSuppressScrollbarUpdate is
@@ -1539,6 +1541,10 @@ class ScrollContainerFrame : public nsContainerFrame,
 
   // Whether we need to schedule the scroll-driven animations.
   bool mMayScheduleScrollAnimations : 1;
+
+  // Whether we need to ensure a scrollend is fired at the end of a scrollbar
+  // click and hold gesture.
+  bool mScrollbarClickAndHoldScrollendPending : 1;
 
 #ifdef MOZ_WIDGET_ANDROID
   // True if this scrollable frame was vertically overflowed on the last reflow.

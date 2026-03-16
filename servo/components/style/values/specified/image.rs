@@ -8,6 +8,7 @@
 //! [image]: https://drafts.csswg.org/css-images/#image-values
 
 use crate::color::mix::ColorInterpolationMethod;
+use crate::derives::*;
 use crate::parser::{Parse, ParserContext};
 use crate::stylesheets::CorsMode;
 use crate::values::generics::color::{ColorMixFlags, GenericLightDark};
@@ -26,7 +27,7 @@ use crate::values::specified::{
 };
 use crate::values::specified::{Number, NumberOrPercentage, Percentage};
 use crate::Atom;
-use cssparser::{Delimiter, Parser, Token};
+use cssparser::{match_ignore_ascii_case, Delimiter, Parser, Token};
 use selectors::parser::SelectorParseErrorKind;
 use std::cmp::Ordering;
 use std::fmt::{self, Write};
@@ -82,7 +83,7 @@ impl Color {
                 if mix.flags.contains(ColorMixFlags::RESULT_IN_MODERN_SYNTAX) {
                     true
                 } else {
-                    mix.left.has_modern_syntax() || mix.right.has_modern_syntax()
+                    mix.items.iter().any(|item| item.color.has_modern_syntax())
                 }
             },
             Self::LightDark(ld) => ld.light.has_modern_syntax() || ld.dark.has_modern_syntax(),
@@ -1290,7 +1291,12 @@ impl PaintWorklet {
             .try_parse(|input| {
                 input.expect_comma()?;
                 input.parse_comma_separated(|input| {
-                    SpecifiedValue::parse(input, &context.url_data).map(Arc::new)
+                    SpecifiedValue::parse(
+                        input,
+                        Some(&context.namespaces.prefixes),
+                        &context.url_data,
+                    )
+                    .map(Arc::new)
                 })
             })
             .unwrap_or_default();

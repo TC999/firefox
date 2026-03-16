@@ -385,7 +385,7 @@ void MediaPipeline::GetContributingSourceStats(
   // Get the expiry from now
   DOMHighResTimeStamp expiry =
       RtpCSRCStats::GetExpiryFromTime(GetTimestampMaker().GetNow().ToDom());
-  for (auto info : mCsrcStats) {
+  for (const auto& info : mCsrcStats) {
     if (!info.second.Expired(expiry)) {
       RTCRTPContributingSourceStats stats;
       info.second.GetWebidlInstance(stats, aInboundRtpStreamId);

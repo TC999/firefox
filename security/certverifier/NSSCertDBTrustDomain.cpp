@@ -676,10 +676,38 @@ CRLiteTimestamp::GetTimestamp(uint64_t* aTimestamp) {
   return NS_OK;
 }
 
+static void RecordCRLiteNotCoveredCertAge(
+    const nsTArray<RefPtr<nsICRLiteTimestamp>>& timestamps, Time time) {
+  if (timestamps.IsEmpty()) {
+    return;
+  }
+  uint64_t mostRecentMs = 0;
+  for (const auto& ts : timestamps) {
+    uint64_t timestampMs = 0;
+    if (NS_SUCCEEDED(ts->GetTimestamp(&timestampMs))) {
+      mostRecentMs = std::max(mostRecentMs, timestampMs);
+    }
+  }
+  if (mostRecentMs == 0) {
+    return;
+  }
+  uint64_t timeSeconds = 0;
+  if (SecondsSinceEpochFromTime(time, &timeSeconds) != Success) {
+    return;
+  }
+  uint64_t timeMs = timeSeconds * 1000;
+  if (timeMs < mostRecentMs) {
+    return;
+  }
+  mozilla::glean::cert_verifier::crlite_not_covered_cert_age
+      .AccumulateRawDuration(TimeDuration::FromMilliseconds(
+          static_cast<double>(timeMs - mostRecentMs)));
+}
+
 Result NSSCertDBTrustDomain::CheckCRLite(
     const nsTArray<uint8_t>& issuerSubjectPublicKeyInfoBytes,
     const nsTArray<uint8_t>& serialNumberBytes,
-    const nsTArray<RefPtr<nsICRLiteTimestamp>>& timestamps,
+    const nsTArray<RefPtr<nsICRLiteTimestamp>>& timestamps, Time time,
     /*out*/ bool& filterCoversCertificate) {
   filterCoversCertificate = false;
   int16_t crliteRevocationState;
@@ -714,6 +742,7 @@ Result NSSCertDBTrustDomain::CheckCRLite(
     case nsICertStorage::STATE_NOT_COVERED:
       filterCoversCertificate = false;
       mozilla::glean::cert_verifier::crlite_status.Get("not_covered"_ns).Add(1);
+      RecordCRLiteNotCoveredCertAge(timestamps, time);
       return Success;
     case nsICertStorage::STATE_NO_FILTER:
       filterCoversCertificate = false;
@@ -779,9 +808,8 @@ Result NSSCertDBTrustDomain::CheckRevocation(
     }
   }
 
-  Result ocspResult = CheckRevocationByOCSP(
-      certID, time, validityDuration, aiaLocation, crliteCoversCertificate,
-      crliteResult, stapledOCSPResponse);
+  Result ocspResult = CheckRevocationByOCSP(certID, time, validityDuration,
+                                            aiaLocation, stapledOCSPResponse);
 
   MOZ_LOG(gCertVerifierLog, LogLevel::Debug,
           ("NSSCertDBTrustDomain: end of CheckRevocation"));
@@ -821,7 +849,7 @@ Result NSSCertDBTrustDomain::CheckRevocationByCRLite(
     }
 
     return CheckCRLite(issuerSubjectPublicKeyInfoBytes, serialNumberBytes,
-                       timestamps, crliteCoversCertificate);
+                       timestamps, time, crliteCoversCertificate);
   }
 
   // When CT is enabled, we verify the signatures on all available SCTs and
@@ -863,13 +891,12 @@ Result NSSCertDBTrustDomain::CheckRevocationByCRLite(
   }
 
   return CheckCRLite(issuerSubjectPublicKeyInfoBytes, serialNumberBytes,
-                     timestamps, crliteCoversCertificate);
+                     timestamps, time, crliteCoversCertificate);
 }
 
 Result NSSCertDBTrustDomain::CheckRevocationByOCSP(
     const CertID& certID, Time time, Duration validityDuration,
-    const nsCString& aiaLocation, const bool crliteCoversCertificate,
-    const Result crliteResult,
+    const nsCString& aiaLocation,
     /*optional*/ const Input* stapledOCSPResponse) {
   const uint16_t maxOCSPLifetimeInDays = 10;
   // If we have a stapled OCSP response then the verification of that response
@@ -1047,7 +1074,7 @@ Result NSSCertDBTrustDomain::CheckRevocationByOCSP(
     // responses from a failing server.
     return SynchronousCheckRevocationWithServer(
         certID, aiaLocation, time, maxOCSPLifetimeInDays, cachedResponseResult,
-        stapledOCSPResponseResult, crliteCoversCertificate, crliteResult);
+        stapledOCSPResponseResult);
   }
 
   return HandleOCSPFailure(cachedResponseResult, stapledOCSPResponseResult,
@@ -1057,8 +1084,7 @@ Result NSSCertDBTrustDomain::CheckRevocationByOCSP(
 Result NSSCertDBTrustDomain::SynchronousCheckRevocationWithServer(
     const CertID& certID, const nsCString& aiaLocation, Time time,
     uint16_t maxOCSPLifetimeInDays, const Result cachedResponseResult,
-    const Result stapledOCSPResponseResult, const bool crliteCoversCertificate,
-    const Result crliteResult) {
+    const Result stapledOCSPResponseResult) {
   if (AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdownConfirmed)) {
     return Result::FATAL_ERROR_LIBRARY_FAILURE;
   }
@@ -1095,14 +1121,6 @@ Result NSSCertDBTrustDomain::SynchronousCheckRevocationWithServer(
       return cacheRV;
     }
 
-    if (crliteCoversCertificate &&
-        crliteResult == Result::ERROR_REVOKED_CERTIFICATE) {
-      // CRLite says the certificate is revoked, but OCSP fetching failed.
-      mozilla::glean::cert_verifier::crlite_vs_ocsp_result
-          .Get("CRLiteRevOCSPFail"_ns)
-          .Add(1);
-    }
-
     return HandleOCSPFailure(cachedResponseResult, stapledOCSPResponseResult,
                              rv);
   }
@@ -1114,34 +1132,6 @@ Result NSSCertDBTrustDomain::SynchronousCheckRevocationWithServer(
   rv = VerifyAndMaybeCacheEncodedOCSPResponse(certID, time,
                                               maxOCSPLifetimeInDays, response,
                                               ResponseIsFromNetwork, expired);
-
-  // If CRLite said that this certificate is revoked, report the OCSP
-  // status. OCSP may have succeeded, said the certificate is revoked, said the
-  // certificate doesn't exist, or it may have failed for a reason that results
-  // in a "soft fail" (i.e. there is no indication that the certificate is
-  // either definitely revoked or definitely not revoked, so for usability,
-  // revocation checking says the certificate is valid by default).
-  if (crliteCoversCertificate &&
-      crliteResult == Result::ERROR_REVOKED_CERTIFICATE) {
-    if (rv == Success) {
-      mozilla::glean::cert_verifier::crlite_vs_ocsp_result
-          .Get("CRLiteRevOCSPOk"_ns)
-          .Add(1);
-    } else if (rv == Result::ERROR_REVOKED_CERTIFICATE) {
-      mozilla::glean::cert_verifier::crlite_vs_ocsp_result
-          .Get("CRLiteRevOCSPRev"_ns)
-          .Add(1);
-    } else if (rv == Result::ERROR_OCSP_UNKNOWN_CERT) {
-      mozilla::glean::cert_verifier::crlite_vs_ocsp_result
-          .Get("CRLiteRevOCSPUnk"_ns)
-          .Add(1);
-    } else {
-      mozilla::glean::cert_verifier::crlite_vs_ocsp_result
-          .Get("CRLiteRevOCSPSoft"_ns)
-          .Add(1);
-    }
-  }
-
   if (rv == Success || mOCSPFetching == RevocationCheckRequired) {
     MOZ_LOG(gCertVerifierLog, LogLevel::Debug,
             ("NSSCertDBTrustDomain: returning after "

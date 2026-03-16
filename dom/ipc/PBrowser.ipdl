@@ -30,6 +30,7 @@ include PTabContext;
 include PBackgroundSharedTypes;
 
 include "mozilla/AntiTrackingIPCUtils.h";
+include "mozilla/EnumSet.h";
 include "mozilla/nsRFPIPCUtils.h";
 include "mozilla/dom/BindingIPCUtils.h";
 include "mozilla/dom/CSPMessageUtils.h";
@@ -64,7 +65,7 @@ using struct mozilla::void_t from "mozilla/ipc/IPCCore.h";
 using mozilla::WindowsHandle from "mozilla/ipc/IPCTypes.h";
 using class mozilla::WidgetCompositionEvent from "ipc/nsGUIEventIPC.h";
 using struct mozilla::widget::IMENotification from "mozilla/widget/IMEData.h";
-using struct mozilla::widget::IMENotificationRequests from "mozilla/widget/IMEData.h";
+using mozilla::widget::IMENotificationRequests from "mozilla/widget/IMEData.h";
 using struct mozilla::widget::IMEState from "mozilla/widget/IMEData.h";
 using struct mozilla::widget::InputContext from "mozilla/widget/IMEData.h";
 using struct mozilla::widget::InputContextAction from "mozilla/widget/IMEData.h";
@@ -84,13 +85,14 @@ using struct mozilla::layers::TextureFactoryIdentifier from "mozilla/layers/Comp
 using mozilla::layers::CompositorOptions from "mozilla/layers/CompositorOptions.h";
 using mozilla::CSSToScreenScale from "Units.h";
 using mozilla::CommandInt from "mozilla/EventForwards.h";
+using mozilla::HapticFeedbackType from "nsIWidget.h";
 using nsIWidget::TouchPointerState from "nsIWidget.h";
 using nsIWidget::TouchpadGesturePhase from "nsIWidget.h";
 using nsCursor from "nsIWidget.h";
 using struct LookAndFeelInt from "mozilla/widget/WidgetMessageUtils.h";
 using struct mozilla::DimensionRequest from "mozilla/widget/WidgetMessageUtils.h";
 using class mozilla::dom::MessagePort from "mozilla/dom/MessagePort.h";
-using mozilla::dom::ipc::StructuredCloneData from "mozilla/dom/ipc/StructuredCloneData.h";
+[RefCounted] using class mozilla::dom::ipc::StructuredCloneData from "mozilla/dom/ipc/StructuredCloneData.h";
 using mozilla::dom::MaybeDiscardedWindowContext from "mozilla/dom/WindowContext.h";
 using mozilla::EventMessage from "mozilla/EventForwards.h";
 using nsEventStatus from "mozilla/EventForwards.h";
@@ -206,7 +208,7 @@ struct PrintPreviewResultInfo
     manages PVsync;
 
 both:
-    async AsyncMessage(nsString aMessage, ClonedMessageData aData);
+    async AsyncMessage(nsString aMessage, StructuredCloneData aData);
 
 parent:
 #ifdef ACCESSIBILITY
@@ -250,8 +252,8 @@ parent:
      */
     async DropLinks(nsString[] aLinks);
 
-    sync SyncMessage(nsString aMessage, ClonedMessageData aData)
-      returns (UniquePtr<StructuredCloneData>[] retval);
+    sync SyncMessage(nsString aMessage, StructuredCloneData aData)
+      returns (StructuredCloneData[] retval);
 
     /**
      * Notifies chrome that there is a focus change involving an editable
@@ -630,8 +632,9 @@ parent:
     // the compositor of the widget that will render those layers. Note that
     // this is sync so we can ensure that messages to the window compositor
     // arrive before the BrowserChild attempts to use its cross-process compositor
-    // bridge.
-    sync EnsureLayersConnected() returns (CompositorOptions compositorOptions);
+    // bridge. Returns Nothing if layers were unable to be connected, for example
+    // during shutdown.
+    sync EnsureLayersConnected() returns (CompositorOptions? compositorOptions);
 
     /**
      * This function is used to notify the parent that it should display a
@@ -939,6 +942,12 @@ child:
     async UIResolutionChanged(float dpi, int32_t rounding, double scale);
 
     /**
+     * Tell the child that whether it's allowed to render transparent has
+     * changed. See also ParentShowInfo::isTransparent.
+     */
+    async TransparencyChanged(bool transparent);
+
+    /**
      * Tell the child that the safe area of widget has changed.
      *
      */
@@ -1089,6 +1098,8 @@ parent:
                           WindowGlobalInit aInit);
 
     async UpdateDropEffect(uint32_t aDragAction, uint32_t aDropEffect);
+
+    async PerformHapticFeedback(HapticFeedbackType aType);
 
 /*
  * FIXME: write protocol!

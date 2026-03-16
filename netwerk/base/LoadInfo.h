@@ -8,13 +8,14 @@
 #define mozilla_LoadInfo_h
 
 #include "mozilla/dom/FeaturePolicy.h"
+#include "mozilla/dom/ReferrerPolicyBinding.h"
 #include "mozilla/dom/UserNavigationInvolvement.h"
+#include "nsContentUtils.h"
 #include "nsIInterceptionInfo.h"
 #include "nsILoadInfo.h"
 #include "nsIPrincipal.h"
-#include "nsIWeakReferenceUtils.h"  // for nsWeakPtr
 #include "nsIURI.h"
-#include "nsContentUtils.h"
+#include "nsIWeakReferenceUtils.h"  // for nsWeakPtr
 #include "nsString.h"
 #include "nsTArray.h"
 
@@ -42,6 +43,7 @@ namespace net {
 class EarlyHintPreloader;
 class LoadInfoArgs;
 class LoadInfo;
+class WebTransportSessionProxy;
 }  // namespace net
 
 namespace ipc {
@@ -112,6 +114,10 @@ nsresult LoadInfoArgsToLoadInfo(const mozilla::net::LoadInfoArgs& aLoadInfoArgs,
   GETTER(uint64_t, InnerWindowID, innerWindowID, 0)                            \
                                                                                \
   GETTER(uint64_t, BrowsingContextID, browsingContextID, 0)                    \
+                                                                               \
+  GETTER(uint64_t, AssociatedBrowsingContextID, associatedBrowsingContextID,   \
+         0)                                                                    \
+  SETTER(uint64_t, AssociatedBrowsingContextID)                                \
                                                                                \
   GETTER(uint64_t, FrameBrowsingContextID, frameBrowsingContextID, 0)          \
                                                                                \
@@ -350,6 +356,9 @@ class LoadInfo final : public nsILoadInfo {
   void SetBrowserWouldUpgradeInsecureRequests();
   void SetIsFromProcessingFrameAttributes();
 
+  dom::ReferrerPolicy GetFrameReferrerPolicySnapshot() const;
+  void SetFrameReferrerPolicySnapshot(dom::ReferrerPolicy aPolicy);
+
   // Hands off from the cspToInherit functionality!
   //
   // For navigations, GetCSPToInherit returns what the spec calls the
@@ -403,6 +412,7 @@ class LoadInfo final : public nsILoadInfo {
            nsIURI* aResultPrincipalURI,
            nsICookieJarSettings* aCookieJarSettings,
            nsIPolicyContainer* aPolicyContainerToInherit,
+           const Maybe<dom::FeaturePolicyInfo>& aContainerFeaturePolicyInfo,
            const nsACString& aTriggeringRemoteType,
            const nsID& aSandboxedNullPrincipalID,
            const Maybe<mozilla::dom::ClientInfo>& aClientInfo,
@@ -457,10 +467,12 @@ class LoadInfo final : public nsILoadInfo {
   void SetIncludeCookiesSecFlag();
   friend class mozilla::dom::XMLHttpRequestMainThread;
 
-  // nsDocShell::OpenInitializedChannel and EarlyHintPreloader::OpenChannel
-  // needs to update the loadInfo with the correct browsingContext.
+  // nsDocShell::OpenInitializedChannel, EarlyHintPreloader::OpenChannel and
+  // WebTransportSessionProxy::AsyncConnectWithClient need to update the
+  // loadInfo with the correct browsingContext.
   friend class ::nsDocShell;
   friend class mozilla::net::EarlyHintPreloader;
+  friend class mozilla::net::WebTransportSessionProxy;
   void UpdateBrowsingContextID(uint64_t aBrowsingContextID) {
     mBrowsingContextID = aBrowsingContextID;
   }
@@ -498,6 +510,8 @@ class LoadInfo final : public nsILoadInfo {
   nsWeakPtr mContextForTopLevelLoad;
   nsSecurityFlags mSecurityFlags;
   uint32_t mSandboxFlags;
+  dom::ReferrerPolicy mFrameReferrerPolicySnapshot =
+      dom::ReferrerPolicy::_empty;
   nsContentPolicyType mInternalContentPolicyType;
   LoadTainting mTainting = LoadTainting::Basic;
 
@@ -505,7 +519,6 @@ class LoadInfo final : public nsILoadInfo {
   LOADINFO_FOR_EACH_FIELD(DEFINE_FIELD, LOADINFO_DUMMY_SETTER)
 #undef DEFINE_FIELD
 
-  uint64_t mWorkerAssociatedBrowsingContextID = 0;
   bool mInitialSecurityCheckDone = false;
   // NB: TYPE_DOCUMENT implies !third-party.
   bool mIsThirdPartyContext = false;

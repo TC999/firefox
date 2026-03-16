@@ -852,6 +852,11 @@ inline bool StyleSize::HasAnchorPositioningFunction() const {
 }
 
 template <>
+inline StyleSize StyleSize::FromAppUnits(nscoord aAppUnits) {
+  return StyleSize::LengthPercentage(LengthPercentage::FromAppUnits(aAppUnits));
+}
+
+template <>
 inline bool StyleMaxSize::HasAnchorPositioningFunction() const {
   return IsAnchorSizeFunction() || IsAnchorContainingCalcFunction();
 }
@@ -1155,6 +1160,22 @@ template <>
 inline StyleViewTimelineInset::StyleGenericViewTimelineInset()
     : start(LengthPercentageOrAuto::Auto()),
       end(LengthPercentageOrAuto::Auto()) {}
+
+/* static */
+template <>
+inline StyleAnimationRangeStart
+StyleGenericAnimationRangeValue<LengthPercentage>::DefaultStart() {
+  return {StyleTimelineRangeName::Normal,
+          LengthPercentage::FromPercentage(0.0f)};
+}
+
+/* static */
+template <>
+inline StyleAnimationRangeEnd
+StyleGenericAnimationRangeValue<LengthPercentage>::DefaultEnd() {
+  return {StyleTimelineRangeName::Normal,
+          LengthPercentage::FromPercentage(1.0f)};
+}
 
 inline StyleDisplayOutside StyleDisplay::Outside() const {
   return StyleDisplayOutside((_0 & OUTSIDE_MASK) >> OUTSIDE_SHIFT);
@@ -1460,6 +1481,17 @@ DEFINE_LENGTH_PERCENTAGE_CTOR(MaxSize)
 
 inline bool StylePositionArea::IsNone() const {
   return first == StylePositionAreaKeyword::None;
+}
+
+template <>
+inline bool StyleTreeScoped<StyleAnchorNameIdent>::IsEmpty() const {
+  return value.IsEmpty();
+}
+
+template <>
+inline Span<const mozilla::StyleAtom>
+StyleTreeScoped<StyleAnchorNameIdent>::AsSpan() const {
+  return value.AsSpan();
 }
 
 }  // namespace mozilla

@@ -27,6 +27,7 @@ class AbstractRange;
 class Document;
 class HighlightRegistry;
 class Selection;
+class ShadowRoot;
 
 /**
  * @brief Collection of all data of a highlight instance.
@@ -87,12 +88,6 @@ class Highlight final : public nsISupports, public nsWrapperCache {
   void RemoveFromHighlightRegistry(HighlightRegistry& aHighlightRegistry,
                                    nsAtom& aHighlightName);
 
-  /**
-   * @brief Creates a Highlight Selection using the given ranges.
-   */
-  MOZ_CAN_RUN_SCRIPT already_AddRefed<Selection> CreateHighlightSelection(
-      nsAtom* aHighlightName, nsFrameSelection* aFrameSelection);
-
   // WebIDL interface
   nsPIDOMWindowInner* GetParentObject() const { return mWindow; }
 
@@ -136,6 +131,11 @@ class Highlight final : public nsISupports, public nsWrapperCache {
   uint32_t Size() const { return mRanges.Length(); }
 
   /**
+   * @brief Access to the ranges for frame selection population.
+   */
+  const nsTArray<RefPtr<AbstractRange>>& Ranges() const { return mRanges; }
+
+  /**
    * @brief Adds a `Range` to this highlight.
    *
    * This adds `aRange` both to the setlike data storage and the internal one
@@ -166,6 +166,26 @@ class Highlight final : public nsISupports, public nsWrapperCache {
    * @return As per spec, returns true if the range was deleted.
    */
   MOZ_CAN_RUN_SCRIPT bool Delete(AbstractRange& aRange, ErrorResult& aRv);
+
+  /**
+   * @brief Returns ranges of this highlight present at the given point.
+   *
+   * This method uses `range.getClientRects()` to determine if a range is
+   * present at the given point.
+   * Ranges in a shadow tree are only considered if the shadow root is in
+   * `aShadowRoots`. If `aPointShadowRoot` is non-null, only ranges in that
+   * shadow tree are considered (the point itself is inside it).
+   *
+   * @param aX               x coordinate
+   * @param aY               y coordinate
+   * @param aShadowRoots     List of shadow roots to consider
+   * @param aPointShadowRoot Shadow root containing the hit-tested point, or
+   *                         nullptr if the point is in the light DOM.
+   */
+  nsTArray<RefPtr<AbstractRange>> RangesAtPoint(
+      float aX, float aY,
+      const Sequence<OwningNonNull<mozilla::dom::ShadowRoot>>& aShadowRoots,
+      mozilla::dom::ShadowRoot* aPointShadowRoot = nullptr) const;
 
  private:
   void Repaint();

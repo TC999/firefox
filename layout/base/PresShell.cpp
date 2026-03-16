@@ -92,6 +92,7 @@
 #include "mozilla/ViewportUtils.h"
 #include "mozilla/css/ImageLoader.h"
 #include "mozilla/dom/AncestorIterator.h"
+#include "mozilla/dom/AnimationTimelinesController.h"
 #include "mozilla/dom/BrowserBridgeChild.h"
 #include "mozilla/dom/BrowserChild.h"
 #include "mozilla/dom/BrowsingContext.h"
@@ -108,6 +109,7 @@
 #include "mozilla/dom/FontFaceSet.h"
 #include "mozilla/dom/FragmentDirective.h"
 #include "mozilla/dom/HTMLAreaElement.h"
+#include "mozilla/dom/HighlightRegistry.h"
 #include "mozilla/dom/LargestContentfulPaint.h"
 #include "mozilla/dom/MouseEventBinding.h"
 #include "mozilla/dom/Performance.h"
@@ -703,7 +705,6 @@ PresShell::PresShell(Document* aDocument)
       mIsActive(true),
       mFrozen(false),
       mIsFirstPaint(true),
-      mObservesMutationsForPrint(false),
       mWasLastReflowInterrupted(false),
       mResizeEventPending(false),
       mVisualViewportResizeEventPending(false),
@@ -889,9 +890,7 @@ void PresShell::Init(nsPresContext* aPresContext) {
   }
 #endif
 
-  for (DocumentTimeline* timelines : mDocument->Timelines()) {
-    timelines->UpdateLastRefreshDriverTime();
-  }
+  mDocument->TimelinesController().UpdateLastRefreshDriverTime();
 
   // Get our activeness from the docShell.
   ActivenessMaybeChanged();
@@ -1579,6 +1578,19 @@ PresShell::RepaintSelection(RawSelectionType aRawSelectionType) {
 
   RefPtr<nsFrameSelection> frameSelection = mSelection;
   return frameSelection->RepaintSelection(ToSelectionType(aRawSelectionType));
+}
+
+void PresShell::RepaintPseudoElementStyledSelections() {
+  if (MOZ_UNLIKELY(mIsDestroying)) {
+    return;
+  }
+
+  if (RefPtr<nsFrameSelection> frameSelection = mSelection) {
+    frameSelection->RepaintSelection(SelectionType::eNormal);
+    frameSelection->RepaintSelection(SelectionType::eTargetText);
+  }
+
+  mDocument->HighlightRegistry().RepaintAllHighlightSelections();
 }
 
 // Make shell be a document observer
@@ -3055,8 +3067,7 @@ nsresult PresShell::GoToAnchor(const nsAString& aAnchorName,
     return NS_ERROR_FAILURE;
   }
 
-  const Element* root = mDocument->GetRootElement();
-  if (root && root->IsSVGElement(nsGkAtoms::svg)) {
+  if (mDocument->GetSVGRootElement()) {
     // We need to execute this even if there is an empty anchor name
     // so that any existing SVG fragment identifier effect is removed
     if (SVGFragmentIdentifier::ProcessFragmentIdentifier(mDocument,
@@ -3121,15 +3132,6 @@ nsresult PresShell::GoToAnchor(const nsAString& aAnchorName,
   // 2.1. Set the Document's target element to null.
   // 3.2. Set the Document's target element to target.
   esm->SetContentState(target, ElementState::URLTARGET);
-
-  // TODO: Spec probably needs a section to account for this.
-  if (ScrollContainerFrame* rootScroll = GetRootScrollContainerFrame()) {
-    if (rootScroll->DidHistoryRestore()) {
-      // Scroll position restored from history trumps scrolling to anchor.
-      aScroll = false;
-      rootScroll->ClearDidHistoryRestore();
-    }
-  }
 
   if (target) {
     // 3.4 Run the ancestor revealing algorithm on target.
@@ -3513,13 +3515,9 @@ static Maybe<nsPoint> ScrollToShowRect(
   }
   ScrollStyles ss = aScrollContainerFrame->GetScrollStyles();
   nsRect allowedRange(scrollPt, nsSize(0, 0));
-  ScrollDirections directions =
-      aScrollContainerFrame->GetAvailableScrollingDirections();
 
-  if (((aScrollFlags & ScrollFlags::ScrollOverflowHidden) ||
-       ss.mVertical != StyleOverflow::Hidden) &&
-      (!aVertical.mOnlyIfPerceivedScrollableDirection ||
-       (directions.contains(ScrollDirection::eVertical)))) {
+  if ((aScrollFlags & ScrollFlags::ScrollOverflowHidden) ||
+      ss.mVertical != StyleOverflow::Hidden) {
     if (ComputeNeedToScroll(aVertical.mWhenToScroll, lineSize.height, aRect.y,
                             aRect.YMost(), visibleRect.y + padding.top,
                             visibleRect.YMost() - padding.bottom)) {
@@ -3537,10 +3535,8 @@ static Maybe<nsPoint> ScrollToShowRect(
     }
   }
 
-  if (((aScrollFlags & ScrollFlags::ScrollOverflowHidden) ||
-       ss.mHorizontal != StyleOverflow::Hidden) &&
-      (!aHorizontal.mOnlyIfPerceivedScrollableDirection ||
-       (directions.contains(ScrollDirection::eHorizontal)))) {
+  if ((aScrollFlags & ScrollFlags::ScrollOverflowHidden) ||
+      ss.mHorizontal != StyleOverflow::Hidden) {
     if (ComputeNeedToScroll(aHorizontal.mWhenToScroll, lineSize.width, aRect.x,
                             aRect.XMost(), visibleRect.x + padding.left,
                             visibleRect.XMost() - padding.right)) {
@@ -4145,6 +4141,8 @@ void PresShell::UnsuppressAndInvalidate() {
   }
 
   ScheduleBeforeFirstPaint();
+
+  mDocument->MaybeScheduleRenderingPhases({RenderingPhase::Reveal});
 
   PROFILER_MARKER_UNTYPED("UnsuppressAndInvalidate", GRAPHICS);
 
@@ -4872,7 +4870,10 @@ nsresult PresShell::RenderDocument(const nsRect& aRect,
 
   nsLayoutUtils::PaintFrame(aThebesContext, rootFrame, nsRegion(aRect),
                             aBackgroundColor,
-                            nsDisplayListBuilderMode::Painting, flags);
+                            (aFlags & RenderDocumentFlags::ForPrinting)
+                                ? nsDisplayListBuilderMode::PaintForPrinting
+                                : nsDisplayListBuilderMode::Painting,
+                            flags);
 
   return NS_OK;
 }
@@ -6920,7 +6921,10 @@ void PresShell::RecordPointerLocation(WidgetGUIEvent* aEvent) {
       // session ends, we want to synthesize ePointerMove at the dropped point.
       // Therefore, we should update the last state of the pointer when we start
       // handling a drag event.
-      if (aEvent->mClass == eDragEventClass) {
+      // We also need to store the pointer location for eMouseEnterIntoWidget,
+      // so that the pointer boundary event can be generated earlier.
+      if (aEvent->mMessage == eMouseEnterIntoWidget ||
+          aEvent->mClass == eDragEventClass) {
         StorePointerLocation(mouseEvent);
       }
       break;
@@ -10380,9 +10384,7 @@ void PresShell::DidDoReflow(bool aInterruptible) {
       docShell->NotifyReflowObservers(aInterruptible, mLastReflowStart, now);
     }
 
-    if (StaticPrefs::layout_reflow_synthMouseMove()) {
-      SynthesizeMouseMove(false);
-    }
+    SynthesizeMouseMove(false);
 
     mPresContext->NotifyMissingFonts();
   }
@@ -11335,14 +11337,15 @@ nsIFrame* PresShell::GetAbsoluteContainingBlock(nsIFrame* aFrame) {
 }
 
 nsIFrame* PresShell::GetAnchorPosAnchor(
-    const nsAtom* aName, const nsIFrame* aPositionedFrame) const {
-  MOZ_ASSERT(aName);
-  MOZ_ASSERT(!aName->IsEmpty());
+    const ScopedNameRef& aName, const nsIFrame* aPositionedFrame) const {
+  MOZ_ASSERT(aName.mName);
+  MOZ_ASSERT(!aName.mName->IsEmpty());
   MOZ_ASSERT(mLazyAnchorPosAnchorChanges.IsEmpty());
-  if (aName == nsGkAtoms::AnchorPosImplicitAnchor) {
-    return AnchorPositioningUtils::GetAnchorPosImplicitAnchor(aPositionedFrame);
+  if (aName.mName == nsGkAtoms::AnchorPosImplicitAnchor) {
+    return AnchorPositioningUtils::GetAnchorPosImplicitAnchor(aPositionedFrame)
+        .mAnchorFrame;
   }
-  if (const auto& entry = mAnchorPosAnchors.Lookup(aName)) {
+  if (const auto& entry = mAnchorPosAnchors.Lookup(aName.mName)) {
     return AnchorPositioningUtils::FindFirstAcceptableAnchor(
         aName, aPositionedFrame, entry.Data());
   }
@@ -11462,8 +11465,12 @@ static bool NeedReflowForAnchorPos(
     return false;
   }
   const auto& anchorReference = aData.ref();
-  const auto anchorSize = aAnchor->GetSize();
-  if (anchorReference.mSize != anchorSize) {
+  const auto border = aPositioned->GetParent()->GetUsedBorder();
+  const nsPoint borderTopLeft{border.left, border.top};
+  const auto anchorRect = AnchorPositioningUtils::ReassembleAnchorRect(
+                              aAnchor, aPositioned->GetParent()) -
+                          borderTopLeft;
+  if (anchorReference.mSize != anchorRect.Size()) {
     // Size changed, needs reflow.
     return true;
   }
@@ -11480,10 +11487,7 @@ static bool NeedReflowForAnchorPos(
     return true;
   }
 
-  const auto posInfo = AnchorPositioningUtils::GetAnchorPosRect(
-      aPositioned->GetParent(), aAnchor, true);
-  MOZ_ASSERT(posInfo, "Can't resolve anchor rect?");
-  const auto newOrigin = posInfo.ref().TopLeft();
+  const auto newOrigin = anchorRect.TopLeft();
   const auto& prevOrigin = anchorReference.mOffsetData.ref().mOrigin;
   // Did the offset change?
   return newOrigin != prevOrigin;
@@ -11491,6 +11495,7 @@ static bool NeedReflowForAnchorPos(
 
 struct DefaultAnchorInfo {
   const nsAtom* mName;
+  StyleCascadeLevel mTreeScope;
   const nsIFrame* mAnchor;
   DistanceToNearestScrollContainer mDistanceToNearestScrollContainer;
 };
@@ -11522,19 +11527,20 @@ PresShell::AnchorPosUpdateResult PresShell::UpdateAnchorPosLayout() {
       continue;
     }
     const auto defaultAnchorInfo = [&]() -> Maybe<DefaultAnchorInfo> {
-      const auto* anchorName =
-          AnchorPositioningUtils::GetUsedAnchorName(positioned, nullptr);
-      if (!anchorName) {
+      auto usedAnchorName = AnchorPositioningUtils::GetUsedAnchorName(
+          positioned, ScopedNameRef{nullptr, StyleCascadeLevel::Default()});
+      if (!usedAnchorName) {
         return Nothing{};
       }
-      const auto* anchor = GetAnchorPosAnchor(anchorName, positioned);
+      const ScopedNameRef& usedName = *usedAnchorName;
+      const auto* anchor = GetAnchorPosAnchor(usedName, positioned);
       if (!anchor) {
         return Nothing{};
       }
       const auto nearestScrollFrame =
           AnchorPositioningUtils::GetNearestScrollFrame(anchor);
-      return Some(
-          DefaultAnchorInfo{anchorName, anchor, nearestScrollFrame.mDistance});
+      return Some(DefaultAnchorInfo{usedName.mName, usedName.mTreeScope, anchor,
+                                    nearestScrollFrame.mDistance});
     }();
     bool shouldReflow = false;
     if (defaultAnchorInfo &&
@@ -11544,21 +11550,21 @@ PresShell::AnchorPosUpdateResult PresShell::UpdateAnchorPosLayout() {
       shouldReflow = true;
     } else {
       const auto GetAnchor =
-          [&](const nsAtom* aName,
+          [&](const ScopedNameRef& aNameRef,
               const nsIFrame* aPositioned) -> const nsIFrame* {
         if (!defaultAnchorInfo) {
-          return GetAnchorPosAnchor(aName, aPositioned);
+          return GetAnchorPosAnchor(aNameRef, aPositioned);
         }
         const auto* defaultAnchorName = defaultAnchorInfo->mName;
-        if (aName != defaultAnchorName) {
-          return GetAnchorPosAnchor(aName, aPositioned);
+        if (aNameRef.mName != defaultAnchorName) {
+          return GetAnchorPosAnchor(aNameRef, aPositioned);
         }
         return defaultAnchorInfo->mAnchor;
       };
       for (const auto& kv : *anchorPosReferenceData) {
         const auto& data = kv.GetData();
-        const auto& anchorName = kv.GetKey();
-        const auto* anchor = GetAnchor(anchorName, positioned);
+        const auto& anchorKey = kv.GetKey();
+        const auto* anchor = GetAnchor(anchorKey, positioned);
         if (NeedReflowForAnchorPos(anchor, positioned, data)) {
           shouldReflow = true;
           break;
@@ -11571,243 +11577,6 @@ PresShell::AnchorPosUpdateResult PresShell::UpdateAnchorPosLayout() {
     }
   }
   return result;
-}
-
-using AffectedAnchor = AnchorPosDefaultAnchorCache;
-struct AffectedAnchorGroup {
-  const nsAtom* mAnchorName;
-  nsTArray<AffectedAnchor> mFrames;
-};
-
-static nsTArray<AffectedAnchorGroup> FindAnchorsAffectedByScroll(
-    const nsTHashMap<RefPtr<const nsAtom>, nsTArray<nsIFrame*>>& aAnchors,
-    const ScrollContainerFrame* aScrollContainer) {
-  const auto AffectedByScrollContainer =
-      [](const nsIFrame* aFrame, const ScrollContainerFrame* aScrollContainer) {
-        MOZ_ASSERT(aFrame);
-        MOZ_ASSERT(aScrollContainer);
-        return aFrame == aScrollContainer ||
-               nsLayoutUtils::IsProperAncestorFrame(aScrollContainer, aFrame);
-      };
-
-  nsTArray<AffectedAnchorGroup> affectedAnchors;
-  // We keep only referenced anchors' name in positioned frames to avoid dealing
-  // with lifetime issues associated with it. Now we need to re-establish that
-  // association.
-  for (const auto& kv : aAnchors) {
-    const auto& anchorFrames = kv.GetData();
-    Maybe<nsTArray<AffectedAnchor>> affected;
-    for (const auto& frame : anchorFrames) {
-      const auto* scrollContainer =
-          AnchorPositioningUtils::GetNearestScrollFrame(frame).mScrollContainer;
-      if (!scrollContainer) {
-        // Fixed-pos anchor, likely
-        continue;
-      }
-      // Does this scroll container match a anchor's nearest scroll container,
-      // or contain it?
-      if (!AffectedByScrollContainer(scrollContainer, aScrollContainer)) {
-        continue;
-      }
-      if (affected.isNothing()) {
-        affected = Some(nsTArray<AffectedAnchor>{anchorFrames.Length()});
-      }
-      affected.ref().AppendElement(AffectedAnchor{frame, scrollContainer});
-    }
-    if (affected.isSome()) {
-      affectedAnchors.AppendElement(
-          AffectedAnchorGroup{kv.GetKey(), std::move(*affected)});
-    }
-  }
-  return affectedAnchors;
-}
-
-// Given a list of anchors affected by scrolling, find one that the given
-// positioned frame need to compensate scroll for.
-static Maybe<const AffectedAnchor&> FindScrollCompensatedAnchor(
-    const PresShell* aPresShell,
-    const nsTArray<AffectedAnchorGroup>& aAffectedAnchors,
-    const nsIFrame* aPositioned, const AnchorPosReferenceData& aReferenceData,
-    const nsIFrame** aResolvedDefaultAnchor) {
-  MOZ_ASSERT(aPositioned->IsAbsolutelyPositioned(),
-             "Anchor positioned frame is not absolutely positioned?");
-  if (aResolvedDefaultAnchor) {
-    *aResolvedDefaultAnchor = nullptr;
-  }
-
-  if (aReferenceData.IsEmpty()) {
-    return Nothing{};
-  }
-
-  const auto* defaultAnchorName = aReferenceData.mDefaultAnchorName.get();
-  if (!defaultAnchorName) {
-    return Nothing{};
-  }
-
-  const auto* defaultAnchor =
-      aPresShell->GetAnchorPosAnchor(defaultAnchorName, aPositioned);
-  if (!defaultAnchor) {
-    return Nothing{};
-  }
-  if (aResolvedDefaultAnchor) {
-    *aResolvedDefaultAnchor = defaultAnchor;
-  }
-
-  const auto compensatingForScroll = aReferenceData.CompensatingForScrollAxes();
-  if (compensatingForScroll.isEmpty()) {
-    return Nothing{};
-  }
-
-  struct Comparator {
-    bool Equals(const AffectedAnchor& aEntry, const nsIFrame* aFrame) const {
-      return aEntry.mAnchor == aFrame;
-    }
-  };
-
-  // Find the relevant default anchor.
-  for (const auto& group : aAffectedAnchors) {
-    if (group.mAnchorName != defaultAnchorName) {
-      // Default anchor has a name, and it's different from this affected
-      // anchor group.
-      continue;
-    }
-    const auto& anchors = group.mFrames;
-    // Find the affected anchor that not only matches in name, but in actual
-    // frame.
-    const auto idx = anchors.IndexOf(defaultAnchor, 0, Comparator{});
-    if (idx == anchors.NoIndex) {
-      // We found the default anchor, but it wasn't correct.
-      break;
-    }
-    const auto& info = anchors.ElementAt(idx);
-    return SomeRef(info);
-  }
-
-  return Nothing{};
-}
-
-static bool CheckOverflow(nsIFrame* aPositioned,
-                          const AnchorPosReferenceData& aData) {
-  const auto* stylePos = aPositioned->StylePosition();
-  const auto hasFallbacks = !stylePos->mPositionTryFallbacks._0.IsEmpty();
-  if (!hasFallbacks) {
-    return false;
-  }
-  return !AnchorPositioningUtils::FitsInContainingBlock(aPositioned, aData);
-}
-
-// HACK(dshin, Bug 1999954): This is a workaround. While we try to lay out
-// against the scroll-ignored position of an anchor, sticky and chain anchor
-// positioned frames actually end up containing scroll offset in their position.
-// Additionally, scroll offset collection does not do any special handling for
-// such frames (Which is impossible unless we can cleanly separate the
-// scroll-ignored position).
-// For now, we detect such frames and just trigger a reflow.
-// Bug 2002789 tracks the proper fix.
-static bool AnchorIsStickyOrChainedToScrollCompensatedAnchor(
-    const nsIFrame* aAnchor) {
-  if (!aAnchor) {
-    return false;
-  }
-
-  if (aAnchor->IsStickyPositioned()) {
-    return true;
-  }
-
-  if (aAnchor->StylePosition()->mPositionAnchor.IsNone()) {
-    // Not anchored, or anchored but not scroll compensated.
-    return false;
-  }
-
-  const auto* referenceData =
-      aAnchor->GetProperty(nsIFrame::AnchorPosReferences());
-  if (!referenceData) {
-    return false;
-  }
-
-  // Theoretically, we should look at the entire anchor chain to see if this
-  // anchor will be affected by scroll compensation. However, that does not seem
-  // worth it - A long anchor chain seems like an edge case anyway.
-  return !referenceData->CompensatingForScrollAxes().isEmpty();
-}
-
-// https://drafts.csswg.org/css-anchor-position-1/#default-scroll-shift
-void PresShell::UpdateAnchorPosForScroll(
-    const ScrollContainerFrame* aScrollContainer) {
-  if (mAnchorPosAnchors.IsEmpty()) {
-    return;
-  }
-
-  AUTO_PROFILER_MARKER_UNTYPED("UpdateAnchorPosForScroll", LAYOUT, {});
-
-  // First, find all anchors under this scroll container. Can look at positioned
-  // frames' anchor references first, but we want to avoid anchor lookups if we
-  // can.
-  nsTArray<AffectedAnchorGroup> affectedAnchors =
-      FindAnchorsAffectedByScroll(mAnchorPosAnchors, aScrollContainer);
-
-  if (affectedAnchors.IsEmpty()) {
-    return;
-  }
-
-  // Now, update all affected positioned elements' scroll offsets.
-  for (auto* positioned : mAnchorPosPositioned) {
-    auto* referenceData =
-        positioned->GetProperty(nsIFrame::AnchorPosReferences());
-    if (!referenceData) {
-      continue;
-    }
-    const nsIFrame* defaultAnchor = nullptr;
-    const auto scrollDependency = FindScrollCompensatedAnchor(
-        this, affectedAnchors, positioned, *referenceData, &defaultAnchor);
-    const bool offsetChanged = [&]() {
-      if (!scrollDependency) {
-        return false;
-      }
-      const auto offset = AnchorPositioningUtils::GetScrollOffsetFor(
-          referenceData->CompensatingForScrollAxes(), positioned,
-          *scrollDependency);
-      if (referenceData->mDefaultScrollShift == offset) {
-        return false;
-      }
-      positioned->SetPosition(positioned->GetNormalPosition() - offset);
-      // Update positioned frame's overflow, then the absolute containing
-      // block's.
-      positioned->UpdateOverflow();
-      positioned->GetParent()->UpdateOverflow();
-      // APZ-handled scrolling may skip scheduling of paint for the relevant
-      // scroll container - We need to ensure that we schedule a paint for this
-      // positioned frame. Could theoretically do this when deciding to skip
-      // painting in `ScrollContainerFrame::ScrollToImpl`, that'd be conditional
-      // on finding a dependent anchor anyway, we should be as specific as
-      // possible as to what gets scheduled to paint.
-      positioned->SchedulePaint();
-      referenceData->mDefaultScrollShift = offset;
-      return true;
-    }();
-    const bool cbScrolls =
-        positioned->GetParent() == aScrollContainer->GetScrolledFrame();
-    // HACK(dshin): Check if this positioned frame is anchoring to a sticky or
-    // another anchor positioned frame, even if we may not be scroll
-    // compensating against it. Such frames, even when in the same scroll
-    // container, as the positioned element, don't (always) scroll with the
-    // scroll container. Also see comment for
-    // `AnchorIsStickyOrChainedToScrollCompensatedAnchor`.
-    const bool anchorIsStickyOrScrollCompensatedAnchor =
-        defaultAnchor &&
-        AnchorIsStickyOrChainedToScrollCompensatedAnchor(defaultAnchor);
-    if (offsetChanged || cbScrolls || anchorIsStickyOrScrollCompensatedAnchor) {
-      if (CheckOverflow(positioned, *referenceData) ||
-          anchorIsStickyOrScrollCompensatedAnchor) {
-#ifdef ACCESSIBILITY
-        if (nsAccessibilityService* accService = GetAccService()) {
-          accService->NotifyAnchorPositionedScrollUpdate(this, positioned);
-        }
-#endif
-        MarkPositionedFrameForReflow(positioned);
-      }
-    }
-  }
 }
 
 void PresShell::ActivenessMaybeChanged() {
@@ -11862,6 +11631,14 @@ bool PresShell::ComputeActiveness() const {
   if (StaticPrefs::layout_testing_top_level_always_active() && bc &&
       bc->IsTop()) {
     MOZ_LOG(gLog, LogLevel::Debug, (" > Activeness overridden by pref"));
+    return true;
+  }
+
+  if (bc && bc->GetControlsDocumentPiP()) {
+    MOZ_ASSERT(inActiveTab,
+               "BrowsingContext should be active due to PiP window");
+    MOZ_LOG(gLog, LogLevel::Debug,
+            (" > BrowsingContext controls a PiP window"));
     return true;
   }
 
@@ -12139,10 +11916,9 @@ void PresShell::MarkPositionedFrameForReflow(nsIFrame* aFrame) {
 }
 
 void PresShell::MarkFixedFramesForReflow() {
-  nsIFrame* rootFrame = mFrameConstructor->GetRootFrame();
-  if (rootFrame) {
+  if (nsIFrame* rootFrame = mFrameConstructor->GetRootFrame()) {
     const nsFrameList& childList =
-        rootFrame->GetChildList(FrameChildListID::Fixed);
+        rootFrame->GetChildList(FrameChildListID::Absolute);
     for (nsIFrame* childFrame : childList) {
       MarkPositionedFrameForReflow(childFrame);
     }
@@ -12403,6 +12179,16 @@ nsSize PresShell::GetVisualViewportSizeUpdatedByDynamicToolbar() const {
       mMobileViewportManager->GetVisualViewportSizeUpdatedByDynamicToolbar();
   return sizeUpdatedByDynamicToolbar == nsSize() ? mVisualViewportSize
                                                  : sizeUpdatedByDynamicToolbar;
+}
+
+nsSize PresShell::GetFixedViewportSize() const {
+  nsSize layoutViewportSize = GetLayoutViewportSize();
+  if (!mPresContext->IsKeyboardHiddenOrResizesContentMode()) {
+    return layoutViewportSize;
+  }
+  layoutViewportSize.height +=
+      mPresContext->GetBimodalDynamicToolbarHeightForFixedPosInAppUnits();
+  return layoutViewportSize;
 }
 
 void PresShell::RecomputeFontSizeInflationEnabled() {
@@ -12867,16 +12653,15 @@ void PresShell::EventHandler::EventTargetData::UpdateWheelEventTarget(
     return;
   }
 
-  // If dom.event.wheel-event-groups.enabled is not set or the stored
-  // event target is removed, we will not get a event target frame from the
-  // wheel transaction here.
+  // If the stored event target is removed, we will not get an event target
+  // frame from the wheel transaction here.
   nsIFrame* groupFrame = WheelTransaction::GetEventTargetFrame();
   if (!groupFrame) {
     return;
   }
 
-  // If dom.event.wheel-event-groups.enabled is set and whe have a stored
-  // event target from the wheel transaction, override the event target.
+  // If we have a stored event target from the wheel transaction, override
+  // the event target.
   SetFrameAndComputePresShellAndContent(groupFrame, aGUIEvent);
 }
 

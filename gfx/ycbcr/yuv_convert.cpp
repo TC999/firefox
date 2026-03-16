@@ -96,6 +96,11 @@ ConvertYCbCrToRGB32(const uint8_t* y_buf,
                     YUVColorSpace yuv_color_space,
                     ColorRange color_range,
                     RGB32Type rgb32_type) {
+  if (pic_x < 0 || pic_y < 0 || y_pitch < 0 || uv_pitch < 0 || rgb_pitch < 0) {
+    NS_WARNING("Negative origin or pitch is unsupported");
+    return  NS_ERROR_NOT_IMPLEMENTED;
+  }
+
   // Deprecated function's conversion is accurate.
   // libyuv converion is a bit inaccurate to get performance. It dynamically
   // calculates RGB from YUV to use simd. In it, signed byte is used for
@@ -350,8 +355,8 @@ ScaleYCbCrToRGB32(const uint8_t* y_buf,
                   ScaleFilter filter) {
   bool use_deprecated =
       StaticPrefs::gfx_ycbcr_accurate_conversion() ||
-#if defined(XP_WIN) && defined(_M_X64)
-      // libyuv does not support SIMD scaling on win 64bit. See Bug 1295927.
+#if defined(XP_WIN) && defined(_M_X64) && !defined(__clang__)
+      // libyuv does not support SIMD scaling on MSVC 64bit. See Bug 1295927.
       supports_sse3() ||
 #endif
       (supports_mmx() && supports_sse() && !supports_sse3());

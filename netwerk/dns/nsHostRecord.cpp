@@ -51,10 +51,8 @@ struct HostResolverMarker {
     using MS = MarkerSchema;
     MS schema{MS::Location::MarkerChart, MS::Location::MarkerTable};
     schema.SetTableLabel("{marker.data.host}");
-    schema.AddKeyFormat("host", MS::Format::SanitizedString,
-                        MS::PayloadFlags::Searchable);
-    schema.AddKeyFormat("originSuffix", MS::Format::SanitizedString,
-                        MS::PayloadFlags::Searchable);
+    schema.AddKeyFormat("host", MS::Format::SanitizedString);
+    schema.AddKeyFormat("originSuffix", MS::Format::SanitizedString);
     schema.AddKeyFormat("qtype", MS::Format::Integer);
     schema.AddKeyFormat("flags", MS::Format::String);
     return schema;
@@ -191,10 +189,7 @@ NS_IMPL_ISUPPORTS_INHERITED(AddrHostRecord, nsHostRecord, AddrHostRecord)
 
 AddrHostRecord::AddrHostRecord(const nsHostKey& key) : nsHostRecord(key) {}
 
-AddrHostRecord::~AddrHostRecord() {
-  mCallbacks.clear();
-  glean::dns::blocklist_count.AccumulateSingleSample(mUnusableCount);
-}
+AddrHostRecord::~AddrHostRecord() { mCallbacks.clear(); }
 
 bool AddrHostRecord::Blocklisted(const NetAddr* aQuery) {
   addr_info_lock.AssertCurrentThreadOwns();
@@ -228,8 +223,6 @@ void AddrHostRecord::ReportUnusable(const NetAddr* aAddress) {
       ("Adding address to blocklist for host [%s], host record [%p]."
        "used trr=%d\n",
        host.get(), this, mTRRSuccess));
-
-  ++mUnusableCount;
 
   char buf[kIPv6CStrBufSize];
   if (aAddress->ToStringBuffer(buf, sizeof(buf))) {

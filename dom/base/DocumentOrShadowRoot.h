@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_DocumentOrShadowRoot_h__
-#define mozilla_dom_DocumentOrShadowRoot_h__
+#ifndef mozilla_dom_DocumentOrShadowRoot_h_
+#define mozilla_dom_DocumentOrShadowRoot_h_
 
 #include "mozilla/IdentifierMapEntry.h"
 #include "mozilla/RelativeTo.h"
@@ -31,6 +31,7 @@ namespace dom {
 
 class Animation;
 class Element;
+class CustomElementRegistry;
 class Document;
 class DocumentOrShadowRoot;
 class HTMLInputElement;
@@ -102,10 +103,12 @@ class DocumentOrShadowRoot {
    *
    * This is useful for stuff like QuerySelector optimization and such.
    */
-  const nsTArray<Element*>* GetAllElementsForId(
+  Span<Element* const> GetAllElementsForId(
       const IdentifierMapEntry::DependentAtomOrString& aElementId) const {
-    IdentifierMapEntry* entry = mIdentifierMap.GetEntry(aElementId);
-    return entry ? &entry->GetIdElements() : nullptr;
+    if (IdentifierMapEntry* entry = mIdentifierMap.GetEntry(aElementId)) {
+      return entry->GetIdElements();
+    }
+    return {};
   }
 
   already_AddRefed<nsContentList> GetElementsByTagName(
@@ -231,6 +234,10 @@ class DocumentOrShadowRoot {
     }
   }
 
+  // https://dom.spec.whatwg.org/#dom-documentorshadowroot-customelementregistry
+  CustomElementRegistry* GetCustomElementRegistry();
+  void SetCustomElementRegistry(CustomElementRegistry&);
+
  protected:
   // Cycle collection helper functions
   void TraverseSheetRefInStylesIfApplicable(
@@ -244,7 +251,7 @@ class DocumentOrShadowRoot {
   void ClearAdoptedStyleSheets();
 
   /**
-   * Clone's the argument's adopted style sheets into this.
+   * Clones the argument's adopted style sheets into this.
    * This should only be used when cloning a static document for printing.
    */
   void CloneAdoptedSheetsFrom(const DocumentOrShadowRoot&);

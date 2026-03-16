@@ -6,8 +6,6 @@
 
 #include "debugger/DebuggerMemory.h"
 
-#include <stdlib.h>
-
 #include "jsapi.h"
 
 #include "builtin/MapObject.h"
@@ -312,8 +310,8 @@ bool DebuggerMemory::CallData::setAllocationSamplingProbability() {
     // If this is a change any debuggees would observe, have all debuggee
     // realms recompute their sampling probabilities.
     if (dbg->trackingAllocationSites) {
-      for (auto r = dbg->debuggees.all(); !r.empty(); r.popFront()) {
-        r.front()->realm()->chooseAllocationSamplingProbability();
+      for (auto iter = dbg->debuggees.iter(); !iter.done(); iter.next()) {
+        iter.get()->realm()->chooseAllocationSamplingProbability();
       }
     }
   }
@@ -387,9 +385,8 @@ bool DebuggerMemory::CallData::takeCensus() {
   RootedObject dbgObj(cx, dbg->object);
 
   // Populate our target set of debuggee zones.
-  for (WeakGlobalObjectSet::Range r = dbg->allDebuggees(); !r.empty();
-       r.popFront()) {
-    if (!census.targetZones.put(r.front()->zone())) {
+  for (auto iter = dbg->allDebuggees(); !iter.done(); iter.next()) {
+    if (!census.targetZones.put(iter.get()->zone())) {
       ReportOutOfMemory(cx);
       return false;
     }

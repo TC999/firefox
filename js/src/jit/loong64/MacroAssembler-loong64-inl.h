@@ -466,6 +466,14 @@ void MacroAssembler::mulPtr(Register rhs, Register srcDest) {
   as_mul_d(srcDest, srcDest, rhs);
 }
 
+void MacroAssembler::mulPtr(ImmWord rhs, Register srcDest) {
+  UseScratchRegisterScope temps(asMasm());
+  Register scratch = temps.Acquire();
+  MOZ_ASSERT(srcDest != scratch);
+  mov(rhs, scratch);
+  mulPtr(scratch, srcDest);
+}
+
 void MacroAssembler::mulBy3(Register src, Register dest) {
   UseScratchRegisterScope temps(asMasm());
   Register scratch = temps.Acquire();
@@ -879,7 +887,7 @@ void MacroAssembler::ctz32(Register src, Register dest, bool knownNotZero) {
 }
 
 void MacroAssembler::popcnt32(Register input, Register output, Register tmp) {
-  // Equivalent to GCC output of mozilla::CountPopulation32()
+  // Equivalent to GCC output of std::popcount()
   as_or(output, input, zero);
   as_srai_w(tmp, input, 1);
   ma_and(tmp, tmp, Imm32(0x55555555));

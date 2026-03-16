@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsHTTPSOnlyUtils_h___
-#define nsHTTPSOnlyUtils_h___
+#ifndef nsHTTPSOnlyUtils_h_
+#define nsHTTPSOnlyUtils_h_
 
 #include "mozilla/net/DocumentLoadListener.h"
 #include "nsIScriptError.h"
@@ -268,6 +268,15 @@ class nsHTTPSOnlyUtils {
    * @return     true if the host of the URI ends with a unknown suffix
    */
   static bool UnknownPublicSuffixException(nsIURI* aURI);
+
+  /**
+   * Checks if a request was initiated by an extension background script and
+   * the destination URL is on the exception list.
+   * @param aURI      The destination URI
+   * @param aLoadInfo The loadinfo of the request
+   * @return          true if the request is exempt
+   */
+  static bool IsExemptedExtensionRequest(nsIURI* aURI, nsILoadInfo* aLoadInfo);
 };
 
 /**
@@ -330,4 +339,4 @@ struct HTTPSFirstDowngradeData
   bool isSchemeless = false;
 };
 
-#endif /* nsHTTPSOnlyUtils_h___ */
+#endif /* nsHTTPSOnlyUtils_h_ */

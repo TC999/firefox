@@ -25,7 +25,6 @@ EXPORTS += [
 
 classes_with_WrapForJNI = [
     "AndroidGamepadManager",
-    "AndroidVsync",
     "Base64Utils",
     "ClientAuthCertificateManager",
     "Clipboard",
@@ -90,13 +89,13 @@ classes_with_WrapForJNI = [
     "XPCOMEventTarget",
 ]
 
-natives_from_WrapForJNI = sorted(
-    ["GeneratedJNI/{}Natives.h".format(c) for c in classes_with_WrapForJNI]
-)
+natives_from_WrapForJNI = sorted([
+    "GeneratedJNI/{}Natives.h".format(c) for c in classes_with_WrapForJNI
+])
 
-wrappers_from_WrapForJNI = sorted(
-    ["GeneratedJNI/{}Wrappers.h".format(c) for c in classes_with_WrapForJNI]
-)
+wrappers_from_WrapForJNI = sorted([
+    "GeneratedJNI/{}Wrappers.h".format(c) for c in classes_with_WrapForJNI
+])
 
 sources_from_WrapForJNI = sorted(
     "GeneratedJNI/{}Wrappers.cpp".format(c) for c in classes_with_WrapForJNI
@@ -226,4 +225,4 @@ LOCAL_INCLUDES += [
     "/xpcom/threads",
 ]
 
-OS_LIBS += ["android"]
+OS_LIBS += ["android", "jnigraphics"]

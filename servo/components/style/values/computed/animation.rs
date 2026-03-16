@@ -4,6 +4,7 @@
 
 //! Computed values for properties related to animations and transitions
 
+use crate::derives::*;
 use crate::values::computed::{Context, LengthPercentage, Time, ToComputedValue};
 use crate::values::generics::animation as generics;
 use crate::values::specified::animation as specified;
@@ -84,3 +85,21 @@ pub type AnimationTimeline = generics::GenericAnimationTimeline<LengthPercentage
 
 /// A computed value for the `view-timeline-inset` property.
 pub type ViewTimelineInset = generics::GenericViewTimelineInset<LengthPercentage>;
+
+/// A computed value for the `animation-range-start` property.
+pub type AnimationRangeStart = generics::GenericAnimationRangeStart<LengthPercentage>;
+impl AnimationRangeStart {
+    /// The `normal` value.
+    pub fn normal() -> Self {
+        Self(generics::GenericAnimationRangeValue::normal(LengthPercentage::zero_percent()))
+    }
+}
+
+/// A computed value for the `animation-range-end` property.
+pub type AnimationRangeEnd = generics::GenericAnimationRangeEnd<LengthPercentage>;
+impl AnimationRangeEnd {
+    /// The `normal` value.
+    pub fn normal() -> Self {
+        Self(generics::GenericAnimationRangeValue::normal(LengthPercentage::hundred_percent()))
+    }
+}

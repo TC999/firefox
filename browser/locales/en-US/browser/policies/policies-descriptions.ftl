@@ -94,6 +94,8 @@ policy-DisableProfileImport = Disable the menu command to Import data from anoth
 
 policy-DisableProfileRefresh = Disable the Refresh { -brand-short-name } button in the about:support page.
 
+policy-DisableRemoteImprovements = Prevent { -brand-short-name } from applying performance, stability, and feature changes between updates.
+
 policy-DisableSafeMode = Disable the feature to restart in Safe Mode. Note: the Shift key to enter Safe Mode can only be disabled on Windows using Group Policy.
 
 policy-DisableSecurityBypass = Prevent the user from bypassing certain security warnings.
@@ -229,6 +231,8 @@ policy-SearchSuggestEnabled = Enable or disable search suggestions.
 policy-SecurityDevices2 = Add or delete PKCS #11 modules.
 
 policy-ShowHomeButton = Show the home button on the toolbar.
+
+policy-SitePolicies = Site specific policies.
 
 # ”You represent that...” means ”You confirm/declare that...”
 policy-SkipTermsOfUse2 = Do not display the Terms of Use and Privacy Notice upon startup. You represent that you accept and have the authority to accept the Terms of Use on behalf of all individuals to whom you provide access to this browser.

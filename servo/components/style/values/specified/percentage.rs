@@ -4,20 +4,22 @@
 
 //! Specified percentages.
 
+use crate::derives::*;
 use crate::parser::{Parse, ParserContext};
 use crate::values::computed::percentage::Percentage as ComputedPercentage;
 use crate::values::computed::{Context, ToComputedValue};
 use crate::values::generics::NonNegative;
 use crate::values::specified::calc::CalcNode;
 use crate::values::specified::Number;
-use crate::values::{normalize, serialize_percentage, CSSFloat};
+use crate::values::{normalize, reify_percentage, serialize_percentage, CSSFloat};
 use cssparser::{Parser, Token};
 use std::fmt::{self, Write};
 use style_traits::values::specified::AllowedNumericType;
-use style_traits::{CssWriter, ParseError, SpecifiedValueInfo, ToCss};
+use style_traits::{CssWriter, ParseError, SpecifiedValueInfo, ToCss, ToTyped, TypedValue};
+use thin_vec::ThinVec;
 
 /// A percentage value.
-#[derive(Clone, Copy, Debug, Default, MallocSizeOf, PartialEq, ToShmem, ToTyped)]
+#[derive(Clone, Copy, Debug, Default, MallocSizeOf, PartialEq, ToShmem)]
 pub struct Percentage {
     /// The percentage value as a float.
     ///
@@ -43,6 +45,12 @@ impl ToCss for Percentage {
             dest.write_char(')')?;
         }
         Ok(())
+    }
+}
+
+impl ToTyped for Percentage {
+    fn to_typed(&self, dest: &mut ThinVec<TypedValue>) -> Result<(), ()> {
+        reify_percentage(self.value, self.calc_clamping_mode.is_some(), dest)
     }
 }
 
@@ -85,6 +93,28 @@ impl Percentage {
     pub fn get(&self) -> CSSFloat {
         self.calc_clamping_mode
             .map_or(self.value, |mode| mode.clamp(self.value))
+    }
+
+    /// Return the unit, as a string.
+    pub fn unit(&self) -> &'static str {
+        "percent"
+    }
+
+    /// Return no canonical unit (percent values do not have one).
+    pub fn canonical_unit(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// Convert only if the unit is the same (conversion to other units does
+    /// not make sense).
+    pub fn to(&self, unit: &str) -> Result<Self, ()> {
+        if !unit.eq_ignore_ascii_case("percent") {
+            return Err(());
+        }
+        Ok(Self {
+            value: self.value,
+            calc_clamping_mode: self.calc_clamping_mode,
+        })
     }
 
     /// Returns this percentage as a number.

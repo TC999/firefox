@@ -32,6 +32,7 @@ SafeRefPtr<InternalRequest> InternalRequest::GetRequestConstructorCopy(
   copy->mHeaders = new InternalHeaders(*mHeaders);
   copy->mTriggeringPrincipalOverride = mTriggeringPrincipalOverride;
   copy->mNeverTaint = mNeverTaint;
+  copy->mCookieJarSettings = mCookieJarSettings;
   copy->SetUnsafeRequest();
   copy->mBodyStream = mBodyStream;
   copy->mBodyLength = mBodyLength;
@@ -58,6 +59,7 @@ SafeRefPtr<InternalRequest> InternalRequest::GetRequestConstructorCopy(
   copy->mPreferredAlternativeDataType = mPreferredAlternativeDataType;
   copy->mSkipWasmCaching = mSkipWasmCaching;
   copy->mEmbedderPolicy = mEmbedderPolicy;
+  copy->mAssociatedBrowsingContextID = mAssociatedBrowsingContextID;
   return copy;
 }
 
@@ -113,6 +115,7 @@ InternalRequest::InternalRequest(const InternalRequest& aOther,
       mInternalPriority(aOther.mInternalPriority),
       mReferrer(aOther.mReferrer),
       mReferrerPolicy(aOther.mReferrerPolicy),
+      mAssociatedBrowsingContextID(aOther.mAssociatedBrowsingContextID),
       mEnvironmentReferrerPolicy(aOther.mEnvironmentReferrerPolicy),
       mMode(aOther.mMode),
       mCredentialsMode(aOther.mCredentialsMode),
@@ -285,6 +288,7 @@ RequestDestination InternalRequest::MapContentPolicyTypeToRequestDestination(
     case nsIContentPolicy::TYPE_INTERNAL_IMAGE:
     case nsIContentPolicy::TYPE_INTERNAL_IMAGE_PRELOAD:
     case nsIContentPolicy::TYPE_INTERNAL_IMAGE_FAVICON:
+    case nsIContentPolicy::TYPE_INTERNAL_IMAGE_NOTIFICATION:
     case nsIContentPolicy::TYPE_IMAGE:
       return RequestDestination::Image;
     case nsIContentPolicy::TYPE_STYLESHEET:

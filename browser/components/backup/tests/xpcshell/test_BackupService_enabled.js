@@ -10,15 +10,15 @@ const { NimbusTestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/NimbusTestUtils.sys.mjs"
 );
 
+const lazy = {};
+ChromeUtils.defineESModuleGetters(lazy, {
+  SelectableProfileService:
+    "resource:///modules/profiles/SelectableProfileService.sys.mjs",
+});
+
 const BACKUP_DIR_PREF_NAME = "browser.backup.location";
 const BACKUP_ARCHIVE_ENABLED_PREF_NAME = "browser.backup.archive.enabled";
-const BACKUP_ARCHIVE_ENABLED_OVERRIDE_PREF_NAME =
-  "browser.backup.archive.overridePlatformCheck";
 const BACKUP_RESTORE_ENABLED_PREF_NAME = "browser.backup.restore.enabled";
-const BACKUP_RESTORE_ENABLED_OVERRIDE_PREF_NAME =
-  "browser.backup.restore.overridePlatformCheck";
-const SANITIZE_ON_SHUTDOWN_PREF_NAME = "privacy.sanitize.sanitizeOnShutdown";
-const SELECTABLE_PROFILES_CREATED_PREF_NAME = "browser.profiles.created";
 
 add_setup(async () => {
   setupProfile();
@@ -51,32 +51,17 @@ add_setup(async () => {
 
 add_task(async function test_archive_killswitch_enrollment() {
   let cleanupExperiment;
-  const savedPref = Services.prefs.getBoolPref(
-    BACKUP_ARCHIVE_ENABLED_OVERRIDE_PREF_NAME,
-    false
-  );
   await archiveTemplate({
     internalReason: "nimbus",
     async disable() {
-      Services.prefs.setBoolPref(
-        BACKUP_ARCHIVE_ENABLED_OVERRIDE_PREF_NAME,
-        false
-      );
       cleanupExperiment = await NimbusTestUtils.enrollWithFeatureConfig({
         featureId: "backupService",
         value: { archiveKillswitch: true },
       });
     },
     async enable() {
-      Services.prefs.setBoolPref(
-        BACKUP_ARCHIVE_ENABLED_OVERRIDE_PREF_NAME,
-        savedPref
-      );
       await cleanupExperiment();
     },
-    // Nimbus calls onUpdate if any experiments are running, meaning that the
-    // observer service will be notified twice, i.e. one spurious call.
-    startup: 0,
   });
 });
 
@@ -103,126 +88,29 @@ add_task(async function test_archive_policy() {
       storedDefault = defaults.getBoolPref(BACKUP_ARCHIVE_ENABLED_PREF_NAME);
       defaults.setBoolPref(BACKUP_ARCHIVE_ENABLED_PREF_NAME, false);
       defaults.lockPref(BACKUP_ARCHIVE_ENABLED_PREF_NAME);
-      return 0;
     },
     enable: () => {
       const defaults = Services.prefs.getDefaultBranch("");
       defaults.setBoolPref(BACKUP_ARCHIVE_ENABLED_PREF_NAME, storedDefault);
       Services.prefs.unlockPref(BACKUP_ARCHIVE_ENABLED_PREF_NAME);
       Services.prefs.setBoolPref(BACKUP_ARCHIVE_ENABLED_PREF_NAME, true);
-      return 0;
-    },
-    // At startup, there wouldn't have been a spurious call.
-    startup: 0,
-  });
-});
-
-add_task(async function test_archive_sanitize_on_shutdown() {
-  await archiveTemplate({
-    internalReason: "sanitizeOnShutdown",
-    async disable() {
-      Services.prefs.setBoolPref(SANITIZE_ON_SHUTDOWN_PREF_NAME, true);
-    },
-    async enable() {
-      Services.prefs.setBoolPref(SANITIZE_ON_SHUTDOWN_PREF_NAME, false);
     },
   });
-});
-
-add_task(async function test_archive_selectable_profiles() {
-  await archiveTemplate({
-    internalReason: "selectable profiles",
-    async disable() {
-      Services.prefs.setBoolPref(SELECTABLE_PROFILES_CREATED_PREF_NAME, true);
-    },
-    async enable() {
-      Services.prefs.setBoolPref(SELECTABLE_PROFILES_CREATED_PREF_NAME, false);
-    },
-  });
-});
-
-add_task(async function test_archive_disabled_unsupported_os() {
-  const sandbox = sinon.createSandbox();
-  const archiveWasEnabled = Services.prefs.getBoolPref(
-    BACKUP_ARCHIVE_ENABLED_OVERRIDE_PREF_NAME,
-    false
-  );
-  Services.prefs.setBoolPref(BACKUP_ARCHIVE_ENABLED_OVERRIDE_PREF_NAME, false);
-  sandbox.stub(BackupService, "checkOsSupportsBackup").returns(false);
-  const cleanupExperiment = await NimbusTestUtils.enrollWithFeatureConfig({
-    featureId: "backupService",
-    value: { archiveKillswitch: false },
-  });
-
-  try {
-    const bs = new BackupService();
-    const status = bs.archiveEnabledStatus;
-    Assert.equal(false, status.enabled);
-    Assert.equal("os version", status.internalReason);
-  } finally {
-    sandbox.restore();
-    Services.prefs.setBoolPref(
-      BACKUP_ARCHIVE_ENABLED_OVERRIDE_PREF_NAME,
-      archiveWasEnabled
-    );
-    await cleanupExperiment();
-  }
-});
-
-add_task(async function test_archive_enabled_supported_os() {
-  const sandbox = sinon.createSandbox();
-  const archiveWasEnabled = Services.prefs.getBoolPref(
-    BACKUP_ARCHIVE_ENABLED_OVERRIDE_PREF_NAME,
-    false
-  );
-  Services.prefs.setBoolPref(BACKUP_ARCHIVE_ENABLED_OVERRIDE_PREF_NAME, false);
-  sandbox.stub(BackupService, "checkOsSupportsBackup").returns(true);
-  const cleanupExperiment = await NimbusTestUtils.enrollWithFeatureConfig({
-    featureId: "backupService",
-    value: { archiveKillswitch: false },
-  });
-  try {
-    const bs = new BackupService();
-    const status = bs.archiveEnabledStatus;
-    Assert.equal(true, status.enabled);
-  } finally {
-    sandbox.restore();
-    Services.prefs.setBoolPref(
-      BACKUP_ARCHIVE_ENABLED_OVERRIDE_PREF_NAME,
-      archiveWasEnabled
-    );
-    await cleanupExperiment();
-  }
 });
 
 add_task(async function test_restore_killswitch_enrollment() {
   let cleanupExperiment;
-  const savedPref = Services.prefs.getBoolPref(
-    BACKUP_RESTORE_ENABLED_OVERRIDE_PREF_NAME,
-    false
-  );
   await restoreTemplate({
     internalReason: "nimbus",
     async disable() {
-      Services.prefs.setBoolPref(
-        BACKUP_RESTORE_ENABLED_OVERRIDE_PREF_NAME,
-        false
-      );
       cleanupExperiment = await NimbusTestUtils.enrollWithFeatureConfig({
         featureId: "backupService",
         value: { restoreKillswitch: true },
       });
     },
     async enable() {
-      Services.prefs.setBoolPref(
-        BACKUP_RESTORE_ENABLED_OVERRIDE_PREF_NAME,
-        savedPref
-      );
       await cleanupExperiment();
     },
-    // Nimbus calls onUpdate if any experiments are running, meaning that the
-    // observer service will be notified twice, i.e. one spurious call.
-    startup: 0,
   });
 });
 
@@ -247,44 +135,67 @@ add_task(async function test_restore_policy() {
       storedDefault = defaults.getBoolPref(BACKUP_RESTORE_ENABLED_PREF_NAME);
       defaults.setBoolPref(BACKUP_RESTORE_ENABLED_PREF_NAME, false);
       Services.prefs.lockPref(BACKUP_RESTORE_ENABLED_PREF_NAME);
-      return 0;
     },
     async enable() {
       Services.prefs.unlockPref(BACKUP_RESTORE_ENABLED_PREF_NAME);
       const defaults = Services.prefs.getDefaultBranch("");
       defaults.setBoolPref(BACKUP_RESTORE_ENABLED_PREF_NAME, storedDefault);
-      return 0;
-    },
-    // At startup, there wouldn't have been a spurious call.
-    startup: 0,
-  });
-});
-
-add_task(async function test_restore_sanitize_on_shutdown() {
-  await restoreTemplate({
-    internalReason: "sanitizeOnShutdown",
-    async disable() {
-      Services.prefs.setBoolPref(SANITIZE_ON_SHUTDOWN_PREF_NAME, true);
-    },
-    async enable() {
-      Services.prefs.setBoolPref(SANITIZE_ON_SHUTDOWN_PREF_NAME, false);
     },
   });
 });
 
-add_task(async function test_restore_selectable_profiles() {
-  await restoreTemplate({
-    internalReason: "selectable profiles",
-    async disable() {
-      Services.prefs.setBoolPref(SELECTABLE_PROFILES_CREATED_PREF_NAME, true);
-    },
-    async enable() {
-      Services.prefs.setBoolPref(SELECTABLE_PROFILES_CREATED_PREF_NAME, false);
-    },
-  });
-});
+add_task(
+  async function test_selectableProfilesAllowed_updates_on_enableChanged() {
+    let sandbox = sinon.createSandbox();
+    let isEnabledValue = false;
 
-async function archiveTemplate({ internalReason, disable, enable, startup }) {
+    sandbox
+      .stub(lazy.SelectableProfileService, "isEnabled")
+      .get(() => isEnabledValue);
+
+    let bs = new BackupService();
+    bs.initStatusObservers();
+
+    Assert.equal(
+      bs.state.selectableProfilesAllowed,
+      false,
+      "selectableProfilesAllowed should initially be false"
+    );
+
+    let stateUpdatePromise = new Promise(resolve => {
+      bs.addEventListener("BackupService:StateUpdate", resolve, { once: true });
+    });
+
+    isEnabledValue = true;
+    lazy.SelectableProfileService.emit("enableChanged", true);
+    await stateUpdatePromise;
+
+    Assert.equal(
+      bs.state.selectableProfilesAllowed,
+      true,
+      "selectableProfilesAllowed should be true after enableChanged fires"
+    );
+
+    stateUpdatePromise = new Promise(resolve => {
+      bs.addEventListener("BackupService:StateUpdate", resolve, { once: true });
+    });
+
+    isEnabledValue = false;
+    lazy.SelectableProfileService.emit("enableChanged", false);
+    await stateUpdatePromise;
+
+    Assert.equal(
+      bs.state.selectableProfilesAllowed,
+      false,
+      "selectableProfilesAllowed should be false after disabling"
+    );
+
+    bs.uninitStatusObservers();
+    sandbox.restore();
+  }
+);
+
+async function archiveTemplate({ internalReason, disable, enable }) {
   Services.telemetry.clearScalars();
   Services.fog.testResetFOG();
 
@@ -296,8 +207,8 @@ async function archiveTemplate({ internalReason, disable, enable, startup }) {
   let callback = () => calledCount++;
   Services.obs.addObserver(callback, "backup-service-status-updated");
 
-  let spurious = (await disable()) ?? 0;
-  Assert.equal(calledCount, 1 + spurious, "Observers were notified on disable");
+  await disable();
+  Assert.equal(calledCount, 1, "Observers were notified on disable");
   assertStatus("archive", bs.archiveEnabledStatus, false, internalReason);
 
   let backup = await bs.createBackup();
@@ -306,12 +217,8 @@ async function archiveTemplate({ internalReason, disable, enable, startup }) {
     "Creating a backup should fail when archiving is disabled."
   );
 
-  spurious += (await enable()) ?? 0;
-  Assert.equal(
-    calledCount,
-    2 + spurious,
-    "Observers were notified on re-enable"
-  );
+  await enable();
+  Assert.equal(calledCount, 2, "Observers were notified on re-enable");
   assertStatus("archive", bs.archiveEnabledStatus, true, "reenabled");
 
   backup = await bs.createBackup();
@@ -328,10 +235,10 @@ async function archiveTemplate({ internalReason, disable, enable, startup }) {
   bs.uninitStatusObservers();
 
   // Also check that it works at startup.
-  spurious += (startup ?? 0) + ((await disable()) ?? 0);
+  await disable();
   bs = new BackupService();
   bs.initStatusObservers();
-  Assert.equal(calledCount, 3 + spurious, "Observers were notified at startup");
+  Assert.equal(calledCount, 3, "Observers were notified at startup");
   assertStatus("archive", bs.archiveEnabledStatus, false, internalReason);
   await enable();
   bs.uninitStatusObservers();
@@ -339,7 +246,7 @@ async function archiveTemplate({ internalReason, disable, enable, startup }) {
   Services.obs.removeObserver(callback, "backup-service-status-updated");
 }
 
-async function restoreTemplate({ internalReason, disable, enable, startup }) {
+async function restoreTemplate({ internalReason, disable, enable }) {
   Services.telemetry.clearScalars();
   Services.fog.testResetFOG();
 
@@ -357,8 +264,8 @@ async function restoreTemplate({ internalReason, disable, enable, startup }) {
   let callback = () => calledCount++;
   Services.obs.addObserver(callback, "backup-service-status-updated");
 
-  let spurious = (await disable()) ?? 0;
-  Assert.equal(calledCount, 1 + spurious, "Observers were notified on disable");
+  await disable();
+  Assert.equal(calledCount, 1, "Observers were notified on disable");
   assertStatus("restore", bs.restoreEnabledStatus, false, internalReason);
 
   const recoveryDir = await IOUtils.createUniqueDirectory(
@@ -372,18 +279,15 @@ async function restoreTemplate({ internalReason, disable, enable, startup }) {
       null,
       false,
       PathUtils.profileDir,
-      recoveryDir
+      recoveryDir,
+      true
     ),
     /.*disabled.*/,
     "Recovery should throw when the restore is disabled."
   );
 
-  spurious += (await enable()) ?? 0;
-  Assert.equal(
-    calledCount,
-    2 + spurious,
-    "Observers were notified on re-enable"
-  );
+  await enable();
+  Assert.equal(calledCount, 2, "Observers were notified on re-enable");
   assertStatus("restore", bs.restoreEnabledStatus, true, "reenabled");
 
   let recoveredProfile = await bs.recoverFromBackupArchive(
@@ -391,7 +295,8 @@ async function restoreTemplate({ internalReason, disable, enable, startup }) {
     null,
     false,
     PathUtils.profileDir,
-    recoveryDir
+    recoveryDir,
+    true
   );
   Assert.ok(
     recoveredProfile,
@@ -405,10 +310,10 @@ async function restoreTemplate({ internalReason, disable, enable, startup }) {
   bs.uninitStatusObservers();
 
   // Also check that it works at startup.
-  spurious += (startup ?? 0) + ((await disable()) ?? 0);
+  await disable();
   bs = new BackupService();
   bs.initStatusObservers();
-  Assert.equal(calledCount, 3 + spurious, "Observers were notified at startup");
+  Assert.equal(calledCount, 3, "Observers were notified at startup");
   assertStatus("restore", bs.restoreEnabledStatus, false, internalReason);
   await enable();
   bs.uninitStatusObservers();
