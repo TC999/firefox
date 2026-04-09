@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -84,20 +82,24 @@ mozilla::ipc::IPCResult CookieStoreParent::RecvGetRequest(
     const bool& aOnlyFirstMatch, GetRequestResolver&& aResolver) {
   AssertIsOnBackgroundThread();
 
-  InvokeAsync(GetMainThreadSerialEventTarget(), __func__,
-              [self = RefPtr(this), uri = aCookieURI.get(), aOriginAttributes,
-               aPartitionedOriginAttributes, aThirdPartyContext,
-               aPartitionForeign, aUsingStorageAccess, aIsOn3PCBExceptionList,
-               aMatchName, aName, aPath, aOnlyFirstMatch]() {
-                CopyableTArray<CookieStruct> results;
-                self->GetRequestOnMainThread(
-                    uri, aOriginAttributes, aPartitionedOriginAttributes,
-                    aThirdPartyContext, aPartitionForeign, aUsingStorageAccess,
-                    aIsOn3PCBExceptionList, aMatchName, aName, aPath,
-                    aOnlyFirstMatch, results);
-                return GetRequestPromise::CreateAndResolve(std::move(results),
-                                                           __func__);
-              })
+  RefPtr<ThreadsafeContentParentHandle> parent =
+      BackgroundParent::GetContentParentHandle(Manager());
+
+  InvokeAsync(
+      GetMainThreadSerialEventTarget(), __func__,
+      [self = RefPtr(this), parent = RefPtr(parent), uri = aCookieURI.get(),
+       aOriginAttributes, aPartitionedOriginAttributes, aThirdPartyContext,
+       aPartitionForeign, aUsingStorageAccess, aIsOn3PCBExceptionList,
+       aMatchName, aName, aPath, aOnlyFirstMatch]() {
+        CopyableTArray<CookieStruct> results;
+        self->GetRequestOnMainThread(
+            parent, uri, aOriginAttributes, aPartitionedOriginAttributes,
+            aThirdPartyContext, aPartitionForeign, aUsingStorageAccess,
+            aIsOn3PCBExceptionList, aMatchName, aName, aPath, aOnlyFirstMatch,
+            results);
+        return GetRequestPromise::CreateAndResolve(std::move(results),
+                                                   __func__);
+      })
       ->Then(GetCurrentSerialEventTarget(), __func__,
              [aResolver = std::move(aResolver)](
                  const GetRequestPromise::ResolveOrRejectValue& aResult) {
@@ -275,7 +277,8 @@ mozilla::ipc::IPCResult CookieStoreParent::RecvClose() {
 }
 
 void CookieStoreParent::GetRequestOnMainThread(
-    const RefPtr<nsIURI> aCookieURI, const OriginAttributes& aOriginAttributes,
+    ThreadsafeContentParentHandle* aParent, const RefPtr<nsIURI> aCookieURI,
+    const OriginAttributes& aOriginAttributes,
     const Maybe<OriginAttributes>& aPartitionedOriginAttributes,
     bool aThirdPartyContext, bool aPartitionForeign, bool aUsingStorageAccess,
     bool aIsOn3PCBExceptionList, bool aMatchName, const nsAString& aName,
@@ -296,6 +299,10 @@ void CookieStoreParent::GetRequestOnMainThread(
   bool requireMatch = false;
   rv = CookieCommons::GetBaseDomain(etld, aCookieURI, baseDomain, requireMatch);
   if (NS_FAILED(rv)) {
+    return;
+  }
+
+  if (!CheckContentProcessSecurity(aParent, baseDomain, aOriginAttributes)) {
     return;
   }
 

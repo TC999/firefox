@@ -11,6 +11,8 @@
 
 policy-3rdparty = Set policies that WebExtensions can access via chrome.storage.managed.
 
+policy-AIControls = Configure AI controls.
+
 policy-AllowedDomainsForApps = Define domains allowed to access Google Workspace.
 
 policy-AllowFileSelectionDialogs = Allow file selection dialogs.
@@ -156,6 +158,8 @@ policy-HttpsOnlyMode = Allow HTTPS-Only Mode to be enabled.
 
 policy-InstallAddonsPermission = Allow certain websites to install add-ons.
 
+policy-IPProtectionAvailable = Prevent the built-in VPN from being available to users.
+
 policy-LegacyProfiles = Disable the feature enforcing a separate profile for each installation.
 
 ## Do not translate "SameSite", it's the name of a cookie attribute.
@@ -217,6 +221,8 @@ policy-PromptForDownloadLocation = Ask where to save files when downloading.
 
 policy-Proxy = Configure proxy settings.
 
+policy-RelaunchRequired = Require { -brand-short-name } to be relaunched within a given period and notify the user of the upcoming relaunch.
+
 policy-RequestedLocales = Set the list of requested locales for the application in order of preference.
 
 policy-SanitizeOnShutdown2 = Clear navigation data on shutdown.
@@ -260,3 +266,6 @@ policy-Windows10SSO = Allow Windows single sign-on for Microsoft, work, and scho
 
 # Entra is the name of a Microsoft product.
 policy-MicrosoftEntraSSO = Allow single sign-on for Microsoft Entra accounts.
+
+# Do not translate "XSLTProcessor" as it is the name of an API interface.
+policy-XSLTEnabled = Enable or disable support for the XSLTProcessor JavaScript API and the XSLT processing instruction.

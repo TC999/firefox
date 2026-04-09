@@ -7,7 +7,7 @@ const { ChatConversation } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/ui/modules/ChatConversation.sys.mjs"
 );
 const { MESSAGE_ROLE } = ChromeUtils.importESModule(
-  "moz-src:///browser/components/aiwindow/ui/modules/ChatConstants.sys.mjs"
+  "moz-src:///browser/components/aiwindow/ui/modules/AIWindowConstants.sys.mjs"
 );
 const { Chat } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/models/Chat.sys.mjs"
@@ -52,7 +52,7 @@ add_task(async function test_chat_streams_end_to_end() {
       // withServer sets up the mock HTTP server, so use the real engine
       const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
 
-      await Chat.fetchWithHistory(conversation, engineInstance);
+      await Chat.fetchWithHistory({ conversation, engineInstance });
 
       Assert.equal(
         getLastAssistantResponse(conversation).content.body,
@@ -78,38 +78,60 @@ add_task(async function test_chat_streams_end_to_end() {
         message => message.role === MESSAGE_ROLE.TOOL
       );
       Assert.equal(toolMessages.length, 0, "No tool calls for plain response");
+
+      Assert.ok(Chat.lastUsage, "Usage should be captured from stream");
+      Assert.equal(
+        Chat.lastUsage.prompt_tokens,
+        10,
+        "prompt_tokens should be 10"
+      );
+      Assert.equal(
+        Chat.lastUsage.completion_tokens,
+        5,
+        "completion_tokens should be 5"
+      );
+      Assert.equal(
+        Chat.lastUsage.total_tokens,
+        15,
+        "total_tokens should be 15"
+      );
     }
   );
 });
 
 add_task(async function test_chat_tool_call_get_open_tabs() {
-  const win = await BrowserTestUtils.openNewBrowserWindow({ aiWindow: true });
-  await BrowserTestUtils.waitForMutationCondition(
-    win.document.documentElement,
-    { attributes: true },
-    () => win.document.documentElement.hasAttribute("ai-window")
+  const { AIWindow } = ChromeUtils.importESModule(
+    "moz-src:///browser/components/aiwindow/ui/modules/AIWindow.sys.mjs"
   );
 
-  const initialTab = win.gBrowser.selectedTab;
-  const tab1 = await BrowserTestUtils.openNewForegroundTab(
-    win.gBrowser,
-    "https://example.com/one",
-    true
-  );
-  const tab2 = await BrowserTestUtils.openNewForegroundTab(
-    win.gBrowser,
-    "https://example.com/two",
-    true
-  );
-  BrowserTestUtils.removeTab(initialTab);
+  // Stubbing the isAIWindowActive check to allow tool calls to work in the test environment
+  // Using a real AIWindow interferes with the openAIEngine
+  // The stub will make the code think the current window is the active AIWindow which allows get_open_tabs to work
+  const isAIWindowActiveStub = sinon
+    .stub(AIWindow, "isAIWindowActive")
+    .callsFake(win => win === window);
 
+  let tab1, tab2;
   try {
+    tab1 = await BrowserTestUtils.openNewForegroundTab(
+      gBrowser,
+      "https://example.com/one",
+      true
+    );
+    tab2 = await BrowserTestUtils.openNewForegroundTab(
+      gBrowser,
+      "https://example.com/two",
+      true
+    );
+
     await withServer(
       {
         toolCall: { name: "get_open_tabs", args: "{}" },
         followupChunks: ["Here are your tabs."],
       },
       async () => {
+        const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
+
         const conversation = new ChatConversation({
           title: "chat title",
           description: "chat desc",
@@ -119,9 +141,7 @@ add_task(async function test_chat_tool_call_get_open_tabs() {
         conversation.addUserMessage("List tabs", "https://example.com", 0);
         conversation.addAssistantMessage("text", "");
 
-        const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
-
-        await Chat.fetchWithHistory(conversation, engineInstance);
+        await Chat.fetchWithHistory({ conversation, engineInstance });
 
         Assert.equal(
           getLastAssistantResponse(conversation).content.body,
@@ -143,12 +163,19 @@ add_task(async function test_chat_tool_call_get_open_tabs() {
           2,
           "Returns both tabs"
         );
+
+        Assert.ok(Chat.lastUsage, "Usage should be captured after tool call");
+        Assert.equal(
+          Chat.lastUsage.total_tokens,
+          15,
+          "total_tokens should be 15"
+        );
       }
     );
   } finally {
+    isAIWindowActiveStub.restore();
     BrowserTestUtils.removeTab(tab1);
     BrowserTestUtils.removeTab(tab2);
-    await BrowserTestUtils.closeWindow(win);
   }
 });
 
@@ -180,7 +207,7 @@ add_task(async function test_chat_tool_call_search_browsing_history() {
 
         const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
 
-        await Chat.fetchWithHistory(conversation, engineInstance);
+        await Chat.fetchWithHistory({ conversation, engineInstance });
 
         Assert.equal(
           getLastAssistantResponse(conversation).content.body,
@@ -192,10 +219,10 @@ add_task(async function test_chat_tool_call_search_browsing_history() {
           message => message.role === MESSAGE_ROLE.TOOL
         );
         Assert.equal(toolMessages.length, 1, "Tool result recorded");
-        const parsed = JSON.parse(toolMessages[0].content.body);
-        info("got history: " + toolMessages[0].content.body);
+        const toolResult = toolMessages[0].content.body;
+        info("got history: " + JSON.stringify(toolResult));
         Assert.greaterOrEqual(
-          parsed.results.length,
+          toolResult.results.length,
           1,
           "History tool returns stored visits"
         );
@@ -232,7 +259,7 @@ add_task(async function test_chat_tool_call_get_page_content() {
 
         const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
 
-        await Chat.fetchWithHistory(conversation, engineInstance);
+        await Chat.fetchWithHistory({ conversation, engineInstance });
 
         Assert.equal(
           getLastAssistantResponse(conversation).content.body,
@@ -249,14 +276,91 @@ add_task(async function test_chat_tool_call_get_page_content() {
         Assert.ok(
           Array.isArray(contentArray) &&
             typeof contentArray[0] === "string" &&
-            contentArray[0].includes("Headline Body text."),
+            contentArray[0].includes("Headline") &&
+            contentArray[0].includes("Body text."),
           "Page content should be extracted"
         );
       }
     );
   } finally {
+    window.document.documentElement.removeAttribute("ai-window");
     BrowserTestUtils.removeTab(tab);
     await new Promise(resolve => pageServer.stop(resolve));
+  }
+});
+
+add_task(async function test_chat_tool_call_get_navigation_info() {
+  const { SmartWindowNavigationInfo } = ChromeUtils.importESModule(
+    "moz-src:///browser/components/aiwindow/models/SmartWindowNavigationInfo.sys.mjs"
+  );
+
+  const FAKE_NAV_RESULTS = [
+    {
+      url: "about:preferences#manageMemories",
+      label: "Manage memories",
+      breadcrumb: "Settings > AI Controls > Smart Window > Manage memories",
+      description: "Memories are what Smart Window learns from your activity.",
+      similarity: 0.85,
+    },
+  ];
+
+  const sb = sinon.createSandbox();
+  sb.stub(SmartWindowNavigationInfo, "getRelevantNavigation").resolves(
+    FAKE_NAV_RESULTS
+  );
+
+  try {
+    await withServer(
+      {
+        toolCall: {
+          name: "get_navigation_info",
+          args: JSON.stringify({ query: "manage memories" }),
+        },
+        followupChunks: ["Navigation ready."],
+      },
+      async () => {
+        const conversation = new ChatConversation({
+          title: "chat title",
+          description: "chat desc",
+          pageUrl: new URL("https://example.com"),
+          pageMeta: {},
+        });
+        conversation.addUserMessage(
+          "How do I manage memories?",
+          "https://example.com",
+          0
+        );
+        conversation.addAssistantMessage("text", "");
+
+        const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
+
+        await Chat.fetchWithHistory({ conversation, engineInstance });
+
+        Assert.equal(
+          getLastAssistantResponse(conversation).content.body,
+          "Navigation ready.",
+          "Assistant should stream follow-up text"
+        );
+
+        const toolMessages = conversation.messages.filter(
+          message => message.role === MESSAGE_ROLE.TOOL
+        );
+        Assert.equal(toolMessages.length, 1, "Tool result recorded");
+
+        const navResults = toolMessages[0].content.body;
+        info("got nav results: " + JSON.stringify(navResults));
+        Assert.equal(navResults.length, 1, "Returns the stubbed nav entry");
+        Assert.equal(
+          navResults[0].url,
+          "about:preferences#manageMemories",
+          "Nav entry url flows through"
+        );
+        Assert.ok(navResults[0].label, "Nav entry has label");
+        Assert.ok(navResults[0].breadcrumb, "Nav entry has breadcrumb");
+      }
+    );
+  } finally {
+    sb.restore();
   }
 });
 
@@ -313,7 +417,7 @@ add_task(async function test_chat_tool_call_get_user_memories() {
 
         const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
 
-        await Chat.fetchWithHistory(conversation, engineInstance);
+        await Chat.fetchWithHistory({ conversation, engineInstance });
 
         Assert.equal(
           getLastAssistantResponse(conversation).content.body,

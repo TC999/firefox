@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
@@ -10,6 +8,7 @@
 #include "H264.h"
 #include "H265.h"
 #include "gtest/gtest.h"
+#include "mozilla/EndianUtils.h"
 
 namespace mozilla {
 
@@ -108,6 +107,43 @@ static const uint8_t sHvccBytesBuffer[] = {
     0 /* NALU header 2/2 */,
     0 /* rbsp */,
 };
+
+// Extend the shared fake HVCC extradata with a single PREFIX_SEI_NUT so tests
+// can exercise WMF-specific SEI filtering without relying on external media.
+static already_AddRefed<MediaByteBuffer> GetHvccExtraDataWithPrefixSEI(
+    uint8_t aPayloadType, size_t aPayloadSize) {
+  RefPtr<MediaByteBuffer> extradata = new MediaByteBuffer;
+  extradata->AppendElements(sHvccBytesBuffer, std::size(sHvccBytesBuffer));
+
+  auto rv = HVCCConfig::Parse(extradata);
+  EXPECT_TRUE(rv.isOk());
+  if (rv.isErr()) {
+    return nullptr;
+  }
+
+  const HVCCConfig hvcc = rv.unwrap();
+  nsTArray<H265NALU> nalus;
+  for (const auto& nalu : hvcc.mNALUs) {
+    nalus.AppendElement(nalu);
+  }
+
+  nsTArray<uint8_t> seiNalu;
+  seiNalu.AppendElement(0x4e);
+  seiNalu.AppendElement(0x01);
+  seiNalu.AppendElement(aPayloadType);
+
+  size_t payloadSize = aPayloadSize;
+  while (payloadSize >= 0xff) {
+    seiNalu.AppendElement(0xff);
+    payloadSize -= 0xff;
+  }
+  seiNalu.AppendElement(static_cast<uint8_t>(payloadSize));
+  seiNalu.AppendElements(aPayloadSize);
+  seiNalu.AppendElement(0x80);
+
+  nalus.AppendElement(H265NALU(seiNalu.Elements(), seiNalu.Length()));
+  return H265::CreateNewExtraData(hvcc, nalus);
+}
 
 // Create a HVCC sample, which contain fake data, in given size.
 static already_AddRefed<MediaRawData> GetHVCCSample(uint32_t aSampleSize) {
@@ -1195,6 +1231,39 @@ TEST(H265, HVCCToAnnexB)
   EXPECT_EQ(pps.mNuhTemporalIdPlus1, 0);
   EXPECT_EQ(pps.IsSPS(), false);
   EXPECT_EQ(pps.mNALU.Length(), 3u);
+}
+
+TEST(H265, HVCCToAnnexBExtraDataWithSmallPrefixSEI)
+{
+  RefPtr<MediaByteBuffer> extradata = GetHvccExtraDataWithPrefixSEI(137, 32);
+  RefPtr<MediaByteBuffer> annexBExtraData =
+      AnnexB::ConvertHVCCExtraDataToAnnexB(extradata);
+
+  const size_t delimiterBytesSize = 4;
+  // sHvccBytesBuffer has SPS (8 bytes) and PPS (3 bytes).
+  // 37 = 2 (NALU header) + 1 (payloadType) + 1 (payloadSize) + 32 (payload)
+  //      + 1 (RBSP stop bit)
+  const size_t expectedLength = (delimiterBytesSize + 8) +
+                                (delimiterBytesSize + 3) +
+                                (delimiterBytesSize + 37);
+  EXPECT_EQ(annexBExtraData->Length(), expectedLength);
+}
+
+TEST(H265, HVCCToAnnexBExtraDataSkipsUserDataUnregisteredPrefixSEIOnWindows)
+{
+  RefPtr<MediaByteBuffer> extradata = GetHvccExtraDataWithPrefixSEI(5, 32);
+  RefPtr<MediaByteBuffer> annexBExtraData =
+      AnnexB::ConvertHVCCExtraDataToAnnexB(extradata);
+
+  const size_t delimiterBytesSize = 4;
+  const size_t spsAndPpsLength =
+      (delimiterBytesSize + 8) + (delimiterBytesSize + 3);
+#ifdef MOZ_WMF
+  EXPECT_EQ(annexBExtraData->Length(), spsAndPpsLength);
+#else
+  EXPECT_EQ(annexBExtraData->Length(),
+            spsAndPpsLength + delimiterBytesSize + 37);
+#endif
 }
 
 TEST(H265, AnnexBToHVCC)

@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- *
+/*
  * Copyright 2016 Mozilla Foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -614,7 +612,9 @@ class MOZ_STACK_CLASS OpIter : private Policy {
     }
 
     // No hint found for this branch.
-    if (lastBranchHintIndex_ >= branchHintVector_->length()) {
+    if (lastBranchHintIndex_ >= branchHintVector_->length() ||
+        (*branchHintVector_)[lastBranchHintIndex_].branchOffset !=
+            branchOffset) {
       return BranchHint::Invalid;
     }
 
@@ -1995,9 +1995,7 @@ inline bool OpIter<Policy>::readBinaryI128(Value* lhsLo, Value* lhsHi,
   }
 
   infalliblePush(ValType::I64);
-  infalliblePush(ValType::I64);
-
-  return true;
+  return push(ValType::I64);
 }
 
 template <typename Policy>
@@ -2013,9 +2011,7 @@ inline bool OpIter<Policy>::readBinaryI64Wide(Value* lhs, Value* rhs) {
   }
 
   infalliblePush(ValType::I64);
-  infalliblePush(ValType::I64);
-
-  return true;
+  return push(ValType::I64);
 }
 
 template <typename Policy>

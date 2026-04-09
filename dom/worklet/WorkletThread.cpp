@@ -1,11 +1,10 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "WorkletThread.h"
 
+#include "GeckoProfiler.h"
 #include "XPCSelfHostedShmem.h"
 #include "js/ContextOptions.h"
 #include "js/Exception.h"
@@ -418,6 +417,8 @@ void WorkletThread::EnsureCycleCollectedJSContext(
     return;
   }
 
+  PROFILER_SET_JS_CONTEXT(context);
+
   JS::ContextOptionsRef(context->Context()) = aOptions;
 
   JS_SetGCParameter(context->Context(), JSGC_MAX_BYTES, uint32_t(-1));
@@ -503,6 +504,7 @@ void WorkletThread::DeleteCycleCollectedJSContext() {
 
   WorkletJSContext* workletjscx = ccjscx->GetAsWorkletJSContext();
   MOZ_ASSERT(workletjscx);
+  PROFILER_CLEAR_JS_CONTEXT();
   delete workletjscx;
 }
 

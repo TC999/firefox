@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set sw=2 ts=2 et tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1076,7 +1074,7 @@ void nsHtml5TreeOpExecutor::MaybeComplainAboutCharset(const char* aMsgId,
   }
   nsContentUtils::ReportToConsole(
       aError ? nsIScriptError::errorFlag : nsIScriptError::warningFlag,
-      "HTML parser"_ns, mDocument, nsContentUtils::eHTMLPARSER_PROPERTIES,
+      "HTML parser"_ns, mDocument, PropertiesFile::HTMLPARSER_PROPERTIES,
       aMsgId, nsTArray<nsString>(),
       SourceLocation{mDocument->GetDocumentURI(), aLineNumber});
 }
@@ -1088,7 +1086,7 @@ void nsHtml5TreeOpExecutor::ComplainAboutBogusProtocolCharset(
   mAlreadyComplainedAboutCharset = true;
   nsContentUtils::ReportToConsole(
       nsIScriptError::errorFlag, "HTML parser"_ns, aDoc,
-      nsContentUtils::eHTMLPARSER_PROPERTIES,
+      PropertiesFile::HTMLPARSER_PROPERTIES,
       aUnrecognized ? "EncProtocolUnsupported" : "EncProtocolReplacement");
 }
 
@@ -1099,7 +1097,7 @@ void nsHtml5TreeOpExecutor::MaybeComplainAboutDeepTree(uint32_t aLineNumber) {
   mAlreadyComplainedAboutDeepTree = true;
   nsContentUtils::ReportToConsole(
       nsIScriptError::errorFlag, "HTML parser"_ns, mDocument,
-      nsContentUtils::eHTMLPARSER_PROPERTIES, "errDeepTree",
+      PropertiesFile::HTMLPARSER_PROPERTIES, "errDeepTree",
       nsTArray<nsString>(),
       SourceLocation{mDocument->GetDocumentURI(), aLineNumber});
 }

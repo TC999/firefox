@@ -1,4 +1,3 @@
-/* vim:set ts=2 sw=2 sts=2 et: */
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/
  */
@@ -212,6 +211,7 @@ TEST(Layers, TextureSerialization)
 
     auto texData = BufferTextureData::Create(
         surface->GetSize(), gfx::ImageFormatToSurfaceFormat(surface->Format()),
+        gfx::ColorSpace2::SRGB, gfx::TransferFunction::SRGB,
         gfx::BackendType::CAIRO, LayersBackend::LAYERS_NONE,
         TextureFlags::DEALLOCATE_CLIENT, ALLOC_DEFAULT, nullptr);
     ASSERT_TRUE(!!texData);
@@ -247,6 +247,7 @@ TEST(Layers, TextureYCbCrSerialization)
   clientData.mStereoMode = StereoMode::MONO;
   clientData.mYUVColorSpace = YUVColorSpace::BT601;
   clientData.mColorDepth = ColorDepth::COLOR_8;
+  clientData.mTransferFunction = TransferFunction::BT709;
   clientData.mChromaSubsampling = ChromaSubsampling::HALF_WIDTH_AND_HEIGHT;
   clientData.mYSkip = 0;
   clientData.mCbSkip = 0;
@@ -278,8 +279,8 @@ TEST(Layers, TextureYCbCrSerialization)
       imageBridge, clientData.mPictureRect, clientData.YDataSize(),
       clientData.mYStride, clientData.CbCrDataSize(), clientData.mCbCrStride,
       StereoMode::MONO, ColorDepth::COLOR_8, YUVColorSpace::BT601,
-      ColorRange::LIMITED, clientData.mChromaSubsampling,
-      TextureFlags::DEALLOCATE_CLIENT);
+      ColorRange::LIMITED, TransferFunction::BT709,
+      clientData.mChromaSubsampling, TextureFlags::DEALLOCATE_CLIENT);
 
   TestTextureClientYCbCr(client, clientData);
 

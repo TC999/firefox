@@ -8,7 +8,7 @@ const TEST_URI = `
   <!DOCTYPE html>
   <style type="text/css">
     body {
-      container: mycontainer / size;
+      container: mycontainer containeralias / size;
     }
 
     section {
@@ -46,6 +46,12 @@ const TEST_URI = `
         color: hotpink;
       }
     }
+
+    @container mycontainer (width > 1px), containeralias (height > 1px), (inline-size > 42px), unknown (width > 0px) {
+      h3, [test-hint="multi-condition-container-query"] {
+        background-color: navy;
+      }
+    }
   </style>
   <body id=myBody class="a-container test">
     <h1>Hello @container!</h1>
@@ -53,6 +59,7 @@ const TEST_URI = `
       <div>
         <h2>You rock</h2>
       </div>
+      <h3>Oh oh oh</h3>
     </section>
   </body>
 `;
@@ -169,6 +176,71 @@ add_task(async function () {
 
   await selectNode("h2", inspector);
   await assertJumpToContainerButton(inspector, view, 3, "body");
+
+  info("Check that multi-conditions container query are displayed as expected");
+  await selectNode("h3", inspector);
+
+  assertContainerQueryData(view, [
+    { selector: "element", ancestorRulesData: null },
+    {
+      selector: `h3, [test-hint="multi-condition-container-query"]`,
+      ancestorRulesData: [
+        "@container mycontainer (width > 1px), containeralias (height > 1px), (inline-size > 42px), unknown (width > 0px) {",
+      ],
+    },
+    {
+      selector: `section, [test-hint="container-duplicate-name--body"]`,
+      ancestorRulesData: ["@container mycontainer (1px < width < 10000px) {"],
+    },
+  ]);
+
+  info(
+    "Check that the query container tooltip works as expected for multi-condition queries as well"
+  );
+  await assertQueryContainerTooltip({
+    inspector,
+    view,
+    ruleIndex: 1,
+    conditionIndex: 0,
+    expectedHeaderText: "<section>",
+    expectedBodyText: [
+      "container-type: inline-size",
+      `inline-size: ${sectionInlineSize}`,
+    ],
+  });
+
+  await assertQueryContainerTooltip({
+    inspector,
+    view,
+    ruleIndex: 1,
+    conditionIndex: 1,
+    expectedHeaderText: "<body#myBody.a-container.test>",
+    expectedBodyText: [
+      "container-type: size",
+      `inline-size: ${bodyInlineSize}`,
+      `block-size: ${bodyBlockSize}`,
+    ],
+  });
+
+  await assertQueryContainerTooltip({
+    inspector,
+    view,
+    ruleIndex: 1,
+    conditionIndex: 2,
+    expectedHeaderText: "<section>",
+    expectedBodyText: [
+      "container-type: inline-size",
+      `inline-size: ${sectionInlineSize}`,
+    ],
+  });
+
+  await assertQueryContainerTooltip({
+    inspector,
+    view,
+    ruleIndex: 1,
+    conditionIndex: 3,
+    unmatched: true,
+  });
 });
 
 function assertContainerQueryData(view, expectedRules) {
@@ -206,7 +278,7 @@ function assertContainerQueryData(view, expectedRules) {
         `Expected ancestor rules data displayed for ${selector}`
       );
       Assert.notStrictEqual(
-        ancestorDataEl.querySelector(".container-query .open-inspector"),
+        ancestorDataEl.querySelector(".container-condition .open-inspector"),
         null,
         "An icon is displayed to select the container in the markup view"
       );
@@ -236,7 +308,7 @@ async function assertJumpToContainerButton(
   );
   EventUtils.synthesizeMouseAtCenter(
     selectContainerButton,
-    { type: "mouseover" },
+    { type: "mousemove" },
     selectContainerButton.ownerDocument.defaultView
   );
   const { nodeFront: highlightedNodeFront } = await onNodeHighlight;
@@ -270,7 +342,7 @@ async function assertJumpToContainerButton(
   // Move mouse so it does stay in a position where it could hover something impacting
   // the test.
   EventUtils.synthesizeMouse(
-    selectContainerButton.closest("body"),
+    view.styleDocument.body,
     0,
     0,
     { type: "mouseover" },
@@ -282,15 +354,35 @@ async function assertQueryContainerTooltip({
   inspector,
   view,
   ruleIndex,
+  conditionIndex = 0,
   expectedHeaderText,
   expectedBodyText,
+  unmatched = false,
 }) {
   const parent = getRuleViewAncestorRulesDataElementByIndex(view, ruleIndex);
-  const highlighterTriggerEl = parent.querySelector(".open-inspector");
-  const tooltipTriggerEl = parent.querySelector(".container-query-declaration");
+  const containerConditionEl = parent.querySelector(
+    `.container-condition[data-condition-index="${conditionIndex}"]`
+  );
+
+  is(
+    containerConditionEl.matches(".unmatched"),
+    unmatched,
+    `condition "${containerConditionEl.innerText}" ${unmatched ? "has" : "does not have"} .unmatched class`
+  );
+
+  if (unmatched) {
+    return;
+  }
 
   // Ensure that the element can be targetted from EventUtils.
-  parent.scrollIntoView();
+  containerConditionEl.scrollIntoView();
+
+  const tooltip = view.tooltips.getTooltip("interactiveTooltip");
+  is(tooltip.isVisible(), false, "tooltip isn't visible at first");
+  ok(
+    !containerConditionEl.classList.contains("tooltip-anchor"),
+    "container condition element doesn't have the tooltip-anchor class at first"
+  );
 
   const { waitForHighlighterTypeShown, waitForHighlighterTypeHidden } =
     getHighlighterTestHelpers(inspector);
@@ -298,37 +390,31 @@ async function assertQueryContainerTooltip({
   const onNodeHighlight = waitForHighlighterTypeShown(
     inspector.highlighters.TYPES.BOXMODEL
   );
+  const onTooltipReady = tooltip.once("shown");
 
-  const tooltip = view.tooltips.getTooltip("interactiveTooltip");
-
-  info("synthesizing mousemove on open-inspector icon: " + tooltip.isVisible());
-  EventUtils.synthesizeMouseAtCenter(
-    highlighterTriggerEl,
+  info("synthesizing mousemove on container condition");
+  // Don't use synthesizeMouseAtCenter as the condition can span multiple line and the
+  // center of the boundingClientRect might not target the element.
+  // Instead get the first box quad in the element so we can find a point that is guaranteed
+  // to trigger the event listener.
+  const { p1, p2, p3 } = containerConditionEl.getBoxQuads()[0];
+  EventUtils.synthesizeMouseAtPoint(
+    p1.x + (p2.x - p1.x) / 2,
+    p1.y + (p3.y - p1.y) / 2,
     { type: "mousemove" },
-    highlighterTriggerEl.ownerDocument.defaultView
+    containerConditionEl.ownerDocument.defaultView
   );
 
   await onNodeHighlight;
   info("node was highlighted");
 
-  const onNodeUnhighlight = waitForHighlighterTypeHidden(
-    inspector.highlighters.TYPES.BOXMODEL
-  );
-
-  const onTooltipReady = tooltip.once("shown");
-
-  info("synthesizing mousemove on tooltip el: " + tooltip.isVisible());
-  EventUtils.synthesizeMouseAtCenter(
-    tooltipTriggerEl,
-    { type: "mousemove" },
-    tooltipTriggerEl.ownerDocument.defaultView
-  );
-
   await onTooltipReady;
   info("tooltip was shown");
 
-  await onNodeUnhighlight;
-  info("highlighter was hidden");
+  ok(
+    containerConditionEl.classList.contains("tooltip-anchor"),
+    "container condition element has the tooltip-anchor class when the tooltip is displayed"
+  );
 
   is(
     tooltip.panel.querySelector("header").textContent,
@@ -343,14 +429,26 @@ async function assertQueryContainerTooltip({
 
   info("Hide the tooltip");
   const onHidden = tooltip.once("hidden");
+  const onNodeUnhighlight = waitForHighlighterTypeHidden(
+    inspector.highlighters.TYPES.BOXMODEL
+  );
 
   // Move the mouse elsewhere to hide the tooltip
   EventUtils.synthesizeMouse(
-    tooltipTriggerEl.ownerDocument.body,
+    containerConditionEl.ownerDocument.body,
     1,
     1,
     { type: "mousemove" },
-    tooltipTriggerEl.ownerDocument.defaultView
+    containerConditionEl.ownerDocument.defaultView
   );
   await onHidden;
+  info("tooltip was hidden");
+
+  ok(
+    !containerConditionEl.classList.contains("tooltip-anchor"),
+    "container condition element doesn't have the tooltip-anchor class after the tooltip is hidden"
+  );
+
+  await onNodeUnhighlight;
+  info("highlighter was hidden");
 }

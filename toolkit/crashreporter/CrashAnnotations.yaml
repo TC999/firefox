@@ -366,6 +366,15 @@ BuildID:
   glean:
     metric: crash.app_build
 
+CrashID:
+  description: A UUID for the crash event.
+  type: string
+  scope: ping
+  bugs:
+    - 1993525
+  glean:
+    metric: crash.id
+
 CrashType:
   description: The type of crash that occurred (Android-only).
   type: string
@@ -1154,6 +1163,12 @@ RemoteType:
     Type of the content process, can be set to "web", "file" or "extension".
   type: string
   scope: ping
+
+RosettaStatus:
+  description: >
+    True if Rosetta translation is being used.
+  type: boolean
+  scope: report
 
 SafeMode:
   description: >

@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -227,7 +225,7 @@ class MarkStack {
   static size_t moveSomeWork(GCMarker* marker, MarkStack& dst, MarkStack& src,
                              bool allowDistribute);
 
-  size_t sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const;
+  size_t sizeOfExcludingThis() const;
 
  private:
   uintptr_t at(size_t index) const {
@@ -487,7 +485,7 @@ class GCMarker {
 
 #ifdef JS_GC_CONCURRENT_MARKING
 
-  using MainThreadBuffer = js::Vector<JS::GCCellPtr, 0, SystemAllocPolicy>;
+  using MainThreadBuffer = js::Vector<JSObject*, 0, SystemAllocPolicy>;
 
   bool processMainThreadBuffers(JS::SliceBudget& budget);
   bool processMainThreadBuffer(MainThreadBuffer& buffer,
@@ -498,7 +496,7 @@ class GCMarker {
            grayMainThreadBuffer_.ref().empty();
   }
 
-  bool addToMainThreadBuffer(JS::GCCellPtr cell);
+  bool addToMainThreadBuffer(JSObject* object, JS::SliceBudget& budget);
 
 #endif  // JS_GC_CONCURRENT_MARKING
 
@@ -530,7 +528,8 @@ class GCMarker {
   friend class gc::GCRuntime;
 
   template <uint32_t markingOptions>
-  bool callOrDelayTraceHook(JSObject* obj, const JSClass* clasp);
+  bool callOrDelayTraceHook(JSObject* obj, const JSClass* clasp,
+                            JS::SliceBudget& budget);
 
   // Helper methods that coerce their second argument to the base pointer
   // type.
@@ -592,6 +591,8 @@ class GCMarker {
   void eagerlyMarkChildren(JSRope* rope);
   template <uint32_t markingOptions>
   void eagerlyMarkChildren(Shape* shape);
+  template <uint32_t markingOptions>
+  void eagerlyMarkChildren(BaseShape* shape);
   template <uint32_t markingOptions>
   void eagerlyMarkChildren(PropMap* map);
   template <uint32_t markingOptions>
@@ -739,14 +740,24 @@ class MOZ_RAII AutoSetMarkColor {
   ~AutoSetMarkColor() { marker_.setMarkColor(initialColor_); }
 };
 
+inline AutoMarkingLock::AutoMarkingLock(JSTracer* trc,
+                                        MarkingLock& markingLock) {
+#ifdef JS_GC_CONCURRENT_MARKING
+  if (IsConcurrentMarkingTracer(trc)) {
+    lock = &markingLock;
+    runtime = trc->runtime();
+    lock->lock(runtime);
+  }
+#endif
+}
+
 MOZ_ALWAYS_INLINE void MemoryAcquireFence(JSTracer* trc) {
 #ifdef JS_GC_CONCURRENT_MARKING
   if (trc->isMarkingTracer() &&
       GCMarker::fromTracer(trc)->isConcurrentMarking()) {
-#  ifdef MOZ_TSAN
-    FullMemoryFence(trc->runtime());
-#  else
     std::atomic_thread_fence(std::memory_order_acquire);
+#  ifdef MOZ_TSAN
+    TSANMemoryAcquireFence(trc->runtime());
 #  endif
   }
 #endif
@@ -756,10 +767,9 @@ template <uint32_t markingOptions>
 MOZ_ALWAYS_INLINE void MemoryAcquireFence(JSRuntime* runtime) {
 #ifdef JS_GC_CONCURRENT_MARKING
   if (bool(markingOptions & MarkingOptions::ConcurrentMarking)) {
-#  ifdef MOZ_TSAN
-    FullMemoryFence(runtime);
-#  else
     std::atomic_thread_fence(std::memory_order_acquire);
+#  ifdef MOZ_TSAN
+    TSANMemoryAcquireFence(runtime);
 #  endif
   }
 #endif

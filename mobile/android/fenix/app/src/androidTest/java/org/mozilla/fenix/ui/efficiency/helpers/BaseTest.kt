@@ -6,14 +6,25 @@ package org.mozilla.fenix.ui.efficiency.helpers
 
 import android.util.Log
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
+import androidx.test.espresso.IdlingResourceTimeoutException
+import androidx.test.espresso.NoMatchingViewException
+import androidx.test.uiautomator.UiObjectNotFoundException
+import leakcanary.NoLeakAssertionFailedError
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
+import org.junit.rules.TestRule
+import org.junit.runners.model.Statement
+import org.mozilla.fenix.ext.components
+import org.mozilla.fenix.helpers.FenixTestRule
 import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
-import org.mozilla.fenix.helpers.RetryTestRule
-import org.mozilla.fenix.helpers.TestSetup
+import org.mozilla.fenix.helpers.IdlingResourceHelper.unregisterAllIdlingResources
+import org.mozilla.fenix.helpers.TestHelper.appContext
+import org.mozilla.fenix.helpers.TestHelper.exitMenu
 import org.mozilla.fenix.ui.efficiency.logging.LoggingBridge
 import org.mozilla.fenix.ui.efficiency.logging.TestLogging
+import org.mozilla.fenix.ui.efficiency.navigation.NavigationRegistry
+import org.mozilla.fenix.ui.efficiency.navigation.planning.PageCatalog
 
 /**
  * BaseTest
@@ -38,22 +49,56 @@ abstract class BaseTest(
     private val skipOnboarding: Boolean = true,
     private val isMenuRedesignCFREnabled: Boolean = false,
     private val isPageLoadTranslationsPromptEnabled: Boolean = false,
-) : TestSetup() {
+) {
 
     @get:Rule(order = 0)
-    val composeRule: AndroidComposeTestRule<HomeActivityIntentTestRule, *> =
-        AndroidComposeTestRule(
-            HomeActivityIntentTestRule(
-                skipOnboarding = skipOnboarding,
-                isMenuRedesignCFREnabled = isMenuRedesignCFREnabled,
-                isPageLoadTranslationsPromptEnabled = isPageLoadTranslationsPromptEnabled,
-            ),
-        ) { it.activity }
+    val fenixTestRule: FenixTestRule = FenixTestRule()
 
-    protected val on: PageContext = PageContext(composeRule)
+    // Backing property so composeRule can be re-created fresh on each retry attempt.
+    // AndroidComposeTestRule holds a TestScope that can only be entered once — re-creating
+    // the rule per attempt ensures a clean TestScope every time.
+    private var _composeRule: AndroidComposeTestRule<HomeActivityIntentTestRule, *>? = null
+    val composeRule get() = _composeRule!!
 
+    // Combines retry and compose rule creation into a single rule. We cannot reuse
+    // RetryTestRule here because the retry logic must own the creation of composeRule —
+    // a separate RetryTestRule has no way to replace an already-constructed @get:Rule.
+    // Re-creates composeRule on each attempt so its internal TestScope is never re-entered,
+    // which would otherwise throw:
+    // "Only a single call to `runTest` can be performed during one test."
     @get:Rule(order = 1)
-    val retryTestRule = RetryTestRule(3)
+    val retryWithCompose: TestRule = TestRule { base, description ->
+        object : Statement() {
+            override fun evaluate() {
+                repeat(1) { attempt ->
+                    _composeRule = AndroidComposeTestRule(
+                        HomeActivityIntentTestRule(
+                            skipOnboarding = skipOnboarding,
+                            isMenuRedesignCFREnabled = isMenuRedesignCFREnabled,
+                            isPageLoadTranslationsPromptEnabled = isPageLoadTranslationsPromptEnabled,
+                        ),
+                    ) { it.activity }
+                    try {
+                        Log.i("BaseTest", "RetryTestRule: Started try #${attempt + 1}.")
+                        _composeRule!!.apply(base, description).evaluate()
+                        return // success, exit early
+                    } catch (t: NoLeakAssertionFailedError) {
+                        Log.i("BaseTest", "RetryTestRule: NoLeakAssertionFailedError caught, not retrying.")
+                        cleanup(removeTabs = true)
+                        throw t
+                    } catch (t: Throwable) {
+                        if (!t.isRetryable() || attempt == 2) throw t
+                        Log.i("BaseTest", "RetryTestRule: ${t::class.simpleName} caught, retrying.")
+                        cleanup()
+                    }
+                }
+            }
+        }
+    }
+
+    // get() ensures this always delegates to the current composeRule instance,
+    // not a stale one captured at class construction time.
+    protected val on: PageContext get() = PageContext(composeRule)
 
     /**
      * Reporter lifecycle:
@@ -65,12 +110,28 @@ abstract class BaseTest(
      * - Makes it easier to evolve toward a more formal "test context" object later.
      */
     @Before
-    override fun setUp() {
-        super.setUp()
+    fun setUp() {
         if (TestLogging.reporter == null) {
             TestLogging.reporter = LoggingBridge.createReporter()
         }
         TestLogging.reporter?.reset()
+        if (java.lang.Boolean.getBoolean("logNavigationSummary")) {
+            NavigationRegistry.logPathSummary()
+        }
+        if (java.lang.Boolean.getBoolean("logPageCatalog")) {
+            val pages = PageCatalog.discoverPages()
+
+            Log.i("PageCatalog", "📚 Discovered ${pages.size} pages from PageContext")
+
+            pages.forEachIndexed { index, pageRef ->
+                val page = pageRef.getter(on)
+
+                Log.i(
+                    "PageCatalog",
+                    "   ${index + 1}. ${page.pageName} (property=${pageRef.propertyName})",
+                )
+            }
+        }
 
         // State tracker is a lightweight breadcrumb used by navigation helpers.
         // Source-of-truth remains selector-based verification (mozIsOnPageNow / mozWaitForPageToLoad).
@@ -97,4 +158,24 @@ abstract class BaseTest(
             // Logging must never fail a test.
         }
     }
+}
+
+private fun cleanup(removeTabs: Boolean = false) {
+    unregisterAllIdlingResources()
+    if (removeTabs) {
+        appContext.components.useCases.tabsUseCases.removeAllTabs()
+    }
+    exitMenu()
+}
+
+private fun Throwable.isRetryable(): Boolean = when (this) {
+    is AssertionError,
+    is junit.framework.AssertionFailedError,
+    is UiObjectNotFoundException,
+    is NoMatchingViewException,
+    is IdlingResourceTimeoutException,
+    is RuntimeException,
+    is NullPointerException,
+    -> true
+    else -> false
 }

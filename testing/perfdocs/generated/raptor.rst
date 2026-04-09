@@ -16322,7 +16322,7 @@ Browsertime tests that use a custom pageload test script. These use the pageload
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: null.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **support class**: browsertime_pageload.py
    * **test script**: None
    * **test url**: `<None>`__
@@ -16946,7 +16946,7 @@ Browsertime tests that use a custom pageload test script. These use the pageload
    * **custom data**: true
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#58>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#51>`__
    * **lower is better**: true
    * **page cycles**: 1
    * **page timeout**: 60000
@@ -17185,273 +17185,6 @@ Browsertime tests that use a custom pageload test script. These use the pageload
         - mozilla-release
         - mozilla-beta
       * - **browsertime-trr-performance-firefox-dns-native**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-
-.. dropdown:: dns-usatdy
-   :class-container: anchor-id-dns-usatdy-c
-
-   * Command to Run Locally
-
-   .. code-block::
-
-      ./mach raptor -t dns-usatdy
-
-   **Owner**: Network Team
-
-   **Description**: Tests DNS lookup time via native DNS for usatoday.com.
-
-   * **alert threshold**: 2.0
-   * **apps**: firefox,fenix
-   * **browser cycles**: 3
-   * **browsertime args**: --browsertime.test_type=browser_idle --browsertime.test_url=https://www.usatoday.com/ --firefox.preference network.trr.mode:0
-   * **cold**: true
-   * **custom data**: true
-   * **expected**: pass
-   * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#23>`__
-   * **lower is better**: true
-   * **page cycles**: 1
-   * **page timeout**: 60000
-   * **test script**: trr_performance.js
-   * **test url**: `<None>`__
-   * **type**: pageload
-   * **unit**: ms
-   * **use live sites**: true
-   * **Test Task**:
-
-   .. list-table:: **test-android-hw-a55-14-0-aarch64-shippable/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-m-fenix-dns-usatdy**
-        - ✅
-        - ❌
-        - ❌
-        - ❌
-      * - **browsertime-trr-performance-m-fenix-dns-usatdy-nofis**
-        - ✅
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-android-hw-a55-14-0-aarch64/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-m-fenix-dns-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-      * - **browsertime-trr-performance-m-fenix-dns-usatdy-nofis**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-linux1804-64-nightlyasrelease-qr/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-dns-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-linux1804-64-qr/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-dns-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-linux1804-64-shippable-qr/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-dns-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-linux2404-64-nightlyasrelease/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-dns-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-linux2404-64-shippable/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-dns-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-linux2404-64/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-dns-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-macosx1470-64-nightlyasrelease/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-dns-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-macosx1470-64-shippable/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-dns-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-macosx1470-64/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-dns-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-windows11-64-24h2-nightlyasrelease/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-dns-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-windows11-64-24h2-shippable/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-dns-usatdy**
-        - ✅
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-windows11-64-24h2/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-dns-usatdy**
         - ❌
         - ❌
         - ❌
@@ -22535,7 +22268,7 @@ Browsertime tests that use a custom pageload test script. These use the pageload
    * **custom data**: true
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#30>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#23>`__
    * **lower is better**: true
    * **page cycles**: 1
    * **page timeout**: 60000
@@ -22760,7 +22493,7 @@ Browsertime tests that use a custom pageload test script. These use the pageload
    * **custom data**: true
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#37>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#30>`__
    * **lower is better**: true
    * **page cycles**: 1
    * **page timeout**: 60000
@@ -23027,7 +22760,7 @@ Browsertime tests that use a custom pageload test script. These use the pageload
    * **custom data**: true
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#44>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#37>`__
    * **lower is better**: true
    * **page cycles**: 1
    * **page timeout**: 60000
@@ -23252,7 +22985,7 @@ Browsertime tests that use a custom pageload test script. These use the pageload
    * **custom data**: true
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#51>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#44>`__
    * **lower is better**: true
    * **page cycles**: 1
    * **page timeout**: 60000
@@ -23519,7 +23252,7 @@ Browsertime tests that use a custom pageload test script. These use the pageload
    * **custom data**: true
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#65>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#58>`__
    * **lower is better**: true
    * **page cycles**: 1
    * **page timeout**: 60000
@@ -23758,273 +23491,6 @@ Browsertime tests that use a custom pageload test script. These use the pageload
         - mozilla-release
         - mozilla-beta
       * - **browsertime-trr-performance-firefox-trr-next**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-
-.. dropdown:: trr-usatdy
-   :class-container: anchor-id-trr-usatdy-c
-
-   * Command to Run Locally
-
-   .. code-block::
-
-      ./mach raptor -t trr-usatdy
-
-   **Owner**: Network Team
-
-   **Description**: Tests DNS lookup time on a Cloudflare TRR server for usatoday.com.
-
-   * **alert threshold**: 2.0
-   * **apps**: firefox,fenix
-   * **browser cycles**: 3
-   * **browsertime args**: --browsertime.test_type=browser_idle --browsertime.test_url=https://www.usatoday.com/ --firefox.preference network.trr.mode:3 --firefox.preference network.trr.uri:https://mozilla.cloudflare-dns.com/dns-query
-   * **cold**: true
-   * **custom data**: true
-   * **expected**: pass
-   * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#72>`__
-   * **lower is better**: true
-   * **page cycles**: 1
-   * **page timeout**: 60000
-   * **test script**: trr_performance.js
-   * **test url**: `<None>`__
-   * **type**: pageload
-   * **unit**: ms
-   * **use live sites**: true
-   * **Test Task**:
-
-   .. list-table:: **test-android-hw-a55-14-0-aarch64-shippable/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-m-fenix-trr-usatdy**
-        - ✅
-        - ❌
-        - ❌
-        - ❌
-      * - **browsertime-trr-performance-m-fenix-trr-usatdy-nofis**
-        - ✅
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-android-hw-a55-14-0-aarch64/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-m-fenix-trr-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-      * - **browsertime-trr-performance-m-fenix-trr-usatdy-nofis**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-linux1804-64-nightlyasrelease-qr/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-trr-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-linux1804-64-qr/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-trr-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-linux1804-64-shippable-qr/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-trr-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-linux2404-64-nightlyasrelease/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-trr-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-linux2404-64-shippable/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-trr-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-linux2404-64/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-trr-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-macosx1470-64-nightlyasrelease/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-trr-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-macosx1470-64-shippable/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-trr-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-macosx1470-64/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-trr-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-windows11-64-24h2-nightlyasrelease/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-trr-usatdy**
-        - ❌
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-windows11-64-24h2-shippable/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-trr-usatdy**
-        - ✅
-        - ❌
-        - ❌
-        - ❌
-
-
-   .. list-table:: **test-windows11-64-24h2/opt**
-      :widths: 30 15 15 15 15
-      :header-rows: 1
-
-      * - **Test Name**
-        - mozilla-central
-        - autoland
-        - mozilla-release
-        - mozilla-beta
-      * - **browsertime-trr-performance-firefox-trr-usatdy**
         - ❌
         - ❌
         - ❌
@@ -24053,7 +23519,7 @@ Browsertime tests that use a custom pageload test script. These use the pageload
    * **custom data**: true
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#79>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#65>`__
    * **lower is better**: true
    * **page cycles**: 1
    * **page timeout**: 60000
@@ -24278,7 +23744,7 @@ Browsertime tests that use a custom pageload test script. These use the pageload
    * **custom data**: true
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#86>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#72>`__
    * **lower is better**: true
    * **page cycles**: 1
    * **page timeout**: 60000
@@ -24545,7 +24011,7 @@ Browsertime tests that use a custom pageload test script. These use the pageload
    * **custom data**: true
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#93>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#79>`__
    * **lower is better**: true
    * **page cycles**: 1
    * **page timeout**: 60000
@@ -24770,7 +24236,7 @@ Browsertime tests that use a custom pageload test script. These use the pageload
    * **custom data**: true
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#100>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/custom/browsertime-trr-performance.toml#86>`__
    * **lower is better**: true
    * **page cycles**: 1
    * **page timeout**: 60000
@@ -28817,7 +28283,7 @@ Browsertime tests that use a custom pageload test script. These use the pageload
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm5-linux-firefox-welcome.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **support class**: browsertime_pageload.py
    * **test script**: welcome.js
    * **test url**: `<about:welcome>`__
@@ -29047,9 +28513,9 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
-   * **playback pageset manifest**: mitm11-windows-firefox-amazon.manifest
+   * **playback pageset manifest**: mitm12-windows-firefox-amazon.manifest
    * **playback pageset manifest backup**: mitm8-linux-firefox-amazon.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://www.amazon.com/Acer-A515-46-R14K-Quad-Core-Processor-Backlit/dp/B08VKNVDDR/ref=sr_1_3?dchild=1&keywords=laptop&qid=1627047187&sr=8-3>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.amazon.com/s?k=laptop&ref=nb_sb_noss_1>`__
@@ -29449,6 +28915,22 @@ Tests for page-load performance. The links direct to the actual websites that ar
         - ❌
 
 
+   .. list-table:: **test-macosx1500-aarch64-shippable/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-tp6-essential-firefox-amazon**
+        - ✅
+        - ❌
+        - ❌
+        - ❌
+
+
    .. list-table:: **test-windows11-64-24h2-nightlyasrelease/opt**
       :widths: 30 15 15 15 15
       :header-rows: 1
@@ -29582,7 +29064,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm8-darwin-firefox-bing-search.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.bing.com/search?q=barack+obama>`__
    * **type**: pageload
@@ -29911,6 +29393,22 @@ Tests for page-load performance. The links direct to the actual websites that ar
         - ❌
 
 
+   .. list-table:: **test-macosx1500-aarch64-shippable/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-tp6-essential-firefox-bing-search**
+        - ✅
+        - ❌
+        - ❌
+        - ❌
+
+
    .. list-table:: **test-windows11-64-24h2-nightlyasrelease/opt**
       :widths: 30 15 15 15 15
       :header-rows: 1
@@ -30030,7 +29528,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm11-windows-firefox-buzzfeed.manifest
    * **playback pageset manifest backup**: mitm7-linux-firefox-buzzfeed.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://www.buzzfeed.com/quizzes>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.buzzfeed.com/>`__
@@ -30317,9 +29815,9 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
-   * **playback pageset manifest**: mitm11-windows-firefox-cnn.manifest
+   * **playback pageset manifest**: mitm12-darwin-firefox-cnn.manifest
    * **playback pageset manifest backup**: mitm8-linux-firefox-cnn.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://www.cnn.com/weather>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.cnn.com/2021/03/22/weather/climate-change-warm-waters-lake-michigan/index.html>`__
@@ -30634,6 +30132,22 @@ Tests for page-load performance. The links direct to the actual websites that ar
         - ❌
 
 
+   .. list-table:: **test-macosx1500-aarch64-shippable/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-tp6-essential-firefox-cnn**
+        - ✅
+        - ❌
+        - ❌
+        - ❌
+
+
    .. list-table:: **test-windows11-64-24h2-nightlyasrelease/opt**
       :widths: 30 15 15 15 15
       :header-rows: 1
@@ -30747,7 +30261,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm8-linux-firefox-docomo.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://www.docomo.ne.jp/iphone/?icid=CRP_menu_to_CRP_IPH>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.docomo.ne.jp/>`__
@@ -30994,7 +30508,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm11-windows-firefox-ebay.manifest
    * **playback pageset manifest backup**: mitm8-linux-firefox-ebay.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://www.ebay.com/deals>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.ebay.com/>`__
@@ -31373,7 +30887,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm11-windows-firefox-espn.manifest
    * **playback pageset manifest backup**: mitm8-linux-firefox-espn.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://www.espn.com/nba/draft/news>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.espn.com/nba/story/_/page/allstarweekend25788027/the-comparison-lebron-james-michael-jordan-their-own-words>`__
@@ -31661,7 +31175,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm8-darwin-firefox-expedia.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://groups.expedia.com/Group-Rate/?locale=en_US&ol=1>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://expedia.com/Hotel-Search?destination=New+York%2C+New+York&latLong=40.756680%2C-73.986470&regionId=178293&startDate=&endDate=&rooms=1&_xpid=11905%7C1&adults=2>`__
@@ -31950,7 +31464,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm11-windows-firefox-facebook.manifest
    * **playback pageset manifest backup**: mitm6-linux-firefox-facebook.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://www.facebook.com/marketplace/?ref=bookmark>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.facebook.com>`__
@@ -32324,7 +31838,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm11-windows-firefox-fandom.manifest
    * **playback pageset manifest backup**: mitm5-linux-firefox-fandom.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.fandom.com/articles/fallout-76-will-live-and-die-on-the-creativity-of-its-playerbase>`__
    * **type**: pageload
@@ -32653,6 +32167,22 @@ Tests for page-load performance. The links direct to the actual websites that ar
         - ❌
 
 
+   .. list-table:: **test-macosx1500-aarch64-shippable/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-tp6-essential-firefox-fandom**
+        - ✅
+        - ❌
+        - ❌
+        - ❌
+
+
    .. list-table:: **test-windows11-64-24h2-nightlyasrelease/opt**
       :widths: 30 15 15 15 15
       :header-rows: 1
@@ -32771,9 +32301,9 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
-   * **playback pageset manifest**: mitm11-windows-firefox-google-docs.manifest
+   * **playback pageset manifest**: mitm12-darwin-firefox-google-docs.manifest
    * **playback pageset manifest backup**: mitm8-linux-firefox-google-docs.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://docs.google.com/document/d/1vUnn0ePU-ynArE1OdxyEHXR2G0sl74ja_st_4OOzlgE/preview>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://docs.google.com/document/d/1US-07msg12slQtI_xchzYxcKlTs6Fp7WqIc6W5GK5M8/edit?usp=sharing>`__
@@ -33151,7 +32681,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm5-linux-firefox-google-mail.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://mail.google.com/>`__
    * **type**: pageload
@@ -33900,13 +33430,13 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#94>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#96>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm8-linux-firefox-google-slides.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://docs.google.com/presentation/d/e/2PACX-1vRWwPQQFMDkSR4RtYc7HSAGm-hoprespfemIk5SatJxd2o8yrFfrMeAAUkjdfalC5PpjJ9ZKgfsuQ1T/pub?start=false&loop=false&delayms=3000>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://docs.google.com/presentation/d/1Ici0ceWwpFvmIb3EmKeWSq_vAQdmmdFcWqaiLqUkJng/edit?usp=sharing>`__
@@ -34236,6 +33766,22 @@ Tests for page-load performance. The links direct to the actual websites that ar
         - ❌
 
 
+   .. list-table:: **test-macosx1500-aarch64-shippable/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-tp6-essential-firefox-google-slides**
+        - ✅
+        - ❌
+        - ❌
+        - ❌
+
+
    .. list-table:: **test-windows11-64-24h2-nightlyasrelease/opt**
       :widths: 30 15 15 15 15
       :header-rows: 1
@@ -34348,14 +33894,14 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#100>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#102>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm11-windows-firefox-imdb.manifest
    * **playback pageset manifest backup**: mitm8-linux-firefox-imdb.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://www.imdb.com/title/tt0084967/episodes/?ref_=tt_ov_epl>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.imdb.com/title/tt0084967/?ref_=nv_sr_2>`__
@@ -34727,14 +34273,14 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#106>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#108>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm11-windows-firefox-imgur.manifest
    * **playback pageset manifest backup**: mitm8-linux-firefox-imgur.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **preferences**: media.autoplay.default=5 media.autoplay.ask-permission=true media.autoplay.blocking_policy=1 media.allowed-to-play.enabled=false media.block-autoplay-until-in-foreground=true
    * **secondary url**: `<https://imgur.com/gallery/firefox-logo-w8fgXyY>`__
    * **support class**: browsertime_pageload.py
@@ -35092,13 +34638,13 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#119>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#121>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm8-darwin-firefox-instagram.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://www.instagram.com/nobelprize_org/>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.instagram.com/>`__
@@ -35423,6 +34969,22 @@ Tests for page-load performance. The links direct to the actual websites that ar
         - ❌
 
 
+   .. list-table:: **test-macosx1500-aarch64-shippable/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-tp6-essential-firefox-instagram**
+        - ✅
+        - ❌
+        - ❌
+        - ❌
+
+
    .. list-table:: **test-windows11-64-24h2-nightlyasrelease/opt**
       :widths: 30 15 15 15 15
       :header-rows: 1
@@ -35535,7 +35097,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#124>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#126>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
@@ -35913,13 +35475,13 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#130>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#132>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm8-linux-firefox-microsoft.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://support.microsoft.com/en-us>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.microsoft.com/en-us/>`__
@@ -36291,7 +35853,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#135>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#137>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
@@ -36664,13 +36226,13 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#141>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#143>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm7-linux-firefox-nytimes.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://www.nytimes.com/section/opinion/columnists>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.nytimes.com/2020/02/19/opinion/surprise-medical-bill.html>`__
@@ -36952,13 +36514,13 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#145>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#147>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm7-linux-firefox-office.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://www.office.com/>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.office.com/launch/powerpoint?auth=1>`__
@@ -37246,7 +36808,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm8-linux-firefox-openai.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://openai.com/blog>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://openai.com/>`__
@@ -37486,13 +37048,13 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#149>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#151>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm5-linux-firefox-live.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://outlook.live.com/mail/inbox>`__
    * **type**: pageload
@@ -37858,13 +37420,13 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#153>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#155>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm5-linux-firefox-paypal.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.paypal.com/myaccount/summary/>`__
    * **type**: pageload
@@ -38235,7 +37797,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#157>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#159>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
@@ -38613,14 +38175,14 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#164>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#166>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm11-windows-firefox-reddit.manifest
    * **playback pageset manifest backup**: mitm8-linux-firefox-reddit.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://www.reddit.com/r/technology/>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.reddit.com/r/technology/comments/9sqwyh/we_posed_as_100_senators_to_run_ads_on_facebook/>`__
@@ -38998,7 +38560,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm8-linux-firefox-samsung.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://www.samsung.com/us/mobile>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.samsung.com/us>`__
@@ -39244,7 +38806,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm8-linux-firefox-tiktok.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://www.tiktok.com/explore>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.tiktok.com/en>`__
@@ -39484,7 +39046,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#171>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#173>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
@@ -39862,14 +39424,14 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#177>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#179>`__
    * **lower is better**: true
    * **measure**: fcp, loadtime, ContentfulSpeedIndex, PerceptualSpeedIndex, SpeedIndex, FirstVisualChange, LastVisualChange
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm8-linux-firefox-twitch.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **preferences**: media.autoplay.default=5 media.autoplay.ask-permission=true media.autoplay.blocking_policy=1 media.allowed-to-play.enabled=false media.block-autoplay-until-in-foreground=true
    * **secondary url**: `<https://www.twitch.tv/gmashley>`__
    * **support class**: browsertime_pageload.py
@@ -40242,13 +39804,13 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#190>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#192>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm5-linux-firefox-twitter.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://twitter.com/BarackObama>`__
    * **type**: pageload
@@ -40572,6 +40134,22 @@ Tests for page-load performance. The links direct to the actual websites that ar
         - ❌
 
 
+   .. list-table:: **test-macosx1500-aarch64-shippable/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-tp6-essential-firefox-twitter**
+        - ✅
+        - ❌
+        - ❌
+        - ❌
+
+
    .. list-table:: **test-windows11-64-24h2-nightlyasrelease/opt**
       :widths: 30 15 15 15 15
       :header-rows: 1
@@ -40690,7 +40268,7 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm8-linux-firefox-weather.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://weather.com/en-CA/weather/monthly/l/43.67%2C-79.42>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://weather.com/en-CA/weather/today/l/43.67%2C-79.42>`__
@@ -40930,12 +40508,13 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#195>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#197>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm7-linux-firefox-wikia.manifest
+   * **playback pageset manifest backup**: mitm7-linux-firefox-wikia.manifest
    * **playback version**: 11.0.0
    * **secondary url**: `<https://marvel.fandom.com/wiki/Celestials>`__
    * **support class**: browsertime_pageload.py
@@ -41218,14 +40797,14 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#200>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#205>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm11-windows-firefox-wikipedia.manifest
    * **playback pageset manifest backup**: mitm7-linux-firefox-wikipedia.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://en.wikipedia.org/wiki/Joe_Biden>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://en.wikipedia.org/wiki/Barack_Obama>`__
@@ -41555,6 +41134,22 @@ Tests for page-load performance. The links direct to the actual websites that ar
         - ❌
 
 
+   .. list-table:: **test-macosx1500-aarch64-shippable/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-tp6-essential-firefox-wikipedia**
+        - ✅
+        - ❌
+        - ❌
+        - ❌
+
+
    .. list-table:: **test-windows11-64-24h2-nightlyasrelease/opt**
       :widths: 30 15 15 15 15
       :header-rows: 1
@@ -41667,13 +41262,13 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#206>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#211>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm5-linux-firefox-yahoo-mail.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://mail.yahoo.com/>`__
    * **type**: pageload
@@ -42002,6 +41597,22 @@ Tests for page-load performance. The links direct to the actual websites that ar
         - ❌
 
 
+   .. list-table:: **test-macosx1500-aarch64-shippable/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-tp6-essential-firefox-yahoo-mail**
+        - ✅
+        - ❌
+        - ❌
+        - ❌
+
+
    .. list-table:: **test-windows11-64-24h2-nightlyasrelease/opt**
       :widths: 30 15 15 15 15
       :header-rows: 1
@@ -42114,14 +41725,14 @@ Tests for page-load performance. The links direct to the actual websites that ar
    * **browser cycles**: 25
    * **expected**: pass
    * **gecko profile interval**: 1
-   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#211>`__
+   * **link searchfox**: `<https://searchfox.org/mozilla-central/source/testing/raptor/raptor/tests/tp6/desktop/browsertime-tp6.toml#216>`__
    * **lower is better**: true
    * **page cycles**: 25
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm11-windows-firefox-youtube.manifest
    * **playback pageset manifest backup**: mitm7-linux-firefox-youtube.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **secondary url**: `<https://www.youtube.com/watch?v=JrdEMERq8MA>`__
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.youtube.com>`__
@@ -42507,7 +42118,7 @@ Browsertime tests that interact with the webpage. Includes responsiveness tests 
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm7-linux-firefox-cnn-nav.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **support class**: browsertime_pageload.py
    * **test cmds**: ['measure.start', 'landing'] ['navigate', 'https://www.cnn.com'] ['wait.byTime', '4000'] ['measure.stop', ''] ['measure.start', 'world'] ['click.byXpathAndWait', '/html/body/div[5]/div/div/header/div/div[1]/div/div[2]/nav/ul/li[2]/a'] ['wait.byTime', '1000'] ['measure.stop', '']
    * **test url**: `<https://www.cnn.com/>`__
@@ -42789,7 +42400,7 @@ Browsertime tests that interact with the webpage. Includes responsiveness tests 
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm11-windows-firefox-facebook-nav.manifest
    * **playback pageset manifest backup**: mitm6-windows-firefox-facebook-nav.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **support class**: browsertime_pageload.py
    * **test cmds**: ['measure.start', 'landing'] ['navigate', 'https://www.facebook.com/'] ['wait.byTime', '5000'] ['measure.stop', ''] ['measure.start', 'marketplace'] ['navigate', 'https://www.facebook.com/marketplace'] ['wait.byTime', '5000'] ['measure.stop', ''] ['measure.start', 'groups'] ['navigate', 'https://www.facebook.com/groups/discover/'] ['wait.byTime', '5000'] ['measure.stop', ''] ['measure.start', 'friends'] ['navigate', 'https://www.facebook.com/friends/'] ['wait.byTime', '5000'] ['measure.stop', '']
    * **test url**: `<https://www.facebook.com>`__
@@ -45059,7 +44670,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
    * **playback pageset manifest**: mitm8-android-gve-allrecipes.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.allrecipes.com/>`__
    * **type**: pageload
@@ -45556,7 +45167,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
    * **playback pageset manifest**: mitm8-android-fenix-bild-de.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.bild.de/sport/american-football/nfl/super-bowl-rekordquote-fuer-die-nfl-87139668.bild.html>`__
    * **type**: pageload
@@ -48044,7 +47655,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
    * **playback pageset manifest**: mitm8-android-gve-instagram.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.instagram.com>`__
    * **type**: pageload
@@ -48521,7 +48132,7 @@ Page-load performance test suite on Android. The links direct to the actual webs
    * **page timeout**: 60000
    * **playback**: mitmproxy-android
    * **playback pageset manifest**: mitm8-android-fenix-sina.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **support class**: browsertime_pageload.py
    * **test url**: `<https://www.sina.com.cn/>`__
    * **type**: pageload
@@ -49332,7 +48943,7 @@ These tests aren't used in standard testing, they are only used in the Raptor un
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm7-linux-firefox-test-page-1.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **test url**: `<https://www.amazon.com/s?k=laptop&ref=nb_sb_noss_1>`__
    * **type**: pageload
    * **unit**: ms
@@ -49360,7 +48971,7 @@ These tests aren't used in standard testing, they are only used in the Raptor un
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm7-linux-firefox-test-page-2.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **test url**: `<https://www.facebook.com>`__
    * **type**: pageload
    * **unit**: ms
@@ -49388,7 +48999,7 @@ These tests aren't used in standard testing, they are only used in the Raptor un
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm7-linux-firefox-test-page-3.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **test url**: `<https://www.google.com/search?hl=en&q=barack+obama&cad=h>`__
    * **type**: pageload
    * **unit**: ms
@@ -49416,7 +49027,7 @@ These tests aren't used in standard testing, they are only used in the Raptor un
    * **page timeout**: 60000
    * **playback**: mitmproxy
    * **playback pageset manifest**: mitm7-linux-firefox-test-page-4.manifest
-   * **playback version**: 11.0.0
+   * **playback version**: 12.2.1
    * **test url**: `<https://www.youtube.com>`__
    * **type**: pageload
    * **unit**: ms

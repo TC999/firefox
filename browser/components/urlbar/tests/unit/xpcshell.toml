@@ -30,13 +30,19 @@ support-files = ["data/engine.xml"]
 
 ["test_UrlbarSearchUtils.js"]
 
+["test_UrlbarUtils_addToInputHistoryWhenReady.js"]
+
 ["test_UrlbarUtils_addToUrlbarHistory.js"]
+
+["test_UrlbarUtils_autofillBlock.js"]
 
 ["test_UrlbarUtils_copySnakeKeysToCamel.js"]
 
 ["test_UrlbarUtils_getShortcutOrURIAndPostData.js"]
 
 ["test_UrlbarUtils_getTokenMatches.js"]
+
+["test_UrlbarUtils_isOriginUrl.js"]
 
 ["test_UrlbarUtils_skippableTimer.js"]
 
@@ -46,6 +52,10 @@ support-files = ["data/engine.xml"]
 
 ["test_autofill_adaptiveHistory.js"]
 requesttimeoutfactor = 3  # Slow on Mac debug
+
+["test_autofill_adaptive_origin_fallback.js"]
+
+["test_autofill_blocking.js"]
 
 ["test_autofill_bookmarked.js"]
 
@@ -177,6 +187,8 @@ requesttimeoutfactor = 2  # Slow on Linux and Windows
 ["test_query_url.js"]
 
 ["test_quickactions.js"]
+
+["test_quickaction_telemetry.js"]
 
 ["test_remote_tabs.js"]
 skip-if = [

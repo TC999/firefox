@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -125,6 +123,24 @@
 
 using namespace mozilla;
 using namespace mozilla::dom;
+
+#define STATIC_ASSERT_CONSTANT_EQ(c_) \
+  static_assert(Node_Binding::c_ == nsINode::c_);
+
+STATIC_ASSERT_CONSTANT_EQ(ELEMENT_NODE);
+STATIC_ASSERT_CONSTANT_EQ(ATTRIBUTE_NODE);
+STATIC_ASSERT_CONSTANT_EQ(TEXT_NODE);
+STATIC_ASSERT_CONSTANT_EQ(CDATA_SECTION_NODE);
+STATIC_ASSERT_CONSTANT_EQ(ENTITY_REFERENCE_NODE);
+STATIC_ASSERT_CONSTANT_EQ(ENTITY_NODE);
+STATIC_ASSERT_CONSTANT_EQ(PROCESSING_INSTRUCTION_NODE);
+STATIC_ASSERT_CONSTANT_EQ(COMMENT_NODE);
+STATIC_ASSERT_CONSTANT_EQ(DOCUMENT_NODE);
+STATIC_ASSERT_CONSTANT_EQ(DOCUMENT_TYPE_NODE);
+STATIC_ASSERT_CONSTANT_EQ(DOCUMENT_FRAGMENT_NODE);
+STATIC_ASSERT_CONSTANT_EQ(NOTATION_NODE);
+
+#undef STATIC_ASSERT_CONSTANT_EQ
 
 static bool ShouldUseNACScope(const nsINode* aNode) {
   return aNode->IsInNativeAnonymousSubtree();
@@ -537,12 +553,8 @@ bool nsINode::IsSelected(const uint32_t aStartOffset, const uint32_t aEndOffset,
   return false;
 }
 
-Element* nsINode::GetAnonymousRootElementOfTextEditor(
-    TextEditor** aTextEditor) {
-  if (aTextEditor) {
-    *aTextEditor = nullptr;
-  }
-  RefPtr<TextControlElement> textControlElement;
+Element* nsINode::GetAnonymousRootElementOfTextEditor() {
+  TextControlElement* textControlElement = nullptr;
   if (IsInNativeAnonymousSubtree()) {
     textControlElement = TextControlElement::FromNodeOrNull(
         GetClosestNativeAnonymousSubtreeRootParentOrHost());
@@ -552,20 +564,7 @@ Element* nsINode::GetAnonymousRootElementOfTextEditor(
   if (!textControlElement) {
     return nullptr;
   }
-  RefPtr<TextEditor> textEditor = textControlElement->GetTextEditor();
-  if (!textEditor) {
-    // The found `TextControlElement` may be an input element which is not a
-    // text control element.  In this case, such element must not be in a
-    // native anonymous tree of a `TextEditor` so this node is not in any
-    // `TextEditor`.
-    return nullptr;
-  }
-
-  Element* rootElement = textEditor->GetRoot();
-  if (aTextEditor) {
-    textEditor.forget(aTextEditor);
-  }
-  return rootElement;
+  return textControlElement->GetTextEditorRoot();
 }
 
 void nsINode::QueueDevtoolsAnonymousEvent(bool aIsRemove) {
@@ -1113,12 +1112,7 @@ void nsINode::Normalize() {
         node->GetCharacterDataBuffer();
     if (characterDataBuffer->GetLength()) {
       nsIContent* target = node->GetPreviousSibling();
-      NS_ASSERTION((target && target->NodeType() == TEXT_NODE) ||
-                       notifyDevToolsOfNodeRemovals,
-                   "Should always have a previous text sibling unless "
-                   "mutation events messed us up");
-      if (MOZ_LIKELY(!notifyDevToolsOfNodeRemovals) ||
-          (target && target->NodeType() == TEXT_NODE)) {
+      if (target && target->NodeType() == TEXT_NODE) {
         nsTextNode* t = static_cast<nsTextNode*>(target);
         if (characterDataBuffer->Is2b()) {
           t->AppendTextForNormalize(characterDataBuffer->Get2b(),
@@ -3890,8 +3884,10 @@ already_AddRefed<nsINode> nsINode::CloneAndAdopt(
         JSAutoRealm ar(cx, wrapper);
         UpdateReflectorGlobal(cx, wrapper, aError);
         if (aError.Failed()) {
+          bool needsRollBack = false;
           if (wasRegistered) {
-            newDoc->UnregisterActivityObserver(aNode->AsElement());
+            needsRollBack =
+                newDoc->UnregisterActivityObserver(aNode->AsElement());
           }
           if (hadProperties) {
             // NOTE: When it fails it removes all properties for the node
@@ -3901,7 +3897,7 @@ already_AddRefed<nsINode> nsINode::CloneAndAdopt(
           }
           aNode->mNodeInfo.swap(newNodeInfo);
           aNode->NodeInfoChanged(newDoc);
-          if (wasRegistered) {
+          if (needsRollBack) {
             oldDoc->RegisterActivityObserver(aNode->AsElement());
           }
           return nullptr;

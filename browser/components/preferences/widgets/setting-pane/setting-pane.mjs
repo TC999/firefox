@@ -4,6 +4,11 @@
 
 import { html } from "chrome://global/content/vendor/lit.all.mjs";
 import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
+import { SettingPaneManager } from "chrome://browser/content/preferences/config/SettingPaneManager.mjs";
+
+/**
+ * @import { MozPageHeader } from "chrome://global/content/elements/moz-page-header.mjs"
+ */
 
 /**
  * @typedef {object} SettingPaneConfig
@@ -11,9 +16,14 @@ import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
  * @property {string} l10nId Fluent id for the heading/description.
  * @property {string[]} groupIds What setting groups should be rendered.
  * @property {string} [iconSrc] Optional icon shown in the page header.
+ * @property {string} [supportPage] Optional support page for the page header.
  * @property {string} [module] Import path for module housing the config.
+ * @property {"beta" | "new"} [badge] Badge type to display in the page header.
  * @property {() => boolean} [visible] If this pane is visible.
  * @property {string} [replaces] ID of legacy pane getting replaced by new pane.
+ *
+ * @typedef {string} SettingPaneId
+ * @typedef {SettingPaneConfig & { id: SettingPaneId }} SettingPaneFullConfig
  */
 
 export class SettingPane extends MozLitElement {
@@ -23,9 +33,14 @@ export class SettingPane extends MozLitElement {
     config: { type: Object },
   };
 
-  static queries = {
-    pageHeaderEl: "moz-page-header",
-  };
+  /** @returns {MozPageHeader} */
+  get pageHeaderEl() {
+    return this.renderRoot.querySelector("moz-page-header");
+  }
+
+  get paneId() {
+    return this.config.id;
+  }
 
   constructor() {
     super();
@@ -33,7 +48,7 @@ export class SettingPane extends MozLitElement {
     this.name = undefined;
     /** @type {boolean} */
     this.isSubPane = false;
-    /** @type {SettingPaneConfig} */
+    /** @type {SettingPaneFullConfig} */
     this.config = undefined;
   }
 
@@ -43,7 +58,6 @@ export class SettingPane extends MozLitElement {
 
   async getUpdateComplete() {
     let result = await super.getUpdateComplete();
-    // @ts-ignore bug 1997478
     await this.pageHeaderEl.updateComplete;
     return result;
   }
@@ -56,8 +70,8 @@ export class SettingPane extends MozLitElement {
     if (this.config.visible) {
       let visible = this.config.visible();
       if (!visible && !this.isSubPane) {
-        let categoryButton = /** @type {XULElement} */ (
-          document.querySelector(`#categories [value="${this.name}"]`)
+        let categoryButton = document.querySelector(
+          `#categories moz-page-nav-button[view="${this.name}"]`
         );
         if (categoryButton) {
           categoryButton.remove();
@@ -103,18 +117,27 @@ export class SettingPane extends MozLitElement {
     if (this.config.module) {
       ChromeUtils.importESModule(this.config.module, { global: "current" });
     }
+
+    // Notify observers that the module is loaded. This needs to be done prior
+    // to the initSettingGroup calls since the home pane relies on this event
+    // to register additional groups.
+    Services.obs.notifyObservers(
+      /** @type {nsISupports} */ (window),
+      `${this.config.id}-pane-loaded`
+    );
+
+    SettingPaneManager.importPane(this.paneId);
     for (let groupId of this.config.groupIds) {
       window.initSettingGroup(groupId);
     }
   }
 
   _createCategoryButton() {
-    let categoryButton = document.createXULElement("richlistitem");
-    categoryButton.classList.add("category");
+    let categoryButton = document.createElement("moz-page-nav-button");
     if (this.isSubPane) {
       categoryButton.classList.add("hidden-category");
     }
-    categoryButton.setAttribute("value", this.name);
+    categoryButton.setAttribute("view", this.name);
     document.getElementById("categories").append(categoryButton);
   }
 
@@ -126,6 +149,21 @@ export class SettingPane extends MozLitElement {
     ></setting-group>`;
   }
 
+  breadcrumbsTemplate() {
+    if (!this.isSubPane) {
+      return "";
+    }
+    return html`<moz-breadcrumb-group slot="breadcrumbs">
+      ${SettingPaneManager.getWithParents(this.paneId).map(
+        config =>
+          html`<moz-breadcrumb
+            data-l10n-id=${config.l10nId}
+            .href=${"#" + config.id}
+          ></moz-breadcrumb>`
+      )}
+    </moz-breadcrumb-group>`;
+  }
+
   render() {
     return html`
       <section>
@@ -133,9 +171,11 @@ export class SettingPane extends MozLitElement {
           data-l10n-id=${this.config.l10nId}
           .iconSrc=${this.config.iconSrc}
           .supportPage=${this.config.supportPage}
+          .badge=${this.config.badge}
           .backButton=${this.isSubPane}
           @navigate-back=${this.goBack}
-        ></moz-page-header>
+          >${this.breadcrumbsTemplate()}</moz-page-header
+        >
         ${this.config.groupIds.map(groupId => this.groupTemplate(groupId))}
       </section>
     `;

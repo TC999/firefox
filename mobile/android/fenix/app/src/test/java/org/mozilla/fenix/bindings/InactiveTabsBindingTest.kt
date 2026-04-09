@@ -34,7 +34,9 @@ class InactiveTabsBindingTest {
         tabsTrayStore = spyk(
             TabsTrayStore(
                 TabsTrayState(
-                    inactiveTabsExpanded = false,
+                    inactiveTabs = TabsTrayState.InactiveTabsState(
+                        isExpanded = false,
+                    ),
                 ),
             ),
         )

@@ -195,6 +195,27 @@ linux64-custom-v8:
         ]
         toolchain-artifact: public/build/d8.tar.zst
 
+linux64-marannon:
+    description: "marannon"
+    treeherder:
+        symbol: TL(marannon)
+    fetches:
+        toolchain:
+            - linux64-clang-toolchain
+            - linux64-rust
+            - sysroot-x86_64-linux-gnu
+    run:
+        script: build-rust-based-toolchain.sh
+        sparse-profile: null
+        toolchain-artifact: public/build/marannon.tar.zst
+        resources:
+            - tools/update-verify/marannon/**
+        arguments: ["x86_64-unknown-linux-gnu"]
+    worker:
+        env:
+            CRATE_PATH: tools/update-verify/marannon
+            RUN_TESTS: "1"
+
 macosx64-xz:
     description: "xz development library"
     worker-type: b-osx-1015
@@ -247,7 +268,7 @@ macosx-custom-car:
         toolchain-artifact: public/build/car_macosx.tar.zst
     fetches:
         toolchain:
-            - MacOSX26.2.sdk
+            - MacOSX26.4.sdk
 
 macosx-arm64-custom-car:
     description: "Custom chromium-as-release build for mac (apple silicon)"
@@ -283,7 +304,7 @@ macosx-arm64-custom-car:
         toolchain-artifact: public/build/car_macosx_arm.tar.zst
     fetches:
         toolchain:
-            - MacOSX26.2.sdk
+            - MacOSX26.4.sdk
 
 android-custom-car:
     description: "Custom chromium-as-release build for Android"
@@ -410,10 +431,7 @@ puppeteer-build:
         script: puppeteer-build.sh
         sparse-profile: null
         resources:
-            - 'remote/test/puppeteer/package.json'
-            - 'remote/test/puppeteer/package-lock.json'
-            - 'remote/test/puppeteer/test/package.json'
-            - 'remote/test/puppeteer/test/TestExpectations.json'
+            - 'remote/test/puppeteer/**'
         toolchain-artifact: public/build/puppeteer-build.tar.zst
     fetches:
         toolchain:

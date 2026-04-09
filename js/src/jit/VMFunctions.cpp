@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -1404,10 +1402,10 @@ bool LeaveWith(JSContext* cx, BaselineFrame* frame) {
   return true;
 }
 
-bool InitBaselineFrameForOsr(BaselineFrame* frame,
+void InitBaselineFrameForOsr(BaselineFrame* frame,
                              InterpreterFrame* interpFrame,
                              uint32_t numStackValues) {
-  return frame->initForOsr(interpFrame, numStackValues);
+  frame->initForOsr(interpFrame, numStackValues);
 }
 
 JSString* StringReplace(JSContext* cx, HandleString string,
@@ -1800,9 +1798,11 @@ static MOZ_ALWAYS_INLINE bool MaybeGetNativePropertyAndWriteToCache(
           return true;
         }
 
-        RootedValue getter(cx, nobj->getGetterValue(prop));
-        RootedValue receiver(cx, ObjectValue(*obj));
-        RootedValue rootedValue(cx);
+        RootedTuple<Value, Value, Value> roots(cx);
+        RootedField<Value, 0> getter(roots, nobj->getGetterValue(prop));
+        RootedField<Value, 1> receiver(roots, ObjectValue(*obj));
+        RootedField<Value, 2> rootedValue(roots);
+
         if (js::CallGetter(cx, receiver, getter, &rootedValue)) {
           *vp = rootedValue;
           return true;

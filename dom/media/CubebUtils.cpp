@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:set ts=2 sw=2 sts=2 et cindent: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -844,8 +842,14 @@ void InitLibrary() {
   }
 
 #ifndef MOZ_WIDGET_ANDROID
-  NS_DispatchToMainThread(
-      NS_NewRunnableFunction("CubebUtils::InitLibrary", &InitBrandName));
+  if (XRE_IsParentProcess()
+#  ifdef MOZ_CUBEB_REMOTING
+      || !sCubebSandbox
+#  endif
+  ) {
+    NS_DispatchToMainThread(
+        NS_NewRunnableFunction("CubebUtils::InitLibrary", &InitBrandName));
+  }
 #endif
 #ifdef MOZ_CUBEB_REMOTING
   if (sCubebSandbox && XRE_IsContentProcess()) {

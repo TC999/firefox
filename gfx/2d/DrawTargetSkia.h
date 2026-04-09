@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -147,6 +145,8 @@ class DrawTargetSkia : public DrawTarget {
   bool Init(SkCanvas* aCanvas);
   bool Init(RefPtr<DataSourceSurface>&& aSurface);
 
+  static void UpdateSurfaceProps();
+
   // Skia assumes that texture sizes fit in 16-bit integers.
   static size_t GetMaxSurfaceSize() { return 65535; }
   // Skia assumes the surface area will fit in a 32-bit signed integer.
@@ -170,6 +170,8 @@ class DrawTargetSkia : public DrawTarget {
                      const DeviceColor& aColor,
                      const StrokeOptions* aStrokeOptions = nullptr,
                      const DrawOptions& aOptions = DrawOptions());
+
+  void AccessibleId(uint64_t aBrowsingContextId, uint64_t aAccId) final;
 
  private:
   friend class SourceSurfaceSkia;

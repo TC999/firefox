@@ -96,9 +96,9 @@ add_task(async function bumped() {
   }
 });
 
-// Input history use count should not be bumped when an origin autofill result
+// Input history use count should be bumped when an origin autofill result
 // is triggered and picked.
-add_task(async function notBumped_origin() {
+add_task(async function bumped_origin() {
   // Add enough visits to trigger origin autofill.
   let url = "http://example.com/test";
   await PlacesTestUtils.addVisits({
@@ -107,18 +107,41 @@ add_task(async function notBumped_origin() {
   });
   await PlacesFrecencyRecalculator.recalculateAnyOutdatedFrecencies();
 
+  let calls = addToInputHistorySpy.getCalls();
+  Assert.equal(
+    calls.length,
+    0,
+    "UrlbarUtils.addToInputHistory() has not been called"
+  );
+
   await triggerAutofillAndPickResult("exam", "example.com/");
 
-  let calls = addToInputHistorySpy.getCalls();
-  Assert.equal(calls.length, 0, "UrlbarUtils.addToInputHistory() not called");
+  // addToInputHistoryWhenReady is fire-and-forget, so wait for the DB write
+  // to complete before checking the spy.
+  await TestUtils.waitForCondition(
+    async () =>
+      (await getUseCount({ url: "http://example.com/" })) !== undefined,
+    "Origin URL present in input history"
+  );
 
-  Assert.strictEqual(
-    await getUseCount({ url }),
-    undefined,
-    "URL not present in input history: " + url
+  // Called once or twice depending on whether the origin was already in
+  // moz_places when addToInputHistoryWhenReady made its first attempt.
+  calls = addToInputHistorySpy.getCalls();
+  Assert.greaterOrEqual(
+    calls.length,
+    1,
+    "UrlbarUtils.addToInputHistory() called at least once"
+  );
+
+  Assert.greater(
+    await getUseCount({ url: "http://example.com/" }),
+    0,
+    "URL present in input history: " + url
   );
 
   await PlacesUtils.history.clear();
+  await PlacesTestUtils.clearInputHistory();
+  addToInputHistorySpy.resetHistory();
 });
 
 // Input history use count should not be bumped when a URL autofill result is

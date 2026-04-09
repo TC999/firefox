@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.defaultMinSize
@@ -33,6 +34,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
@@ -276,6 +278,7 @@ fun FaviconListItem(
  * @param afterIconTint [Color] used to tint the icon.  Note: Color.Unspecified is used when you
  * wish to preserve the original colors of the icon.  This color should NOT be combined with
  * ListItemColors because ListItemDefaults will not allow you to specify Color.Unspecified.
+ * @param contentPaddingListItem The spacing values to be applied to the internal content of the list item.
  * @param afterIconPainter [Painter] used to display an icon after the list item.
  * @param afterIconDescription Content description of the icon.
  * @param onAfterIconClick Called when the user clicks on the icon. An [IconButton] will be
@@ -302,6 +305,10 @@ fun IconListItem(
     isBeforeIconHighlighted: Boolean = false,
     showDivider: Boolean = false,
     afterIconTint: Color = ListItemDefaults.colors().leadingIconColor,
+    contentPaddingListItem: PaddingValues = PaddingValues(
+        horizontal = FirefoxTheme.layout.space.dynamic200,
+        vertical = FirefoxTheme.layout.space.static150,
+    ),
     afterIconPainter: Painter? = null,
     afterIconDescription: String? = null,
     onAfterIconClick: (() -> Unit)? = null,
@@ -320,6 +327,7 @@ fun IconListItem(
         minHeight = minHeight,
         onClick = onClick,
         onLongClick = onLongClick,
+        contentPadding = contentPaddingListItem,
         beforeListItemAction = {
             IconListItemBeforeIcon(
                 isHighlighted = isBeforeIconHighlighted,
@@ -503,6 +511,7 @@ fun SwitchListItem(
             checked = checked,
             onCheckedChange = onClick,
             enabled = enabled,
+            colors = SwitchDefaults.colors(),
             modifier = Modifier
                 .clearAndSetSemantics {},
         )
@@ -841,6 +850,7 @@ private fun SelectableItemIcon(
  * @param minHeight An optional minimum height for the list item.
  * @param onClick Called when the user clicks on the item.
  * @param onLongClick Called when the user long clicks on the item.
+ * @param contentPadding The spacing values to be applied to the internal content of the list item.
  * @param belowListItemContent Optional Composable for adding UI below the list item content.
  * @param beforeListItemAction Optional Composable for adding UI before the list item.
  * @param afterListItemAction Optional Composable for adding UI to the end of the list item.
@@ -860,6 +870,10 @@ private fun ListItem(
     minHeight: Dp = LIST_ITEM_HEIGHT,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
+    contentPadding: PaddingValues = PaddingValues(
+        horizontal = FirefoxTheme.layout.space.dynamic200,
+        vertical = FirefoxTheme.layout.space.static150,
+    ),
     belowListItemContent: @Composable ColumnScope.() -> Unit = {},
     beforeListItemAction: @Composable RowScope.() -> Unit = {},
     afterListItemAction: @Composable RowScope.() -> Unit = {},
@@ -888,10 +902,7 @@ private fun ListItem(
                     ),
                     predicate = { (onClick != null || onLongClick != null) && enabled },
                 )
-                .padding(
-                    horizontal = FirefoxTheme.layout.space.dynamic200,
-                    vertical = FirefoxTheme.layout.space.static150,
-                ),
+                .padding(contentPadding),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(FirefoxTheme.layout.space.static200),
         ) {

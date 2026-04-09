@@ -29,7 +29,7 @@
 #ifndef TOOLS_PLATFORM_H_
 #define TOOLS_PLATFORM_H_
 
-#include "PlatformMacros.h"
+#include "mozilla/ProfilerPlatformMacros.h"
 
 #include "mozilla/BaseProfiler.h"
 
@@ -37,7 +37,6 @@
 #include "mozilla/UniquePtr.h"
 #include "mozilla/Vector.h"
 
-#include <functional>
 #include <stdint.h>
 #include <string>
 

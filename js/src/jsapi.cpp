@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -441,12 +439,12 @@ JS_PUBLIC_API const char* JS_GetImplementationVersion(void) {
 
 JS_PUBLIC_API void JS_SetDestroyZoneCallback(JSContext* cx,
                                              JSDestroyZoneCallback callback) {
-  cx->runtime()->destroyZoneCallback = callback;
+  cx->runtime()->gc.setDestroyZoneCallback(callback);
 }
 
 JS_PUBLIC_API void JS_SetDestroyCompartmentCallback(
     JSContext* cx, JSDestroyCompartmentCallback callback) {
-  cx->runtime()->destroyCompartmentCallback = callback;
+  cx->runtime()->gc.setDestroyCompartmentCallback(callback);
 }
 
 JS_PUBLIC_API void JS_SetSizeOfIncludingThisCompartmentCallback(
@@ -758,13 +756,15 @@ JS_PUBLIC_API void js::RemapRemoteWindowProxies(
     oomUnsafe.crash("js::RemapRemoteWindowProxies");
   }
 
-  RootedObject targetCompartmentProxy(cx);
+  RootedTuple<JSObject*, JSObject*, JSObject*> roots(cx);
+  RootedField<JSObject*, 0> targetCompartmentProxy(roots);
   JS::RootedVector<JSObject*> otherProxies(cx);
 
   // Use the callback to find remote proxies in all compartments that match
   // whatever criteria callback uses.
+  RootedField<JSObject*, 1> remoteProxy(roots);
   for (CompartmentsIter c(cx->runtime()); !c.done(); c.next()) {
-    RootedObject remoteProxy(cx, callback->getObjectToTransplant(c));
+    remoteProxy = callback->getObjectToTransplant(c);
     if (!remoteProxy) {
       continue;
     }
@@ -796,8 +796,9 @@ JS_PUBLIC_API void js::RemapRemoteWindowProxies(
     target.set(targetCompartmentProxy);
   }
 
+  RootedField<JSObject*, 2> deadWrapper(roots);
   for (JSObject*& obj : otherProxies) {
-    RootedObject deadWrapper(cx, obj);
+    deadWrapper = obj;
     js::RemapDeadWrapper(cx, deadWrapper, target);
   }
 }
@@ -1809,6 +1810,15 @@ JS::RealmBehaviors& JS::RealmBehaviors::setTimeZoneOverride(
     timeZoneOverride_ = nullptr;
   }
   return *this;
+}
+
+void JS::RealmBehaviors::copyOverrideStrings() {
+  if (localeOverride_) {
+    setLocaleOverride(localeOverride_->chars());
+  }
+  if (timeZoneOverride_) {
+    setTimeZoneOverride(timeZoneOverride_->chars());
+  }
 }
 
 const JS::RealmBehaviors& JS::RealmBehaviorsRef(JS::Realm* realm) {
@@ -4030,11 +4040,9 @@ JS_PUBLIC_API bool JS_SetDefaultLocale(JSRuntime* rt, const char* locale) {
 
 JS_PUBLIC_API UniqueChars JS_GetDefaultLocale(JSContext* cx) {
   AssertHeapIsIdle();
-  if (const char* locale = cx->runtime()->getDefaultLocale()) {
-    return DuplicateString(cx, locale);
-  }
 
-  return nullptr;
+  auto locale = cx->runtime()->getDefaultLocale().toString();
+  return DuplicateString(cx, locale.data(), locale.length());
 }
 
 JS_PUBLIC_API void JS_ResetDefaultLocale(JSRuntime* rt) {

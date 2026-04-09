@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -259,11 +257,12 @@ bool CrossCompartmentWrapper::construct(JSContext* cx, HandleObject wrapper,
 bool CrossCompartmentWrapper::nativeCall(JSContext* cx, IsAcceptableThis test,
                                          NativeImpl impl,
                                          const CallArgs& srcArgs) const {
-  RootedObject wrapper(cx, &srcArgs.thisv().toObject());
+  RootedTuple<JSObject*, JSObject*, Value, JSObject*> roots(cx);
+  RootedField<JSObject*, 0> wrapper(roots, &srcArgs.thisv().toObject());
   MOZ_ASSERT(srcArgs.thisv().isMagic(JS_IS_CONSTRUCTING) ||
              !UncheckedUnwrap(wrapper)->is<CrossCompartmentWrapperObject>());
 
-  RootedObject wrapped(cx, wrappedObject(wrapper));
+  RootedField<JSObject*, 1> wrapped(roots, wrappedObject(wrapper));
   {
     AutoRealm call(cx, wrapped);
     InvokeArgs dstArgs(cx);
@@ -275,7 +274,7 @@ bool CrossCompartmentWrapper::nativeCall(JSContext* cx, IsAcceptableThis test,
     Value* srcend = srcArgs.array() + srcArgs.length();
     Value* dst = dstArgs.base();
 
-    RootedValue source(cx);
+    RootedField<Value, 2> source(roots);
     for (; src < srcend; ++src, ++dst) {
       source = *src;
       if (!cx->compartment()->wrap(cx, &source)) {
@@ -288,7 +287,7 @@ bool CrossCompartmentWrapper::nativeCall(JSContext* cx, IsAcceptableThis test,
       // will stymie this whole process. If that happens, unwrap the wrapper.
       // This logic can go away when same-compartment security wrappers go away.
       if ((src == srcArgs.base() + 1) && dst->isObject()) {
-        RootedObject thisObj(cx, &dst->toObject());
+        RootedField<JSObject*, 3> thisObj(roots, &dst->toObject());
         if (thisObj->is<WrapperObject>() &&
             Wrapper::wrapperHandler(thisObj)->hasSecurityPolicy()) {
           MOZ_ASSERT(!thisObj->is<CrossCompartmentWrapperObject>());
@@ -523,7 +522,7 @@ void js::RemapWrapper(JSContext* cx, JSObject* wobjArg,
   // The old value should still be in the cross-compartment wrapper map, and
   // the lookup should return wobj.
   ObjectWrapperMap::Ptr p = wcompartment->lookupWrapper(origTarget);
-  MOZ_ASSERT(*p->value().unsafeGet() == wobj);
+  MOZ_ASSERT(p->value().unbarrieredGet() == wobj);
   wcompartment->removeWrapper(p);
 
   // When we remove origv from the wrapper map, its wrapper, wobj, must
@@ -554,6 +553,7 @@ void js::RemapDeadWrapper(JSContext* cx, HandleObject wobj,
   MOZ_ASSERT(!newTarget->is<FinalizationRecordObject>());
 
   AutoDisableProxyCheck adpc;
+  AutoTouchingGrayThings atgt;
 
   // Suppress GC while we manipulate the wrapper map so that it can't observe
   // intervening state.
@@ -646,7 +646,7 @@ JS_PUBLIC_API bool js::RecomputeWrappers(
          iter.next()) {
       // Don't remap wrappers to finalization record objects. These are used
       // internally and are not exposed.
-      JSObject* wrapper = *iter.get().value().unsafeGet();
+      JSObject* wrapper = iter.get().value().unbarrieredGet();
       if (Wrapper::wrappedObject(wrapper)->is<FinalizationRecordObject>()) {
         continue;
       }

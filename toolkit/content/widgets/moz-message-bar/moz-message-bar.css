@@ -13,7 +13,7 @@
 
   /* Border */
   --message-bar-border-color: oklch(from var(--message-bar-icon-color) l c h / 20%);
-  --message-bar-border-radius: var(--border-radius-small);
+  --message-bar-border-radius: var(--border-radius-medium);
   --message-bar-border-width: var(--border-width);
 
   /* Text */

@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -858,8 +856,8 @@ class CorePS {
 #endif
 #ifdef USE_LUL_STACKWALK
     delete sInstance->mLul;
-    delete mMaybeBandwidthCounter;
 #endif
+    delete mMaybeBandwidthCounter;
   }
 
  public:
@@ -1624,8 +1622,8 @@ class ActivePS {
     }
     JSContext* jsContext = mainThread->mJSContext;
 
-    // Always gather source metadata (filename), but only gather actual source
-    // text if the JS sources feature is enabled.
+    // Always gather source metadata (filename, sourceMapURL), but only gather
+    // actual source text if the JS sources feature is enabled.
     js::ProfilerJSSources threadSources = js::GetProfilerScriptSources(
         JS_GetRuntime(jsContext), gatherSourceText);
 
@@ -4000,7 +3998,7 @@ locked_profiler_stream_json_for_this_process(
       for (java::GeckoJavaSampler::ThreadInfo::LocalRef& threadInfo :
            javaThreads) {
         ProfiledThreadData threadData(ThreadRegistrationInfo{
-            threadInfo->GetName()->ToCString().BeginReading(),
+            threadInfo->GetName()->ToCString().get(),
             ProfilerThreadId::FromNumber(threadInfo->GetId()), false,
             CorePS::ProcessStartTime()});
 
@@ -4377,11 +4375,11 @@ RunningTimes GetRunningTimesWithTightTimestamp(
     TimeDuration durations[loops];
     RunningTimes runningTimes;
     TimeStamp before = TimeStamp::Now();
-    for (int i = 0; i < loops; ++i) {
+    for (auto& duration : durations) {
       AUTO_PROFILER_STATS(GetRunningTimes_MaxRunningTimesReadDuration);
       aGetCPURunningTimesFunction(runningTimes);
       const TimeStamp after = TimeStamp::Now();
-      durations[i] = after - before;
+      duration = after - before;
       before = after;
     }
     // Move median duration to the middle.
@@ -4466,6 +4464,9 @@ class SamplerThread {
     mPostSamplingCallbackList = MakeUnique<PostSamplingCallbackListItem>(
         std::move(mPostSamplingCallbackList), std::move(aCallback));
   }
+
+  SamplerThread(const SamplerThread&) = delete;
+  void operator=(const SamplerThread&) = delete;
 
  private:
   void SpyOnUnregisteredThreads();
@@ -4589,9 +4590,6 @@ class SamplerThread {
   // Unregistered threads that have been found, and are being spied on.
   using SpiedThreads = AutoTArray<SpiedThread, 128>;
   SpiedThreads mSpiedThreads;
-
-  SamplerThread(const SamplerThread&) = delete;
-  void operator=(const SamplerThread&) = delete;
 };
 
 namespace geckoprofiler::markers {
@@ -6386,8 +6384,9 @@ WriteProfileToJSONWriter(SpliceableChunkedJSONWriter& aWriter,
 
 void profiler_set_process_name(const nsACString& aProcessName,
                                const nsACString* aETLDplus1) {
-  LOG("profiler_set_process_name(\"%s\", \"%s\")", aProcessName.Data(),
-      aETLDplus1 ? aETLDplus1->Data() : "<none>");
+  LOG("profiler_set_process_name(\"%s\", \"%s\")",
+      PromiseFlatCString(aProcessName).get(),
+      aETLDplus1 ? PromiseFlatCString(*aETLDplus1).get() : "<none>");
   PSAutoLock lock;
   CorePS::SetProcessName(lock, aProcessName);
   if (aETLDplus1) {

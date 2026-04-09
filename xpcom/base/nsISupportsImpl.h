@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -20,6 +18,7 @@
 #include "nsXPCOM.h"
 #include <atomic>
 #include <type_traits>
+#include <utility>
 #include "mozilla/Attributes.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/MacroArgs.h"
@@ -413,6 +412,31 @@ class ThreadSafeAutoRefCnt {
     mValue.store(aValue, std::memory_order_release);
     return aValue;
   }
+  // Atomically decrements the refcount if it is strictly above Limit.
+  // Returns the pair of {success, new value}.
+  template <nsrefcnt Limit>
+  MOZ_ALWAYS_INLINE std::pair<bool, nsrefcnt> DecrementWithLimit() {
+    // This ensures we can never release the final reference on this thread.
+    // Callers which want to do that should use operator--() which adds the
+    // appropriate fencing.
+    static_assert(Limit > 0,
+                  "DecrementWithLimit cannot release the final reference");
+    nsrefcnt count = mValue.load(std::memory_order_relaxed);
+    while (count > Limit) {
+      // Since this may be the last release on this thread, we need
+      // release semantics on success so that prior writes on this thread
+      // are visible to the thread that destroys the object when it reads
+      // mValue with acquire semantics.
+      // On failure, this thread still owns a reference to the object,
+      // so no synchronization is required.
+      if (mValue.compare_exchange_weak(count, count - 1,
+                                       std::memory_order_release,
+                                       std::memory_order_relaxed)) {
+        return {true, count - 1};
+      }
+    }
+    return {false, count};
+  }
   MOZ_ALWAYS_INLINE operator nsrefcnt() const { return get(); }
   MOZ_ALWAYS_INLINE nsrefcnt get() const {
     // Use acquire semantics since we're not sure what the caller is
@@ -754,18 +778,13 @@ class InterfaceNeedsThreadSafeRefCnt : public std::false_type {};
 
 #if !defined(XPCOM_GLUE_AVOID_NSPR)
 class nsISerialEventTarget;
-namespace mozilla {
-// Forward-declare `GetMainThreadSerialEventTarget`, as `nsISupportsImpl.h`
-// cannot include `nsThreadUtils.h`.
-nsISerialEventTarget* GetMainThreadSerialEventTarget();
-
-namespace detail {
+namespace mozilla::detail {
 using DeleteVoidFunction = void(void*);
-void ProxyDeleteVoid(const char* aRunnableName,
-                     nsISerialEventTarget* aEventTarget, void* aSelf,
-                     DeleteVoidFunction* aDeleteFunc);
-}  // namespace detail
-}  // namespace mozilla
+void ProxyDeleteVoid(const char* aName, nsISerialEventTarget* aTarget,
+                     void* aPtr, DeleteVoidFunction* aDeleteFunc);
+void ProxyDeleteMainVoid(const char* aName, void* aPtr,
+                         DeleteVoidFunction* aDeleteFunc);
+}  // namespace mozilla::detail
 
 /**
  * Helper for _WITH_DELETE_ON_EVENT_TARGET threadsafe refcounting macros which
@@ -774,6 +793,15 @@ void ProxyDeleteVoid(const char* aRunnableName,
 #  define NS_PROXY_DELETE_TO_EVENT_TARGET(_class, _target) \
     ::mozilla::detail::ProxyDeleteVoid(                    \
         "ProxyDelete " #_class, _target, this,             \
+        [](void* self) { delete static_cast<_class*>(self); })
+
+/**
+ * Helper for _WITH_DELETE_ON_MAIN_THREAD threadsafe refcounting macros which
+ * provides an implementation of `_destroy`
+ */
+#  define NS_PROXY_DELETE_TO_MAIN_THREAD(_class) \
+    ::mozilla::detail::ProxyDeleteMainVoid(      \
+        "ProxyDelete " #_class, this,            \
         [](void* self) { delete static_cast<_class*>(self); })
 
 /**
@@ -804,8 +832,8 @@ void ProxyDeleteVoid(const char* aRunnableName,
  */
 #  define NS_INLINE_DECL_THREADSAFE_REFCOUNTING_WITH_DELETE_ON_MAIN_THREAD( \
       _class, ...)                                                          \
-    NS_INLINE_DECL_THREADSAFE_REFCOUNTING_WITH_DELETE_ON_EVENT_TARGET(      \
-        _class, ::mozilla::GetMainThreadSerialEventTarget(), __VA_ARGS__)
+    NS_INLINE_DECL_THREADSAFE_REFCOUNTING_WITH_DESTROY(                     \
+        _class, NS_PROXY_DELETE_TO_MAIN_THREAD(_class), __VA_ARGS__)
 #endif
 
 /**

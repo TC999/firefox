@@ -1,6 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:expandtab:shiftwidth=2:tabstop=2:
- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -170,7 +167,7 @@ MARKUPMAP(
 
 MARKUPMAP(dt, New_HTMLDtOrDd<HTMLLIAccessible>, roles::TERM)
 
-MARKUPMAP(em, New_HyperText, roles::EMPHASIS)
+MARKUPMAP(em, New_HyperText, roles::EMPHASIS, Attr(xmlroles, emphasis))
 
 MARKUPMAP(
     figcaption,
@@ -363,7 +360,7 @@ MARKUPMAP(
     },
     0)
 
-MARKUPMAP(strong, New_HyperText, roles::STRONG)
+MARKUPMAP(strong, New_HyperText, roles::STRONG, Attr(xmlroles, strong))
 
 MARKUPMAP(sub, New_HyperText, roles::SUBSCRIPT)
 

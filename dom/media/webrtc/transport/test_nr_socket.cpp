@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1074,7 +1072,7 @@ bool TestNrSocket::maybe_send_fake_response(const void* msg, size_t len,
 
   for (const nsCString& address : *redirect_targets) {
     r_log(LOG_GENERIC, LOG_DEBUG,
-          "TestNrSocket attempting to add alternate server %s", address.Data());
+          "TestNrSocket attempting to add alternate server %s", address.get());
     nr_transport_addr addr;
     if (NS_WARN_IF(nr_str_port_to_transport_addr(address.Data(), port,
                                                  IPPROTO_UDP, &addr))) {

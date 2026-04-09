@@ -202,6 +202,40 @@ add_task(async function test_Wallpaper_Upload() {
   sandbox.restore();
 });
 
+add_task(async function test_onAction_PREF_CHANGED_customColor() {
+  let sandbox = sinon.createSandbox();
+  let feed = new WallpaperFeed();
+  Services.prefs.setBoolPref(PREF_WALLPAPERS_ENABLED, true);
+  sandbox.stub(feed, "wallpaperTeardown").returns();
+  sandbox.stub(feed, "wallpaperSetup").returns();
+
+  info(
+    "WallpaperFeed.onAction PREF_CHANGED with customColor.enabled " +
+      "should teardown and re-setup wallpapers"
+  );
+
+  feed.onAction({
+    type: actionTypes.PREF_CHANGED,
+    data: { name: "newtabWallpapers.customColor.enabled" },
+  });
+
+  Assert.ok(
+    feed.wallpaperTeardown.calledOnce,
+    "wallpaperTeardown should be called when customColor.enabled pref changes"
+  );
+  Assert.ok(
+    feed.wallpaperSetup.calledOnce,
+    "wallpaperSetup should be called when customColor.enabled pref changes"
+  );
+  Assert.ok(
+    feed.wallpaperSetup.calledWith(false),
+    "wallpaperSetup should be called with isStartup=false"
+  );
+
+  Services.prefs.clearUserPref(PREF_WALLPAPERS_ENABLED);
+  sandbox.restore();
+});
+
 /**
  * Tests that the parent process sends down a moz-newtab-wallpaper:// protocol URI
  * to newtab to render as the background.

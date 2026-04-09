@@ -4,8 +4,10 @@
 
 package mozilla.components.feature.summarize
 
+import mozilla.components.concept.llm.Llm
 import mozilla.components.concept.llm.LlmProvider
 import mozilla.components.lib.state.State
+import mozilla.components.ui.richtext.ir.RichDocument
 
 /**
  * The [State] of the [SummarizationStore]
@@ -33,20 +35,33 @@ sealed class SummarizationState : State {
     }
 
     /**
+     * We're waiting for a response from the [mozilla.components.concept.llm.Llm]
+     *
+     * @param info the information for the current [mozilla.components.concept.llm.Llm]
+     */
+    data class Loading(val info: LlmProvider.Info) : SummarizationState()
+
+    /**
      * Summarization is in progress.
      *
      * @param info metadata about the LLM that generated the summary
-     * @param parts the parts that we've generated so far.
+     * @param document the document we've generated so far.
      */
-    data class Summarizing(val info: LlmProvider.Info, val parts: List<String> = listOf()) : SummarizationState()
+    data class Summarizing(
+        val info: LlmProvider.Info,
+        val document: RichDocument = RichDocument(listOf()),
+    ) : SummarizationState()
 
     /**
      * Summarization completed successfully.
      *
      * @param info metadata about the LLM that generated the summary
-     * @param text The generated summary.
+     * @param document The generated document.
      */
-    data class Summarized(val info: LlmProvider.Info, val text: String) : SummarizationState()
+    data class Summarized(
+        val info: LlmProvider.Info,
+        val document: RichDocument = RichDocument(listOf()),
+    ) : SummarizationState()
 
     /**
      * An error occurred during the summarization lifecycle.
@@ -59,9 +74,9 @@ sealed class SummarizationState : State {
      * The user is viewing the summarization settings.
      *
      * @param info metadata about the LLM that generated the summary
-     * @param summarizedText The summary text to return to when navigating back.
+     * @param document The document to return to when navigating back.
      */
-    data class Settings(val info: LlmProvider.Info, val summarizedText: String) : SummarizationState()
+    data class Settings(val info: LlmProvider.Info, val document: RichDocument) : SummarizationState()
 
     /** User is finished with the Summarization Flow */
     sealed class Finished : SummarizationState() {
@@ -81,33 +96,16 @@ sealed class SummarizationState : State {
 * Describes the possible failure modes of the summarization feature.
 */
 sealed class SummarizationError {
-    /** The user declined the consent prompt. */
-    data object ConsentDenied : SummarizationError()
-
-    /** The page content could not be extracted or is unavailable. */
-    data object ContentUnavailable : SummarizationError()
-
-    /** The page content is too short to summarize. */
-    data object ContentTooShort : SummarizationError()
-
     /** The page content exceeds the maximum supported length. */
     data object ContentTooLong : SummarizationError()
-
-    /** The user declined to download the summarization model. */
-    data object DownloadDenied : SummarizationError()
 
     /** The model download did not complete successfully. */
     data object DownloadFailed : SummarizationError()
 
-    /** The model download was cancelled before completion. */
-    data object DownloadCancelled : SummarizationError()
-
     /** The summarization model failed to produce a result. */
-    data class SummarizationFailed(val throwable: Throwable) : SummarizationError()
-
-    /** The model produced a result that could not be used as a valid summary. */
-    data object InvalidSummary : SummarizationError()
-
-    /** A network error occurred during download or summarization. */
-    data object NetworkError : SummarizationError()
+    data class SummarizationFailed(val exception: Llm.Exception) : SummarizationError()
 }
+
+val SummarizationState.isLoading get() = this is SummarizationState.Loading
+val SummarizationState.isSummarizing get() = this is SummarizationState.Summarizing
+val SummarizationState.isSummarized get() = this is SummarizationState.Summarized

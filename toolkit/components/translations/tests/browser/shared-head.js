@@ -45,6 +45,10 @@ const DIR_PATH = "toolkit/components/translations/tests/browser/";
  */
 
 /**
+ * @typedef {"click" | "enter" | "space"} AboutTranslationsInvokeAction
+ */
+
+/**
  * Use a utility function to make this easier to read.
  *
  * @param {string} path
@@ -83,6 +87,12 @@ const LANGUAGE_PAIRS = [
   { fromLang: "uk", toLang: PIVOT_LANGUAGE },
 ];
 
+const LANGUAGE_PAIRS_WITHOUT_SPANISH = LANGUAGE_PAIRS.filter(
+  // Spanish is intentionally omitted so that "es" may trigger
+  // the unsupported-language message when relevant.
+  ({ fromLang, toLang }) => fromLang !== "es" && toLang !== "es"
+);
+
 const TRANSLATIONS_PERMISSION = "translations";
 const ALWAYS_TRANSLATE_LANGS_PREF =
   "browser.translations.alwaysTranslateLanguages";
@@ -111,6 +121,55 @@ function logAction(...params) {
       ""
     )}`
   );
+}
+
+/**
+ * Returns the baseline visibility expectations for the main about:translations UI.
+ *
+ * @param {object} [overrides={}]
+ * @returns {object}
+ */
+function aboutTranslationsVisibilityExpectations(overrides = {}) {
+  return {
+    pageHeader: true,
+    mainUserInterface: true,
+    sourceLanguageSelector: true,
+    targetLanguageSelector: true,
+    clearButton: undefined,
+    copyButton: true,
+    swapLanguagesButton: true,
+    sourceSectionTextArea: true,
+    targetSectionTextArea: true,
+    detectedLanguageUnsupportedMessage: false,
+    translationErrorMessage: false,
+    unsupportedInfoMessage: false,
+    policyDisabledInfoMessage: false,
+    featureBlockedInfoMessage: false,
+    languageLoadErrorMessage: false,
+    ...overrides,
+  };
+}
+
+/**
+ * Returns the baseline visibility expectations for about:translations when showing
+ * a stand-alone message bar.
+ *
+ * @param {object} [overrides={}]
+ * @returns {object}
+ */
+function aboutTranslationsStandaloneMessageVisibilityExpectations(
+  overrides = {}
+) {
+  return aboutTranslationsVisibilityExpectations({
+    mainUserInterface: false,
+    sourceLanguageSelector: false,
+    targetLanguageSelector: false,
+    copyButton: false,
+    swapLanguagesButton: false,
+    sourceSectionTextArea: false,
+    targetSectionTextArea: false,
+    ...overrides,
+  });
 }
 
 /**
@@ -251,7 +310,7 @@ async function openAboutTranslations({
   const lockedFeaturePrefs = [];
 
   if (!featureEnabled) {
-    await TranslationsParent.AIFeature.disable();
+    await TranslationsParent.AIFeature.block();
   }
 
   if (lockEnabledState) {
@@ -266,6 +325,7 @@ async function openAboutTranslations({
    */
   const selectors = {
     pageHeader: "header#about-translations-header",
+    learnMoreLink: "a#about-translations-learn-more-link",
     mainUserInterface: "section#about-translations-main-user-interface",
     sourceLanguageSelector: "moz-select#about-translations-source-select",
     targetLanguageSelector: "moz-select#about-translations-target-select",
@@ -4983,16 +5043,74 @@ class AboutTranslationsTestUtils {
   }
 
   /**
-   * Clicks the swap-languages button in the about:translations UI.
+   * Invokes the swap-languages button in the about:translations UI.
+   *
+   * @param {object} options
+   * @param {string} options.selectorKey
+   * @param {AboutTranslationsInvokeAction} [options.action="click"]
+   * @returns {Promise<void>}
    */
-  async clickSwapLanguagesButton() {
-    logAction();
-    try {
-      await this.#runInPage(selectors => {
-        const button = content.document.querySelector(
-          selectors.swapLanguagesButton
+  async #invokeElement({ selectorKey, action = "click" }) {
+    await this.#runInPage(
+      async (selectors, options) => {
+        const { selectorKey, action } = options;
+        const selector = selectors[selectorKey];
+        if (!selector) {
+          throw new Error(`Unsupported selector key: ${selectorKey}`);
+        }
+
+        const element = content.document.querySelector(selector);
+        if (!element) {
+          throw new Error(
+            `Could not find element for selector key: ${selectorKey}`
+          );
+        }
+
+        const EventUtils = ContentTaskUtils.getEventUtils(content);
+
+        if (action === "click") {
+          EventUtils.synthesizeMouseAtCenter(element, {}, content);
+          return;
+        }
+
+        const focusTarget = element.buttonEl ?? element;
+        focusTarget.focus({ focusVisible: true });
+        await new Promise(resolve =>
+          content.requestAnimationFrame(() =>
+            content.requestAnimationFrame(resolve)
+          )
         );
-        button.click();
+        if (action === "enter") {
+          EventUtils.synthesizeKey("KEY_Enter", {}, content);
+          return;
+        }
+
+        if (action === "space") {
+          EventUtils.synthesizeKey(" ", {}, content);
+          return;
+        }
+
+        throw new Error(`Unsupported action: ${action}`);
+      },
+      {
+        selectorKey,
+        action,
+      }
+    );
+  }
+
+  /**
+   * Invokes the swap-languages button in the about:translations UI.
+   *
+   * @param {object} [options={}]
+   * @param {AboutTranslationsInvokeAction} [options.action="click"]
+   */
+  async invokeSwapLanguagesButton({ action = "click" } = {}) {
+    logAction(action);
+    try {
+      await this.#invokeElement({
+        selectorKey: "swapLanguagesButton",
+        action,
       });
     } catch (error) {
       AboutTranslationsTestUtils.#reportTestFailure(error);
@@ -5000,14 +5118,17 @@ class AboutTranslationsTestUtils {
   }
 
   /**
-   * Clicks the copy button in the about:translations UI.
+   * Invokes the copy button in the about:translations UI.
+   *
+   * @param {object} [options={}]
+   * @param {AboutTranslationsInvokeAction} [options.action="click"]
    */
-  async clickCopyButton() {
-    logAction();
+  async invokeCopyButton({ action = "click" } = {}) {
+    logAction(action);
     try {
-      await this.#runInPage(selectors => {
-        const button = content.document.querySelector(selectors.copyButton);
-        button.click();
+      await this.#invokeElement({
+        selectorKey: "copyButton",
+        action,
       });
     } catch (error) {
       AboutTranslationsTestUtils.#reportTestFailure(error);
@@ -5015,16 +5136,17 @@ class AboutTranslationsTestUtils {
   }
 
   /**
-   * Clicks the translation error retry button in the about:translations UI.
+   * Invokes the translation error retry button in the about:translations UI.
+   *
+   * @param {object} [options={}]
+   * @param {AboutTranslationsInvokeAction} [options.action="click"]
    */
-  async clickTranslationErrorButton() {
-    logAction();
+  async invokeTranslationErrorButton({ action = "click" } = {}) {
+    logAction(action);
     try {
-      await this.#runInPage(selectors => {
-        const button = content.document.querySelector(
-          selectors.translationErrorButton
-        );
-        button.click();
+      await this.#invokeElement({
+        selectorKey: "translationErrorButton",
+        action,
       });
     } catch (error) {
       AboutTranslationsTestUtils.#reportTestFailure(error);
@@ -5032,16 +5154,17 @@ class AboutTranslationsTestUtils {
   }
 
   /**
-   * Clicks the language-load error retry button in the about:translations UI.
+   * Invokes the language-load error retry button in the about:translations UI.
+   *
+   * @param {object} [options={}]
+   * @param {AboutTranslationsInvokeAction} [options.action="click"]
    */
-  async clickLanguageLoadErrorButton() {
-    logAction();
+  async invokeLanguageLoadErrorButton({ action = "click" } = {}) {
+    logAction(action);
     try {
-      await this.#runInPage(selectors => {
-        const button = content.document.querySelector(
-          selectors.languageLoadErrorButton
-        );
-        button.click();
+      await this.#invokeElement({
+        selectorKey: "languageLoadErrorButton",
+        action,
       });
     } catch (error) {
       AboutTranslationsTestUtils.#reportTestFailure(error);
@@ -5049,16 +5172,17 @@ class AboutTranslationsTestUtils {
   }
 
   /**
-   * Clicks the feature-blocked "unblock" button in the about:translations UI.
+   * Invokes the feature-blocked "unblock" button in the about:translations UI.
+   *
+   * @param {object} [options={}]
+   * @param {AboutTranslationsInvokeAction} [options.action="click"]
    */
-  async clickUnblockFeatureButton() {
-    logAction();
+  async invokeUnblockFeatureButton({ action = "click" } = {}) {
+    logAction(action);
     try {
-      await this.#runInPage(selectors => {
-        const button = content.document.querySelector(
-          selectors.unblockFeatureButton
-        );
-        button.click();
+      await this.#invokeElement({
+        selectorKey: "unblockFeatureButton",
+        action,
       });
     } catch (error) {
       AboutTranslationsTestUtils.#reportTestFailure(error);
@@ -5254,13 +5378,11 @@ class AboutTranslationsTestUtils {
    * @param {string}  [options.value]
    * @param {boolean} [options.showsPlaceholder]
    * @param {string}  [options.scriptDirection]
+   * @param {string|null} [options.languageTag]
    * @returns {Promise<void>}
    */
-  async assertSourceTextArea({
-    value,
-    showsPlaceholder,
-    scriptDirection,
-  } = {}) {
+  async assertSourceTextArea(options = {}) {
+    const { value, showsPlaceholder, scriptDirection, languageTag } = options;
     // This helps the test visually render at each step without significantly slowing test speed.
     await doubleRaf(document);
 
@@ -5275,15 +5397,21 @@ class AboutTranslationsTestUtils {
             hasPlaceholder: textArea.hasAttribute("placeholder"),
             actualValue: textArea.value,
             actualScriptDirection: textArea.getAttribute("dir"),
+            actualLanguageTag: textArea.getAttribute("lang"),
           };
         },
-        { value, showsPlaceholder, scriptDirection }
+        { value, showsPlaceholder, scriptDirection, languageTag }
       );
     } catch (error) {
       AboutTranslationsTestUtils.#reportTestFailure(error);
     }
 
-    const { hasPlaceholder, actualValue, actualScriptDirection } = pageResult;
+    const {
+      hasPlaceholder,
+      actualValue,
+      actualScriptDirection,
+      actualLanguageTag,
+    } = pageResult;
 
     if (showsPlaceholder !== undefined) {
       if (showsPlaceholder) {
@@ -5313,6 +5441,14 @@ class AboutTranslationsTestUtils {
         `Expected source textarea "dir" attribute to be "${scriptDirection}", but got "${actualScriptDirection}".`
       );
     }
+
+    if (languageTag !== undefined) {
+      is(
+        actualLanguageTag,
+        languageTag,
+        `Expected source textarea "lang" attribute to be "${languageTag}", but got "${actualLanguageTag}".`
+      );
+    }
   }
 
   /**
@@ -5322,13 +5458,11 @@ class AboutTranslationsTestUtils {
    * @param {string}  [options.value]
    * @param {boolean} [options.showsPlaceholder]
    * @param {string}  [options.scriptDirection]
+   * @param {string|null} [options.languageTag]
    * @returns {Promise<void>}
    */
-  async assertTargetTextArea({
-    value,
-    showsPlaceholder,
-    scriptDirection,
-  } = {}) {
+  async assertTargetTextArea(options = {}) {
+    const { value, showsPlaceholder, scriptDirection, languageTag } = options;
     // This helps the test visually render at each step without significantly slowing test speed.
     await doubleRaf(document);
 
@@ -5343,15 +5477,21 @@ class AboutTranslationsTestUtils {
             hasPlaceholder: textArea.hasAttribute("placeholder"),
             actualValue: textArea.value,
             actualScriptDirection: textArea.getAttribute("dir"),
+            actualLanguageTag: textArea.getAttribute("lang"),
           };
         },
-        { value, showsPlaceholder, scriptDirection }
+        { value, showsPlaceholder, scriptDirection, languageTag }
       );
     } catch (error) {
       AboutTranslationsTestUtils.#reportTestFailure(error);
     }
 
-    const { hasPlaceholder, actualValue, actualScriptDirection } = pageResult;
+    const {
+      hasPlaceholder,
+      actualValue,
+      actualScriptDirection,
+      actualLanguageTag,
+    } = pageResult;
 
     if (showsPlaceholder !== undefined) {
       if (showsPlaceholder) {
@@ -5379,6 +5519,14 @@ class AboutTranslationsTestUtils {
         actualScriptDirection,
         scriptDirection,
         `Expected target textarea "dir" attribute to be "${scriptDirection}", but got "${actualScriptDirection}".`
+      );
+    }
+
+    if (languageTag !== undefined) {
+      is(
+        actualLanguageTag,
+        languageTag,
+        `Expected target textarea "lang" attribute to be "${languageTag}", but got "${actualLanguageTag}".`
       );
     }
   }
@@ -5938,6 +6086,66 @@ class AboutTranslationsTestUtils {
   }
 
   /**
+   * Asserts the tab order across the provided selectors, starting from the
+   * first selector focused directly.
+   *
+   * @param {string[]} selectorKeys
+   * @returns {Promise<void>}
+   */
+  async assertTabFocusOrder(selectorKeys) {
+    await doubleRaf(document);
+    logAction(selectorKeys.join(", "));
+
+    try {
+      await this.#runInPage(
+        async (selectors, { selectorKeys }) => {
+          const { document } = content;
+          const EventUtils = ContentTaskUtils.getEventUtils(content);
+          const doubleRaf = () =>
+            new Promise(resolve => {
+              content.requestAnimationFrame(() => {
+                content.requestAnimationFrame(resolve);
+              });
+            });
+
+          const elements = selectorKeys.map(selectorKey => {
+            const selector = selectors[selectorKey];
+            const element = document.querySelector(selector);
+            if (!element) {
+              throw new Error(`Could not find element for "${selectorKey}".`);
+            }
+            return element;
+          });
+
+          const activeElementAtStart = document.activeElement;
+
+          elements[0].focus();
+          await doubleRaf();
+
+          for (let index = 0; index < elements.length; index++) {
+            const element = elements[index];
+            if (document.activeElement !== element) {
+              throw new Error(
+                `Expected "${selectorKeys[index]}" (#${element.id}) to have focus.`
+              );
+            }
+
+            if (index + 1 < elements.length) {
+              EventUtils.synthesizeKey("KEY_Tab", {}, content);
+              await doubleRaf();
+            }
+          }
+
+          activeElementAtStart?.focus?.();
+        },
+        { selectorKeys }
+      );
+    } catch (error) {
+      AboutTranslationsTestUtils.#reportTestFailure(error);
+    }
+  }
+
+  /**
    * Retrieves the current state of the copy button.
    *
    * @returns {Promise<{exists: boolean, isDisabled: boolean, isCopied: boolean, l10nId: string}>}
@@ -6090,19 +6298,47 @@ class AboutTranslationsTestUtils {
   }
 
   /**
-   * Clicks the clear button.
+   * Invokes the clear button.
+   *
+   * @param {object} [options={}]
+   * @param {AboutTranslationsInvokeAction} [options.action="click"]
    *
    * @returns {Promise<void>}
    */
-  async clickClearButton() {
+  async invokeClearButton({ action = "click" } = {}) {
+    await doubleRaf(document);
+    logAction(action);
+    try {
+      await this.#invokeElement({
+        selectorKey: "clearButton",
+        action,
+      });
+    } catch (error) {
+      AboutTranslationsTestUtils.#reportTestFailure(error);
+    }
+  }
+
+  /**
+   * Undoes the most recent user-input edit to the source-section
+   * text area, simulating the behavior of invoking `Ctrl/Cmd + Z`.
+   *
+   * @returns {Promise<void>}
+   */
+  async invokeSourceTextAreaUndoAction() {
+    logAction();
     await doubleRaf(document);
     try {
       await this.#runInPage(selectors => {
-        const clearButton = content.document.querySelector(
-          selectors.clearButton
+        const sourceTextArea = content.document.querySelector(
+          selectors.sourceSectionTextArea
         );
-        clearButton.click();
+        sourceTextArea.focus();
       });
+      await BrowserTestUtils.synthesizeKey(
+        "z",
+        { accelKey: true },
+        this.#browser
+      );
     } catch (error) {
       AboutTranslationsTestUtils.#reportTestFailure(error);
     }

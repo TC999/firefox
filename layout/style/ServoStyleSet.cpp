@@ -1,11 +1,10 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/ServoStyleSet.h"
 
+#include "COLRFonts.h"
 #include "PseudoStyleType.h"
 #include "gfxUserFontSet.h"
 #include "mozilla/AttributeStyles.h"
@@ -27,6 +26,7 @@
 #include "mozilla/StyleAnimationValue.h"
 #include "mozilla/css/Loader.h"
 #include "mozilla/dom/AnonymousContent.h"
+#include "mozilla/dom/CSSAppearanceBaseRule.h"
 #include "mozilla/dom/CSSBinding.h"
 #include "mozilla/dom/CSSContainerRule.h"
 #include "mozilla/dom/CSSCounterStyleRule.h"
@@ -51,6 +51,7 @@
 #include "mozilla/dom/CSSStartingStyleRule.h"
 #include "mozilla/dom/CSSStyleRule.h"
 #include "mozilla/dom/CSSSupportsRule.h"
+#include "mozilla/dom/CSSViewTransitionRule.h"
 #include "mozilla/dom/DocumentInlines.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/ElementInlines.h"
@@ -617,18 +618,6 @@ already_AddRefed<ComputedStyle> ServoStyleSet::ResolveXULTreePseudoStyle(
       .Consume();
 }
 
-already_AddRefed<ComputedStyle> ServoStyleSet::ResolveStartingStyle(
-    dom::Element& aElement) {
-  nsPresContext* pc = GetPresContext();
-  if (!pc) {
-    return nullptr;
-  }
-
-  return Servo_ResolveStartingStyle(
-             &aElement, &pc->RestyleManager()->Snapshots(), mRawData.get())
-      .Consume();
-}
-
 already_AddRefed<ComputedStyle> ServoStyleSet::ResolvePositionTry(
     dom::Element& aElement, const ComputedStyle& aStyle,
     const StylePositionTryFallbacksItem& aFallback) {
@@ -1036,9 +1025,11 @@ static Maybe<StyleCssRuleRef> ToRuleRef(css::Rule& aRule) {
     CASE_FOR(Container, Container)
     CASE_FOR(Scope, Scope)
     CASE_FOR(StartingStyle, StartingStyle)
+    CASE_FOR(AppearanceBase, AppearanceBase)
     CASE_FOR(PositionTry, PositionTry)
     CASE_FOR(NestedDeclarations, NestedDeclarations)
     CASE_FOR(Namespace, Namespace)
+    CASE_FOR(ViewTransition, ViewTransition)
 #undef CASE_FOR
     case StyleCssRuleType::Keyframe:
       // No equivalent.
@@ -1086,8 +1077,10 @@ void ServoStyleSet::RuleChangedInternal(StyleSheet& aSheet, css::Rule& aRule,
     CASE_FOR(Container, Container)
     CASE_FOR(Scope, Scope)
     CASE_FOR(StartingStyle, StartingStyle)
+    CASE_FOR(AppearanceBase, AppearanceBase)
     CASE_FOR(PositionTry, PositionTry)
     CASE_FOR(NestedDeclarations, NestedDeclarations)
+    CASE_FOR(ViewTransition, ViewTransition)
     // @namespace can only be inserted / removed when there are only other
     // @namespace and @import rules, and can't be mutated.
     case StyleCssRuleType::Namespace:
@@ -1342,6 +1335,12 @@ void ServoStyleSet::AppendFontFaceRules(
   // TODO(emilio): Can we make this so this asserts instead?
   UpdateStylistIfNeeded();
   Servo_StyleSet_GetFontFaceRules(mRawData.get(), &aArray);
+}
+
+already_AddRefed<StyleViewTransitionRule>
+ServoStyleSet::GetLastViewTransitionRule() {
+  UpdateStylistIfNeeded();
+  return Servo_StyleSet_GetLastViewTransitionRule(mRawData.get()).Consume();
 }
 
 const StyleLockedCounterStyleRule* ServoStyleSet::CounterStyleRuleForName(

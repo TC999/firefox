@@ -75,7 +75,7 @@ hazard
 
 Hazard builds are similar to "regular' builds, but use a compiler extension to
 extract a bunch of data from the build and then analyze that data looking for
-hazardous behaviors.
+hazardous behaviors. See https://firefox-source-docs.mozilla.org/js/HazardAnalysis/index.html
 
 l10n
 ----
@@ -452,6 +452,11 @@ Publishes signed langpacks to archive.mozilla.org
 release-update-verify
 ---------------------
 Verifies the contents and package of release update MARs.
+
+test-update-integrity
+---------------------
+Verifies that update MARs match installers. See `tools/update-verify/marannon` for more details.
+
 release-update-verify-next
 --------------------------
 Verifies the contents and package of release and updare MARs from the previous ESR release.
@@ -751,6 +756,10 @@ Tasks used to build the openh264 plugin.
 openh264-signing
 ----------------
 Signing for the openh264 plugin.
+
+openh264-symbol-upload
+-----------------------
+Upload crash symbols for the openh264 plugin to the symbol server.
 
 webrender
 ---------

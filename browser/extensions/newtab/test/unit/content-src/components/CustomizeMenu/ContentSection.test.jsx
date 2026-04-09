@@ -77,6 +77,18 @@ describe("ContentSection", () => {
     assert.calledWith(DEFAULT_PROPS.setPref, "foo", true);
   });
 
+  it("should call setPref with parsed integer value for MOZ-SELECT", () => {
+    wrapper.instance().onPreferenceSelect({
+      target: {
+        nodeName: "MOZ-SELECT",
+        value: "3",
+        dataset: { preference: "topSitesRows" },
+      },
+    });
+
+    assert.calledWith(DEFAULT_PROPS.setPref, "topSitesRows", 3);
+  });
+
   it("should have data-event-source attributes on relevant pref changing inputs", () => {
     wrapper = mount(<ContentSection {...DEFAULT_PROPS} />);
     assert.equal(
@@ -378,6 +390,127 @@ describe("ContentSection", () => {
         </WrapWithProvider>
       );
       assert.isTrue(wrapper.find("SectionsMgmtPanel").exists());
+    });
+  });
+
+  // @nova-cleanup(remove-conditional): Remove novaEnabled condition from wallpapers section
+  describe("wallpapers section (novaEnabled)", () => {
+    // WallpaperCategories reads newtabWallpapers.wallpaper from the store;
+    // provide it so the component doesn't crash on .includes()
+    const WALLPAPER_STATE = {
+      ...INITIAL_STATE,
+      Prefs: {
+        ...INITIAL_STATE.Prefs,
+        values: {
+          ...INITIAL_STATE.Prefs.values,
+          "newtabWallpapers.wallpaper": "",
+        },
+      },
+    };
+
+    const NOVA_PROPS = {
+      novaEnabled: true,
+      toggleWidgetsManagementPanel: sinon.stub(),
+      showWidgetsManagementPanel: false,
+      onSubpanelToggle: sinon.stub(),
+    };
+
+    it("renders the wallpaper toggle", () => {
+      wrapper = mount(
+        <WrapWithProvider>
+          <ContentSection
+            {...DEFAULT_PROPS}
+            {...NOVA_PROPS}
+            wallpapersEnabled={false}
+          />
+        </WrapWithProvider>
+      );
+      assert.isTrue(wrapper.find("#wallpapers-toggle").exists());
+    });
+
+    it("shows WallpaperCategories when the wallpaper toggle is on", () => {
+      wrapper = mount(
+        <WrapWithProvider state={WALLPAPER_STATE}>
+          <ContentSection
+            {...DEFAULT_PROPS}
+            {...NOVA_PROPS}
+            wallpapersEnabled={true}
+          />
+        </WrapWithProvider>
+      );
+      assert.isTrue(wrapper.find(".category-list").exists());
+    });
+
+    it("hides WallpaperCategories when the wallpaper toggle is off", () => {
+      wrapper = mount(
+        <WrapWithProvider>
+          <ContentSection
+            {...DEFAULT_PROPS}
+            {...NOVA_PROPS}
+            wallpapersEnabled={false}
+          />
+        </WrapWithProvider>
+      );
+      assert.isFalse(wrapper.find(".category-list").exists());
+    });
+
+    // @nova-cleanup(remove-conditional): Remove the `.widgets-section` assertion once the novaEnabled condition is removed
+    it("renders WidgetsManagementPanel instead of .widgets-section when novaEnabled and mayHaveWidgets are true", () => {
+      wrapper = mount(
+        <WrapWithProvider>
+          <ContentSection
+            {...DEFAULT_PROPS}
+            {...NOVA_PROPS}
+            mayHaveWidgets={true}
+          />
+        </WrapWithProvider>
+      );
+      assert.isTrue(wrapper.find("WidgetsManagementPanel").exists());
+      assert.isFalse(wrapper.find(".widgets-section").exists());
+    });
+
+    describe("widgets system toggle", () => {
+      it("renders the widgets system toggle in ContentSection", () => {
+        wrapper = mount(
+          <WrapWithProvider>
+            <ContentSection
+              {...DEFAULT_PROPS}
+              {...NOVA_PROPS}
+              mayHaveWidgets={true}
+              widgetsEnabled={false}
+            />
+          </WrapWithProvider>
+        );
+        assert.isTrue(wrapper.find("#widgets-system-toggle").exists());
+      });
+
+      it("sets widgets-system-toggle pressed when widgetsEnabled is true", () => {
+        wrapper = mount(
+          <WrapWithProvider>
+            <ContentSection
+              {...DEFAULT_PROPS}
+              {...NOVA_PROPS}
+              mayHaveWidgets={true}
+              widgetsEnabled={true}
+            />
+          </WrapWithProvider>
+        );
+        assert.isTrue(wrapper.find("#widgets-system-toggle").prop("pressed"));
+      });
+
+      it("sets widgets-system-toggle unpressed when widgetsEnabled is false", () => {
+        wrapper = mount(
+          <WrapWithProvider>
+            <ContentSection
+              {...DEFAULT_PROPS}
+              {...NOVA_PROPS}
+              mayHaveWidgets={true}
+              widgetsEnabled={false}
+            />
+          </WrapWithProvider>
+        );
+        assert.isNotOk(wrapper.find("#widgets-system-toggle").prop("pressed"));
+      });
     });
   });
 });

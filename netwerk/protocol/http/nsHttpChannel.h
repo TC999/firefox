@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:set et cin ts=4 sw=2 sts=2: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -27,7 +25,6 @@
 #include "nsIEarlyHintObserver.h"
 #include "nsIHttpAuthenticableChannel.h"
 #include "nsIProtocolProxyCallback.h"
-#include "nsIRaceCacheWithNetwork.h"
 #include "nsIRequestContext.h"
 #include "nsIStreamListener.h"
 #include "nsIThreadRetargetableRequest.h"
@@ -74,7 +71,6 @@ class nsHttpChannel final : public HttpBaseChannel,
                             public nsIDNSListener,
                             public nsSupportsWeakReference,
                             public nsICorsPreflightCallback,
-                            public nsIRaceCacheWithNetwork,
                             public nsIRequestTailUnblockCallback,
                             public nsIEarlyHintObserver {
  public:
@@ -92,7 +88,6 @@ class nsHttpChannel final : public HttpBaseChannel,
   NS_DECL_NSITHREADRETARGETABLEREQUEST
   NS_DECL_NSIDNSLISTENER
   NS_INLINE_DECL_STATIC_IID(NS_HTTPCHANNEL_IID)
-  NS_DECL_NSIRACECACHEWITHNETWORK
   NS_DECL_NSIREQUESTTAILUNBLOCKCALLBACK
   NS_DECL_NSIEARLYHINTOBSERVER
 
@@ -320,6 +315,7 @@ class nsHttpChannel final : public HttpBaseChannel,
 
   // Add Sec-Fetch-Storage-Access headers based on cookie partitioning
   void AddStorageAccessHeadersToRequest();
+  bool DispatchRelease();
 
  public:
   // returns whether this channel is a retry after receiving the
@@ -520,8 +516,6 @@ class nsHttpChannel final : public HttpBaseChannel,
 
   // Report telemetry for system principal request success rate
   void ReportSystemChannelTelemetry(nsresult status);
-  // Report telemetry and stats to about:networking
-  void ReportRcwnStats(bool isFromNet);
 
   // Create a aggregate set of the current notification callbacks
   // and ensure the transaction is updated to use it.
@@ -559,8 +553,9 @@ class nsHttpChannel final : public HttpBaseChannel,
   void SetCachedContentType();
 
  private:
-  // this section is for main-thread-only object
-  // all the references need to be proxy released on main thread.
+  // --- MAIN THREAD ONLY OBJECTS ---
+  // this section is for main-thread-only objects
+  // all the references need to be released on main thread.
   // auth specific data
   nsCOMPtr<nsIHttpChannelAuthProvider> mAuthProvider;
   nsCOMPtr<nsIURI> mRedirectURI;
@@ -585,8 +580,7 @@ class nsHttpChannel final : public HttpBaseChannel,
   // versions of itself, these may have the same URI (but likely different
   // hashes).
 
-  // Proxy release all members above on main thread.
-  void ReleaseMainThreadOnlyReferences();
+  // --- END OF MAIN THREAD ONLY OBJECTS SECTION ---
 
   // Called after the channel is made aware of its tracking status in order
   // to readjust the referrer if needed according to the referrer default
@@ -638,7 +632,6 @@ class nsHttpChannel final : public HttpBaseChannel,
   mozilla::TimeStamp mOnStartRequestTimestamp;
   // Timestamp of the time the channel was suspended.
   mozilla::TimeStamp mSuspendTimestamp;
-  mozilla::TimeStamp mOnCacheEntryCheckTimestamp;
 
   // Properties used for the profiler markers
   // This keeps the timestamp for the start marker, to be reused for the end
@@ -815,13 +808,6 @@ class nsHttpChannel final : public HttpBaseChannel,
     RefPtr<nsHttpChannel> mChannel;
   };
 
-  // These next members are only used in unit tests to delay the call to
-  // cache->AsyncOpenURI in order to race the cache with the network.
-  nsCOMPtr<nsITimer> mCacheOpenTimer;
-  std::function<void(nsHttpChannel*)> mCacheOpenFunc;
-  uint32_t mCacheOpenDelay = 0;
-  uint32_t mNetworkTriggerDelay = 0;
-
   // We need to remember which is the source of the response we are using.
   enum ResponseSource {
     RESPONSE_PENDING = 0,      // response is pending
@@ -830,16 +816,6 @@ class nsHttpChannel final : public HttpBaseChannel,
   };
   Atomic<ResponseSource, Relaxed> mFirstResponseSource{RESPONSE_PENDING};
 
-  // Determines if it's possible and advisable to race the network request
-  // with the cache fetch, and proceeds to do so.
-  void MaybeRaceCacheWithNetwork();
-
-  // Creates a new cache entry when network wins the race to ensure we have
-  // the latest version of the resource in the cache. Otherwise we might
-  // return an old content when navigating back in history.
-  void MaybeCreateCacheEntryWhenRCWN();
-
-  nsresult TriggerNetworkWithDelay(uint32_t aDelay);
   nsresult TriggerNetwork();
   nsresult OnSuspendTimeout();
   void CancelNetworkRequest(nsresult aStatus);
@@ -852,9 +828,6 @@ class nsHttpChannel final : public HttpBaseChannel,
 
   void MaybeGenerateNELReport();
 
-  // Timer used to delay the network request, or to trigger the network
-  // request if retrieving the cache entry takes too long.
-  nsCOMPtr<nsITimer> mNetworkTriggerTimer;
   // Is true if the network request has been triggered.
   bool mNetworkTriggered = false;
 
@@ -867,18 +840,6 @@ class nsHttpChannel final : public HttpBaseChannel,
   bool mStaleRevalidation = false;
   // Set if this is dictionary-compressed
   bool mIsDictionaryCompressed = false;
-  // Will be true if the onCacheEntryAvailable callback is not called by the
-  // time we send the network request
-  Atomic<bool> mRaceCacheWithNetwork{false};
-  uint32_t mRaceDelay{0};
-  // If true then OnCacheEntryAvailable should ignore the entry, because
-  // SetupTransaction removed conditional headers and decisions made in
-  // OnCacheEntryCheck are no longer valid.
-  bool mIgnoreCacheEntry{false};
-  bool mAllowRCWN{true};
-  // Lock preventing SetupTransaction/MaybeCreateCacheEntryWhenRCWN and
-  // OnCacheEntryCheck being called at the same time.
-  mozilla::Mutex mRCWNLock MOZ_UNANNOTATED{"nsHttpChannel.mRCWNLock"};
 
   // Set to true when OnSuspendTimeout calls SetBypassWriterLock(true)
   // for the cache entry. Gets reset back to false when Resume calls
@@ -942,7 +903,7 @@ class nsHttpChannel final : public HttpBaseChannel,
  private:  // cache telemetry
   bool mDidReval{false};
 
-  RefPtr<nsIEarlyHintObserver> mEarlyHintObserver;
+  nsCOMPtr<nsIEarlyHintObserver> mEarlyHintObserver;
   Maybe<nsCString> mOpenerCallingScriptLocation;
   RefPtr<WebTransportSessionEventListener> mWebTransportSessionEventListener;
   nsMainThreadPtrHandle<nsIReplacedHttpResponse> mOverrideResponse;

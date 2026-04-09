@@ -59,8 +59,8 @@ type_policies = {
     "Double": "DoublePolicy",
     "String": "StringPolicy",
     "Symbol": "SymbolPolicy",
-    "NoTypePolicy": "NoTypePolicy",
     "Slots": "NoTypePolicy",
+    "any": "NoTypePolicy",
 }
 
 
@@ -68,15 +68,11 @@ def decide_type_policy(types, no_type_policy):
     if no_type_policy:
         return "public NoTypePolicy::Data"
 
-    type_num = 0
     mixed_type_policies = []
-    for mir_type in types:
+    for type_num, mir_type in enumerate(types):
         policy = type_policies[mir_type]
-        if policy == "NoTypePolicy":
-            type_num += 1
-            continue
-        mixed_type_policies.append(f"{policy}<{type_num}>")
-        type_num += 1
+        if policy != "NoTypePolicy":
+            mixed_type_policies.append(f"{policy}<{type_num}>")
 
     if len(mixed_type_policies) == 0:
         return "public NoTypePolicy::Data"
@@ -85,6 +81,60 @@ def decide_type_policy(types, no_type_policy):
         return f"public {mixed_type_policies[0]}::Data"
 
     return "public MixPolicy<{}>::Data".format(", ".join(mixed_type_policies))
+
+
+# Alias set flags defined in MIR.h.
+alias_set_flags = {
+    "None",
+    "ObjectFields",
+    "Element",
+    "UnboxedElement",
+    "DynamicSlot",
+    "FixedSlot",
+    "DOMProperty",
+    "WasmInstanceData",
+    "WasmHeap",
+    "WasmHeapMeta",
+    "ArrayBufferViewLengthOrOffset",
+    "WasmGlobalCell",
+    "WasmTableElement",
+    "WasmTableMeta",
+    "WasmStackResult",
+    "ExceptionState",
+    "DOMProxyExpando",
+    "MapOrSetHashTable",
+    "RNG",
+    "WasmPendingException",
+    "FuzzilliHash",
+    "WasmStructInlineDataArea",
+    "WasmStructOutlineDataPointer",
+    "WasmStructOutlineDataArea",
+    "WasmArrayNumElements",
+    "WasmArrayDataPointer",
+    "WasmArrayDataArea",
+    "GlobalGenerationCounter",
+    "SharedArrayRawBufferLength",
+    "Any",
+}
+
+
+def get_alias_set(load_or_store, alias_set):
+    assert load_or_store in ("load", "store")
+
+    flags = alias_set.get(load_or_store, [])
+    if isinstance(flags, str):
+        flags = [flags]
+
+    assert isinstance(flags, list)
+    assert alias_set_flags.issuperset(flags), "unknown alias set flag: " + str(flags)
+    assert len(flags) == len(set(flags)), "unexpected duplicates: " + str(flags)
+
+    # `AliasSet::{Load,Store}(AliasSet::None)` is not valid, so handle it early.
+    if len(flags) == 0 or flags[0] == "None":
+        return None
+
+    expr = " | ".join(f"AliasSet::{flag}" for flag in flags)
+    return f"AliasSet::{load_or_store.title()}({expr})"
 
 
 mir_base_class = [
@@ -112,6 +162,7 @@ gc_pointer_types = [
     "RegExpObject*",
     "JSScript*",
     "LexicalScope*",
+    "ArgumentsObject*",
 ]
 
 special_storage_types = {
@@ -185,8 +236,7 @@ def gen_mir_class(
     # Items for NAMED_OPERANDS.
     named_operands = []
     if operands:
-        current_oper_num = 0
-        for oper_name in operands:
+        for current_oper_num, oper_name in enumerate(operands):
             oper = "MDefinition* " + oper_name
             mir_operands.append(oper)
             mir_base_class_operands.append(", " + oper_name)
@@ -195,7 +245,6 @@ def gen_mir_class(
             mir_types.append(operands[oper_name])
             # Collecting named operands for defining accessors.
             named_operands.append(f"({current_oper_num}, {oper_name})")
-            current_oper_num += 1
         type_policy = decide_type_policy(mir_types, no_type_policy)
 
     class_name = "M" + name
@@ -240,6 +289,19 @@ def gen_mir_class(
                 code += arg_name
             code += ")"
     code += " {\\\n"
+    if operands:
+        for oper_name in operands:
+            mir_type = operands[oper_name]
+
+            # Skip over operands which can have any type.
+            if mir_type == "any":
+                continue
+
+            policy = type_policies.get(mir_type, "NoTypePolicy")
+            if no_type_policy or policy == "NoTypePolicy":
+                code += (
+                    f"    MOZ_ASSERT({oper_name}->type() == MIRType::{mir_type});\\\n"
+                )
     if guard:
         code += "    setGuard();\\\n"
     if movable:
@@ -267,12 +329,26 @@ def gen_mir_class(
     if alias_set:
         if alias_set == "custom":
             code += "  AliasSet getAliasSet() const override;\\\n"
-        else:
-            assert alias_set == "none"
+        elif alias_set == "none":
             code += (
                 "  AliasSet getAliasSet() const override { "
                 "return AliasSet::None(); }\\\n"
             )
+        else:
+            assert isinstance(alias_set, dict)
+            assert {"load", "store"}.issuperset(alias_set.keys())
+
+            load = get_alias_set("load", alias_set)
+            store = get_alias_set("store", alias_set)
+
+            if load and store:
+                expr = f"{load} | {store}"
+            elif load or store:
+                expr = load if load else store
+            else:
+                expr = "AliasSet::None()"
+
+            code += f"  AliasSet getAliasSet() const override {{ return {expr}; }}\\\n"
     if might_alias:
         code += "  AliasType mightAlias(const MDefinition* store) const override;\\\n"
     if folds_to:
@@ -410,7 +486,7 @@ def generate_mir_header(c_out, yaml_path):
             )
 
             alias_set = op.get("alias_set", None)
-            assert alias_set in (None, "none", "custom")
+            assert alias_set in (None, "none", "custom") or isinstance(alias_set, dict)
 
             might_alias = op.get("might_alias", None)
             assert might_alias in (None, "custom")

@@ -297,6 +297,11 @@ add_task(async function test_restore_uses_matching_initial_folder() {
     let selectedFilePromise = BrowserTestUtils.waitForEvent(
       settings,
       "BackupUI:SelectNewFilepickerPath"
+    ).then(() =>
+      BrowserTestUtils.waitForEvent(
+        restoreFromBackup,
+        "BackupUI:StateWasUpdated"
+      )
     );
 
     restoreFromBackup.backupServiceState.backupFileToRestore =
@@ -306,6 +311,8 @@ add_task(async function test_restore_uses_matching_initial_folder() {
     await filePickerShownPromise;
     await selectedFilePromise;
   });
+
+  BackupService.get().resetLastBackupInternalState();
 });
 
 /**
@@ -449,31 +456,27 @@ add_task(async function test_restore_from_backup_prefills_prior_valid_backup() {
     let selectedFilePromise = BrowserTestUtils.waitForEvent(
       restoreFromBackup,
       "BackupUI:SelectNewFilepickerPath"
-    ).then(() =>
-      BrowserTestUtils.waitForEvent(
-        restoreFromBackup,
-        "BackupUI:StateWasUpdated"
-      )
     );
     restoreFromBackup.chooseButtonEl.click();
     await selectedFilePromise;
-    await restoreFromBackup.updateComplete;
 
-    Assert.equal(
-      restoreFromBackup.filePicker.value,
-      path,
-      "The file picker should contain the expected path."
-    );
+    // Wait for the state to reflect the newly selected file. We can't
+    // simply wait for the next BackupUI:StateWasUpdated because a stale
+    // getBackupFileInfo request (from maybeGetBackupFileInfo during
+    // connectedCallback) may resolve first with an outdated state.
+    await TestUtils.waitForCondition(async () => {
+      await restoreFromBackup.updateComplete;
+      return restoreFromBackup.filePicker.value === path;
+    }, "The file picker should contain the expected path.");
   });
 
   await BrowserTestUtils.withNewTab("about:preferences#sync", async browser => {
     let { restoreFromBackup } = await initializedBackupWidgets(browser);
 
-    Assert.equal(
-      restoreFromBackup.filePicker.value,
-      path,
-      "The path selected before should be used."
-    );
+    await TestUtils.waitForCondition(async () => {
+      await restoreFromBackup.updateComplete;
+      return restoreFromBackup.filePicker.value === path;
+    }, "The path selected before should be used.");
   });
 });
 

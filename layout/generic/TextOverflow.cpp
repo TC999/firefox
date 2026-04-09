@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -748,8 +746,8 @@ void TextOverflow::ProcessLine(const nsDisplayListSet& aLists, nsLineBox* aLine,
 
   // Clip and remove display items as needed at the final marker edges.
   nsDisplayList* lists[] = {aLists.Content(), aLists.PositionedDescendants()};
-  for (uint32_t i = 0; i < std::size(lists); ++i) {
-    PruneDisplayListContents(lists[i], framesToHide, insideMarkersArea);
+  for (auto& list : lists) {
+    PruneDisplayListContents(list, framesToHide, insideMarkersArea);
   }
   CreateMarkers(aLine, needIStart, needIEnd, insideMarkersArea, contentArea,
                 aLineNumber);

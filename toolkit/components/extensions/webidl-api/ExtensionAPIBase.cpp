@@ -82,7 +82,7 @@ void ChromeCompatCallbackHandler::ReportUncheckedLastError(
 
   RefPtr<ConsoleReportCollector> reporter = new ConsoleReportCollector();
   reporter->AddConsoleReport(nsIScriptError::errorFlag, "content javascript"_ns,
-                             nsContentUtils::eDOM_PROPERTIES, sourceSpec, line,
+                             PropertiesFile::DOM_PROPERTIES, sourceSpec, line,
                              column, "WebExtensionUncheckedLastError"_ns,
                              params);
 
@@ -281,7 +281,7 @@ void ExtensionAPIBase::GetWebExtPropertyAsString(const nsString& aPropertyName,
     NS_WARNING("GetWebExtPropertyAsString got a non string result");
     return;
   }
-  aRetval.SetKnownLiveString(strRetval);
+  aRetval.AsAString() = strRetval;
 }
 
 void ExtensionAPIBase::GetWebExtPropertyAsJSValue(

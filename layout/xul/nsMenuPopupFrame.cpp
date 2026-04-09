@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1009,6 +1007,12 @@ void nsMenuPopupFrame::InitializePopupAsNativeAnchoredMenu(
   mIsTopLevelContextMenu = aIsContextMenu;
   mIsNativeMenu = true;
   mScreenRect = ToAppUnits(aRect, AppUnitsPerCSSPixel());
+
+  if (nsIFrame* anchorFrame = GetAnchorFrame()) {
+    if (nsPresContext* rootPresContext = PresContext()->GetRootPresContext()) {
+      mScreenRect = ComputeAnchorRect(rootPresContext, anchorFrame);
+    }
+  }
 
   // Native menus don't call PrepareWidget(), so if we have a widget
   // already (which generally should only be possible on tests, since

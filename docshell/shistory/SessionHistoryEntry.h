@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -425,9 +423,11 @@ class SessionHistoryEntry : public nsISHEntry, public nsSupportsWeakReference {
   NS_DECL_NSISHENTRY
   NS_INLINE_DECL_STATIC_IID(NS_SESSIONHISTORYENTRY_IID)
 
+  using nsISHEntry::IsTransient;
+
   bool IsInSessionHistory() {
     SessionHistoryEntry* entry = this;
-    while (nsCOMPtr<SessionHistoryEntry> parent =
+    while (RefPtr<SessionHistoryEntry> parent =
                do_QueryReferent(entry->mParent)) {
       entry = parent;
     }
@@ -451,6 +451,12 @@ class SessionHistoryEntry : public nsISHEntry, public nsSupportsWeakReference {
   // aNewChild and returns true. If there is no child with the same docshell ID
   // then it returns false.
   bool ReplaceChild(SessionHistoryEntry* aNewChild);
+  void GetChildAt(int32_t aIndex, SessionHistoryEntry** aChild);
+
+  SessionHistoryEntry* GetChildSHEntryIfHasNoDynamicallyAddedChild(
+      int32_t aChildOffset);
+
+  already_AddRefed<SessionHistoryEntry> GetParent();
 
   void SetInfo(SessionHistoryInfo* aInfo);
 

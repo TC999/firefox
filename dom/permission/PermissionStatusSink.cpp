@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -11,6 +9,9 @@
 #include "mozilla/Permission.h"
 #include "mozilla/PermissionDelegateHandler.h"
 #include "mozilla/PermissionManager.h"
+#include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/dom/BrowsingContext.h"
+#include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/dom/WorkerRef.h"
 #include "nsGlobalWindowInner.h"
@@ -43,7 +44,7 @@ PermissionStatusSink::PermissionStatusSink(PermissionStatus* aPermissionStatus,
 
 PermissionStatusSink::~PermissionStatusSink() = default;
 
-RefPtr<PermissionStatusSink::PermissionStatePromise>
+RefPtr<PermissionStatusSink::InternalPermissionStatesPromise>
 PermissionStatusSink::Init() {
   if (!NS_IsMainThread()) {
     WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
@@ -59,9 +60,8 @@ PermissionStatusSink::Init() {
       // we are on the Worker thread, promise handlers in
       // PermissionStatus::Init()/Permissions::Query() can still be dispatched
       // to the Worker thread for outer promise rejection.
-      return PermissionStatePromise::CreateAndReject(NS_ERROR_FAILURE,
-                                                     __func__);
-      ;
+      return InternalPermissionStatesPromise::CreateAndReject(NS_ERROR_FAILURE,
+                                                              __func__);
     }
 
     mWorkerRef = new ThreadSafeWorkerRef(workerRef);
@@ -89,7 +89,29 @@ PermissionStatusSink::Init() {
 
                        // Covers the query part (Step 8.2 - 8.4)
                        return self->ComputeStateOnMainThread();
-                     });
+                     })
+      ->Then(
+          GetCurrentSerialEventTarget(), __func__,
+          [self = RefPtr(this)](uint32_t aBrowserState) {
+            RefPtr<InternalPermissionStatesPromise> promise =
+                self->ComputeSystemState()->Then(
+                    GetCurrentSerialEventTarget(), __func__,
+                    [self, aBrowserState](PermissionState aSystemState) {
+                      return InternalPermissionStatesPromise::CreateAndResolve(
+                          InternalPermissionStates{.mBrowser = aBrowserState,
+                                                   .mSystem = aSystemState},
+                          __func__);
+                    },
+                    [](nsresult aResult) {
+                      return InternalPermissionStatesPromise::CreateAndReject(
+                          aResult, __func__);
+                    });
+            return promise;
+          },
+          [](nsresult aResult) {
+            return InternalPermissionStatesPromise::CreateAndReject(aResult,
+                                                                    __func__);
+          });
 }
 
 bool PermissionStatusSink::MaybeUpdatedByOnMainThread(
@@ -109,10 +131,62 @@ bool PermissionStatusSink::MaybeUpdatedByOnMainThread(
   return mPrincipalForPermission->Equals(permissionPrincipal);
 }
 
+bool PermissionStatusSink::MaybeUpdatedByBrowserPermOnMainThread(
+    nsIPermission* aPermission) {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  if (!MaybeUpdatedByOnMainThread(aPermission)) {
+    return false;
+  }
+
+  if (!mPermissionStatus) {
+    return false;
+  }
+
+  uint64_t permBrowserId = 0;
+  aPermission->GetBrowserId(&permBrowserId);
+  if (!permBrowserId) {
+    return false;
+  }
+
+  RefPtr<nsGlobalWindowInner> window = mPermissionStatus->GetOwnerWindow();
+  if (!window) {
+    return false;
+  }
+
+  RefPtr<BrowsingContext> bc = window->GetBrowsingContext();
+  if (!bc) {
+    return false;
+  }
+
+  return bc->Top()->BrowserId() == permBrowserId;
+}
+
 bool PermissionStatusSink::MaybeUpdatedByNotifyOnlyOnMainThread(
     nsPIDOMWindowInner* aInnerWindow) {
   MOZ_ASSERT(NS_IsMainThread());
   return false;
+}
+
+bool PermissionStatusSink::MaybeAffectedByBrowserIdOnMainThread(
+    uint64_t aBrowserId) {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  if (!mPermissionStatus) {
+    return false;
+  }
+
+  RefPtr<nsGlobalWindowInner> window = mPermissionStatus->GetOwnerWindow();
+  if (!window) {
+    return false;
+  }
+
+  RefPtr<BrowsingContext> bc = window->GetBrowsingContext();
+  if (!bc) {
+    return false;
+  }
+
+  return bc->Top()->BrowserId() == aBrowserId;
 }
 
 void PermissionStatusSink::PermissionChangedOnMainThread() {
@@ -253,6 +327,51 @@ PermissionStatusSink::ComputeStateOnMainThreadInternal(
   }
 
   return PermissionStatePromise::CreateAndResolve(action, __func__);
+}
+
+static PermissionState ComputeGeolocationBehavior(
+    geolocation::SystemGeolocationPermissionBehavior aBehavior) {
+  if (aBehavior == geolocation::SystemGeolocationPermissionBehavior::NoPrompt) {
+    return PermissionState::Granted;
+  }
+  return PermissionState::Prompt;
+}
+
+RefPtr<PermissionStatusSink::SystemPermissionStatePromise>
+PermissionStatusSink::ComputeSystemState() {
+  if (mPermissionName != PermissionName::Geolocation ||
+      StaticPrefs::dom_permissions_testing_enabled()) {
+    return SystemPermissionStatePromise::CreateAndResolve(
+        PermissionState::Granted, __func__);
+  }
+
+  // Avoid using PContent on a background thread.
+  auto spsPromisePrivate =
+      MakeRefPtr<PermissionStatusSink::SystemPermissionStatePromise::Private>(
+          __func__);
+
+  nsresult rv = NS_DispatchToMainThread(NS_NewRunnableFunction(
+      "PermissionStatusSink::ComputeSystemState", [spsPromisePrivate]() {
+        if (auto* contentChild = ContentChild::GetSingleton()) {
+          contentChild->SendGetSystemGeolocationPermissionBehavior()->Then(
+              GetCurrentSerialEventTarget(), __func__,
+              [spsPromisePrivate](
+                  geolocation::SystemGeolocationPermissionBehavior aBehavior) {
+                spsPromisePrivate->Resolve(
+                    ComputeGeolocationBehavior(aBehavior), __func__);
+              },
+              [spsPromisePrivate](mozilla::ipc::ResponseRejectReason aReason) {
+                spsPromisePrivate->Resolve(PermissionState::Granted, __func__);
+              });
+        } else {
+          spsPromisePrivate->Resolve(PermissionState::Granted, __func__);
+        }
+      }));
+  if (NS_FAILED(rv)) {
+    spsPromisePrivate->Resolve(PermissionState::Granted, __func__);
+  }
+
+  return spsPromisePrivate;
 }
 
 }  // namespace mozilla::dom

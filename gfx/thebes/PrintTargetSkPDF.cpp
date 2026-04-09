@@ -1,5 +1,4 @@
-/* -*- Mode: C++; tab-width: 20; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -19,6 +18,10 @@
 #include "nsJPEGEncoder.h"
 #include "nsString.h"
 #include "skia/src/pdf/SkPDFUtils.h"
+
+#ifdef ACCESSIBILITY
+#  include "mozilla/a11y/PdfStructTreeBuilder.h"
+#endif
 
 using namespace mozilla::image;
 using namespace mozilla;
@@ -207,6 +210,7 @@ static SkPDF::Metadata GetDefaultMetadata() {
 
 nsresult PrintTargetSkPDF::BeginPrinting(const nsAString& aTitle,
                                          const nsAString& aPrintToFileName,
+                                         uint64_t aBrowsingContextId,
                                          int32_t aStartPage, int32_t aEndPage) {
   // We need to create the SkPDFDocument here rather than in CreateOrNull
   // because it's only now that we are given aTitle which we want for the
@@ -223,6 +227,18 @@ nsresult PrintTargetSkPDF::BeginPrinting(const nsAString& aTitle,
 
   metadata.jpegDecoder = DecodeJpeg;
   metadata.jpegEncoder = EncodeJpeg;
+
+#ifdef ACCESSIBILITY
+  // structRoot needs to survive until SkPDF::MakeDocument returns.
+  SkPDF::StructureElementNode structRoot = {};
+  if (auto* builder =
+          mozilla::a11y::PdfStructTreeBuilder::Get(aBrowsingContextId)) {
+    if (builder->BuildStructTree(structRoot)) {
+      metadata.fStructureElementTreeRoot = &structRoot;
+      metadata.fOutline = SkPDF::Metadata::Outline::StructureElementHeaders;
+    }
+  }
+#endif
 
   // SkDocument stores a non-owning raw pointer to aStream
   mPDFDoc = SkPDF::MakeDocument(mOStream.get(), metadata);

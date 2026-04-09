@@ -11,6 +11,7 @@
 #include "mozilla/UniquePtr.h"
 #include "mozilla/UniquePtrExtensions.h"
 #include "mozilla/WidgetUtils.h"
+#include "nsNetUtil.h"
 #include "nsProfileLock.h"
 #include "nsStringFwd.h"
 
@@ -63,7 +64,6 @@
 #include "nsString.h"
 #include "nsReadableUtils.h"
 #include "nsNativeCharsetUtils.h"
-#include "mozilla/Sprintf.h"
 #include "nsPrintfCString.h"
 #include "mozilla/dom/DOMMozPromiseRequestHolder.h"
 #include "mozilla/dom/Promise.h"
@@ -71,10 +71,12 @@
 #include "mozilla/Sprintf.h"
 #include "mozilla/UniquePtr.h"
 #include "nsAppRunner.h"
-#include "nsIRunnable.h"
+#include "nsFileStreams.h"
+#include "nsIFileStreams.h"
+#include "nsISafeOutputStream.h"
 #include "nsIToolkitShellService.h"
 #include "nsNativeCharsetUtils.h"
-#include "nsPrintfCString.h"
+#include "nsFmtString.h"
 #include "nsProxyRelease.h"
 #include "nsReadableUtils.h"
 #ifdef MOZ_HAS_REMOTE
@@ -248,6 +250,29 @@ nsresult RemoveProfileFiles(nsIFile* aRootDir, nsIFile* aLocalDir,
     // as deleting the lockfile explicitely after unlocking.
     (void)aRootDir->Remove(true);
   }
+
+  return NS_OK;
+}
+
+nsresult WriteFile(nsIFile* aFile, const nsCString& aData) {
+  // We cannot use XPCOM to get the output stream for the file because we often
+  // need to write files before XPCOM is available.
+  nsCOMPtr<nsIFileOutputStream> stream = new nsSafeFileOutputStream();
+  nsresult rv = stream->Init(aFile, -1, -1, 0);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  uint32_t count;
+  uint32_t length = aData.Length();
+  rv = stream->Write(aData.get(), length, &count);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  if (count != length) {
+    return NS_ERROR_UNEXPECTED;
+  }
+
+  nsCOMPtr<nsISafeOutputStream> safeStream = do_QueryInterface(stream);
+  rv = safeStream->Finish();
+  NS_ENSURE_SUCCESS(rv, rv);
 
   return NS_OK;
 }
@@ -1506,6 +1531,41 @@ nsresult nsToolkitProfileService::SelectStartupProfile(
   nsresult rv;
   const char* arg;
 
+  // Use the profile specified in the environment variables. This is set if we
+  // are resetting a selectable profile
+  nsCOMPtr<nsIFile> resetDir = GetFileFromEnv("SELECTABLE_PROFILE_RESET_PATH");
+  nsAutoCString storeID(PR_GetEnv("SELECTABLE_PROFILE_RESET_STORE_ID"));
+  RefPtr<nsToolkitProfile> profile = GetProfileByStoreID(storeID);
+  if (resetDir && profile) {
+    // Clear out flags that we handled (or should have handled!) last startup.
+    const char* dummy;
+    CheckArg(*aArgc, aArgv, "p", &dummy);
+    CheckArg(*aArgc, aArgv, "profile", &dummy);
+    CheckArg(*aArgc, aArgv, "profilemanager");
+
+    // Because this is a selectable profile, the rootDir changes when profile
+    // windows are focused. So we set the rootDir to the profile we are
+    // resetting so it is the correct rootDir during the refresh.
+    profile->SetRootDir(resetDir);
+
+    nsCOMPtr<nsIFile> localDir;
+    rv = nsToolkitProfileService::gService->GetLocalDirFromRootDir(
+        resetDir, getter_AddRefs(localDir));
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    // This has to be a profile reset
+    mStartupReason = "profile-reset"_ns;
+
+    mCurrent = profile;
+    resetDir.forget(aRootDir);
+    localDir.forget(aLocalDir);
+    NS_IF_ADDREF(*aProfile = profile);
+    return NS_OK;
+  }
+  // Clear out the profile reset variables if no profile was found
+  PR_SetEnv("SELECTABLE_PROFILE_RESET_PATH=");
+  PR_SetEnv("SELECTABLE_PROFILE_RESET_STORE_ID=");
+
   // Use the profile specified in the environment variables (generally from an
   // app initiated restart).
   nsCOMPtr<nsIFile> lf = GetFileFromEnv("XRE_PROFILE_PATH");
@@ -2310,12 +2370,8 @@ nsresult nsToolkitProfileService::CreateTimesInternal(nsIFile* aProfileDir) {
   int64_t msec = PR_Now() / PR_USEC_PER_MSEC;
 
   // Write it out.
-  PRFileDesc* writeFile;
-  rv = creationLog->OpenNSPRFileDesc(PR_WRONLY, 0700, &writeFile);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  PR_fprintf(writeFile, "{\n\"created\": %lld,\n\"firstUse\": null\n}\n", msec);
-  PR_Close(writeFile);
+  nsFmtCString times("{{\n\"created\": {},\n\"firstUse\": null\n}}\n", msec);
+  WriteFile(creationLog, times);
   return NS_OK;
 }
 
@@ -2330,6 +2386,67 @@ nsToolkitProfileService::GetProfileCount(uint32_t* aResult) {
   return NS_OK;
 }
 
+static nsCString FindSectionByStoreID(nsINIParser& aParser,
+                                      const nsCString& aStoreID) {
+  nsCString iniSection;
+
+  if (aStoreID.IsEmpty()) {
+    return iniSection;
+  }
+
+  bool sawStoreID = false;
+
+  aParser.GetSections([&](const char* section) {
+    nsCString value;
+    nsresult rv = aParser.GetString(section, "StoreID", value);
+
+    if (NS_SUCCEEDED(rv) && aStoreID.Equals(value)) {
+      // If we found a second profile with the same store ID then we can't be
+      // sure which one is correct so return an empty section to indicate
+      // failure.
+      if (sawStoreID) {
+        iniSection = "";
+        return false;
+      }
+
+      iniSection = section;
+      sawStoreID = true;
+    }
+
+    return true;
+  });
+
+  return iniSection;
+}
+
+static nsCString FindSectionByPath(nsINIParser& aParser,
+                                   const nsCString& aPath) {
+  nsCString iniSection;
+  bool sawPath = false;
+
+  aParser.GetSections([&](const char* section) {
+    nsCString value;
+    nsresult rv = aParser.GetString(section, "Path", value);
+
+    if (NS_SUCCEEDED(rv) && aPath.Equals(value)) {
+      // If we found a second profile with the same path then we can't be
+      // sure which one is correct so return an empty section to indicate
+      // failure.
+      if (sawPath) {
+        iniSection = "";
+        return false;
+      }
+
+      iniSection = section;
+      sawPath = true;
+    }
+
+    return true;
+  });
+
+  return iniSection;
+}
+
 // Attempts to merge the given profile data into the on-disk versions which may
 // have changed since they were loaded.
 nsresult WriteProfileInfo(nsIFile* profilesDBFile, nsIFile* installDBFile,
@@ -2342,30 +2459,12 @@ nsresult WriteProfileInfo(nsIFile* profilesDBFile, nsIFile* installDBFile,
   // The INI data may have changed on disk so we cannot guarantee the section
   // mapping remains the same. So we attempt to find the current profile's info
   // by path or store ID.
-  nsCString iniSection;
-  profilesIni.GetSections(
-      [&profileInfo, &profilesIni, &iniSection](const char* section) {
-        nsCString value;
-        nsresult rv = profilesIni.GetString(section, "StoreID", value);
+  nsCString iniSection =
+      FindSectionByStoreID(profilesIni, profileInfo->mStoreID);
 
-        if (NS_SUCCEEDED(rv)) {
-          if (profileInfo->mStoreID.Equals(value)) {
-            iniSection = section;
-            // This is definitely the right one so no need to continue.
-            return false;
-          }
-        }
-
-        if (iniSection.IsEmpty()) {
-          rv = profilesIni.GetString(section, "Path", value);
-          if (NS_SUCCEEDED(rv) && profileInfo->mPath.Equals(value)) {
-            // This might be right but we would prefer to find by store ID.
-            iniSection = section;
-          }
-        }
-
-        return true;
-      });
+  if (iniSection.IsEmpty()) {
+    iniSection = FindSectionByPath(profilesIni, profileInfo->mPath);
+  }
 
   if (iniSection.IsEmpty()) {
     // No section found. Should we write a new one?
@@ -2421,15 +2520,18 @@ nsresult WriteProfileInfo(nsIFile* profilesDBFile, nsIFile* installDBFile,
         rv = installsIni.SetString(PromiseFlatCString(installHash).get(),
                                    "Default", profileInfo->mPath.get());
         if (NS_SUCCEEDED(rv)) {
-          installsIni.WriteToFile(installDBFile);
+          nsCString installsIniData;
+          installsIni.WriteToString(installsIniData);
+          WriteFile(installDBFile, installsIniData);
         }
       }
     }
   }
 
   if (changed) {
-    rv = profilesIni.WriteToFile(profilesDBFile);
-    NS_ENSURE_SUCCESS(rv, rv);
+    nsCString profilesIniData;
+    profilesIni.WriteToString(profilesIniData);
+    return WriteFile(profilesDBFile, profilesIniData);
   }
 
   return NS_OK;
@@ -2613,18 +2715,8 @@ nsresult nsToolkitProfileService::FlushData(const nsCString& aProfilesIniData,
   // installs can have changed, so no need to update the backup.
   if (mUseDedicatedProfile) {
     if (!aInstallsIniData.IsEmpty()) {
-      FILE* writeFile;
-      rv = mInstallDBFile->OpenANSIFileDesc("w", &writeFile);
+      rv = WriteFile(mInstallDBFile, aInstallsIniData);
       NS_ENSURE_SUCCESS(rv, rv);
-
-      uint32_t length = aInstallsIniData.Length();
-      if (fwrite(aInstallsIniData.get(), sizeof(char), length, writeFile) !=
-          length) {
-        fclose(writeFile);
-        return NS_ERROR_UNEXPECTED;
-      }
-
-      fclose(writeFile);
     } else {
       rv = mInstallDBFile->Remove(false);
       if (NS_FAILED(rv) && rv != NS_ERROR_FILE_NOT_FOUND) {
@@ -2633,18 +2725,8 @@ nsresult nsToolkitProfileService::FlushData(const nsCString& aProfilesIniData,
     }
   }
 
-  FILE* writeFile;
-  rv = mProfileDBFile->OpenANSIFileDesc("w", &writeFile);
+  rv = WriteFile(mProfileDBFile, aProfilesIniData);
   NS_ENSURE_SUCCESS(rv, rv);
-
-  uint32_t length = aProfilesIniData.Length();
-  if (fwrite(aProfilesIniData.get(), sizeof(char), length, writeFile) !=
-      length) {
-    fclose(writeFile);
-    return NS_ERROR_UNEXPECTED;
-  }
-
-  fclose(writeFile);
 
   rv = UpdateFileStats(mProfileDBFile, &mProfileDBExists,
                        &mProfileDBModifiedTime, &mProfileDBFileSize);

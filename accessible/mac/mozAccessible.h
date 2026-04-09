@@ -1,5 +1,4 @@
 /* clang-format off */
-/* -*- Mode: Objective-C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* clang-format on */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -14,8 +13,6 @@
 #import <Cocoa/Cocoa.h>
 
 #import "MOXAccessibleBase.h"
-
-@class mozRootAccessible;
 
 /**
  * All mozAccessibles are either abstract objects (that correspond to XUL
@@ -92,6 +89,14 @@ enum CheckedState {
 
 - (void)handleAnnouncementEvent:(NSString*)announcement
                        priority:(uint16_t)priority;
+
+// This function is used to construct the announcement text we pass to
+// VoiceOver when firing an AXAnnouncementRequested notification alongside
+// a AXLiveRegionChanged notification.
+// It relies on nsTextEquivUtils::GetTextEquivFromSubtree, falling back to
+// moxLabel if no text content is found. This function is only called on mozAccs
+// backed by local accs.
+- (NSString*)composeAnnouncementMessageFromSubtree;
 
 // internal method to retrieve a child at a given index.
 - (id)childAt:(uint32_t)i;
@@ -229,6 +234,9 @@ enum CheckedState {
 
 // override
 - (NSString*)moxARIABrailleRoleDescription;
+
+// override
+- (NSString*)moxARIABrailleLabel;
 
 // override
 - (NSString*)moxPlaceholderValue;

@@ -693,6 +693,7 @@
     &.selected{
       background-color:var(--highlight-selected-bg-color);
       backdrop-filter:var(--highlight-selected-backdrop-filter);
+      scroll-margin-top:50px;
     }
   }
 
@@ -711,6 +712,17 @@
 
   &.selecting .endOfContent{
     top:0;
+  }
+}
+
+.textLayerImages{
+  position:absolute;
+  inset:0;
+  user-select:none;
+
+  canvas{
+    position:absolute;
+    transform-origin:0% 0%;
   }
 }
 
@@ -4629,10 +4641,10 @@ button.hasPopupMenu{
     --menu-mark-icon-size:16px;
   }
 
-  > li{
+  > button{
     display:flex;
     align-items:center;
-    list-style:none;
+    position:relative;
     width:100%;
     height:26px;
     padding-inline:calc(var(--menu-mark-icon-size) + var(--menuitem-gap)) var(--menuitem-gap);
@@ -4642,7 +4654,7 @@ button.hasPopupMenu{
     border:1px solid var(--menuitem-border-color);
     background:transparent;
 
-    &:has(button.selected)::before{
+    &.selected::after{
       content:"";
       display:inline-block;
       width:11px;
@@ -4652,101 +4664,88 @@ button.hasPopupMenu{
       mask-image:var(--menuitem-checkmark-icon);
       background-color:var(--menu-text-color);
       position:absolute;
-      margin-inline-start:-16px;
+      inset-inline-start:var(--menuitem-gap);
+      top:50%;
+      transform:translateY(-50%);
     }
 
-    &:has(button:disabled){
+    &:disabled{
       opacity:var(--disabled-opacity);
-      pointer-events:none;
 
-      &:has(button.selected)::before{
+      &.selected::after{
         background-color:var(--menu-text-disabled-color);
       }
-    }
-
-    &:hover{
-      background:var(--menuitem-hover-bg);
-      background-blend-mode:var(--menuitem-hover-background-blend-mode);
-      > button{
-        &:not(.noIcon)::before{
-          background-color:var(--menuitem-text-hover-fg);
-        }
-        > span{
-          color:var(--menuitem-text-hover-fg);
-        }
-      }
-      &:has(button.selected)::before{
-        background-color:var(--menuitem-text-hover-fg);
-      }
-    }
-
-    &:active{
-      background-color:var(--menuitem-active-bg);
-      border-color:var(--menuitem-active-border-color);
-      > button > span{
-        color:var(--menuitem-text-active-fg);
-      }
-    }
-
-    &:has(> button:focus-visible){
-      border-color:var(--menuitem-focus-border-color);
-      background-color:var(--menuitem-focus-bg);
-      outline:2px solid var(--menuitem-focus-outline-color);
-      outline-offset:2px;
-    }
-
-    > button{
-      display:flex;
-      flex-direction:row;
-      align-items:center;
-      width:100%;
-      height:auto;
-      padding:var(--menuitem-gap);
-      gap:var(--menuitem-gap);
-      background:transparent;
-      border:none;
 
       &:not(.noIcon)::before{
-        display:inline-block;
-        width:var(--menu-icon-size);
-        height:var(--menu-icon-size);
-        content:"";
-        mask-size:cover;
-        mask-position:center;
-        background-color:var(--menu-text-color);
-      }
-
-      &:focus-visible{
-        outline:none;
+        background-color:var(--menu-text-disabled-color);
       }
 
       > span{
-        display:inline-block;
-        width:max-content;
-        height:auto;
-        text-align:start;
-        color:var(--menu-text-color);
-        user-select:none;
-        padding-inline-start:6px;
-
-        font:menu;
-        font-size:13px;
-        font-style:normal;
-        font-weight:510;
-        line-height:normal;
+        color:var(--menu-text-disabled-color);
       }
+    }
 
-      &:disabled{
-        pointer-events:none;
+    &:not(:disabled){
+      &:hover{
+        background:var(--menuitem-hover-bg);
+        background-blend-mode:var(--menuitem-hover-background-blend-mode);
 
         &:not(.noIcon)::before{
-          background-color:var(--menu-text-disabled-color);
+          background-color:var(--menuitem-text-hover-fg);
         }
 
         > span{
-          color:var(--menu-text-disabled-color);
+          color:var(--menuitem-text-hover-fg);
+        }
+
+        &.selected::after{
+          background-color:var(--menuitem-text-hover-fg);
         }
       }
+
+      &:active{
+        background-color:var(--menuitem-active-bg);
+        border-color:var(--menuitem-active-border-color);
+
+        > span{
+          color:var(--menuitem-text-active-fg);
+        }
+      }
+
+      &:focus-visible{
+        border-color:var(--menuitem-focus-border-color);
+        background-color:var(--menuitem-focus-bg);
+        outline:2px solid var(--menuitem-focus-outline-color);
+        outline-offset:2px;
+      }
+    }
+
+    &:not(.noIcon)::before{
+      display:inline-block;
+      width:var(--menu-icon-size);
+      height:var(--menu-icon-size);
+      content:"";
+      mask-size:cover;
+      mask-position:center;
+      background-color:var(--menu-text-color);
+    }
+
+    > span{
+      display:flex;
+      align-items:center;
+      align-self:stretch;
+      width:100%;
+      min-width:max-content;
+      text-align:start;
+      color:var(--menu-text-color);
+      user-select:none;
+      padding-inline-start:6px;
+
+      font:menu;
+      font-size:13px;
+      font-style:normal;
+      font-weight:510;
+      line-height:normal;
     }
   }
 }
@@ -5080,7 +5079,7 @@ button.hasPopupMenu{
     background-color:var(--header-bg);
 
     .viewsManagerLabel{
-      flex:0;
+      flex:1 1 auto;
       color:var(--text-color);
       text-align:center;
       height:fit-content;
@@ -5102,6 +5101,15 @@ button.hasPopupMenu{
       justify-content:space-between;
       width:auto;
       padding:12px 16px 12px 8px;
+
+      &:not(:has(#viewsManagerHeaderLabel ~ button:not([hidden])))::after{
+
+        content:"";
+        flex:0 0 auto;
+        width:32px;
+        height:32px;
+        pointer-events:none;
+      }
 
       #viewsManagerSelector{
         width:48px;
@@ -5154,7 +5162,7 @@ button.hasPopupMenu{
           min-width:182px;
           z-index:1;
 
-          > li > button{
+          > button{
             &#thumbnailsViewMenu::before{
               mask-image:var(--menuitem-thumbnailsView-icon);
             }
@@ -5234,15 +5242,30 @@ button.hasPopupMenu{
         align-self:stretch;
         background-color:var(--status-actions-bg);
 
-        > span[data-l10n-args]::before{
-          content:"";
-          display:inline-block;
+        #viewsManagerStatusActionLabelContainer > button{
+          position:relative;
           width:var(--icon-size);
           height:var(--icon-size);
-          mask-repeat:no-repeat;
-          mask-position:center;
-          background-color:var(--indicator-color);
-          mask-image:var(--pages-selected-icon);
+          border:none;
+          padding:0;
+          flex:0 0 auto;
+
+          &::before{
+            content:"";
+            position:absolute;
+            inset:0;
+            mask-repeat:no-repeat;
+            mask-position:center;
+            background-color:var(--indicator-color);
+            mask-image:var(--pages-selected-icon);
+          }
+
+          &#viewsManagerStatusActionDeselectButton:focus-visible{
+            outline:2px solid var(--button-focus-outline-color);
+            border:1px solid var(--button-focus-border-color);
+            border-radius:2px;
+            outline-offset:1px;
+          }
         }
 
         #actionSelector{
@@ -5801,6 +5824,9 @@ button.hasPopupMenu{
   --loading-icon-delay:400ms;
   --focus-ring-color:light-dark(#0060df, #0df);
   --focus-ring-outline:2px solid var(--focus-ring-color);
+  --new-badge-bg:light-dark(#070, #37b847);
+  --new-badge-color:light-dark(#fff, #15141a);
+  --new-badge-border-color:light-dark(#fbfbfe / 40%, #15141a / 40%);
 
   @media screen and (forced-colors: active){
     --pdfViewer-padding-bottom:9px;
@@ -5808,7 +5834,26 @@ button.hasPopupMenu{
     --page-border:1px solid CanvasText;
     --spreadHorizontalWrapped-margin-LR:3.5px;
     --focus-ring-color:CanvasText;
+    --new-badge-bg:AccentColor;
+    --new-badge-color:ButtonFace;
+    --new-badge-border-color:CanvasText;
   }
+}
+
+.newBadge{
+  background-color:var(--new-badge-bg);
+  color:var(--new-badge-color);
+  border-radius:4px;
+  border:1px solid var(--new-badge-border-color);
+  padding-inline:4px;
+  margin-inline:4px;
+  font:menu;
+  font-size:12px;
+  font-style:normal;
+  font-weight:400;
+  line-height:normal;
+  flex:0 0 fit-content;
+  user-select:none;
 }
 
 [data-main-rotation="90"]{

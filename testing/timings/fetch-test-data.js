@@ -50,6 +50,29 @@ let ignoreTasksCache = null;
 let componentsData = null;
 let dailyStatsMap = new Map();
 
+const MOCHITEST_FLAVOR_PREFIXES = [
+  ["devtools", "devtools"],
+  ["browser", "browser-chrome"],
+  ["chrome", "chrome"],
+  ["a11y", "a11y"],
+  ["plain", "plain"],
+  ["media", "media"],
+  ["remote", "remote"],
+  ["webgl", "webgl"],
+];
+
+function classifyMochitestFlavor(jobName) {
+  const m = jobName.match(/mochitest-(\w+)/);
+  if (m) {
+    for (const [prefix, flavor] of MOCHITEST_FLAVOR_PREFIXES) {
+      if (m[1].startsWith(prefix)) {
+        return flavor;
+      }
+    }
+  }
+  return "other";
+}
+
 if (!fs.existsSync(OUTPUT_DIR)) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 }
@@ -1294,7 +1317,7 @@ async function fetchPreviousRunData() {
       console.log(`Found ${previousStats.dates.length} days of previous stats`);
       for (let i = 0; i < previousStats.dates.length; i++) {
         const date = previousStats.dates[i];
-        dailyStatsMap.set(date, {
+        const entry = {
           totalTestRuns: previousStats.totalTestRuns[i],
           failedTestRuns: previousStats.failedTestRuns[i],
           skippedTestRuns: previousStats.skippedTestRuns[i],
@@ -1302,7 +1325,21 @@ async function fetchPreviousRunData() {
           failedJobs: previousStats.failedJobs[i],
           invalidJobs: previousStats.invalidJobs[i],
           ignoredJobs: previousStats.ignoredJobs[i],
-        });
+        };
+        if (previousStats.flavors) {
+          entry.flavors = {};
+          for (const [flavor, data] of Object.entries(previousStats.flavors)) {
+            entry.flavors[flavor] = {
+              totalTestRuns: data.totalTestRuns[i],
+              failedTestRuns: data.failedTestRuns[i],
+              skippedTestRuns: data.skippedTestRuns[i],
+              processedJobCount: data.processedJobCount[i],
+              failedJobs: data.failedJobs[i],
+              ignoredJobs: data.ignoredJobs[i],
+            };
+          }
+        }
+        dailyStatsMap.set(date, entry);
       }
     }
 
@@ -1321,7 +1358,15 @@ async function processDateData(targetDate, forceRefetch = false) {
 
   // Check if we already have data for this date
   if (fs.existsSync(timingsPath) && !forceRefetch) {
-    console.log(`Data for ${targetDate} already exists. Skipping.`);
+    console.log(`Data for ${targetDate} already exists, recomputing stats.`);
+    const testData = JSON.parse(fs.readFileSync(timingsPath, "utf-8"));
+    const existing = dailyStatsMap.get(targetDate);
+    calculateStatsFromData(
+      testData,
+      targetDate,
+      existing?.ignoredJobs,
+      existing?.failedJobs
+    );
     return;
   }
 
@@ -1342,6 +1387,29 @@ async function processDateData(targetDate, forceRefetch = false) {
   const jobs = allDateJobs.filter(job => !ignoreTasksCache.has(job.task));
   const ignoredJobsCount = allDateJobs.length - jobs.length;
   const failedJobsCount = jobs.filter(j => j.state === "failed").length;
+
+  // Per-flavor job counts from the raw job list
+  let flavorJobCounts = null;
+  if (HARNESS === "mochitest") {
+    flavorJobCounts = {};
+    for (const job of allDateJobs) {
+      const flavor = classifyMochitestFlavor(job.name);
+      if (flavor === "other") {
+        continue;
+      }
+      if (!flavorJobCounts[flavor]) {
+        flavorJobCounts[flavor] = { total: 0, failed: 0, ignored: 0 };
+      }
+      if (ignoreTasksCache.has(job.task)) {
+        flavorJobCounts[flavor].ignored++;
+      } else {
+        flavorJobCounts[flavor].total++;
+        if (job.state === "failed") {
+          flavorJobCounts[flavor].failed++;
+        }
+      }
+    }
+  }
 
   console.log(
     `Found ${allDateJobs.length} jobs for ${targetDate} (${ignoredJobsCount} ignored, ${jobs.length} to process)`
@@ -1385,7 +1453,8 @@ async function processDateData(targetDate, forceRefetch = false) {
             timings,
             targetDate,
             ignoredJobsCount,
-            failedJobsCount
+            failedJobsCount,
+            flavorJobCounts
           );
           return;
         }
@@ -1424,7 +1493,8 @@ async function processDateData(targetDate, forceRefetch = false) {
       output.testData,
       targetDate,
       ignoredJobsCount,
-      failedJobsCount
+      failedJobsCount,
+      flavorJobCounts
     );
   } catch (error) {
     console.error(`Error processing ${targetDate}:`, error);
@@ -2154,7 +2224,8 @@ function calculateStatsFromData(
   testData,
   targetDate,
   ignoredJobsCount = 0,
-  failedJobsCount = 0
+  failedJobsCount = 0,
+  flavorJobCounts = null
 ) {
   const stats = {
     totalTestRuns: 0,
@@ -2165,6 +2236,39 @@ function calculateStatsFromData(
     invalidJobs: testData.metadata.invalidJobCount || 0,
     ignoredJobs: ignoredJobsCount,
   };
+
+  const trackFlavors = HARNESS === "mochitest";
+  let flavorByJobNameId, flavorStatsMap;
+
+  if (trackFlavors) {
+    flavorByJobNameId = testData.tables.jobNames.map(classifyMochitestFlavor);
+    flavorStatsMap = new Map();
+  }
+
+  function addToFlavors(taskIdIds, isFailed, isSkipped) {
+    if (!trackFlavors) {
+      return;
+    }
+    for (const taskIdId of taskIdIds) {
+      const jobNameId = testData.taskInfo.jobNameIds[taskIdId];
+      const flavor = flavorByJobNameId[jobNameId];
+      if (flavor === "other") {
+        continue;
+      }
+      let fStats = flavorStatsMap.get(flavor);
+      if (!fStats) {
+        fStats = { totalTestRuns: 0, failedTestRuns: 0, skippedTestRuns: 0 };
+        flavorStatsMap.set(flavor, fStats);
+      }
+      fStats.totalTestRuns++;
+      if (isFailed) {
+        fStats.failedTestRuns++;
+      }
+      if (isSkipped) {
+        fStats.skippedTestRuns++;
+      }
+    }
+  }
 
   for (const testGroup of testData.testRuns) {
     for (let statusId = 0; statusId < testGroup.length; statusId++) {
@@ -2177,27 +2281,46 @@ function calculateStatsFromData(
       const runCount = statusGroup.taskIdIds.length;
       stats.totalTestRuns += runCount;
 
-      if (
-        status.startsWith("FAIL") ||
-        status === "CRASH" ||
-        status === "TIMEOUT"
-      ) {
+      const isFailed =
+        status.startsWith("FAIL") || status === "CRASH" || status === "TIMEOUT";
+
+      if (isFailed) {
         stats.failedTestRuns += runCount;
+        addToFlavors(statusGroup.taskIdIds, true, false);
       } else if (status === "SKIP") {
         if (statusGroup.messageIds) {
-          for (const messageId of statusGroup.messageIds) {
-            if (
-              messageId == null ||
-              !testData.tables.messages[messageId].startsWith("run-if")
-            ) {
+          for (let i = 0; i < statusGroup.messageIds.length; i++) {
+            const messageId = statusGroup.messageIds[i];
+            const isRunIf =
+              messageId != null &&
+              testData.tables.messages[messageId].startsWith("run-if");
+            if (!isRunIf) {
               stats.skippedTestRuns++;
             }
+            addToFlavors([statusGroup.taskIdIds[i]], false, !isRunIf);
           }
         } else {
           stats.skippedTestRuns += runCount;
+          addToFlavors(statusGroup.taskIdIds, false, true);
         }
+      } else {
+        addToFlavors(statusGroup.taskIdIds, false, false);
       }
     }
+  }
+
+  if (trackFlavors) {
+    const flavors = {};
+    for (const [flavor, fStats] of flavorStatsMap) {
+      flavors[flavor] = { ...fStats };
+      if (flavorJobCounts && flavorJobCounts[flavor]) {
+        const jc = flavorJobCounts[flavor];
+        flavors[flavor].processedJobCount = jc.total;
+        flavors[flavor].failedJobs = jc.failed;
+        flavors[flavor].ignoredJobs = jc.ignored;
+      }
+    }
+    stats.flavors = flavors;
   }
 
   console.log(
@@ -2233,6 +2356,31 @@ async function saveStatsFile() {
     ignoredJobs: [],
   };
 
+  // Collect all flavor names across all dates
+  const allFlavors = new Set();
+  for (const date of allDates) {
+    const stats = dailyStatsMap.get(date);
+    if (stats.flavors) {
+      for (const flavor of Object.keys(stats.flavors)) {
+        allFlavors.add(flavor);
+      }
+    }
+  }
+
+  if (allFlavors.size > 0) {
+    output.flavors = {};
+    for (const flavor of [...allFlavors].sort()) {
+      output.flavors[flavor] = {
+        totalTestRuns: [],
+        failedTestRuns: [],
+        skippedTestRuns: [],
+        processedJobCount: [],
+        failedJobs: [],
+        ignoredJobs: [],
+      };
+    }
+  }
+
   for (const date of allDates) {
     const stats = dailyStatsMap.get(date);
     output.totalTestRuns.push(stats.totalTestRuns);
@@ -2242,6 +2390,25 @@ async function saveStatsFile() {
     output.failedJobs.push(stats.failedJobs);
     output.invalidJobs.push(stats.invalidJobs);
     output.ignoredJobs.push(stats.ignoredJobs);
+
+    // Not every date has every flavor (a flavor may not have run on a
+    // given day, or flavor data may be missing for older dates carried
+    // forward from a pre-flavor stats file), so fall back to 0.
+    if (output.flavors) {
+      for (const flavor of Object.keys(output.flavors)) {
+        const fStats = stats.flavors?.[flavor];
+        output.flavors[flavor].totalTestRuns.push(fStats?.totalTestRuns || 0);
+        output.flavors[flavor].failedTestRuns.push(fStats?.failedTestRuns || 0);
+        output.flavors[flavor].skippedTestRuns.push(
+          fStats?.skippedTestRuns || 0
+        );
+        output.flavors[flavor].processedJobCount.push(
+          fStats?.processedJobCount || 0
+        );
+        output.flavors[flavor].failedJobs.push(fStats?.failedJobs || 0);
+        output.flavors[flavor].ignoredJobs.push(fStats?.ignoredJobs || 0);
+      }
+    }
   }
 
   const statsFileName = `${HARNESS}-stats.json`;

@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -18,6 +16,13 @@ void ScrollTimelineAnimationTracker::TriggerPendingAnimations() {
   // and we trigger the pending animations after we flush the layout, so we have
   // to do this here to make sure the current time is up-to-date when triggering
   // animations.
+  // FIXME: We also sample the timeline per HTML event loop. This function is
+  // only for the pending animations because of time gap described above. It'd
+  // be better to improve this function by sampling the timelines with pending
+  // animations only and resolve the auto start time of them. For now, we just
+  // sample all finite timelines in this document, and we may have the potential
+  // performance impact if the author keeps adding new animations and there are
+  // a lot of timelines in this document.
   mDocument->TimelinesController().TrySampleScrollTimelines();
 
   for (RefPtr<dom::Animation>& animation :

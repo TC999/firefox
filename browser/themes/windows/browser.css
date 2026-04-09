@@ -61,10 +61,10 @@
        * might not provide sufficient contrast. */
       --toolbarbutton-icon-fill: currentColor;
       --toolbar-field-color: currentColor;
-      --urlbar-box-bgcolor: var(--button-background-color-hover);
-      --urlbar-box-focus-bgcolor: var(--button-background-color);
-      --urlbar-box-hover-bgcolor: var(--button-background-color-hover);
-      --urlbar-box-active-bgcolor: var(--button-background-color-active);
+      --urlbar-box-background-color: var(--button-background-color-hover);
+      --urlbar-box-background-color-focus: var(--button-background-color);
+      --urlbar-box-background-color-hover: var(--button-background-color-hover);
+      --urlbar-box-background-color-active: var(--button-background-color-active);
     }
   }
 }
@@ -237,9 +237,9 @@
     /* Windows HCM conventions use these colors for chiclets. We can't use them on
        other platforms because AccentColor can be shown atop SelectedItem,
        which has zero contrast. */
-    --urlbar-box-hover-bgcolor: SelectedItem;
-    --urlbar-box-active-bgcolor: SelectedItem;
-    --urlbar-box-hover-text-color: SelectedItemText;
+    --urlbar-box-background-color-hover: SelectedItem;
+    --urlbar-box-background-color-active: SelectedItem;
+    --urlbar-box-text-color-hover: SelectedItemText;
   }
 
   :root:not([lwtheme]) {

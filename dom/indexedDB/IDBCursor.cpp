@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -349,7 +347,7 @@ void IDBTypedCursor<CursorType>::Continue(JSContext* const aCx,
   }
 
   Key key;
-  auto result = key.SetFromJSVal(aCx, aKey);
+  auto result = key.SetFromJSVal(aCx, aKey, mTransaction);
   if (result.isErr()) {
     aRv = result.unwrapErr().ExtractErrorResult(
         InvalidMapsTo<NS_ERROR_DOM_INDEXEDDB_DATA_ERR>);
@@ -452,7 +450,7 @@ void IDBTypedCursor<CursorType>::ContinuePrimaryKey(
     }
 
     Key key;
-    auto result = key.SetFromJSVal(aCx, aKey);
+    auto result = key.SetFromJSVal(aCx, aKey, mTransaction);
     if (result.isErr()) {
       aRv = result.unwrapErr().ExtractErrorResult(
           InvalidMapsTo<NS_ERROR_DOM_INDEXEDDB_DATA_ERR>);
@@ -474,7 +472,7 @@ void IDBTypedCursor<CursorType>::ContinuePrimaryKey(
     }
 
     Key primaryKey;
-    result = primaryKey.SetFromJSVal(aCx, aPrimaryKey);
+    result = primaryKey.SetFromJSVal(aCx, aPrimaryKey, mTransaction);
     if (result.isErr()) {
       aRv = result.unwrapErr().ExtractErrorResult(
           InvalidMapsTo<NS_ERROR_DOM_INDEXEDDB_DATA_ERR>);
@@ -618,7 +616,7 @@ RefPtr<IDBRequest> IDBTypedCursor<CursorType>::Update(
 
     IDBObjectStore& objectStore = GetSourceObjectStoreRef();
     if (objectStore.HasValidKeyPath()) {
-      if (!valueWrapper.Clone(aCx)) {
+      if (!valueWrapper.Clone(aCx, mTransaction)) {
         aRv.Throw(NS_ERROR_DOM_DATA_CLONE_ERR);
         return nullptr;
       }

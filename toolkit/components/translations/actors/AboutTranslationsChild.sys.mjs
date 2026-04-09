@@ -146,8 +146,9 @@ export class AboutTranslationsChild extends JSWindowActorChild {
     const fns = [
       "AT_log",
       "AT_logError",
-      "AT_getAppLocale",
+      "AT_getAppLocaleAsBCP47",
       "AT_getSupportedLanguages",
+      "AT_clearSourceText",
       "AT_enableTranslationsFeature",
       "AT_isEnabledStateManagedByPolicy",
       "AT_isTranslationEngineSupported",
@@ -188,7 +189,7 @@ export class AboutTranslationsChild extends JSWindowActorChild {
    *
    * @returns {Intl.Locale}
    */
-  AT_getAppLocale() {
+  AT_getAppLocaleAsBCP47() {
     return Services.locale.appLocaleAsBCP47;
   }
 
@@ -203,6 +204,21 @@ export class AboutTranslationsChild extends JSWindowActorChild {
         Cu.cloneInto(data, this.contentWindow)
       )
     );
+  }
+
+  /**
+   * Clears the about:translations source textarea with privileged user-input
+   * semantics, rather than setting the value directly to an empty string.
+   *
+   * Clearing the text this way allows the text to be restored via `Ctrl/Cmd + Z`.
+   */
+  AT_clearSourceText() {
+    const sourceTextArea = this.contentWindow.document.getElementById(
+      "about-translations-source-textarea"
+    );
+
+    sourceTextArea.focus();
+    sourceTextArea.setUserInput("");
   }
 
   /**

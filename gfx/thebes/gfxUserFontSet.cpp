@@ -1,5 +1,4 @@
-/* -*- Mode: C++; tab-width: 20; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -16,6 +15,7 @@
 #include "mozilla/gfx/2D.h"
 #include "gfxPlatformFontList.h"
 #include "mozilla/PostTraversalTask.h"
+#include "mozilla/ServoStyleSet.h"
 #include "mozilla/dom/WorkerCommon.h"
 #include "gfxOTSUtils.h"
 #include "nsFontFaceLoader.h"
@@ -94,6 +94,10 @@ gfxUserFontEntry::~gfxUserFontEntry() {
   // traversal, since PostTraversalTask objects can hold raw pointers to
   // gfxUserFontEntry objects.
   MOZ_ASSERT(!gfxFontUtils::IsInServoTraversal());
+  // Ensure the platform font entry is destroyed on the main thread, to avoid
+  // potential race updating the sUserFonts cache.
+  NS_ReleaseOnMainThread("gfxUserFontEntry::mPlatformFontEntry",
+                         mPlatformFontEntry.forget());
 }
 
 bool gfxUserFontEntry::Matches(const nsTArray<gfxFontFaceSrc>& aFontFaceSrcList,
@@ -1118,12 +1122,13 @@ void gfxUserFontSet::ForgetLocalFace(gfxUserFontFamily* aFontFamily) {
   for (auto& ufe : entriesToCancel) {
     if (auto* loader = ufe->GetLoader()) {
       // If there's a loader, we need to cancel it, because we'll trigger a
-      // fresh load if required when we re-resolve the font...
+      // fresh load if required when we re-resolve the font. Cancel() removes
+      // the loader from the set it was registered in (not necessarily |this|
+      // font set).
       loader->Cancel();
-      RemoveLoader(loader);
     } else {
-      // ...otherwise, just reset our state so that we'll re-evaluate the
-      // source list from the beginning.
+      // Otherwise, just reset our state so that we'll re-evaluate the source
+      // list from the beginning.
       ufe->LoadCanceled();
     }
   }
@@ -1217,6 +1222,7 @@ bool gfxUserFontSet::UserFontCache::Entry::KeyEquals(
 }
 
 void gfxUserFontSet::UserFontCache::CacheFont(gfxFontEntry* aFontEntry) {
+  MOZ_ASSERT(NS_IsMainThread());
   // if caching is disabled, simply return
   if (StaticPrefs::gfx_downloadable_fonts_disable_cache()) {
     return;
@@ -1268,6 +1274,10 @@ void gfxUserFontSet::UserFontCache::CacheFont(gfxFontEntry* aFontEntry) {
 }
 
 void gfxUserFontSet::UserFontCache::ForgetFont(gfxFontEntry* aFontEntry) {
+  // The only caller is ~gfxFontEntry; if this fires, there is a path to
+  // off-main-thread destruction of a font entry with mIsDataUserFont set
+  // that needs to be proxied to main thread (see ~gfxUserFontEntry).
+  MOZ_ASSERT(NS_IsMainThread());
   if (!sUserFonts) {
     // if we've already deleted the cache (i.e. during shutdown),
     // just ignore this
@@ -1291,6 +1301,7 @@ void gfxUserFontSet::UserFontCache::ForgetFont(gfxFontEntry* aFontEntry) {
 
 gfxFontEntry* gfxUserFontSet::UserFontCache::GetFont(
     const gfxFontFaceSrc& aSrc, const gfxUserFontEntry& aUserFontEntry) {
+  MOZ_ASSERT(NS_IsMainThread() || gfxFontUtils::CurrentServoStyleSet());
   if (!sUserFonts || StaticPrefs::gfx_downloadable_fonts_disable_cache()) {
     return nullptr;
   }

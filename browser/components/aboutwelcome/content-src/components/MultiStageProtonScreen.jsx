@@ -110,6 +110,7 @@ export const MultiStageProtonScreen = props => {
       forceHideStepsIndicator={props.forceHideStepsIndicator}
       ariaRole={props.ariaRole}
       aboveButtonStepsIndicator={props.aboveButtonStepsIndicator}
+      requireAction={props.requireAction}
       isWideScreen={isWideScreen}
     />
   );
@@ -268,7 +269,15 @@ export class ProtonScreen extends React.PureComponent {
     if (this.props.content?.position === "callout") {
       return;
     }
-    this.mainContentHeader.focus();
+
+    // For requireAction screens, focus the title heading instead of the
+    // alertdialog container.
+    // Prevents Orca from misreading tab navigated elements.
+    if (this.props.requireAction && this.titleHeader) {
+      this.titleHeader.focus();
+    } else {
+      this.mainContentHeader.focus();
+    }
   }
 
   getScreenClassName(includeNoodles, isVideoOnboarding, isAddonsPicker) {
@@ -291,6 +300,11 @@ export class ProtonScreen extends React.PureComponent {
   }
 
   renderTitle({ title, title_logo }) {
+    const titleRef = this.props.requireAction
+      ? input => {
+          this.titleHeader = input;
+        }
+      : null;
     if (title_logo) {
       const { alignment, ...rest } = title_logo;
       return (
@@ -300,14 +314,22 @@ export class ProtonScreen extends React.PureComponent {
         >
           {this.renderPicture({ ...rest })}
           <Localized text={title}>
-            <h1 id="mainContentHeader" />
+            <h1
+              id="mainContentHeader"
+              tabIndex={this.props.requireAction ? -1 : undefined}
+              ref={titleRef}
+            />
           </Localized>
         </div>
       );
     }
     return (
       <Localized text={title}>
-        <h1 id="mainContentHeader" />
+        <h1
+          id="mainContentHeader"
+          tabIndex={this.props.requireAction ? -1 : undefined}
+          ref={titleRef}
+        />
       </Localized>
     );
   }
@@ -707,7 +729,8 @@ export class ProtonScreen extends React.PureComponent {
         layout={content.layout}
         pos={content.position || "center"}
         tabIndex="-1"
-        aria-labelledby="mainContentHeader"
+        aria-labelledby={`mainContentHeader${content.subtitle ? " mainContentSubheader" : ""}`}
+        aria-describedby="mainContentInner"
         ref={input => {
           this.mainContentHeader = input;
         }}
@@ -774,7 +797,11 @@ export class ProtonScreen extends React.PureComponent {
                   this.props.addonIconURL
                 )
               : null}
-            <div className="main-content-inner" style={combinedStyles}>
+            <div
+              className="main-content-inner"
+              id="mainContentInner"
+              style={combinedStyles}
+            >
               {content.logo && content.fullscreen
                 ? this.renderPicture(content.logo)
                 : null}

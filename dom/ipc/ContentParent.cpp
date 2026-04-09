@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -76,6 +74,7 @@
 #include "mozilla/Telemetry.h"
 #include "mozilla/TelemetryComms.h"
 #include "mozilla/TelemetryIPC.h"
+#include "mozilla/UniquePtrExtensions.h"
 #include "mozilla/WebBrowserPersistDocumentParent.h"
 #include "mozilla/XREAppData.h"
 #include "mozilla/devtools/HeapSnapshotTempFileHelperParent.h"
@@ -3075,7 +3074,7 @@ bool ContentParent::InitInternal(ProcessPriority aInitialPriority) {
       // because content scripts mean that a moz-extension can live in any
       // process. Same thing for system principal Blob URLs. Content Blob
       // URL's are sent for content principals on-demand by
-      // AboutToLoadHttpDocumentForChild and RemoteWorkerManager.
+      // AboutToLoadDocumentForChild and RemoteWorkerManager.
       if (!BlobURLProtocolHandler::IsBlobURLBroadcastPrincipal(aPrincipal)) {
         return true;
       }
@@ -3955,18 +3954,19 @@ ContentParent::Observe(nsISupports* aSubject, const char* aTopic,
       return NS_OK;
     }
 
-    nsID* operationID = nullptr;
-    rv = notification->GetOperationID(&operationID);
+    UniqueFreePtr<nsID> operationID;
+    rv = notification->GetOperationID(TempPtrToSetter(&operationID));
     if (NS_WARN_IF(NS_FAILED(rv))) {
       return NS_OK;
     }
 
     if (action == nsICookieNotification::COOKIE_DELETED) {
-      cs->RemoveCookie(cookie, operationID);
+      cs->RemoveCookie(cookie, operationID.get());
     } else if (action == nsICookieNotification::COOKIE_ADDED ||
                action == nsICookieNotification::COOKIE_CHANGED) {
-      cs->AddCookie(cookie, operationID);
+      cs->AddCookie(cookie, operationID.get());
     }
+
   } else if (!strcmp(aTopic, NS_NETWORK_LINK_TYPE_TOPIC)) {
     UpdateNetworkLinkType();
   } else if (!strcmp(aTopic, "network:socket-process-crashed")) {
@@ -5725,12 +5725,12 @@ mozilla::ipc::IPCResult ContentParent::RecvGraphicsError(
 }
 
 mozilla::ipc::IPCResult ContentParent::RecvBeginDriverCrashGuard(
-    const uint32_t& aGuardType, bool* aOutCrashed) {
+    const gfx::CrashGuardType& aGuardType, bool* aOutCrashed) {
   // Only one driver crash guard should be active at a time, per-process.
   MOZ_ASSERT(!mDriverCrashGuard);
 
   UniquePtr<gfx::DriverCrashGuard> guard;
-  switch (gfx::CrashGuardType(aGuardType)) {
+  switch (aGuardType) {
     case gfx::CrashGuardType::D3D11Layers:
       guard = MakeUnique<gfx::D3D11LayersCrashGuard>(this);
       break;
@@ -5755,7 +5755,7 @@ mozilla::ipc::IPCResult ContentParent::RecvBeginDriverCrashGuard(
 }
 
 mozilla::ipc::IPCResult ContentParent::RecvEndDriverCrashGuard(
-    const uint32_t& aGuardType) {
+    const gfx::CrashGuardType& aGuardType) {
   mDriverCrashGuard = nullptr;
   return IPC_OK();
 }
@@ -5963,38 +5963,8 @@ void ContentParent::SetMainThreadQoSPriority(
   ProcessHangMonitor::SetMainThreadQoSPriority(mHangMonitorActor, aQoSPriority);
 }
 
-void ContentParent::UpdateCookieStatus(nsIChannel* aChannel) {
-  PNeckoParent* neckoParent = LoneManagedOrNullAsserts(ManagedPNeckoParent());
-  PCookieServiceParent* csParent =
-      LoneManagedOrNullAsserts(neckoParent->ManagedPCookieServiceParent());
-  if (csParent) {
-    auto* cs = static_cast<CookieServiceParent*>(csParent);
-    cs->TrackCookieLoad(aChannel);
-  }
-}
-
-nsresult ContentParent::AboutToLoadHttpDocumentForChild(
-    nsIChannel* aChannel, bool* aShouldWaitForPermissionCookieUpdate) {
+nsresult ContentParent::AboutToLoadDocumentForChild(nsIChannel* aChannel) {
   MOZ_ASSERT(aChannel);
-
-  if (aShouldWaitForPermissionCookieUpdate) {
-    *aShouldWaitForPermissionCookieUpdate = false;
-  }
-
-  nsresult rv;
-  bool isDocument = aChannel->IsDocument();
-  if (!isDocument) {
-    // We may be looking at a nsIHttpChannel which has isMainDocumentChannel set
-    // (e.g. the internal http channel for a view-source: load.).
-    nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(aChannel);
-    if (httpChannel) {
-      rv = httpChannel->GetIsMainDocumentChannel(&isDocument);
-      NS_ENSURE_SUCCESS(rv, rv);
-    }
-  }
-  if (!isDocument) {
-    return NS_OK;
-  }
 
   // Get the principal for the channel result, so that we can get the permission
   // key for the document which will be created from this response.
@@ -6005,15 +5975,10 @@ nsresult ContentParent::AboutToLoadHttpDocumentForChild(
 
   nsCOMPtr<nsIPrincipal> principal;
   nsCOMPtr<nsIPrincipal> partitionedPrincipal;
-  rv = ssm->GetChannelResultPrincipals(aChannel, getter_AddRefs(principal),
-                                       getter_AddRefs(partitionedPrincipal));
+  nsresult rv =
+      ssm->GetChannelResultPrincipals(aChannel, getter_AddRefs(principal),
+                                      getter_AddRefs(partitionedPrincipal));
   NS_ENSURE_SUCCESS(rv, rv);
-
-  // Let the caller know we're going to send main thread IPC for updating
-  // permisssions/cookies.
-  if (aShouldWaitForPermissionCookieUpdate) {
-    *aShouldWaitForPermissionCookieUpdate = true;
-  }
 
   TransmitBlobURLsForPrincipal(principal);
 
@@ -6024,17 +5989,6 @@ nsresult ContentParent::AboutToLoadHttpDocumentForChild(
   NS_ENSURE_SUCCESS(rv, rv);
 
   rv = TransmitPermissionsForPrincipal(partitionedPrincipal);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  nsLoadFlags newLoadFlags;
-  aChannel->GetLoadFlags(&newLoadFlags);
-  if (newLoadFlags & nsIRequest::LOAD_DOCUMENT_NEEDS_COOKIE) {
-    UpdateCookieStatus(aChannel);
-  }
-
-  RefPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
-  RefPtr<BrowsingContext> browsingContext;
-  rv = loadInfo->GetTargetBrowsingContext(getter_AddRefs(browsingContext));
   NS_ENSURE_SUCCESS(rv, rv);
 
   if (!NextGenLocalStorageEnabled()) {
@@ -6258,23 +6212,25 @@ static bool WebdriverRunning() {
   return false;
 }
 
+#ifdef ANDROID
 void ContentParent::RecordAndroidAppLinkTelemetry(
     mozilla::performance::pageload_event::PageloadEventData* aPageloadData,
-    const TimeStamp& aNavStartTime, uint64_t aAndroidAppLinkLoadIdentifier) {
+    const TimeStamp& aNavStartTime, CanonicalBrowsingContext* cbc) {
   MOZ_ASSERT(aPageloadData);
-  int32_t appLinkLaunchType =
-      GetAndroidAppLinkLaunchType(aAndroidAppLinkLoadIdentifier);
-  if (appLinkLaunchType < 0) {
+  MOZ_ASSERT(cbc);
+  uint32_t appLinkLaunchType = cbc->GetAndroidAppLinkLaunchType();
+  if (appLinkLaunchType == 0 /* Unknown applink type */) {
     return;
   }
-  ClearAndroidAppLinkLaunchType(aAndroidAppLinkLoadIdentifier);
+  // Clear so only the first page load in this context is attributed as an app
+  // link launch; subsequent navigations should not inherit it.
+  cbc->SetAndroidAppLinkLaunchType(0);
 
   aPageloadData->set_androidAppLinkLaunchType(appLinkLaunchType);
 
   //  ProcessStart to navigationStart is only meaningful for cold applink
   //  launches
-  if (appLinkLaunchType !=
-      1 /* mozilla::dom::LoadURIConstants::APPLINK_COLD */) {
+  if (appLinkLaunchType != 1 /* Cold applink */) {
     return;
   }
 
@@ -6301,12 +6257,13 @@ void ContentParent::RecordAndroidAppLinkTelemetry(
                         appLinkLaunchType);
   }
 }
+#endif
 
 mozilla::ipc::IPCResult ContentParent::RecvRecordPageLoadEvent(
     mozilla::performance::pageload_event::PageloadEventData&&
         aPageloadEventData,
     const TimeStamp& aNavigationStartTime,
-    uint64_t aAndroidAppLinkLaunchTypeIdentifier) {
+    const MaybeDiscarded<BrowsingContext>& aBrowsingContext) {
   // Check whether a webdriver is running.
   aPageloadEventData.set_usingWebdriver(WebdriverRunning());
 
@@ -6332,22 +6289,30 @@ mozilla::ipc::IPCResult ContentParent::RecvRecordPageLoadEvent(
 #endif
 
 #ifdef ANDROID
-  RecordAndroidAppLinkTelemetry(&aPageloadEventData, aNavigationStartTime,
-                                aAndroidAppLinkLaunchTypeIdentifier);
+  if (!aBrowsingContext.IsNullOrDiscarded()) {
+    RefPtr<CanonicalBrowsingContext> cbc = aBrowsingContext.get_canonical();
+    if (cbc->IsOwnedByProcess(ChildID())) {
+      RecordAndroidAppLinkTelemetry(&aPageloadEventData, aNavigationStartTime,
+                                    cbc);
+    }
+  }
 
   // Set the process isolation category based on the remote type for Android.
   const nsDependentCSubstring remoteTypePrefix =
       RemoteTypePrefix(GetRemoteType());
 
+  using namespace mozilla::performance::pageload_event;
+  AndroidIsolationCategory isolationCategory;
   if (remoteTypePrefix == WEB_REMOTE_TYPE) {
-    aPageloadEventData.set_androidIsolationCategory("shared_web"_ns);
+    isolationCategory = AndroidIsolationCategory::SHARED_WEB;
   } else if (remoteTypePrefix == FISSION_WEB_REMOTE_TYPE) {
-    aPageloadEventData.set_androidIsolationCategory("site_isolated"_ns);
+    isolationCategory = AndroidIsolationCategory::SITE_ISOLATED;
   } else if (remoteTypePrefix == WITH_COOP_COEP_REMOTE_TYPE) {
-    aPageloadEventData.set_androidIsolationCategory("coop_isolated"_ns);
+    isolationCategory = AndroidIsolationCategory::COOP_ISOLATED;
   } else {
-    aPageloadEventData.set_androidIsolationCategory("other"_ns);
+    isolationCategory = AndroidIsolationCategory::OTHER;
   }
+  aPageloadEventData.set_androidIsolationCategory(isolationCategory);
 #endif
 
   // If the domain information exists, then we need to send it using a special
@@ -7570,7 +7535,7 @@ ContentParent::RecvSessionHistoryEntryStoreWindowNameInContiguousEntries(
 
   if (entry) {
     nsSHistory::WalkContiguousEntries(
-        entry, [&](nsISHEntry* aEntry) { aEntry->SetName(aName); });
+        entry, [&](SessionHistoryEntry* aEntry) { aEntry->SetName(aName); });
   }
 
   return IPC_OK();
@@ -7664,14 +7629,12 @@ mozilla::ipc::IPCResult ContentParent::RecvRemoveFromBFCache(
   for (uint32_t i = 0; i < count; ++i) {
     nsCOMPtr<nsISHEntry> entry;
     shistory->GetEntryAtIndex(i, getter_AddRefs(entry));
-    nsCOMPtr<SessionHistoryEntry> she = do_QueryInterface(entry);
-    if (she) {
-      if (RefPtr<nsFrameLoader> frameLoader = she->GetFrameLoader()) {
-        if (frameLoader->GetMaybePendingBrowsingContext() == aContext.get()) {
-          she->SetFrameLoader(nullptr);
-          frameLoader->Destroy();
-          break;
-        }
+    RefPtr she = entry->GetAsSessionHistoryEntry();
+    if (RefPtr<nsFrameLoader> frameLoader = she->GetFrameLoader()) {
+      if (frameLoader->GetMaybePendingBrowsingContext() == aContext.get()) {
+        she->SetFrameLoader(nullptr);
+        frameLoader->Destroy();
+        break;
       }
     }
   }
@@ -7987,23 +7950,6 @@ ThreadsafeContentParentHandle::TryAddKeepAlive(uint64_t aBrowserId) {
   ++mKeepAlivesPerBrowserId.LookupOrInsert(aBrowserId, 0);
   return UniqueThreadsafeContentParentKeepAlive{do_AddRef(this).take(),
                                                 {.mBrowserId = aBrowserId}};
-}
-
-void ContentParent::SetAndroidAppLinkLaunchType(uint64_t aLoadIdentifier,
-                                                int32_t aAppLinkLaunchType) {
-  mAndroidLoadIdentifierToAppLinkLaunchType.InsertOrUpdate(aLoadIdentifier,
-                                                           aAppLinkLaunchType);
-}
-
-int32_t ContentParent::GetAndroidAppLinkLaunchType(uint64_t aLoadIdentifier) {
-  int32_t appLinkLaunchType = -1;
-  (void)mAndroidLoadIdentifierToAppLinkLaunchType.Get(aLoadIdentifier,
-                                                      &appLinkLaunchType);
-  return appLinkLaunchType;
-}
-
-void ContentParent::ClearAndroidAppLinkLaunchType(uint64_t aLoadIdentifier) {
-  mAndroidLoadIdentifierToAppLinkLaunchType.Remove(aLoadIdentifier);
 }
 
 }  // namespace dom

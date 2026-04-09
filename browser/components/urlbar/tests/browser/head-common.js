@@ -136,6 +136,13 @@ async function updateTopSites(condition, searchShortcuts = false) {
     }
     return condition(sites);
   }, "Waiting for top sites to be updated");
+
+  if (!Services.prefs.getBoolPref("browser.topsites.component.enabled")) {
+    let feed = AboutNewTab.activityStream?.store?.feeds.get(
+      "feeds.system.topsites"
+    );
+    await feed?._latestRefreshPromise;
+  }
 }
 
 async function installPersistTestEngines(globalDefault = "Example") {

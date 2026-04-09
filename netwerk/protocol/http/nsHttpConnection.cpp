@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:set ts=4 sw=2 sts=2 et cin: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -390,7 +388,7 @@ void nsHttpConnection::StartSpdy(nsITLSSocketControl* sslControl,
         ResetTransaction(std::move(mTransaction), true);
         mTransaction = nullptr;
       } else {
-        for (auto trans : list) {
+        for (const auto& trans : list) {
           if (!mSpdySession->Connection()) {
             mSpdySession->SetConnection(trans->Connection());
           }
@@ -435,13 +433,15 @@ void nsHttpConnection::PostProcessNPNSetup(bool handshakeSucceeded,
 
   // this is happening after the bootstrap was originally written to. so update
   // it.
-  if (mTransaction && mTransaction->QueryNullTransaction() &&
-      (mBootstrappedTimings.secureConnectionStart.IsNull() ||
-       mBootstrappedTimings.tcpConnectEnd.IsNull())) {
-    mBootstrappedTimings.secureConnectionStart =
-        mTransaction->QueryNullTransaction()->GetSecureConnectionStart();
-    mBootstrappedTimings.tcpConnectEnd =
-        mTransaction->QueryNullTransaction()->GetTcpConnectEnd();
+  if (mTransaction && mTransaction->QueryNullTransaction()) {
+    if (mBootstrappedTimings.secureConnectionStart.IsNull()) {
+      mBootstrappedTimings.secureConnectionStart =
+          mTransaction->QueryNullTransaction()->GetSecureConnectionStart();
+    }
+    if (mBootstrappedTimings.tcpConnectEnd.IsNull()) {
+      mBootstrappedTimings.tcpConnectEnd =
+          mTransaction->QueryNullTransaction()->GetTcpConnectEnd();
+    }
   }
 
   if (hasSecurityInfo) {
@@ -635,7 +635,8 @@ nsresult nsHttpConnection::Activate(nsAHttpTransaction* trans, uint32_t caps,
   rv = OnOutputStreamReady(mSocketOut);
 
   if (NS_SUCCEEDED(rv) && mContinueHandshakeDone) {
-    mContinueHandshakeDone();
+    auto continuation = std::move(mContinueHandshakeDone);
+    continuation();
   }
   mContinueHandshakeDone = nullptr;
 
@@ -2060,7 +2061,7 @@ nsresult nsHttpConnection::MakeConnectString(nsAHttpTransaction* trans,
   if (LOG1_ENABLED()) {
     LOG(("nsHttpConnection::MakeConnectString for transaction=%p h2ws=%d[",
          trans->QueryHttpTransaction(), h2ws));
-    LogHeaders(result.BeginReading());
+    LogHeaders(PromiseFlatCString(result).get());
     LOG(("]"));
   }
 

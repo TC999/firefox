@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -11,7 +9,6 @@
 #include "mozilla/Assertions.h"
 #include "mozilla/intl/Locale.h"
 #include "mozilla/intl/MeasureUnit.h"
-#include "mozilla/intl/MeasureUnitGenerated.h"
 #include "mozilla/intl/NumberFormat.h"
 #include "mozilla/intl/NumberingSystem.h"
 #include "mozilla/intl/NumberRangeFormat.h"
@@ -32,6 +29,7 @@
 #include "builtin/intl/IntlMathematicalValue.h"
 #include "builtin/intl/LanguageTag.h"
 #include "builtin/intl/LocaleNegotiation.h"
+#include "builtin/intl/MeasureUnitGenerated.h"
 #include "builtin/intl/NumberFormatOptions.h"
 #include "builtin/intl/ParameterNegotiation.h"
 #include "builtin/intl/RelativeTimeFormat.h"
@@ -287,7 +285,7 @@ static bool ToWellFormedCurrencyCode(
  */
 static constexpr size_t MaxUnitLength() {
   size_t length = 0;
-  for (const auto& unit : mozilla::intl::simpleMeasureUnits) {
+  for (const auto& unit : simpleMeasureUnits) {
     length = std::max(length, std::char_traits<char>::length(unit.name));
   }
   return length * 2 + std::char_traits<char>::length("-per-");
@@ -305,8 +303,8 @@ static mozilla::Maybe<uint8_t> IsSanctionedSingleUnitIdentifier(
   auto comp = [](const auto& a, const auto& b) { return a < b; };
   auto proj = [](const auto& unit) { return std::string_view{unit.name}; };
 
-  const auto* first = std::begin(mozilla::intl::simpleMeasureUnits);
-  const auto* last = std::end(mozilla::intl::simpleMeasureUnits);
+  const auto* first = std::begin(simpleMeasureUnits);
+  const auto* last = std::end(simpleMeasureUnits);
 
   const auto* it =
       std::ranges::lower_bound(first, last, unitIdentifier, comp, proj);
@@ -384,12 +382,11 @@ static bool IsAvailableUnitIdentifier(
   }
 
   std::string_view numerator =
-      mozilla::intl::simpleMeasureUnits[unitIdentifier.numerator].name;
+      simpleMeasureUnits[unitIdentifier.numerator].name;
 
   std::string_view denominator{};
   if (unitIdentifier.hasDenominator()) {
-    denominator =
-        mozilla::intl::simpleMeasureUnits[unitIdentifier.denominator].name;
+    denominator = simpleMeasureUnits[unitIdentifier.denominator].name;
   }
 
   bool foundNumerator = false;
@@ -1569,7 +1566,7 @@ static std::string_view UnitName(const NumberFormatUnitOptions::Unit& unit,
   static_assert(N >= MaxUnitLength());
 
   static constexpr size_t SimpleMeasureUnitsLength =
-      std::size(mozilla::intl::simpleMeasureUnits);
+      std::size(simpleMeasureUnits);
 
   MOZ_RELEASE_ASSERT(unit.hasNumerator() &&
                      unit.numerator < SimpleMeasureUnitsLength);
@@ -1583,10 +1580,10 @@ static std::string_view UnitName(const NumberFormatUnitOptions::Unit& unit,
     length += sv.length();
   };
 
-  appendToUnit(mozilla::intl::simpleMeasureUnits[unit.numerator].name);
+  appendToUnit(simpleMeasureUnits[unit.numerator].name);
   if (unit.hasDenominator()) {
     appendToUnit("-per-");
-    appendToUnit(mozilla::intl::simpleMeasureUnits[unit.denominator].name);
+    appendToUnit(simpleMeasureUnits[unit.denominator].name);
   }
 
   return {result, length};
@@ -2438,8 +2435,8 @@ static bool NumberFormatFunction(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
   // Steps 1-2.
-  auto* compare = &args.callee().as<JSFunction>();
-  auto nfValue = compare->getExtendedSlot(NumberFormatFunction_NumberFormat);
+  auto* format = &args.callee().as<JSFunction>();
+  auto nfValue = format->getExtendedSlot(NumberFormatFunction_NumberFormat);
   Rooted<NumberFormatObject*> numberFormat(
       cx, &nfValue.toObject().as<NumberFormatObject>());
 

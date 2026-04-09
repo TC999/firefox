@@ -12,7 +12,8 @@ use crate::values::specified::animation::{
 use crate::values::specified::length::EqualsPercentage;
 use crate::Zero;
 use std::fmt::{self, Write};
-use style_traits::{CssWriter, ToCss};
+use style_traits::{CssString, CssWriter, KeywordValue, ToCss, ToTyped, TypedValue};
+use thin_vec::ThinVec;
 
 /// The `animation-duration` property.
 ///
@@ -73,6 +74,23 @@ impl<T: ToCss + Zero> ToCss for AnimationDuration<T> {
     }
 }
 
+// TODO: Switch to ToTyped derive once the pref goes away.
+impl<T: ToTyped + Zero> ToTyped for AnimationDuration<T> {
+    fn to_typed(&self, dest: &mut ThinVec<TypedValue>) -> Result<(), ()> {
+        match *self {
+            Self::Auto => {
+                if static_prefs::pref!("layout.css.scroll-driven-animations.enabled") {
+                    dest.push(TypedValue::Keyword(KeywordValue(CssString::from("auto"))));
+                    Ok(())
+                } else {
+                    Self::Time(T::zero()).to_typed(dest)
+                }
+            },
+            Self::Time(ref t) => t.to_typed(dest),
+        }
+    }
+}
+
 /// The view() notation.
 /// https://drafts.csswg.org/scroll-animations-1/#view-notation
 #[derive(
@@ -113,6 +131,7 @@ pub use self::GenericViewFunction as ViewFunction;
     ToCss,
     ToResolvedValue,
     ToShmem,
+    ToTyped,
 )]
 #[repr(C, u8)]
 pub enum GenericAnimationTimeline<LengthPercent> {
@@ -194,6 +213,11 @@ where
     }
 }
 
+impl<LengthPercent> ToTyped for ViewTimelineInset<LengthPercent> where
+    LengthPercent: PartialEq + ToTyped
+{
+}
+
 impl<LengthPercent> Default for ViewTimelineInset<LengthPercent> {
     fn default() -> Self {
         Self {
@@ -266,6 +290,7 @@ impl<LengthPercent> AnimationRangeValue<LengthPercent> {
     ToComputedValue,
     ToResolvedValue,
     ToShmem,
+    ToTyped,
 )]
 #[repr(transparent)]
 pub struct GenericAnimationRangeStart<LengthPercent>(pub GenericAnimationRangeValue<LengthPercent>);
@@ -317,6 +342,7 @@ impl<LengthPercent: ToCss + EqualsPercentage> ToCss for AnimationRangeStart<Leng
     ToComputedValue,
     ToResolvedValue,
     ToShmem,
+    ToTyped,
 )]
 #[repr(transparent)]
 pub struct GenericAnimationRangeEnd<LengthPercent>(pub GenericAnimationRangeValue<LengthPercent>);

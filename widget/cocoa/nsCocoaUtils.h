@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 20; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -88,12 +87,12 @@ class nsAutoreleasePool {
 
 @interface NSApplication (Undocumented)
 
-// Present in all versions of OS X from (at least) 10.2.8 through 10.5.
+// Present in all versions of macOS from (at least) 10.2.8 through 10.5.
 - (BOOL)_isRunningModal;
 - (BOOL)_isRunningAppModal;
 
 // Send an event to the current Cocoa app-modal session.  Present in all
-// versions of OS X from (at least) 10.2.8 through 10.5.
+// versions of macOS from (at least) 10.2.8 through 10.5.
 - (void)_modalSession:(NSModalSession)aSession sendEvent:(NSEvent*)theEvent;
 
 @end

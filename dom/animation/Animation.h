@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -17,6 +15,7 @@
 #include "mozilla/LinkedList.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/PostRestyleMode.h"
+#include "mozilla/ServoStyleConsts.h"
 #include "mozilla/StickyTimeDuration.h"
 #include "mozilla/TimeStamp.h"             // for TimeStamp, TimeDuration
 #include "mozilla/dom/AnimationBinding.h"  // for AnimationPlayState
@@ -445,6 +444,8 @@ class Animation : public DOMEventTargetHelper,
 
   void PostUpdate();
 
+  void AutoAlignStartTime();
+
  protected:
   void SilentlySetCurrentTime(const TimeDuration& aNewCurrentTime);
   void CancelNoUpdate();
@@ -489,6 +490,7 @@ class Animation : public DOMEventTargetHelper,
   friend class AsyncFinishNotification;
   void DoFinishNotificationImmediately(MicroTaskRunnable* aAsync = nullptr);
   void QueuePlaybackEvent(nsAtom* aOnEvent, TimeStamp&& aScheduledEventTime);
+  void MaybeResolvePromiseWithThis(Promise*);
 
   /**
    * Remove this animation from the pending animation tracker and reset
@@ -539,9 +541,6 @@ class Animation : public DOMEventTargetHelper,
   bool HasFiniteTimeline() const {
     return mTimeline && !mTimeline->IsMonotonicallyIncreasing();
   }
-
-  void UpdateScrollTimelineAnimationTracker(AnimationTimeline* aOldTimeline,
-                                            AnimationTimeline* aNewTimeline);
 
   RefPtr<AnimationTimeline> mTimeline;
   RefPtr<AnimationEffect> mEffect;
@@ -603,12 +602,15 @@ class Animation : public DOMEventTargetHelper,
 
   nsString mId;
 
-  bool mResetCurrentTimeOnResume = false;
-
   // Whether the Animation is System, ResistFingerprinting, or neither
   RTPCallerType mRTPCallerType;
 
   // The time at which our animation should be ready.
+  // FIXME: Bug 2017448. We have to make sure what type or value is suitable for
+  // pending ready time when using finite timelines because they don't use time
+  // values. Perhaps we need to define or use a new type (e.g. CSSNumberish).
+  // For now, we skip this for finite timelines and use the current time of
+  // the timeline in TryTriggerNow().
   TimeStamp mPendingReadyTime;
 
  private:
@@ -619,6 +621,11 @@ class Animation : public DOMEventTargetHelper,
   // The id for this animation on the compositor.
   uint64_t mIdOnCompositor = 0;
   bool mIsPartialPrerendered = false;
+
+  // The flag to indicate that the animation’s start time cannot be reliably
+  // calculated until post layout since the start time is to align with the
+  // start or end of the animation range.
+  bool mAutoAlignStartTime = false;
 };
 
 }  // namespace dom

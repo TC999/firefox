@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set sw=2 ts=8 et tw=80 : */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -265,7 +263,9 @@ class nsHttpConnectionInfo final : public ARefBase {
   const nsCString& GetProxyNPNToken() const { return mProxyNPNToken; }
   const nsCString& GetUsername() { return mUsername; }
 
-  const OriginAttributes& GetOriginAttributes() { return mOriginAttributes; }
+  const OriginAttributes& GetOriginAttributes() const {
+    return mOriginAttributes;
+  }
 
   // Returns true for any kind of proxy (http, socks, https, etc..)
   bool UsingProxy();

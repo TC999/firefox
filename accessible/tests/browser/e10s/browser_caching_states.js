@@ -342,7 +342,7 @@ addAccessibleTask(
       waitForStateChange(docAcc, STATE_READONLY, true, false),
     ]);
     await invokeContentTask(browser, [], () => {
-      content.document.body.contentEditable = false;
+      content.document.body.contentEditable = "inherit";
     });
     await stateChanged;
     testStates(docAcc, STATE_READONLY, 0, 0, EXT_STATE_EDITABLE);

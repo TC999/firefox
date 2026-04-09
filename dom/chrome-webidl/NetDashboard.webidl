@@ -1,4 +1,3 @@
-/* -*- Mode: IDL; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -136,23 +135,6 @@ dictionary HTTPSRRLookupDict {
 [GenerateConversionToJS]
 dictionary ConnStatusDict {
   DOMString status = "";
-};
-
-dictionary RcwnPerfStats {
-  unsigned long avgShort = 0;
-  unsigned long avgLong = 0;
-  unsigned long stddevLong = 0;
-};
-
-[GenerateConversionToJS]
-dictionary RcwnStatus {
-  unsigned long totalNetworkRequests = 0;
-  unsigned long rcwnCacheWonCount = 0;
-  unsigned long rcwnNetWonCount = 0;
-  unsigned long cacheSlowCount = 0;
-  unsigned long cacheNotSlowCount = 0;
-  // Sequence is indexed by CachePerfStats::EDataType
-  sequence<RcwnPerfStats> perfStats;
 };
 
 dictionary Http3ConnStats {

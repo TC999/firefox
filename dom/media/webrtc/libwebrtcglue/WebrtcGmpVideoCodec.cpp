@@ -672,7 +672,8 @@ void WebrtcGmpVideoEncoder::Encoded(
   }
 
   if (mCodecParams.mTemporalLayerNum > 1) {
-    int temporalIdx = std::max(0, aEncodedFrame->GetTemporalLayerId());
+    int temporalIdx = std::clamp(aEncodedFrame->GetTemporalLayerId(), 0,
+                                 mCodecParams.mTemporalLayerNum - 1);
     unit.SetTemporalIndex(temporalIdx);
     info.codecSpecific.H264.temporal_idx = temporalIdx;
     info.scalability_mode = GmpCodecParamsToScalabilityMode(mCodecParams);
@@ -1044,12 +1045,12 @@ void WebrtcGmpVideoDecoder::Decoded(GMPVideoi420Frame* aDecodedFrame) {
   // always.  Also, we can only Destroy() the frame on the gmp thread, so
   // copying is simplest if expensive.
   // I420 size including rounding...
-  CheckedInt32 length =
-      (CheckedInt32(aDecodedFrame->Stride(kGMPYPlane)) *
-       aDecodedFrame->Height()) +
-      (aDecodedFrame->Stride(kGMPVPlane) + aDecodedFrame->Stride(kGMPUPlane)) *
-          ((aDecodedFrame->Height() + 1) / 2);
-  int32_t size = length.value();
+  CheckedInt32 length = (CheckedInt32(aDecodedFrame->Stride(kGMPYPlane)) *
+                         aDecodedFrame->Height()) +
+                        (CheckedInt32(aDecodedFrame->Stride(kGMPVPlane)) +
+                         aDecodedFrame->Stride(kGMPUPlane)) *
+                            ((aDecodedFrame->Height() + 1) / 2);
+  int32_t size = length.isValid() ? length.value() : 0;
   MOZ_RELEASE_ASSERT(length.isValid() && size > 0);
 
   // Don't use MakeUniqueFallible here, because UniquePtr isn't copyable, and

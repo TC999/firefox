@@ -92,6 +92,7 @@ class BrowserFragmentTest {
         every { browserFragment.isAdded } returns true
         every { browserFragment.browserToolbarView } returns mockk<BrowserToolbarView>(relaxed = true)
         every { browserFragment.browserToolbarInteractor } returns mockk(relaxed = true)
+        every { browserFragment.childFragmentManager } returns mockk(relaxed = true)
         every { browserFragment.activity } returns homeActivity
         every { browserFragment.lifecycle } returns lifecycleOwner.lifecycle
         every { browserFragment.viewLifecycleOwner } returns lifecycleOwner
@@ -101,7 +102,7 @@ class BrowserFragmentTest {
         every { context.components.appStore } returns appStore
         every { browserFragment.requireContext() } returns context
         every { browserFragment.initializeUI(any(), any()) } returns mockk()
-        every { browserFragment.fullScreenChanged(any()) } returns Unit
+        every { browserFragment.fullScreenChanged(any()) } just Runs
 
         testTab = createTab(url = "https://mozilla.org")
         store = BrowserStore()

@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=4 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -3043,8 +3041,9 @@ void IMContextWrapper::SetCursorPosition(GtkIMContext* aContext) {
   LayoutDeviceIntRect rect =
       queryCaretOrTextRectEvent.mReply->mRect + root - owner;
   rect.width = 0;
-  GdkRectangle area = rootWindow->DevicePixelsToGdkRectRoundOut(rect);
+  rootWindow->SetTextInputArea(rect);
 
+  GdkRectangle area = rootWindow->DevicePixelsToGdkRectRoundOut(rect);
   gtk_im_context_set_cursor_location(aContext, &area);
 }
 

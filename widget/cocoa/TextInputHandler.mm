@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 sw=2 et tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -3359,7 +3357,7 @@ void IMEInputHandler::DebugPrintAllIMEModes() {
 
 // static
 TSMDocumentID IMEInputHandler::GetCurrentTSMDocumentID() {
-  // At least on Mac OS X 10.6.x and 10.7.x, ::TSMGetActiveDocument() has a bug.
+  // At least on macOS 10.6.x and 10.7.x, ::TSMGetActiveDocument() has a bug.
   // The result of ::TSMGetActiveDocument() isn't modified for new active text
   // input context until [NSTextInputContext currentInputContext] is called.
   // Therefore, we need to call it here.
@@ -5521,7 +5519,7 @@ TextInputHandlerBase::AttachNativeKeyEvent(WidgetKeyboardEvent& aKeyEvent) {
   NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
 
   // Don't try to replace a native event if one already exists.
-  // OS X doesn't have an OS modifier, can't make a native event.
+  // macOS doesn't have an OS modifier, can't make a native event.
   if (aKeyEvent.mNativeKeyEvent) {
     return NS_OK;
   }

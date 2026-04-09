@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -21,9 +19,11 @@ TimelineManager::TimelineManager(nsPresContext* aPresContext)
     : mPresContext(aPresContext) {}
 
 template <typename TimelineType>
-struct TimelineSourceMatches {
+struct TimelineTargetMatches {
   bool operator()(const TimelineType* aTimeline) {
-    return aTimeline->SourceMatches(mElement, mPseudoRequest);
+    const auto target = aTimeline->TimelineTarget();
+    return target.mElement == mElement &&
+           target.mPseudoRequest == mPseudoRequest;
   }
 
   const Element* mElement;
@@ -38,7 +38,7 @@ void TimelineManager::EnsureNoTimelineTarget(
     const PseudoStyleRequest& aPseudoRequest) {
   const auto duplicateIt = std::find_if(
       aStart, aEnd,
-      TimelineSourceMatches<TimelineType>{aElement, aPseudoRequest});
+      TimelineTargetMatches<TimelineType>{aElement, aPseudoRequest});
   // We should have one entry of the name for each target (See
   // `BuildTimelines`).
   MOZ_ASSERT(duplicateIt == aEnd, "Unexpected timeline target entry?");
@@ -52,7 +52,7 @@ auto TimelineManager::FindInTimelineTargets(
     -> TimelineTargetsIter<TimelineType> {
   return std::find_if(
       aTimelineTargets.cbegin(), aTimelineTargets.cend(),
-      TimelineSourceMatches<TimelineType>{aElement, aPseudoRequest});
+      TimelineTargetMatches<TimelineType>{aElement, aPseudoRequest});
 }
 
 template <typename TimelineType>
@@ -144,11 +144,12 @@ void TimelineManager::UpdateTimelines(Element* aElement,
 
 void TimelineManager::UpdateTimelineScopes(
     const dom::Element* aElement, const ComputedStyle* aComputedStyle) {
-  const auto& timelineScope = aComputedStyle->StyleUIReset()->mTimelineScope;
+  const auto timelineScope =
+      aComputedStyle->StyleUIReset()->mTimelineScope.value.AsSpan();
   auto it = std::find_if(
       mTimelineScopes.begin(), mTimelineScopes.end(),
       [&](const auto& aEntry) { return aEntry.mElement == aElement; });
-  if (timelineScope.value.IsNone()) {
+  if (timelineScope.IsEmpty()) {
     // Delete the entry & we're done.
     MOZ_ASSERT(it != mTimelineScopes.end(), "Timeline scopes out of sync");
     mTimelineScopes.RemoveElementAt(it);
@@ -169,11 +170,13 @@ void TimelineManager::UpdateTimelineScopes(
     entry->mNames.Clear();
   }
 
-  if (!timelineScope.value.IsIdents()) {
-    // Empty list is considered `all`.
+  if (timelineScope[0].AsAtom() == nsGkAtoms::all) {
+    MOZ_ASSERT(timelineScope.Length() == 1);
+    // We represent "all" with the empty list.
     return;
   }
-  for (const auto& name : timelineScope.value.AsIdents().AsSpan()) {
+
+  for (const auto& name : timelineScope) {
     entry->mNames.AppendElement(name.AsAtom());
   }
 }
@@ -227,7 +230,7 @@ TimelineType* TimelineManager::DoGetScopedTimeline(
   TimelineType* result = nullptr;
   bool found = false;
   for (const auto& candidate : candidates.Data()) {
-    if (!ScopeIsValid(candidate->TimelineTargetElement(), aScopeElement)) {
+    if (!ScopeIsValid(candidate->TimelineTarget().mElement, aScopeElement)) {
       continue;
     }
     if (found) {

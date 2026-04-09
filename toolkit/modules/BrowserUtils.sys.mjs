@@ -9,7 +9,6 @@ import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
-  PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
   ReaderMode: "moz-src:///toolkit/components/reader/ReaderMode.sys.mjs",
   Region: "resource://gre/modules/Region.sys.mjs",
 });
@@ -161,13 +160,104 @@ export var BrowserUtils = {
    *   The label/title of the URL
    */
   copyLink(url, title) {
-    // This is a little hacky, but there is a lot of code in Places that handles
-    // clipboard stuff, so it's easier to reuse.
-    let node = {};
-    node.type = 0;
-    node.title = title;
-    node.uri = url;
-    lazy.PlacesUtils.copyNode(node);
+    this.copyLinks([{ url, title }]);
+  },
+
+  /**
+   * Copy multiple links to the clipboard. Writes three clipboard flavors:
+   *   text/x-moz-url  — "url\ntitle" pairs separated by newlines
+   *   text/html       — "<A HREF="url">title</A>" anchors separated by <BR>
+   *   text/plain      — plain URLs separated by newlines
+   *
+   * @param {Array<{url: string, title: string}>} links
+   */
+  copyLinks(links) {
+    let htmlEscape = s =>
+      s
+        .replace(/&/g, "&amp;")
+        .replace(/>/g, "&gt;")
+        .replace(/</g, "&lt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+
+    let mozURLData = links
+      .map(({ url, title }) => `${url}\n${title}`)
+      .join("\n");
+    let htmlData = links
+      .map(({ url, title }) => `<A HREF="${url}">${htmlEscape(title)}</A>`)
+      .join("<BR>\n");
+    let textData = links.map(({ url }) => url).join("\n");
+
+    let xferable = Cc["@mozilla.org/widget/transferable;1"].createInstance(
+      Ci.nsITransferable
+    );
+    xferable.init(null);
+
+    for (let [type, data] of [
+      // This order is _important_! It controls how this and other applications
+      // select data to be inserted based on type.
+      ["text/x-moz-url", mozURLData],
+      ["text/html", htmlData],
+      ["text/plain", textData],
+    ]) {
+      let str = Cc["@mozilla.org/supports-string;1"].createInstance(
+        Ci.nsISupportsString
+      );
+      str.data = data;
+      xferable.addDataFlavor(type);
+      xferable.setTransferData(type, str);
+    }
+
+    Services.clipboard.setData(
+      xferable,
+      null,
+      Ci.nsIClipboard.kGlobalClipboard
+    );
+  },
+
+  /**
+   * Copy image data from an ArrayBuffer to the system clipboard.
+   *
+   * @param {ArrayBuffer} arrayBuffer
+   *   The image data encoded as PNG.
+   */
+  copyImageToClipboard(arrayBuffer) {
+    const imageTools = Cc["@mozilla.org/image/tools;1"].getService(
+      Ci.imgITools
+    );
+
+    const imgDecoded = imageTools.decodeImageFromArrayBuffer(
+      arrayBuffer,
+      "image/png"
+    );
+
+    const transferable = Cc[
+      "@mozilla.org/widget/transferable;1"
+    ].createInstance(Ci.nsITransferable);
+    transferable.init(null);
+    // Internal consumers expect the image data to be stored as a
+    // nsIInputStream. On Linux and Windows, pasted data is directly
+    // retrieved from the system's native clipboard, and made available
+    // as a nsIInputStream.
+    //
+    // On macOS, nsClipboard::GetNativeClipboardData (nsClipboard.mm) uses
+    // a cached copy of nsITransferable if available, e.g. when the copy
+    // was initiated by the same browser instance. To make sure that a
+    // nsIInputStream is returned instead of the cached imgIContainer,
+    // the image is exported as `kNativeImageMime`. Data associated
+    // with this type is converted to a platform-specific image format
+    // when written to the clipboard. The type is not used when images
+    // are read from the clipboard (on all platforms, not just macOS).
+    // This forces nsClipboard::GetNativeClipboardData to fall back to
+    // the native clipboard, and return the image as a nsITransferable.
+    transferable.addDataFlavor("application/x-moz-nativeimage");
+    transferable.setTransferData("application/x-moz-nativeimage", imgDecoded);
+
+    Services.clipboard.setData(
+      transferable,
+      null,
+      Services.clipboard.kGlobalClipboard
+    );
   },
 
   /**
@@ -406,52 +496,56 @@ export var BrowserUtils = {
     if (!content?.HTMLAnchorElement) {
       return null;
     }
-    function isHTMLLink(aNode) {
-      // Be consistent with what nsContextMenu.js does.
-      return (
-        (content.HTMLAnchorElement.isInstance(aNode) && aNode.href) ||
-        (content.HTMLAreaElement.isInstance(aNode) && aNode.href) ||
-        content.HTMLLinkElement.isInstance(aNode)
-      );
+    // Be consistent with what ContextMenuChild.sys.mjs does.
+    function hrefAndLinkNodeForHTMLLink(aElement) {
+      if (
+        (content.HTMLAnchorElement.isInstance(aElement) && aElement.href) ||
+        (content.HTMLAreaElement.isInstance(aElement) && aElement.href) ||
+        content.HTMLLinkElement.isInstance(aElement)
+      ) {
+        let href = URL.parse(aElement.href)?.href ?? null;
+        if (href) {
+          return [href, aElement, aElement.ownerDocument.nodePrincipal];
+        }
+      }
+      return null;
+    }
+    function hrefAndLinkNodeForNonHTMLink(aElement) {
+      if (
+        aElement.localName == "a" ||
+        (content.MathMLElement.isInstance(aElement) &&
+          !Services.prefs.getBoolPref(
+            "mathml.href_link_on_non_anchor_element.disabled"
+          ))
+      ) {
+        let href =
+          aElement.getAttribute("href") ||
+          aElement.getAttributeNS("http://www.w3.org/1999/xlink", "href");
+        href =
+          URL.parse(href, aElement.ownerDocument.baseURIObject.spec)?.href ??
+          null;
+        if (href) {
+          // Don't return the aElement we got href from since callers expect
+          // <a>-like elements.
+          return [href, null, aElement.ownerDocument.nodePrincipal];
+        }
+      }
+      return null;
     }
 
     let node = event.composedTarget;
-    while (node && !isHTMLLink(node)) {
-      node = node.flattenedTreeParentNode;
-    }
-
-    if (node) {
-      return [node.href, node, node.ownerDocument.nodePrincipal];
-    }
-
-    // If there is no linkNode, try simple XLink.
-    let href, baseURI;
-    node = event.composedTarget;
-    while (node && !href) {
-      if (
-        node.nodeType == content.Node.ELEMENT_NODE &&
-        (node.localName == "a" ||
-          node.namespaceURI == "http://www.w3.org/1998/Math/MathML")
-      ) {
-        href =
-          node.getAttribute("href") ||
-          node.getAttributeNS("http://www.w3.org/1999/xlink", "href");
-        if (href) {
-          baseURI = node.ownerDocument.baseURIObject;
-          break;
+    while (node) {
+      if (node.nodeType == node.ELEMENT_NODE) {
+        let linkData =
+          hrefAndLinkNodeForHTMLLink(node) ||
+          hrefAndLinkNodeForNonHTMLink(node);
+        if (linkData) {
+          return linkData;
         }
       }
       node = node.flattenedTreeParentNode;
     }
-
-    // In case of XLink, we don't return the node we got href from since
-    // callers expect <a>-like elements.
-    // Note: makeURI() will throw if aUri is not a valid URI.
-    return [
-      href ? Services.io.newURI(href, null, baseURI).spec : null,
-      null,
-      node && node.ownerDocument.nodePrincipal,
-    ];
+    return [null, null, null];
   },
 
   /**

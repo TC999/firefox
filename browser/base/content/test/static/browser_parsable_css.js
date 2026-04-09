@@ -98,14 +98,6 @@ if (!Services.prefs.getBoolPref("dom.viewTransitions.enabled")) {
   });
 }
 
-if (!Services.prefs.getBoolPref("mathml.math_shift.enabled")) {
-  ignoreList.push({
-    sourceName: /\bmathml\.css$/i,
-    errorMessage: /Unknown property.*math-shift/i,
-    isFromDevTools: false,
-  });
-}
-
 let propNameAllowlist = [
   // These custom properties are retrieved directly from CSSOM
   // in videocontrols.xml to get pre-defined style instead of computed
@@ -207,6 +199,10 @@ let propNameAllowlist = [
   // Ignore token properties that follow the patterns --dimension-[number] or --dimension-relative-[number]
   // This enables us to provide our full size/spacing system for developers.
   { propName: /--dimension(-relative)?-\d+/, isFromDevTools: false },
+
+  // This variable is read from JS to determine the column count when handling
+  // keyboard navigation in the New Tab sections grid.
+  { propName: "--sections-col-count", isFromDevTools: false },
 ];
 
 // Add suffix to stylesheets' URI so that we always load them here and

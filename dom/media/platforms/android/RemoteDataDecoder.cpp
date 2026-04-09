@@ -838,8 +838,13 @@ class RemoteAudioDecoder final : public RemoteDataDecoder {
         LOG("OOM while allocating temporary output buffer");
         return;
       }
-      jni::ByteBuffer::LocalRef dest = jni::ByteBuffer::New(audio.get(), size);
-      aBuffer->WriteToByteBuffer(dest, offset, size);
+      nsresult rv = aBuffer->NativeCopy(reinterpret_cast<jlong>(audio.get()),
+                                        offset, size);
+      if (NS_FAILED(rv)) {
+        LOG("Fail to copy audio buffer");
+        Error(MediaResult(rv, __func__));
+        return;
+      }
       AlignedFloatBuffer converted = audio.Inflate();
 
       TimeUnit pts = TimeUnit::FromMicroseconds(presentationTimeUs);

@@ -726,10 +726,6 @@
   <string name="studies_remove">Eemalda</string>
   <!-- Title of the active section on the studies list -->
   <string name="studies_active">Praegu toimuvad</string>
-  <!-- Description for studies -->
-  <string name="studies_description_3" moz:removedIn="148" tools:ignore="UnusedResources">Proovi funktsioone ja ideid enne, kui need kõigile avaldatakse.</string>
-  <!-- Title of the Studies data preference -->
-  <string name="studies_title" moz:removedIn="148" tools:ignore="UnusedResources">Uuringute paigaldamine ja käivitamine</string>
   <!-- Learn more link for studies, links to an article for more information about studies. -->
   <string name="studies_learn_more">Rohkem teavet</string>
   <!-- Content description (not visible, for screen readers etc.): Add tab button. Adds a news tab when pressed -->
@@ -959,9 +955,9 @@
   -->
   <string name="bookmark_deletion_snackbar_message">Kustutati järjehoidja %1$s</string>
   <!-- Bookmark undo button for deletion snackbar action -->
-  <string name="bookmark_undo_deletion">VÕTA TAGASI</string>
+  <string name="bookmark_undo_deletion" tools:ignore="UnusedResources" moz:removedIn="150">VÕTA TAGASI</string>
   <!-- Bookmark snackbar message for deleting a single item. %s is the title of the item being deleted -->
-  <string name="bookmark_delete_single_item">%s kustutati</string>
+  <string name="bookmark_delete_single_item" tools:ignore="UnusedResources" moz:removedIn="150">%s kustutati</string>
   <!-- Content description for the bookmark screen delete bookmark navigation bar button -->
   <string name="bookmark_delete_bookmark_content_description">Kustuta järjehoidja</string>
   <!-- Content description for the bookmark screen delete bookmark folder navigation bar button -->

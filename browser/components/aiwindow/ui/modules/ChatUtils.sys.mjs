@@ -9,9 +9,22 @@ ChromeUtils.defineESModuleGetters(lazy, {
   CryptoUtils: "moz-src:///services/crypto/modules/utils.sys.mjs",
 });
 
-import { MESSAGE_ROLE } from "./ChatConstants.sys.mjs";
+import { MESSAGE_ROLE } from "./AIWindowConstants.sys.mjs";
 import { ChatConversation } from "./ChatConversation.sys.mjs";
 import { ChatMessage, ChatHistoryResult } from "./ChatMessage.sys.mjs";
+
+/**
+ *  Gets the URL of the currently selected tab of a window.
+ *  Primarily used to retrieve the current tab's url for use in
+ *  ChatMessage.pageUrl and message context chips.
+ *
+ *  @param {Window} window
+ *
+ *  @returns {?URL}
+ */
+export function getCurrentTabUrl(window) {
+  return window?.gBrowser?.selectedTab?.linkedBrowser?.currentURI;
+}
 
 /**
  * Creates a 12 characters GUID with 72 bits of entropy.
@@ -32,6 +45,7 @@ export function makeGuid() {
  * @returns {ChatConversation} The parsed conversation object.
  */
 export function parseConversationRow(row) {
+  const seenUrlsArray = parseJSONOrNull(row.getResultByName("seen_urls"));
   return new ChatConversation({
     id: row.getResultByName("conv_id"),
     title: row.getResultByName("title"),
@@ -41,6 +55,10 @@ export function parseConversationRow(row) {
     createdDate: row.getResultByName("created_date"),
     updatedDate: row.getResultByName("updated_date"),
     status: row.getResultByName("status"),
+    securityProperties: parseJSONOrNull(
+      row.getResultByName("security_properties")
+    ),
+    seenUrls: Array.isArray(seenUrlsArray) ? seenUrlsArray : [],
   });
 }
 

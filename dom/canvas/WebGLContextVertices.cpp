@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -223,7 +222,7 @@ CheckVertexAttribPointer(const bool isWebgl2,
   if (!isTypeValid) {
     const auto info =
         nsPrintfCString("Bad `type`: %s", EnumString(desc.type).c_str());
-    return Err(webgl::ErrorInfo{LOCAL_GL_INVALID_ENUM, info.BeginReading()});
+    return Err(webgl::ErrorInfo{LOCAL_GL_INVALID_ENUM, info.get()});
   }
 
   ////

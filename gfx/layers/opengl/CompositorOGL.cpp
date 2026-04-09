@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -419,8 +417,7 @@ bool CompositorOGL::Initialize(nsCString* const out_failureReason) {
     mGLContext->fGenFramebuffers(1, &testFBO);
     GLuint testTexture = 0;
 
-    for (uint32_t i = 0; i < std::size(textureTargets); i++) {
-      GLenum target = textureTargets[i];
+    for (unsigned int target : textureTargets) {
       if (!target) continue;
 
       mGLContext->fGenTextures(1, &testTexture);
@@ -1410,7 +1407,7 @@ void WriteSnapshotToDumpFile_internal(T* aObj, DataSourceSurface* aSurf) {
   } else {
     nsCString uri = gfxUtils::GetAsDataURI(aSurf);
     nsPrintfCString string(R"(array["%s-%)" PRIu64 R"("]="%s";\n)",
-                           aObj->Name(), uint64_t(aObj), uri.BeginReading());
+                           aObj->Name(), uint64_t(aObj), uri.get());
     fprintf_stderr(gfxUtils::sDumpPaintFile, "%s", string.get());
   }
 }

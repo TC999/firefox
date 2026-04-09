@@ -11,10 +11,14 @@ use std::time::{Duration, Instant};
 use neqo_common::{qdebug, qlog::Qlog};
 
 use crate::{
-    ConnectionParameters, Stats,
-    cc::{ClassicCongestionControl, CongestionControl, CongestionControlAlgorithm, Cubic, NewReno},
+    ConnectionParameters, SlowStart, Stats,
+    cc::{
+        ClassicCongestionController, ClassicSlowStart, CongestionControl, CongestionController,
+        Cubic, HyStart, NewReno,
+    },
     pace::Pacer,
     pmtud::Pmtud,
+    qlog,
     recovery::sent,
     rtt::RttEstimate,
     stats::CongestionControlStats,
@@ -25,8 +29,9 @@ pub const PACING_BURST_SIZE: usize = 2;
 
 #[derive(Debug)]
 pub struct PacketSender {
-    cc: Box<dyn CongestionControl>,
+    cc: Box<dyn CongestionController>,
     pacer: Pacer,
+    qlog: Qlog,
 }
 
 impl PacketSender {
@@ -34,12 +39,37 @@ impl PacketSender {
     pub fn new(conn_params: &ConnectionParameters, pmtud: Pmtud, now: Instant) -> Self {
         let mtu = pmtud.plpmtu();
         Self {
-            cc: match conn_params.get_cc_algorithm() {
-                CongestionControlAlgorithm::NewReno => {
-                    Box::new(ClassicCongestionControl::new(NewReno::default(), pmtud))
+            cc: match (
+                conn_params.get_congestion_control(),
+                conn_params.get_slow_start(),
+            ) {
+                (CongestionControl::NewReno, SlowStart::Classic) => {
+                    Box::new(ClassicCongestionController::new(
+                        ClassicSlowStart::default(),
+                        NewReno::default(),
+                        pmtud,
+                    ))
                 }
-                CongestionControlAlgorithm::Cubic => {
-                    Box::new(ClassicCongestionControl::new(Cubic::default(), pmtud))
+                (CongestionControl::NewReno, SlowStart::HyStart) => {
+                    Box::new(ClassicCongestionController::new(
+                        HyStart::new(conn_params.pacing_enabled()),
+                        NewReno::default(),
+                        pmtud,
+                    ))
+                }
+                (CongestionControl::Cubic, SlowStart::Classic) => {
+                    Box::new(ClassicCongestionController::new(
+                        ClassicSlowStart::default(),
+                        Cubic::default(),
+                        pmtud,
+                    ))
+                }
+                (CongestionControl::Cubic, SlowStart::HyStart) => {
+                    Box::new(ClassicCongestionController::new(
+                        HyStart::new(conn_params.pacing_enabled()),
+                        Cubic::default(),
+                        pmtud,
+                    ))
                 }
             },
             pacer: Pacer::new(
@@ -48,10 +78,12 @@ impl PacketSender {
                 mtu * PACING_BURST_SIZE,
                 mtu,
             ),
+            qlog: Qlog::default(),
         }
     }
 
     pub fn set_qlog(&mut self, qlog: Qlog) {
+        self.qlog = qlog.clone();
         self.cc.set_qlog(qlog);
     }
 
@@ -79,6 +111,13 @@ impl PacketSender {
         self.cc.cwnd_min()
     }
 
+    /// Emit a `PacingRate` qlog metric.
+    fn maybe_qlog_pacing_rate(&mut self, rtt: Duration, now: Instant) {
+        if let Some(rate) = Pacer::rate(self.cc.cwnd(), rtt) {
+            qlog::metrics_updated(&mut self.qlog, [qlog::Metric::PacingRate(rate)], now);
+        }
+    }
+
     fn maybe_update_pacer_mtu(&mut self) {
         let current_mtu = self.pmtud().plpmtu();
         if current_mtu != self.pacer.mtu() {
@@ -99,6 +138,7 @@ impl PacketSender {
     ) {
         self.cc
             .on_packets_acked(acked_pkts, rtt_est, now, &mut stats.cc);
+        self.maybe_qlog_pacing_rate(rtt_est.estimate(), now);
         self.pmtud_mut().on_packets_acked(acked_pkts, now, stats);
         self.maybe_update_pacer_mtu();
     }

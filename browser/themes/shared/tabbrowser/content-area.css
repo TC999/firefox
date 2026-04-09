@@ -107,6 +107,11 @@
         border-start-end-radius: var(--border-radius-medium);
       }
     }
+
+    :root[ai-window]:not([inDOMFullscreen]) & {
+      border-start-start-radius: var(--border-radius-medium);
+      border-start-end-radius: var(--border-radius-medium);
+    }
   }
 }
 
@@ -212,6 +217,10 @@
     .split-view-panel[column="0"] {
       order: 0;
       margin-inline-end: 0;
+
+      @media not (-moz-platform: macos) {
+        margin-inline-end: 2px;
+      }
     }
 
     .split-view-splitter {

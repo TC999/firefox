@@ -430,7 +430,7 @@ pub struct PrimKeyCommonData {
     pub flags: PrimitiveFlags,
     pub aligned_aa_edges: EdgeMask,
     pub transformed_aa_edges: EdgeMask,
-    pub prim_rect: RectKey,
+    pub prim_size: SizeKey,
 }
 
 impl From<&LayoutPrimitiveInfo> for PrimKeyCommonData {
@@ -439,7 +439,7 @@ impl From<&LayoutPrimitiveInfo> for PrimKeyCommonData {
             flags: info.flags,
             aligned_aa_edges: info.aligned_aa_edges,
             transformed_aa_edges: info.transformed_aa_edges,
-            prim_rect: info.rect.into(),
+            prim_size: info.rect.size().into(),
         }
     }
 }
@@ -459,7 +459,7 @@ pub struct PrimKey<T: MallocSizeOf> {
 pub struct PrimTemplateCommonData {
     pub flags: PrimitiveFlags,
     pub may_need_repetition: bool,
-    pub prim_rect: LayoutRect,
+    pub prim_size: LayoutSize,
     pub opacity: PrimitiveOpacity,
     /// Address of the per-primitive data in the GPU cache.
     ///
@@ -476,7 +476,7 @@ impl PrimTemplateCommonData {
         PrimTemplateCommonData {
             flags: common.flags,
             may_need_repetition: true,
-            prim_rect: common.prim_rect.into(),
+            prim_size: common.prim_size.into(),
             gpu_buffer_address: GpuBufferAddress::INVALID,
             opacity: PrimitiveOpacity::translucent(),
             aligned_aa_edges: common.aligned_aa_edges,
@@ -793,7 +793,6 @@ pub enum PrimitiveInstanceKind {
         data_handle: RectangleDataHandle,
         segment_instance_index: SegmentInstanceIndex,
         color_binding_index: ColorBindingIndex,
-        use_legacy_path: bool,
     },
     YuvImage {
         /// Handle to the common interned data for this primitive.
@@ -813,7 +812,6 @@ pub enum PrimitiveInstanceKind {
         /// Handle to the common interned data for this primitive.
         data_handle: LinearGradientDataHandle,
         visible_tiles_range: GradientTileRange,
-        use_legacy_path: bool,
     },
     /// Always rendered via a cached render task. Usually faster with
     /// a GPU.
@@ -825,14 +823,10 @@ pub enum PrimitiveInstanceKind {
     RadialGradient {
         /// Handle to the common interned data for this primitive.
         data_handle: RadialGradientDataHandle,
-        visible_tiles_range: GradientTileRange,
-        use_legacy_path: bool,
     },
     ConicGradient {
         /// Handle to the common interned data for this primitive.
         data_handle: ConicGradientDataHandle,
-        visible_tiles_range: GradientTileRange,
-        use_legacy_path: bool,
     },
     /// Render a portion of a specified backdrop.
     BackdropCapture {
@@ -844,6 +838,7 @@ pub enum PrimitiveInstanceKind {
     },
     BoxShadow {
         data_handle: BoxShadowDataHandle,
+        render_task: Option<RenderTaskId>,
     },
 }
 
@@ -873,6 +868,9 @@ pub struct PrimitiveInstance {
     /// All information and state related to clip(s) for this primitive
     pub clip_leaf_id: ClipLeafId,
 
+    /// Position of the primitive in local space
+    pub prim_origin: LayoutPoint,
+
     /// Information related to the current visibility state of this
     /// primitive.
     // TODO(gw): Currently built each frame, but can be retained.
@@ -883,11 +881,13 @@ impl PrimitiveInstance {
     pub fn new(
         kind: PrimitiveInstanceKind,
         clip_leaf_id: ClipLeafId,
+        prim_origin: LayoutPoint,
     ) -> Self {
         PrimitiveInstance {
             kind,
             vis: PrimitiveVisibility::new(),
             clip_leaf_id,
+            prim_origin,
         }
     }
 
@@ -947,6 +947,7 @@ impl PrimitiveInstance {
             PrimitiveInstanceKind::BoxShadow { data_handle, .. } => {
                 data_handle.uid()
             }
+
         }
     }
 }
@@ -1305,6 +1306,6 @@ fn test_struct_sizes() {
     //     test expectations and move on.
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
-    assert_eq!(mem::size_of::<PrimitiveInstance>(), 88, "PrimitiveInstance size changed");
+    assert_eq!(mem::size_of::<PrimitiveInstance>(), 96, "PrimitiveInstance size changed");
     assert_eq!(mem::size_of::<PrimitiveInstanceKind>(), 24, "PrimitiveInstanceKind size changed");
 }

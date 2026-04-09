@@ -1505,12 +1505,8 @@
   <string name="studies_remove">Usuń</string>
   <!-- Title of the active section on the studies list -->
   <string name="studies_active">Aktywne</string>
-  <!-- Description for studies -->
-  <string name="studies_description_3" moz:removedIn="148" tools:ignore="UnusedResources">Wypróbuj funkcje i\u00a0pomysły, zanim zostaną udostępnione wszystkim użytkownikom.</string>
   <!-- Description for studies. Note: The word "Firefox" should NOT be translated -->
   <string name="studies_description_4" tools:ignore="BrandUsage">Firefox losowo wybiera użytkowników do testowania funkcji, co poprawia jakość dla wszystkich.</string>
-  <!-- Title of the Studies data preference -->
-  <string name="studies_title" moz:removedIn="148" tools:ignore="UnusedResources">Instalowanie i\u00a0przeprowadzanie badań</string>
   <!-- Title of the Studies data preference -->
   <string name="studies_title_2">Badanie korzystania z\u00a0funkcji</string>
   <!-- Learn more link for studies, links to an article for more information about studies. -->
@@ -1657,10 +1653,10 @@
     %d is the number of existing tab groups + 1.
   -->
   <string name="create_tab_group_form_default_name">Grupa %d</string>
-  <!-- Label for the tab group name field in the bottom sheet to create a new tab group. -->
-  <string name="create_tab_group_name_label" tools:ignore="UnusedResources" moz:removedIn="150">Nazwa grupy kart</string>
   <!-- Label for the tab group name field in the bottom sheet to create or edit a tab group. -->
-  <string name="tab_group_name_label">Nazwa</string>
+  <string name="create_tab_group_name_label">Nazwa</string>
+  <!-- Label for the tab group name field in the bottom sheet to create or edit a tab group. -->
+  <string name="tab_group_name_label" tools:ignore="UnusedResources" moz:removedIn="150">Nazwa</string>
   <!--
     History
 
@@ -2051,12 +2047,16 @@
   -->
   <string name="bookmark_deletion_snackbar_message">Usunięto zakładkę „%1$s”</string>
   <!-- Bookmark undo button for deletion snackbar action -->
-  <string name="bookmark_undo_deletion">Cofnij</string>
+  <string name="bookmark_undo_deletion" tools:ignore="UnusedResources" moz:removedIn="150">Cofnij</string>
   <!-- Bookmark snackbar message for deleting a single item. %s is the title of the item being deleted -->
-  <string name="bookmark_delete_single_item">Usunięto zakładkę „%s”</string>
+  <string name="bookmark_delete_single_item" tools:ignore="UnusedResources" moz:removedIn="150">Usunięto zakładkę „%s”</string>
   <!-- Bookmark snackbar message for deleting multiple items. %s is the number of items being deleted -->
-  <string name="bookmark_delete_multiple_items">Usunięto zakładki: %s</string>
-  <!-- Content description for the bookmark navigation bar back button -->
+  <string name="bookmark_delete_multiple_items" tools:ignore="UnusedResources" moz:removedIn="150">Usunięto zakładki: %s</string>
+  <!--
+    Bookmark undo button for deletion snackbar action
+
+    Content description for the bookmark navigation bar back button
+  -->
   <string name="bookmark_navigate_back_button_content_description">Przejdź wstecz</string>
   <!-- Content description for the bookmark list new folder navigation bar button -->
   <string name="bookmark_add_new_folder_button_content_description">Dodaj nowy folder</string>
@@ -2394,8 +2394,6 @@
   <string name="preference_accessibility_text_size_summary">Powiększ lub pomniejsz tekst na stronach.</string>
   <!-- Title for Accessibility Text Size Scaling Preference -->
   <string name="preference_accessibility_font_size_title">Rozmiar czcionki</string>
-  <!-- %d is the percentage of the slide bar for setting the text font size and %% will be announced as "percent". -->
-  <string name="a11y_preference_accessibility_font_size_percentage" tools:ignore="UnusedResources" moz:removedIn="148">%d%%.</string>
   <!-- Title for Accessibility Text Automatic Size Scaling Preference -->
   <string name="preference_accessibility_auto_size_2">Automatyczny rozmiar czcionki</string>
   <!-- Summary for Accessibility Text Automatic Size Scaling Preference -->
@@ -3421,7 +3419,7 @@
   <!-- The title of the warning card informs the user that the list of languages cannot be loaded. -->
   <string name="translation_error_could_not_load_languages_warning_text">Nie można wczytać języków. Sprawdź połączenie z\u00a0Internetem i\u00a0spróbuj ponownie.</string>
   <!-- The title of the warning card informs the user that a language is not supported. %1$s is the name of the language that is not supported. -->
-  <string name="translation_error_language_not_supported_warning_text">Nie obsługujemy jeszcze tego języka (%1$s).</string>
+  <string name="translation_error_language_not_supported_warning_text" tools:ignore="UnusedResources" moz:removedIn="150">Nie obsługujemy jeszcze tego języka (%1$s).</string>
   <!-- Snackbar title shown if the user closes the Translation Request dialogue and a translation is in progress. -->
   <string name="translation_in_progress_snackbar">Trwa tłumaczenie…</string>
   <!--

@@ -1,5 +1,3 @@
-/* -*- Mode: Java; c-basic-offset: 2; tab-width: 2; indent-tabs-mode: nil -*- */
-/* vim: set ts=2 et sw=2 tw=100: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -235,7 +233,6 @@ public class WebAuthnCredentialManager {
     final CredentialOption credentialOption =
         new CredentialOption.Builder(TYPE_PUBLIC_KEY_CREDENTIAL, requestBundle, requestBundle)
             .build();
-    final Bundle bundle = new Bundle();
     final GetCredentialRequest request =
         new GetCredentialRequest.Builder(requestBundle)
             .addCredentialOption(credentialOption)
@@ -285,9 +282,13 @@ public class WebAuthnCredentialManager {
 
             @Override
             public void onError(final GetCredentialException exception) {
+              final String errorType = exception.getType();
               if (DEBUG) {
-                final String errorType = exception.getType();
                 Log.d(LOGTAG, "Couldn't get credential. errorType=" + errorType);
+              }
+              if (errorType.equals(GetCredentialException.TYPE_NO_CREDENTIAL)) {
+                result.complete(null);
+                return;
               }
               result.completeExceptionally(new WebAuthnUtils.Exception("UNKNOWN_ERR"));
             }

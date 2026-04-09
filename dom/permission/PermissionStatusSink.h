@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -9,6 +7,7 @@
 
 #include "mozilla/MozPromise.h"
 #include "mozilla/Mutex.h"
+#include "mozilla/dom/GeolocationIPCUtils.h"
 #include "mozilla/dom/PermissionStatusBinding.h"
 #include "mozilla/dom/PermissionsBinding.h"
 #include "nsIPermission.h"
@@ -23,7 +22,15 @@ class ThreadSafeWorkerRef;
 
 class PermissionStatusSink {
  public:
+  struct InternalPermissionStates {
+    uint32_t mBrowser = 0;
+    PermissionState mSystem = PermissionState::Denied;
+  };
+  using InternalPermissionStatesPromise =
+      MozPromise<InternalPermissionStates, nsresult, true>;
   using PermissionStatePromise = MozPromise<uint32_t, nsresult, true>;
+  using SystemPermissionStatePromise =
+      MozPromise<PermissionState, nsresult, true>;
 
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(PermissionStatusSink)
 
@@ -31,7 +38,7 @@ class PermissionStatusSink {
                        PermissionName aPermissionName,
                        const nsACString& aPermissionType);
 
-  RefPtr<PermissionStatePromise> Init();
+  RefPtr<InternalPermissionStatesPromise> Init();
 
   // These functions should be called when an permission is updated which may
   // change the state of this PermissionStatus. MaybeUpdatedByOnMainThread
@@ -42,8 +49,12 @@ class PermissionStatusSink {
   // window/worker as an argument. MaybeUpdatedByNotifyOnly must be defined by
   // PermissionStatus inheritors that are double-keyed.
   virtual bool MaybeUpdatedByOnMainThread(nsIPermission* aPermission);
+  virtual bool MaybeUpdatedByBrowserPermOnMainThread(
+      nsIPermission* aPermission);
   virtual bool MaybeUpdatedByNotifyOnlyOnMainThread(
       nsPIDOMWindowInner* aInnerWindow);
+
+  bool MaybeAffectedByBrowserIdOnMainThread(uint64_t aBrowserId);
 
   void PermissionChangedOnMainThread();
 
@@ -58,6 +69,8 @@ class PermissionStatusSink {
 
   RefPtr<PermissionStatePromise> ComputeStateOnMainThreadInternal(
       nsPIDOMWindowInner* aWindow);
+
+  RefPtr<SystemPermissionStatePromise> ComputeSystemState();
 
   nsCOMPtr<nsISerialEventTarget> mSerialEventTarget;
   nsCOMPtr<nsIPrincipal> mPrincipalForPermission;

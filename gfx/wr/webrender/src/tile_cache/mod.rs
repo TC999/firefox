@@ -15,7 +15,7 @@ pub mod slice_builder;
 use api::{AlphaType, BorderRadius, ClipMode, ColorF, ColorDepth, DebugFlags, ImageKey, ImageRendering};
 use api::{PropertyBindingId, PrimitiveFlags, YuvFormat, YuvRangedColorSpace};
 use api::units::*;
-use crate::clip::{ClipNodeId, ClipLeafId, ClipItemKind, ClipSpaceConversion, ClipChainInstance, ClipStore};
+use crate::clip::{ClipNodeId, ClipLeafId, ClipItemKind, ClipSpaceConversion, ClipChainInstance, ClipStore, intersect_rounded_rects};
 use crate::composite::{CompositorKind, CompositeState, CompositorSurfaceKind, ExternalSurfaceDescriptor};
 use crate::composite::{ExternalSurfaceDependency, NativeSurfaceId, NativeTileId};
 use crate::composite::{CompositorClipIndex, CompositorTransformIndex};
@@ -54,6 +54,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub use self::slice_builder::{
     TileCacheBuilder, TileCacheConfig,
     PictureCacheDebugInfo, SliceDebugInfo, DirtyTileDebugInfo, TileDebugInfo,
+    CompositorClipDebugInfo,
 };
 
 pub use api::units::TileOffset;
@@ -1111,61 +1112,62 @@ impl TileCacheInstance {
                 self.compositor_clip = None;
 
                 if clip_chain.needs_mask {
+                    let mut combined: Option<(DeviceRect, BorderRadius)> = None;
+
                     for i in 0 .. clip_chain.clips_range.count {
                         let clip_instance = frame_state
                             .clip_store
                             .get_instance_from_range(&clip_chain.clips_range, i);
                         let clip_node = &frame_state.data_stores.clip[clip_instance.handle];
 
-                        match clip_node.item.kind {
-                            ClipItemKind::RoundedRectangle { rect, radius, mode } => {
-                                assert_eq!(mode, ClipMode::Clip);
+                        if let ClipItemKind::RoundedRectangle { size, radius, mode } = clip_node.item.kind {
+                            assert_eq!(mode, ClipMode::Clip);
 
-                                // Map the clip in to device space. We know from the shared
-                                // clip creation logic it's in root coord system, so only a
-                                // 2d axis-aligned transform can apply. For example, in the
-                                // case of a pinch-zoom effect.
-                                let map = ClipSpaceConversion::new(
-                                    frame_context.root_spatial_node_index,
-                                    clip_instance.spatial_node_index,
-                                    frame_context.root_spatial_node_index,
-                                    frame_context.spatial_tree,
-                                );
+                            let rect = LayoutRect::from_origin_and_size(clip_instance.clip_rect_origin, size);
 
-                                let (rect, radius) = match map {
-                                    ClipSpaceConversion::Local => {
-                                        (rect.cast_unit(), radius)
-                                    }
-                                    ClipSpaceConversion::ScaleOffset(scale_offset) => {
-                                        (
-                                            scale_offset.map_rect(&rect),
-                                            BorderRadius {
-                                                top_left: scale_offset.map_size(&radius.top_left),
-                                                top_right: scale_offset.map_size(&radius.top_right),
-                                                bottom_left: scale_offset.map_size(&radius.bottom_left),
-                                                bottom_right: scale_offset.map_size(&radius.bottom_right),
-                                            },
-                                        )
-                                    }
-                                    ClipSpaceConversion::Transform(..) => {
-                                        unreachable!();
-                                    }
-                                };
+                            // Map to device space. All shared rounded-rect clips are in the
+                            // root coordinate system (is_rcs), so only a 2D axis-aligned
+                            // transform can apply (e.g. pinch-zoom).
+                            let map = ClipSpaceConversion::new(
+                                frame_context.root_spatial_node_index,
+                                clip_instance.spatial_node_index,
+                                frame_context.root_spatial_node_index,
+                                frame_context.spatial_tree,
+                            );
 
-                                self.compositor_clip = Some(frame_state.composite_state.register_clip(
-                                    rect,
-                                    radius,
-                                ));
+                            let (device_rect, device_radius) = match map {
+                                ClipSpaceConversion::Local => (rect.cast_unit(), radius),
+                                ClipSpaceConversion::ScaleOffset(so) => (
+                                    so.map_rect(&rect),
+                                    BorderRadius {
+                                        top_left: so.map_size(&radius.top_left),
+                                        top_right: so.map_size(&radius.top_right),
+                                        bottom_left: so.map_size(&radius.bottom_left),
+                                        bottom_right: so.map_size(&radius.bottom_right),
+                                    },
+                                ),
+                                ClipSpaceConversion::Transform(..) => unreachable!(),
+                            };
 
-                                break;
-                            }
-                            _ => {
-                                // The logic to check for shared clips excludes other mask
-                                // clip types (box-shadow, image-mask) and ensures that the
-                                // clip is in the root coord system (so rect clips can't
-                                // produce a mask).
-                            }
+                            combined = Some(match combined {
+                                None => (device_rect, device_radius),
+                                Some((prev_rect, prev_radius)) => {
+                                    intersect_rounded_rects(
+                                        prev_rect.cast_unit(), prev_radius,
+                                        device_rect.cast_unit(), device_radius,
+                                    )
+                                    .map(|(r, rad)| (r.cast_unit(), rad))
+                                    .unwrap_or((prev_rect, prev_radius))
+                                }
+                            });
                         }
+                    }
+
+                    if let Some((rect, radius)) = combined {
+                        self.compositor_clip = Some(frame_state.composite_state.register_clip(
+                            rect,
+                            radius,
+                        ));
                     }
                 }
             }
@@ -1548,7 +1550,7 @@ impl TileCacheInstance {
                             let clip_instance = clip_store.get_instance_from_range(&prim_clip_chain.clips_range, 0);
                             let clip_node = &data_stores.clip[clip_instance.handle];
 
-                            if let ClipItemKind::RoundedRectangle { ref radius, mode: ClipMode::Clip, rect, .. } = clip_node.item.kind {
+                            if let ClipItemKind::RoundedRectangle { ref radius, mode: ClipMode::Clip, size, .. } = clip_node.item.kind {
                                 let max_corner_width = radius.top_left.width
                                                             .max(radius.bottom_left.width)
                                                             .max(radius.top_right.width)
@@ -1558,8 +1560,8 @@ impl TileCacheInstance {
                                                             .max(radius.top_right.height)
                                                             .max(radius.bottom_right.height);
 
-                                if max_corner_width <= 0.5 * rect.size().width &&
-                                    max_corner_height <= 0.5 * rect.size().height {
+                                if max_corner_width <= 0.5 * size.width &&
+                                    max_corner_height <= 0.5 * size.height {
                                     is_supported_rounded_rect = true;
                                 }
                             }
@@ -1886,7 +1888,9 @@ impl TileCacheInstance {
 
             let clip_instance = clip_store.get_instance_from_range(&prim_clip_chain.clips_range, 0);
             let clip_node = &data_stores.clip[clip_instance.handle];
-            if let ClipItemKind::RoundedRectangle { radius, mode: ClipMode::Clip, rect, .. } = clip_node.item.kind {
+            if let ClipItemKind::RoundedRectangle { radius, mode: ClipMode::Clip, size, .. } = clip_node.item.kind {
+                let rect = LayoutRect::from_origin_and_size(clip_instance.clip_rect_origin, size);
+
                 // Map the clip in to device space. We know from the shared
                 // clip creation logic it's in root coord system, so only a
                 // 2d axis-aligned transform can apply. For example, in the
@@ -2769,9 +2773,15 @@ impl TileCacheInstance {
         for clip_instance in clip_instances {
             let clip = &data_stores.clip[clip_instance.handle];
             let clip_local_rect = match clip.item.kind {
-                ClipItemKind::Rectangle { rect, .. } => Some(rect),
-                ClipItemKind::RoundedRectangle { rect, .. } => Some(rect),
-                ClipItemKind::Image { rect, .. } => Some(rect),
+                ClipItemKind::Rectangle { size, .. } => {
+                    Some(LayoutRect::from_origin_and_size(clip_instance.clip_rect_origin, size))
+                }
+                ClipItemKind::RoundedRectangle { size, .. } => {
+                    Some(LayoutRect::from_origin_and_size(clip_instance.clip_rect_origin, size))
+                }
+                ClipItemKind::Image { size, .. } => {
+                    Some(LayoutRect::from_origin_and_size(clip_instance.clip_rect_origin, size))
+                }
                 ClipItemKind::BoxShadow { .. } => None,
             };
             let clip_scratch = match clip_local_rect {

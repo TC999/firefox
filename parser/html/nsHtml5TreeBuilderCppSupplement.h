@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 sw=2 et tw=78: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -42,6 +40,7 @@ nsHtml5TreeBuilder::nsHtml5TreeBuilder(nsHtml5OplessBuilder* aBuilder)
       quirks(false),
       forceNoQuirks(false),
       allowDeclarativeShadowRoots(false),
+      noInSelectMode(false),
       keepBuffer(false),
       mBuilder(aBuilder),
       mViewSource(nullptr),
@@ -86,6 +85,7 @@ nsHtml5TreeBuilder::nsHtml5TreeBuilder(nsAHtml5TreeOpSink* aOpSink,
       quirks(false),
       forceNoQuirks(false),
       allowDeclarativeShadowRoots(false),
+      noInSelectMode(false),
       keepBuffer(false),
       mBuilder(nullptr),
       mViewSource(nullptr),
@@ -1729,6 +1729,7 @@ nsIContentHandle* nsHtml5TreeBuilder::getShadowRootFromHost(
     nsIContentHandle* aHost, nsIContentHandle* aTemplateNode,
     nsHtml5String aShadowRootMode, bool aShadowRootIsClonable,
     bool aShadowRootIsSerializable, bool aShadowRootDelegatesFocus,
+    bool aShadowRootCustomElementRegistry,
     nsHtml5String aShadowRootReferenceTarget) {
   mozilla::dom::ShadowRootMode mode;
   if (aShadowRootMode.LowerCaseEqualsASCII("open")) {
@@ -1746,7 +1747,7 @@ nsIContentHandle* nsHtml5TreeBuilder::getShadowRootFromHost(
     nsIContent* root = nsContentUtils::AttachDeclarativeShadowRoot(
         static_cast<nsIContent*>(aHost), mode, aShadowRootIsClonable,
         aShadowRootIsSerializable, aShadowRootDelegatesFocus,
-        shadowRootReferenceTarget);
+        aShadowRootCustomElementRegistry, shadowRootReferenceTarget);
     if (!root) {
       nsContentUtils::LogSimpleConsoleError(
           u"Failed to attach Declarative Shadow DOM."_ns, "DOM"_ns,
@@ -1765,7 +1766,7 @@ nsIContentHandle* nsHtml5TreeBuilder::getShadowRootFromHost(
   opGetShadowRootFromHost operation(
       aHost, fragHandle, aTemplateNode, mode, aShadowRootIsClonable,
       aShadowRootIsSerializable, aShadowRootDelegatesFocus,
-      shadowRootReferenceTarget);
+      aShadowRootCustomElementRegistry, shadowRootReferenceTarget);
   treeOp->Init(mozilla::AsVariant(operation));
   return fragHandle;
 }

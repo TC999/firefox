@@ -12,7 +12,7 @@
   @media not (prefers-contrast) {
     :root:not([lwtheme]) {
       @media (prefers-color-scheme: light) {
-        --urlbar-box-bgcolor: #fafafa;
+        --urlbar-box-background-color: #fafafa;
       }
       @media (prefers-color-scheme: dark) {
         --tab-selected-bgcolor: color-mix(in srgb, -moz-dialog 75%, white);

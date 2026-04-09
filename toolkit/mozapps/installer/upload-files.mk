@@ -313,29 +313,7 @@ ifeq ($(OS_ARCH),Darwin)
 UPLOAD_FILES += $(call QUOTED_WILDCARD,$(DIST)/$(PKG_PATH)$(UPDATE_FRAMEWORK_ARTIFACTS_ARCHIVE_BASENAME).zip)
 endif # Darwin
 
-ifndef MOZ_PKG_SRCDIR
-  MOZ_PKG_SRCDIR = $(topsrcdir)
-endif
-
-SRC_TAR_PREFIX = $(MOZ_APP_NAME)-$(MOZ_PKG_VERSION)
-SRC_TAR_EXCLUDE_PATHS += \
-  --exclude='./.hg*' \
-  --exclude='./.git' \
-  --exclude='./.gitattributes' \
-  --exclude='./.gitkeep' \
-  --exclude='./.gitmodules' \
-  --exclude='CVS' \
-  --exclude='.cvs*' \
-  --exclude='./.mozconfig*' \
-  --exclude='*.pyc' \
-  --exclude='$(MOZILLA_DIR)/Makefile' \
-  --exclude='$(MOZILLA_DIR)/dist'
-ifdef MOZ_OBJDIR
-  SRC_TAR_EXCLUDE_PATHS += --exclude='$(MOZ_OBJDIR)'
-endif
-CREATE_SOURCE_TAR = $(TAR) -c --owner=0 --group=0 --numeric-owner \
-  --mode=go-w $(SRC_TAR_EXCLUDE_PATHS) --transform='s,^\./,$(SRC_TAR_PREFIX)/,' -f
-
+# This matches the default output of mach source-package.
 SOURCE_TAR = $(DIST)/$(PKG_SRCPACK_PATH)$(PKG_SRCPACK_BASENAME).tar.xz
 HG_BUNDLE_FILE = $(DIST)/$(PKG_SRCPACK_PATH)$(PKG_BUNDLE_BASENAME).bundle
 SOURCE_CHECKSUM_FILE = $(DIST)/$(PKG_SRCPACK_PATH)$(PKG_SRCPACK_BASENAME).checksums

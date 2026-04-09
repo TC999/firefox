@@ -16,7 +16,7 @@
     "about:privatebrowsing":
       "chrome://browser/skin/privatebrowsing/favicon.svg",
     "chrome://browser/content/aiwindow/aiWindow.html":
-      "chrome://global/skin/icons/highlights.svg",
+      "chrome://browser/skin/smart-window-simplified.svg",
   };
 
   const {
@@ -93,6 +93,84 @@
     return totalMemoryUsage;
   }
 
+  // Used for links dropped on browser content areas. Can be called with a null
+  // event argument when dropping links in the content process.
+  // handleDroppedLink has the following 2 overloads:
+  //   handleDroppedLink(tabbrowser, browser, event, url, name, triggeringPrincipal)
+  //   handleDroppedLink(tabbrowser, browser, event, links, triggeringPrincipal)
+  async function handleDroppedLink(
+    tabbrowser,
+    browser,
+    event,
+    urlOrLinks,
+    nameOrTriggeringPrincipal,
+    triggeringPrincipal
+  ) {
+    // If links are dropped in content process, event.preventDefault() should be
+    // called in the content process. Otherwise, we do it here.
+    if (event) {
+      // Keep the event from being handled by the dragDrop listeners
+      // built-in to gecko if they happen to be above us.
+      event.preventDefault();
+    }
+    let links;
+    if (Array.isArray(urlOrLinks)) {
+      links = urlOrLinks;
+      triggeringPrincipal = nameOrTriggeringPrincipal;
+    } else {
+      links = [{ url: urlOrLinks, nameOrTriggeringPrincipal, type: "" }];
+    }
+
+    let lastLocationChange = browser.lastLocationChange;
+
+    let userContextId = browser.getAttribute("usercontextid");
+
+    // event is null if links are dropped in content process.
+    // inBackground should be false, as it's loading into current browser.
+    let inBackground = false;
+    if (event) {
+      inBackground = Services.prefs.getBoolPref(
+        "browser.tabs.loadInBackground"
+      );
+      if (event.shiftKey) {
+        inBackground = !inBackground;
+      }
+    }
+
+    if (
+      links.length >=
+      Services.prefs.getIntPref("browser.tabs.maxOpenBeforeWarn")
+    ) {
+      // Sync dialog cannot be used inside drop event handler.
+      let answer = await tabbrowser.OpenInTabsUtils.promiseConfirmOpenInTabs(
+        links.length,
+        window
+      );
+      if (!answer) {
+        return;
+      }
+    }
+
+    let urls = [];
+    let postDatas = [];
+    for (let link of links) {
+      let data = await UrlbarUtils.getShortcutOrURIAndPostData(link.url);
+      urls.push(data.url);
+      postDatas.push(data.postData);
+    }
+    if (lastLocationChange == browser.lastLocationChange) {
+      tabbrowser.loadTabs(urls, {
+        inBackground,
+        replace: true,
+        allowThirdPartyFixup: false,
+        postDatas,
+        userContextId,
+        targetTab: tabbrowser.getTabForBrowser(browser),
+        triggeringPrincipal,
+      });
+    }
+  }
+
   window.Tabbrowser = class {
     init() {
       this.tabContainer = document.getElementById("tabbrowser-tabs");
@@ -109,6 +187,8 @@
         ASRouter: "resource:///modules/asrouter/ASRouter.sys.mjs",
         AsyncTabSwitcher:
           "moz-src:///browser/components/tabbrowser/AsyncTabSwitcher.sys.mjs",
+        OpenInTabsUtils:
+          "moz-src:///browser/components/tabbrowser/OpenInTabsUtils.sys.mjs",
         PictureInPicture: "resource://gre/modules/PictureInPicture.sys.mjs",
         SmartTabGroupingManager:
           "moz-src:///browser/components/tabbrowser/SmartTabGrouping.sys.mjs",
@@ -121,6 +201,7 @@
         TaskbarTabsUtils:
           "resource:///modules/taskbartabs/TaskbarTabsUtils.sys.mjs",
         TaskbarTabs: "resource:///modules/taskbartabs/TaskbarTabs.sys.mjs",
+        UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
         UrlbarProviderOpenTabs:
           "moz-src:///browser/components/urlbar/UrlbarProviderOpenTabs.sys.mjs",
         FaviconUtils: "moz-src:///toolkit/modules/FaviconUtils.sys.mjs",
@@ -223,6 +304,14 @@
         .addEventListener("change", this);
 
       this.tabContainer.init();
+
+      this._defaultDropLinkHandler = function (...args) {
+        // The droppedLinkHandler gets invoked with `this` being the browser
+        // element on which the drop took place.
+        let browser = this;
+        let tabbrowser = browser.getTabBrowser();
+        handleDroppedLink(tabbrowser, browser, ...args);
+      };
       this._setupInitialBrowserAndTab();
 
       if (
@@ -632,7 +721,7 @@
       if (gBrowserAllowScriptsToCloseInitialTabs) {
         browser.setAttribute("allowscriptstoclose", "true");
       }
-      browser.droppedLinkHandler = handleDroppedLink;
+      browser.droppedLinkHandler = this._defaultDropLinkHandler;
       browser.loadURI = URILoadingWrapper.loadURI.bind(
         URILoadingWrapper,
         browser
@@ -674,6 +763,7 @@
         tab.setAttribute("usercontextid", userContextId);
         ContextualIdentityService.setTabStyle(tab);
       }
+      updateUserContextUIIndicator();
 
       this._tabForBrowser.set(browser, tab);
 
@@ -2194,7 +2284,7 @@
     }
 
     _setTabLabel(aTab, aLabel, { beforeTabOpen, isContentTitle, isURL } = {}) {
-      if (!aLabel || aLabel.includes("about:reader?")) {
+      if (!aLabel || (isURL && /^about:reader\?url=/.test(aLabel))) {
         return false;
       }
 
@@ -2458,7 +2548,6 @@
       // We'll be creating a new listener, so destroy the old one.
       listener?.destroy();
 
-      let oldDroppedLinkHandler = aBrowser.droppedLinkHandler;
       let oldUserTypedValue = aBrowser.userTypedValue;
       let hadStartedLoad = aBrowser.didStartLoadSinceLastUserTyping();
 
@@ -2489,8 +2578,6 @@
       if (hadStartedLoad) {
         aBrowser.urlbarChangeTracker.startedLoad();
       }
-
-      aBrowser.droppedLinkHandler = oldDroppedLinkHandler;
 
       // This shouldn't really be necessary, however, this has the side effect
       // of sending MozLayerTreeReady / MozLayerTreeCleared events for remote
@@ -2874,7 +2961,7 @@
       this._tabListeners.set(aTab, tabListener);
       this._tabFilters.set(aTab, filter);
 
-      browser.droppedLinkHandler = handleDroppedLink;
+      browser.droppedLinkHandler = this._defaultDropLinkHandler;
       browser.loadURI = URILoadingWrapper.loadURI.bind(
         URILoadingWrapper,
         browser
@@ -3553,63 +3640,10 @@
     }
 
     /**
-     * Removes all tabs from a split view wrapper. This also removes the split view wrapper component
-     *
-     * @param {MozTabSplitViewWrapper} [splitView]
-     *   The split view to remove.
-     * @param {string} [trigger]
-     *   The trigger method for ending the split view. Used for telemetry.
-     *   Valid values: "menu_separate", "icon_separate", "icon_close", "tab_close", "footer_separate".
-     */
-    unsplitTabs(splitview, trigger = null) {
-      if (!splitview) {
-        return;
-      }
-
-      // Record telemetry for split view end
-      if (trigger) {
-        const tab_layout = this.tabContainer.verticalMode
-          ? "vertical"
-          : "horizontal";
-
-        Glean.splitview.end.record({
-          tab_layout,
-          trigger,
-        });
-      }
-
-      // If the split view has about:opentabs open, remove that tab
-      // otherwise unsplit the tabs
-      let aboutOpenTabs = splitview.tabs.filter(
-        tab => tab?.linkedBrowser?.currentURI?.spec === "about:opentabs"
-      );
-
-      if (!aboutOpenTabs.length) {
-        gBrowser.setIsSplitViewActive(false, splitview.tabs);
-
-        for (let i = splitview.tabs.length - 1; i >= 0; i--) {
-          this.#handleTabMove(splitview.tabs[i], () =>
-            gBrowser.tabContainer.insertBefore(
-              splitview.tabs[i],
-              splitview.nextElementSibling
-            )
-          );
-        }
-
-        splitview.remove();
-      } else {
-        aboutOpenTabs.forEach(aboutOpenTab => {
-          // Note: removeTab triggers #observeTabChanges in tabsplitview.js,
-          // which will call unsplitTabs() again.
-          gBrowser.removeTab(aboutOpenTab);
-        });
-      }
-    }
-
-    /**
      * Show the list of tabs <browsers> that are part of a split view.
      *
      * @param {MozTabbrowserTab[]} tabs
+     * @param {boolean} isActive
      */
     showSplitViewPanels(tabs) {
       const panels = [];
@@ -3620,22 +3654,10 @@
           tab.linkedBrowser.docShellIsActive = true;
           panels.push(tab.linkedPanel);
         }
+        const panelEl = document.getElementById(tab.linkedPanel);
+        panelEl?.classList.toggle("split-view-panel-active", true);
       }
-      this.setIsSplitViewActive(true, tabs);
       this.tabpanels.splitViewPanels = panels;
-    }
-
-    /**
-     * Toggle split view active attribute
-     *
-     * @param {boolean} isActive
-     * @param {MozTabbrowserTab[]} tabs
-     */
-    setIsSplitViewActive(isActive, tabs) {
-      for (const tab of tabs) {
-        this.tabpanels.setSplitViewPanelActive(isActive, tab.linkedPanel);
-      }
-      this.tabpanels.setSplitViewActive(!!gBrowser.selectedTab.splitview);
     }
 
     /**
@@ -3988,10 +4010,6 @@
         selectTab && container.ownerGlobal.gBrowser.selectedTab;
       let newTabs = [];
 
-      if (typeof elementIndex == "number") {
-        tabIndex = this.#elementIndexToTabIndex(elementIndex);
-      }
-
       // When tabs are adopted across windows, they exit the tab split of the
       // source window, moved to the new window, and finally moved into a split
       // view in the new window. Although the splitViewId stays effectively the
@@ -4001,11 +4019,14 @@
       for (let tab of container.tabs) {
         tab.removedByAdoption = true;
         let adoptedTab = this.adoptTab(tab, {
-          tabIndex,
           selectTab: tab === oldSelectedTab,
+          tabIndex,
+          elementIndex,
         });
         adoptedTab.addedByAdoption = true;
         newTabs.push(adoptedTab);
+        // Put next tab after current one.
+        elementIndex = undefined;
         tabIndex = adoptedTab._tPos + 1;
       }
 
@@ -6416,7 +6437,7 @@
         ourBrowser.isDistinctProductPageVisit = true;
       }
 
-      SitePermissions.copyTemporaryPermissions(otherBrowser, ourBrowser);
+      let srcBrowserId = otherBrowser.browserId;
 
       // Add a reference to the original registeredOpenURI to the closing
       // tab so that events operating on the tab before close can reference it.
@@ -6453,6 +6474,12 @@
 
         this._swapBrowserDocShells(aOurTab, otherBrowser, stateFlags);
       }
+
+      SitePermissions.copyTemporaryPermissions(
+        srcBrowserId,
+        otherBrowser,
+        ourBrowser
+      );
 
       // Unregister the previously opened URI
       if (otherBrowser.registeredOpenURI) {
@@ -7329,6 +7356,11 @@
       }
     }
 
+    /** public API to the below private method */
+    handleTabMove(element, moveActionCallback, metricsContext) {
+      this.#handleTabMove(element, moveActionCallback, metricsContext);
+    }
+
     /**
      * @param {MozTabbrowserTab|MozTabbrowserTabGroup|MozTabSplitViewWrapper} element
      * @param {function():void} moveActionCallback
@@ -7336,7 +7368,8 @@
      */
     #handleTabMove(element, moveActionCallback, metricsContext) {
       let tabs;
-      if (this.isTab(element) && element.splitview) {
+      // TODO bug 2024173: consider removing element.splitview check.
+      if (this.isTab(element) && element.splitview?.shouldMoveAllTabsAtOnce) {
         tabs = element.splitview.tabs;
       } else if (this.isTab(element)) {
         tabs = [element];
@@ -7363,8 +7396,8 @@
         this.selectedTab.focus();
       }
 
-      // When a tab group with multiple tabs is moved forwards, emit TabMove in
-      // the reverse order, so that the index in previousTabState values are
+      // When multiple tabs are moved forwards (tab group, split view), reverse
+      // the order of TabMove, so that the index in previousTabState values are
       // still accurate until the event is dispatched. If we were to start with
       // the front tab, then logically that tab moves, and all following tabs
       // would shift, which would invalidate the index in previousTabState.
@@ -8901,7 +8934,6 @@
         // We'll be creating a new listener, so destroy the old one.
         oldListener.destroy();
 
-        let oldDroppedLinkHandler = browser.droppedLinkHandler;
         let oldUserTypedValue = browser.userTypedValue;
         let hadStartedLoad = browser.didStartLoadSinceLastUserTyping();
 
@@ -8910,8 +8942,6 @@
           if (hadStartedLoad) {
             browser.urlbarChangeTracker.startedLoad();
           }
-
-          browser.droppedLinkHandler = oldDroppedLinkHandler;
 
           // This shouldn't really be necessary, however, this has the side effect
           // of sending MozLayerTreeReady / MozLayerTreeCleared events for remote
@@ -10488,16 +10518,28 @@ var TabContextMenu = {
       let sibling = gBrowser.tabContainer.findNextTab(lastTabToMove);
       isLastPinnedTab = !sibling || !sibling.pinned;
     }
+
+    let isSplit = !!this.contextTab.splitview;
+    let firstInSplit = isSplit ? this.contextTab.splitview.tabs[0] : null;
+    let lastInSplit = isSplit ? this.contextTab.splitview.tabs.at(-1) : null;
+    let splitAtEnd = isSplit && lastInSplit === lastVisibleTab;
     contextMoveTabToEnd.disabled =
-      (lastTabToMove == lastVisibleTab || isLastPinnedTab) &&
+      (lastTabToMove === lastVisibleTab || isLastPinnedTab || splitAtEnd) &&
       !lastTabToMove.group &&
       allSelectedTabsAdjacent;
+
     let contextMoveTabToStart = document.getElementById("context_moveToStart");
     let isFirstTab =
       !this.contextTabs[0].group &&
-      (this.contextTabs[0] == visibleOrCollapsedTabs[0] ||
-        this.contextTabs[0] == visibleOrCollapsedTabs[gBrowser.pinnedTabCount]);
-    contextMoveTabToStart.disabled = isFirstTab && allSelectedTabsAdjacent;
+      (this.contextTabs[0] === visibleOrCollapsedTabs[0] ||
+        this.contextTabs[0] ===
+          visibleOrCollapsedTabs[gBrowser.pinnedTabCount]);
+    let splitAtStart =
+      isSplit &&
+      (firstInSplit === visibleOrCollapsedTabs[0] ||
+        firstInSplit === visibleOrCollapsedTabs[gBrowser.pinnedTabCount]);
+    contextMoveTabToStart.disabled =
+      (isFirstTab || splitAtStart) && allSelectedTabsAdjacent;
 
     document.getElementById("context_openTabInWindow").disabled =
       this.contextTab.hasAttribute("customizemode");
@@ -10620,6 +10662,7 @@ var TabContextMenu = {
 
     SharingUtils.updateShareURLMenuItem(
       this.contextTab.linkedBrowser,
+      this.multiselected ? this.contextTabs.map(t => t.linkedBrowser) : null,
       document.getElementById("context_moveTabOptions")
     );
   },
@@ -10937,9 +10980,7 @@ var TabContextMenu = {
     const splitviews = new Set(
       this.contextTabs.map(tab => tab.splitview).filter(Boolean)
     );
-    splitviews.forEach(splitview =>
-      gBrowser.unsplitTabs(splitview, "menu_separate")
-    );
+    splitviews.forEach(splitview => splitview.unsplitTabs("menu_separate"));
   },
 
   reverseSplitView() {

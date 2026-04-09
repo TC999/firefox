@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -126,8 +124,8 @@ bool AudioData::SetTrimWindow(const media::TimeInterval& aTrim) {
   MOZ_DIAGNOSTIC_ASSERT(mDataOffset <= mAudioData.Length(),
                         "Data offset outside original buffer");
   int64_t frameCountAfterTrim = (trimAfter - trimBefore).ToTicksAtRate(mRate);
-  if (frameCountAfterTrim >
-      AssertedCast<int64_t>(mAudioData.Length() / mChannels)) {
+  const size_t availFrames = (mAudioData.Length() - mDataOffset) / mChannels;
+  if (frameCountAfterTrim > AssertedCast<int64_t>(availFrames)) {
     // Accept rounding error caused by an imprecise time_base in the container,
     // that can cause a mismatch but not other kind of unexpected frame count.
     MOZ_RELEASE_ASSERT(!trimBefore.IsBase(mRate));
@@ -560,27 +558,9 @@ MediaResult VideoData::QuantizableBuffer::To8BitPerChannel(
   MOZ_ASSERT(!mRecycleBin, "Should not be called more than once.");
   mRecycleBin = aRecycleBin;
 
+  // Find available converter.
   MOZ_ASSERT(mColorDepth == ColorDepth::COLOR_10 ||
              mColorDepth == ColorDepth::COLOR_12);
-  int yStride = mPlanes[0].mStride / 2;
-  int uvStride = mPlanes[1].mStride / 2;
-  size_t yLength = yStride * mPlanes[0].mHeight;
-  size_t uvLength = uvStride * mPlanes[1].mHeight;
-
-  const uint16_t* srcPlanes[3]{
-      reinterpret_cast<const uint16_t*>(mPlanes[0].mData),
-      reinterpret_cast<const uint16_t*>(mPlanes[1].mData),
-      reinterpret_cast<const uint16_t*>(mPlanes[2].mData)};
-  AllocateRecyclableData(yLength + (uvLength * 2));
-  if (!m8bpcPlanes) {
-    return MediaResult::Logged(
-        NS_ERROR_OUT_OF_MEMORY,
-        RESULT_DETAIL("Cannot allocate %zu bytes for 8-bit conversion",
-                      yLength + (uvLength * 2)),
-        sPDMLog);
-  }
-  uint8_t* destPlanes[3]{m8bpcPlanes.get(), m8bpcPlanes.get() + yLength,
-                         m8bpcPlanes.get() + yLength + uvLength};
   using Func16To8 =  // libyuv function type.
       std::function<int(const uint16_t*, int, const uint16_t*, int,
                         const uint16_t*, int, uint8_t*, int, uint8_t*, int,
@@ -603,17 +583,98 @@ MediaResult VideoData::QuantizableBuffer::To8BitPerChannel(
   }(mColorDepth, mChromaSubsampling);
   if (!convertFunc) {
     return MediaResult::Logged(
-        NS_ERROR_DOM_MEDIA_DECODE_ERR,
+        NS_ERROR_NOT_IMPLEMENTED,
         RESULT_DETAIL("Source format (color depth=%d, subsampling=%" PRIu8
                       ") not supported",
                       BitDepthForColorDepth(mColorDepth),
                       static_cast<uint8_t>(mChromaSubsampling)),
         sPDMLog);
   }
-  int r = convertFunc(srcPlanes[0], yStride, srcPlanes[1], uvStride,
-                      srcPlanes[2], uvStride, destPlanes[0], yStride,
-                      destPlanes[1], uvStride, destPlanes[2], uvStride,
-                      mPlanes[0].mWidth, mPlanes[0].mHeight);
+
+  if (mPlanes[0].mStride % 2 != 0 ||
+      mPlanes[0].mStride < mPlanes[0].mWidth * 2 ||
+      mPlanes[1].mStride % 2 != 0 ||
+      mPlanes[1].mStride < mPlanes[1].mWidth * 2 ||
+      mPlanes[2].mStride % 2 != 0 ||
+      mPlanes[2].mStride < mPlanes[2].mWidth * 2) {
+    return MediaResult::Logged(
+        NS_ERROR_ILLEGAL_VALUE,
+        RESULT_DETAIL("width/stride don't add up: y:%" PRIu32 "/%" PRIu32
+                      ", cb:%" PRIu32 "/%" PRIu32 ", cr:%" PRIu32 "/%" PRIu32,
+                      mPlanes[0].mWidth, mPlanes[0].mStride, mPlanes[1].mWidth,
+                      mPlanes[1].mStride, mPlanes[2].mWidth,
+                      mPlanes[2].mStride),
+        sPDMLog);
+  }
+
+  // libyuv functions use `int` for width/height/stride.
+  CheckedInt<int> yWidth(mPlanes[0].mWidth);
+  CheckedInt<int> yHeight(mPlanes[0].mHeight);
+  CheckedInt<int> yStride(mPlanes[0].mStride / 2);
+  CheckedInt<int> cbcrStride(mPlanes[1].mStride / 2);
+  if (!yWidth.isValid() || yWidth.value() == 0 || !yHeight.isValid() ||
+      yHeight.value() == 0 || !yStride.isValid() || yStride.value() == 0 ||
+      !cbcrStride.isValid() || cbcrStride.value() == 0) {
+    return MediaResult::Logged(
+        NS_ERROR_ILLEGAL_VALUE,
+        RESULT_DETAIL("Invalid plane size:%" PRIu32 "x%" PRIu32
+                      ", y-stride:%" PRIu32 ", cbcr-stride:%" PRIu32,
+                      mPlanes[0].mWidth, mPlanes[0].mHeight, mPlanes[0].mStride,
+                      mPlanes[1].mStride),
+        sPDMLog);
+  }
+
+  // Set up destination.
+  CheckedUint32 yLength(yStride.toChecked<uint32_t>() * yHeight.value());
+  CheckedUint32 cbcrLength(cbcrStride.toChecked<uint32_t>() *
+                           mPlanes[1].mHeight);
+  if (!yLength.isValid() || yLength.value() == 0 || !cbcrLength.isValid() ||
+      cbcrLength.value() == 0) {
+    return MediaResult::Logged(
+        NS_ERROR_ILLEGAL_VALUE,
+        RESULT_DETAIL("Invalid buffer size y:%ix%i, cbcr:%ix%" PRIu32,
+                      yStride.value(), yHeight.value(), cbcrStride.value(),
+                      mPlanes[1].mHeight),
+        sPDMLog);
+  }
+  CheckedUint32 destLength(yLength + (cbcrLength * 2));
+  if (!destLength.isValid()) {
+    return MediaResult::Logged(
+        NS_ERROR_ILLEGAL_VALUE,
+        RESULT_DETAIL(
+            "Cannot allocate 8-bit conversion buffer : invalid length"),
+        sPDMLog);
+  }
+  AllocateRecyclableData(destLength.value());
+  if (!m8bpcPlanes) {
+    return MediaResult::Logged(
+        NS_ERROR_OUT_OF_MEMORY,
+        RESULT_DETAIL("Fail to allocate %" PRIu32 " bytes for 8-bit conversion",
+                      destLength.value()),
+        sPDMLog);
+  }
+  uint8_t* destPlanes[3]{
+      m8bpcPlanes.get(), m8bpcPlanes.get() + yLength.value(),
+      m8bpcPlanes.get() + yLength.value() + cbcrLength.value()};
+
+  // Set up source.
+  if (!mPlanes[0].mData || !mPlanes[1].mData || !mPlanes[2].mData) {
+    return MediaResult::Logged(
+        NS_ERROR_ILLEGAL_VALUE,
+        RESULT_DETAIL("Invalid source buffer y:%p, cb:%p cr:%p",
+                      mPlanes[0].mData, mPlanes[1].mData, mPlanes[2].mData),
+        sPDMLog);
+  }
+  const uint16_t* srcPlanes[3]{
+      reinterpret_cast<const uint16_t*>(mPlanes[0].mData),
+      reinterpret_cast<const uint16_t*>(mPlanes[1].mData),
+      reinterpret_cast<const uint16_t*>(mPlanes[2].mData)};
+
+  int r = convertFunc(srcPlanes[0], yStride.value(), srcPlanes[1],
+                      cbcrStride.value(), srcPlanes[2], cbcrStride.value(),
+                      destPlanes[0], yStride.value(), destPlanes[1],
+                      cbcrStride.value(), destPlanes[2], cbcrStride.value(),
+                      yWidth.value(), yHeight.value());
   if (r != 0) {
     return MediaResult::Logged(
         NS_ERROR_DOM_MEDIA_DECODE_ERR,
@@ -623,25 +684,19 @@ MediaResult VideoData::QuantizableBuffer::To8BitPerChannel(
   // Update buffer info.
   mColorDepth = ColorDepth::COLOR_8;
   mPlanes[0].mData = destPlanes[0];
-  mPlanes[0].mStride = yStride;
+  mPlanes[0].mStride = yStride.value();
   mPlanes[1].mData = destPlanes[1];
   mPlanes[2].mData = destPlanes[2];
-  mPlanes[1].mStride = mPlanes[2].mStride = uvStride;
+  mPlanes[1].mStride = mPlanes[2].mStride = cbcrStride.value();
 
   return MediaResult(NS_OK);
 }
 
-void VideoData::QuantizableBuffer::AllocateRecyclableData(size_t aLength) {
+void VideoData::QuantizableBuffer::AllocateRecyclableData(uint32_t aLength) {
   MOZ_ASSERT(!m8bpcPlanes, "Should not allocate more than once.");
   MOZ_ASSERT(aLength > 0, "Zero-length allocation!");
 
-  CheckedInt<uint32_t> checkedLength(aLength);
-  if (!checkedLength.isValid()) {
-    NS_WARNING("Fail to allocate 8-bit conversion buffer: size too large!");
-    return;
-  }
-
-  m8bpcPlanes = mRecycleBin->GetBuffer(checkedLength.value());
+  m8bpcPlanes = mRecycleBin->GetBuffer(aLength);
   if (m8bpcPlanes) {
     mAllocatedLength = aLength;
   }

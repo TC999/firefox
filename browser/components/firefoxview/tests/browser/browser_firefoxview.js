@@ -104,7 +104,7 @@ add_task(async function test_aria_roles() {
     );
     await tab();
     ok(
-      syncedTabsEmptyState.querySelector("button").matches(":focus"),
+      syncedTabsEmptyState.querySelector("moz-button").matches(":focus"),
       "Focus should be on button element of the synced tabs empty state"
     );
   });

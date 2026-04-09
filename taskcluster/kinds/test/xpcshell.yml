@@ -3,6 +3,12 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 ---
 task-defaults:
+    worker-type:
+        by-test-platform:
+            windows11-64-24h2-asan/.*: win11-64-25h2-large
+            windows11-(32|64)-24h2(-ccov|-devedition|-mingwclang|-shippable)?/.*: win11-64-25h2
+            windows11-aarch64-24h2(-devedition|-shippable)?/.*: win11-a64-25h2
+            default: default
     suite:
         category: xpcshell
         name: xpcshell
@@ -47,7 +53,6 @@ xpcshell:
         - conditioned_profile
         - no-fission
         - msix
-        - geckoview-no-fission-no-ship
         - inc-origin-init
     instance-size:
         by-variant:
@@ -75,11 +80,6 @@ xpcshell:
                 by-test-platform:
                     windows11-64-24h2(-shippable)?/opt: built-projects
                     windows11-64-24h2/debug: built-projects
-                    default: []
-            geckoview-no-fission-no-ship:
-                by-test-platform:
-                    android-em.*/debug-isolated-process: []
-                    android-em.*: built-projects
                     default: []
             inc-origin-init: []
             default:

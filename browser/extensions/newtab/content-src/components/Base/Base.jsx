@@ -11,9 +11,11 @@ import { ErrorBoundary } from "content-src/components/ErrorBoundary/ErrorBoundar
 import { CustomizeMenu } from "content-src/components/CustomizeMenu/CustomizeMenu";
 import React, { useState, useEffect } from "react";
 import { Search } from "content-src/components/Search/Search";
+import { TopSites } from "content-src/components/TopSites/TopSites";
 import { Sections } from "content-src/components/Sections/Sections";
 import { Logo } from "content-src/components/Logo/Logo";
 import { Weather } from "content-src/components/Weather/Weather";
+import { Weather as WeatherWidget } from "content-src/components/Widgets/Weather/Weather";
 import { DownloadModalToggle } from "content-src/components/DownloadModalToggle/DownloadModalToggle";
 import { Notifications } from "content-src/components/Notifications/Notifications";
 import { TopicSelection } from "content-src/components/DiscoveryStreamComponents/TopicSelection/TopicSelection";
@@ -115,32 +117,25 @@ export class BaseContent extends React.PureComponent {
       this.handleDismissDownloadHighlight.bind(this);
     this.applyBodyClasses = this.applyBodyClasses.bind(this);
     this.toggleSectionsMgmtPanel = this.toggleSectionsMgmtPanel.bind(this);
+    this.toggleWidgetsManagementPanel =
+      this.toggleWidgetsManagementPanel.bind(this);
     this.state = {
       fixedSearch: false,
-      firstVisibleTimestamp: null,
       colorMode: "",
       fixedNavStyle: {},
       wallpaperTheme: "",
       showDownloadHighlightOverride: null,
       visible: false,
       showSectionsMgmtPanel: false,
+      showWidgetsManagementPanel: false,
     };
     this.spocPlaceholderStartTime = null;
-  }
-
-  setFirstVisibleTimestamp() {
-    if (!this.state.firstVisibleTimestamp) {
-      this.setState({
-        firstVisibleTimestamp: Date.now(),
-      });
-    }
   }
 
   onVisible() {
     this.setState({
       visible: true,
     });
-    this.setFirstVisibleTimestamp();
     this.shouldDisplayTopicSelectionModal();
     this.onVisibilityDispatch();
 
@@ -306,6 +301,9 @@ export class BaseContent extends React.PureComponent {
 
       const selectedWallpaper = prefs["newtabWallpapers.wallpaper"];
       const prevSelectedWallpaper = prevPrefs["newtabWallpapers.wallpaper"];
+      const initialWallpaper = prefs["newtabWallpapers.initialWallpaper"];
+      const prevInitialWallpaper =
+        prevPrefs["newtabWallpapers.initialWallpaper"];
       const uploadedWallpaperTheme =
         prefs["newtabWallpapers.customWallpaper.theme"];
       const prevUploadedWallpaperTheme =
@@ -314,6 +312,7 @@ export class BaseContent extends React.PureComponent {
       // don't update wallpaper unless the wallpaper is being changed.
       if (
         selectedWallpaper !== prevSelectedWallpaper || // selecting a new wallpaper
+        initialWallpaper !== prevInitialWallpaper || // experiment sets initial wallpaper
         uploadedWallpaper !== prevUploadedWallpaper || // uploading a new wallpaper
         wallpaperList !== prevWallpaperList || // remote settings wallpaper list updates
         this.props.App.isForStartupCache.Wallpaper !==
@@ -495,7 +494,8 @@ export class BaseContent extends React.PureComponent {
   renderWallpaperAttribution() {
     const { wallpaperList } = this.props.Wallpapers;
     const activeWallpaper =
-      this.props.Prefs.values[`newtabWallpapers.wallpaper`];
+      this.props.Prefs.values[`newtabWallpapers.wallpaper`] ||
+      this.props.Prefs.values[`newtabWallpapers.initialWallpaper`];
     const selected = wallpaperList.find(wp => wp.title === activeWallpaper);
     // make sure a wallpaper is selected and that the attribution also exists
     if (!selected?.attribution) {
@@ -530,7 +530,9 @@ export class BaseContent extends React.PureComponent {
 
   async updateWallpaper() {
     const prefs = this.props.Prefs.values;
-    const selectedWallpaper = prefs["newtabWallpapers.wallpaper"];
+    const selectedWallpaper =
+      prefs["newtabWallpapers.wallpaper"] ||
+      prefs["newtabWallpapers.initialWallpaper"];
     const { wallpaperList, uploadedWallpaper: uploadedWallpaperUrl } =
       this.props.Wallpapers;
     const uploadedWallpaperTheme =
@@ -664,6 +666,12 @@ export class BaseContent extends React.PureComponent {
     }));
   }
 
+  toggleWidgetsManagementPanel() {
+    this.setState(prevState => ({
+      showWidgetsManagementPanel: !prevState.showWidgetsManagementPanel,
+    }));
+  }
+
   shouldDisplayTopicSelectionModal() {
     const prefs = this.props.Prefs.values;
     const pocketEnabled =
@@ -715,7 +723,9 @@ export class BaseContent extends React.PureComponent {
     // @nova-cleanup(remove-conditional):
     const novaEnabled = prefs[PREF_NOVA_ENABLED];
 
-    const activeWallpaper = prefs[`newtabWallpapers.wallpaper`];
+    const activeWallpaper =
+      prefs[`newtabWallpapers.wallpaper`] ||
+      prefs[`newtabWallpapers.initialWallpaper`];
     const wallpapersEnabled = prefs["newtabWallpapers.enabled"];
     const weatherEnabled = prefs.showWeather;
     const { showTopicSelection } = DiscoveryStream;
@@ -728,19 +738,22 @@ export class BaseContent extends React.PureComponent {
       section => section.id !== "topstories"
     );
 
+    const topSitesEnabled = prefs["feeds.topsites"];
     const pocketEnabled =
       prefs["feeds.section.topstories"] && prefs["feeds.system.topstories"];
     const noSectionsEnabled =
-      !prefs["feeds.topsites"] &&
+      !topSitesEnabled &&
       !pocketEnabled &&
       filteredSections.filter(section => section.enabled).length === 0;
     const enabledSections = {
-      topSitesEnabled: prefs["feeds.topsites"],
+      topSitesEnabled,
       pocketEnabled: prefs["feeds.section.topstories"],
       showInferredPersonalizationEnabled:
         prefs[PREF_INFERRED_PERSONALIZATION_USER],
       topSitesRowsCount: prefs.topSitesRows,
-      weatherEnabled: prefs.showWeather,
+      weatherEnabled: novaEnabled
+        ? prefs["widgets.weather.enabled"]
+        : prefs.showWeather,
     };
 
     const pocketRegion = prefs["feeds.system.topstories"];
@@ -773,11 +786,23 @@ export class BaseContent extends React.PureComponent {
       nimbusTimerEnabled ||
       nimbusTimerTrainhopEnabled;
 
+    const mayHaveWeatherWidget =
+      prefs["widgets.system.weather.enabled"] ||
+      prefs.trainhopConfig?.widgets?.weatherEnabled;
+    const showWeatherWidgetInSidebar =
+      novaEnabled &&
+      mayHaveWeatherWidget &&
+      prefs["widgets.weather.enabled"] &&
+      weatherEnabled &&
+      prefs["widgets.weather.size"] === "small";
+
     // These prefs set the initial values on the Customize panel toggle switches
     const enabledWidgets = {
       listsEnabled: prefs["widgets.lists.enabled"],
       timerEnabled: prefs["widgets.focusTimer.enabled"],
-      weatherEnabled: prefs.showWeather,
+      weatherEnabled: novaEnabled
+        ? prefs["widgets.weather.enabled"]
+        : prefs.showWeather,
       widgetsMaximized: prefs["widgets.maximized"],
       widgetsMayBeMaximized: prefs["widgets.system.maximized"],
     };
@@ -838,10 +863,7 @@ export class BaseContent extends React.PureComponent {
         !noSectionsEnabled &&
         "fixed-search",
       prefs.showSearch && noSectionsEnabled && "only-search",
-      prefs["feeds.topsites"] &&
-        !pocketEnabled &&
-        !prefs.showSearch &&
-        "only-topsites",
+      topSitesEnabled && !pocketEnabled && !prefs.showSearch && "only-topsites",
       noSectionsEnabled && "no-sections",
       prefs["logowordmark.alwaysVisible"] && "visible-logo",
     ]
@@ -896,13 +918,17 @@ export class BaseContent extends React.PureComponent {
               )}
               {/* TODO: Break out Topsites, Widgets from DiscoveryStreamBase */}
               {/* Shortcuts / Topsites */}
+              {topSitesEnabled && (
+                <ErrorBoundary>
+                  <TopSites />
+                </ErrorBoundary>
+              )}
               {/* Widgets */}
               {/* Content Feed */}
               {isDiscoveryStream && (
                 <ErrorBoundary className="borderless-error">
                   <DiscoveryStreamBase
                     locale={props.App.locale}
-                    firstVisibleTimestamp={this.state.firstVisibleTimestamp}
                     placeholder={this.isSpocsOnDemandExpired}
                   />
                 </ErrorBoundary>
@@ -910,9 +936,9 @@ export class BaseContent extends React.PureComponent {
             </div>
             <div className="sidebar-inline-end">
               {/* Mini Widgets - Weather */}
-              {weatherEnabled && (
+              {showWeatherWidgetInSidebar && (
                 <ErrorBoundary>
-                  <Weather />
+                  <WeatherWidget dispatch={props.dispatch} size="small" />
                 </ErrorBoundary>
               )}
             </div>
@@ -941,9 +967,17 @@ export class BaseContent extends React.PureComponent {
               showing={customizeMenuVisible}
               toggleSectionsMgmtPanel={this.toggleSectionsMgmtPanel}
               showSectionsMgmtPanel={this.state.showSectionsMgmtPanel}
-              showWidgetMgmtPanel={this.state.showWidgetMgmtPanel}
+              showWidgetsManagementPanel={this.state.showWidgetsManagementPanel}
+              toggleWidgetsManagementPanel={this.toggleWidgetsManagementPanel}
+              widgetsEnabled={prefs["widgets.enabled"]}
             />
           </menu>
+          <ConfirmDialog />
+          {this.props.Notifications?.showNotifications && (
+            <ErrorBoundary>
+              <Notifications dispatch={this.props.dispatch} />
+            </ErrorBoundary>
+          )}
         </div>
       );
     }
@@ -952,7 +986,7 @@ export class BaseContent extends React.PureComponent {
     return (
       <div className={featureClassName}>
         <div className="weatherWrapper">
-          {weatherEnabled && (
+          {!novaEnabled && weatherEnabled && (
             <ErrorBoundary>
               <Weather />
             </ErrorBoundary>
@@ -1022,7 +1056,6 @@ export class BaseContent extends React.PureComponent {
                 <ErrorBoundary className="borderless-error">
                   <DiscoveryStreamBase
                     locale={props.App.locale}
-                    firstVisibleTimestamp={this.state.firstVisibleTimestamp}
                     placeholder={this.isSpocsOnDemandExpired}
                   />
                 </ErrorBoundary>

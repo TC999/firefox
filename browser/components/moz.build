@@ -35,6 +35,7 @@ DIRS += [
     "attribution",
     "backup",
     "contentanalysis",
+    "contentsharing",
     "contextualidentity",
     "customizableui",
     "customkeys",
@@ -88,7 +89,10 @@ if CONFIG["MOZ_SELECTABLE_PROFILES"]:
 if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
     DIRS += ["touchbar"]
 elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "windows":
-    DIRS += ["installerprefs"]
+    DIRS += [
+        "defaultwindowslaunchonlogin",
+        "installerprefs",
+    ]
 
 XPIDL_SOURCES += [
     "nsIBrowserHandler.idl",

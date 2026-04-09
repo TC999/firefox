@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -90,7 +88,7 @@ struct APZCTreeManager::TreeBuildingState {
                     bool aIsTestLoggingEnabled)
       : mOriginatingLayersId(aOriginatingLayersId),
         mPaintLogger(aTestData, aPaintSequence, aIsTestLoggingEnabled) {
-    CompositorBridgeParent::CallWithIndirectShadowTree(
+    CompositorBridgeParent::CallWithLayerTreeState(
         aRootLayersId, [this](LayerTreeState& aState) -> void {
           mCompositorController = aState.GetCompositorController();
         });
@@ -217,8 +215,7 @@ APZCTreeManager::CheckerboardFlushObserver::Observe(nsISupports* aSubject,
   }
   if (XRE_IsGPUProcess()) {
     if (gfx::GPUParent* gpu = gfx::GPUParent::GetSingleton()) {
-      nsCString topic("APZ:FlushActiveCheckerboard:Done");
-      (void)gpu->SendNotifyUiObservers(topic);
+      (void)gpu->SendFlushActiveCheckerboardReportsDone();
     }
   } else {
     MOZ_ASSERT(XRE_IsParentProcess());
@@ -790,7 +787,7 @@ void APZCTreeManager::SampleForWebRender(const Maybe<VsyncId>& aVsyncId,
 
   RefPtr<WebRenderBridgeParent> wrBridgeParent;
   RefPtr<CompositorController> controller;
-  CompositorBridgeParent::CallWithIndirectShadowTree(
+  CompositorBridgeParent::CallWithLayerTreeState(
       mRootLayersId, [&](LayerTreeState& aState) -> void {
         controller = aState.GetCompositorController();
         wrBridgeParent = aState.mWrBridge;
@@ -1208,7 +1205,7 @@ HitTestingTreeNode* APZCTreeManager::PrepareNodeForLayer(
   // TreeBuildingState, and update them as we change layers id during the
   // traversal
   RefPtr<GeckoContentController> geckoContentController;
-  CompositorBridgeParent::CallWithIndirectShadowTree(
+  CompositorBridgeParent::CallWithLayerTreeState(
       aLayersId, [&](LayerTreeState& lts) -> void {
         geckoContentController = lts.mController;
       });
@@ -3722,12 +3719,9 @@ LayerToParentLayerMatrix4x4 APZCTreeManager::ComputeTransformForScrollThumbNode(
 
 already_AddRefed<wr::WebRenderAPI> APZCTreeManager::GetWebRenderAPI() const {
   RefPtr<wr::WebRenderAPI> api;
-  CompositorBridgeParent::CallWithIndirectShadowTree(
-      mRootLayersId, [&](LayerTreeState& aState) -> void {
-        if (aState.mWrBridge) {
-          api = aState.mWrBridge->GetWebRenderAPI();
-        }
-      });
+  CompositorBridgeParent::CallWithLayerTreeState(
+      mRootLayersId,
+      [&](LayerTreeState& aState) -> void { api = aState.mWebRenderAPI; });
   return api.forget();
 }
 
@@ -3735,7 +3729,7 @@ already_AddRefed<wr::WebRenderAPI> APZCTreeManager::GetWebRenderAPI() const {
 already_AddRefed<GeckoContentController> APZCTreeManager::GetContentController(
     LayersId aLayersId) {
   RefPtr<GeckoContentController> controller;
-  CompositorBridgeParent::CallWithIndirectShadowTree(
+  CompositorBridgeParent::CallWithLayerTreeState(
       aLayersId,
       [&](LayerTreeState& aState) -> void { controller = aState.mController; });
   return controller.forget();

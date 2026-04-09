@@ -693,7 +693,6 @@ tasks.withType(DependencyTask).configureEach { task ->
     // The OSS plugin creates a "LicensesCleanUp" task for every "DependencyTask"
     // e.g., nightlyOssDependencyTask -> nightlyOssLicensesCleanUp
     def cleanUpTaskName = task.name.replace("DependencyTask", "LicensesCleanUp")
-
     // make the dependency task depend on its cleanup task.
     task.dependsOn(tasks.named(cleanUpTaskName))
 }

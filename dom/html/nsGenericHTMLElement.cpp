@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -713,7 +711,18 @@ void nsGenericHTMLElement::AfterSetPopoverAttr() {
     }
 
     if (newState == PopoverAttributeState::None) {
-      ClearPopoverData();
+      auto* popoverData = GetPopoverData();
+      if (popoverData) {
+        // We have to keep track of the toggle event task, if, for example,
+        // the popover attribute is removed as part of the popover focusing
+        // steps in https://html.spec.whatwg.org/#show-popover. So we can't
+        // clear the popover data in that case.
+        if (popoverData->IsShowingOrHiding()) {
+          popoverData->SetPopoverAttributeState(newState);
+        } else {
+          ClearPopoverData();
+        }
+      }
       RemoveStates(ElementState::POPOVER_OPEN);
     } else {
       // Re-apply the state in case event handlers changed it
@@ -3401,25 +3410,49 @@ bool nsGenericHTMLElement::PopoverOpen() const {
 bool nsGenericHTMLElement::CheckPopoverValidity(
     PopoverVisibilityState aExpectedState, Document* aExpectedDocument,
     ErrorResult& aRv) {
+  // 1. If element's popover attribute is in the No Popover state, then:
   if (GetPopoverAttributeState() == PopoverAttributeState::None) {
+    // 1. If throwExceptions is true, then throw a "NotSupportedError"
+    //    DOMException.
     aRv.ThrowNotSupportedError("Element is in the no popover state");
+    // 2. Return false.
     return false;
   }
 
+  // 2. If any of the following are true:
+  //  - expectedToBeShowing is true and element's popover visibility state is
+  //    not showing; or
+  //  - expectedToBeShowing is false and element's popover visibility state is
+  //    not hidden,
   if (GetPopoverData()->GetPopoverVisibilityState() != aExpectedState) {
+    // then return false.
     return false;
   }
 
+  // 3. If any of the following are true:
+  //   - element is not connected;
   if (!IsInComposedDoc()) {
+    // 1. If throwExceptions is true, then throw an "InvalidStateError"
+    //    DOMException.
     aRv.ThrowInvalidStateError("Element is not connected");
+    // 2. Return false.
     return false;
   }
 
+  //   - element's node document is not fully active;
+  if (!OwnerDoc()->IsFullyActive()) {
+    aRv.ThrowInvalidStateError("Element's document is not fully active");
+    return false;
+  }
+
+  //   - expectedDocument is not null and element's node document is not
+  //     expectedDocument;
   if (aExpectedDocument && aExpectedDocument != OwnerDoc()) {
     aRv.ThrowInvalidStateError("Element is moved to other document");
     return false;
   }
 
+  //  - element is a dialog element and its is modal is set to true; or
   if (auto* dialog = HTMLDialogElement::FromNode(this)) {
     if (dialog->IsInTopLayer()) {
       aRv.ThrowInvalidStateError("Element is a modal <dialog> element");
@@ -3427,6 +3460,7 @@ bool nsGenericHTMLElement::CheckPopoverValidity(
     }
   }
 
+  //  - element's fullscreen flag is set,
   if (State().HasState(ElementState::FULLSCREEN)) {
     aRv.ThrowInvalidStateError("Element is fullscreen");
     return false;
@@ -3475,6 +3509,9 @@ bool nsGenericHTMLElement::FireToggleEvent(const nsAString& aOldState,
 // https://html.spec.whatwg.org/#queue-a-popover-toggle-event-task
 void nsGenericHTMLElement::QueuePopoverEventTask(
     PopoverVisibilityState aOldState, Element* aSource) {
+  PopoverVisibilityState newState = aOldState == PopoverVisibilityState::Hidden
+                                        ? PopoverVisibilityState::Showing
+                                        : PopoverVisibilityState::Hidden;
   auto* data = GetPopoverData();
   MOZ_ASSERT(data, "Should have popover data");
 
@@ -3482,15 +3519,15 @@ void nsGenericHTMLElement::QueuePopoverEventTask(
     aOldState = queuedToggleEventTask->GetOldState();
   }
 
-  auto task = MakeRefPtr<PopoverToggleEventTask>(
-      do_GetWeakReference(this), do_GetWeakReference(aSource), aOldState);
+  auto task = MakeRefPtr<PopoverToggleEventTask>(do_GetWeakReference(this),
+                                                 do_GetWeakReference(aSource),
+                                                 aOldState, newState);
   data->SetToggleEventTask(task);
   OwnerDoc()->Dispatch(task.forget());
 }
 
 void nsGenericHTMLElement::RunPopoverToggleEventTask(
-    PopoverToggleEventTask* aTask, PopoverVisibilityState aOldState,
-    Element* aSource) {
+    PopoverToggleEventTask* aTask, Element* aSource) {
   auto* data = GetPopoverData();
   if (!data) {
     return;
@@ -3500,14 +3537,15 @@ void nsGenericHTMLElement::RunPopoverToggleEventTask(
   if (!popoverToggleEventTask || aTask != popoverToggleEventTask) {
     return;
   }
+  auto oldState = aTask->GetOldState();
+  auto newState = aTask->GetNewState();
   data->ClearToggleEventTask();
   // Intentionally ignore the return value here as only on open event the
   // cancelable attribute is initialized to true for beforetoggle event.
   auto stringForState = [](PopoverVisibilityState state) {
     return state == PopoverVisibilityState::Hidden ? u"closed"_ns : u"open"_ns;
   };
-  FireToggleEvent(stringForState(aOldState),
-                  stringForState(data->GetPopoverVisibilityState()),
+  FireToggleEvent(stringForState(oldState), stringForState(newState),
                   u"toggle"_ns, aSource);
 }
 

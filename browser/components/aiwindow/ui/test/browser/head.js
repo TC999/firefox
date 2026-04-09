@@ -13,11 +13,17 @@ ChromeUtils.defineESModuleGetters(this, {
   Chat: "moz-src:///browser/components/aiwindow/models/Chat.sys.mjs",
   ChatConversation:
     "moz-src:///browser/components/aiwindow/ui/modules/ChatConversation.sys.mjs",
+  IntentClassifier:
+    "moz-src:///browser/components/aiwindow/models/IntentClassifier.sys.mjs",
   openAIEngine: "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs",
+  SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
+  SessionWindowUI: "resource:///modules/sessionstore/SessionWindowUI.sys.mjs",
   sinon: "resource://testing-common/Sinon.sys.mjs",
 });
 
 const AIWINDOW_URL = "chrome://browser/content/aiwindow/aiWindow.html";
+
+let gIntentEngineStub;
 
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
@@ -28,6 +34,20 @@ add_setup(async function () {
       ["browser.smartwindow.chat.interactionCount", 0],
     ],
   });
+
+  // Stub intent engine so it doesn't attempt network requests
+  const fakeIntentEngine = {
+    run() {
+      return [
+        { label: "chat", score: 0.95 },
+        { label: "search", score: 0.05 },
+      ];
+    },
+  };
+  gIntentEngineStub = sinon
+    .stub(IntentClassifier, "_createEngine")
+    .resolves(fakeIntentEngine);
+  registerCleanupFunction(() => gIntentEngineStub.restore());
 });
 
 /**
@@ -66,8 +86,13 @@ async function openAIWindowWithSidebar() {
     win.gBrowser.selectedBrowser,
     "about:blank"
   );
-  await BrowserTestUtils.browserLoaded(win.gBrowser.selectedBrowser);
-  AIWindowUI.toggleSidebar(win);
+  await BrowserTestUtils.browserLoaded(win.gBrowser.selectedBrowser, {
+    wantLoad: "about:blank",
+  });
+  if (!AIWindowUI.isSidebarOpen(win)) {
+    info("Opening sidebar");
+    AIWindowUI.toggleSidebar(win);
+  }
   const sidebarBrowser = win.document.getElementById("ai-window-browser");
   await BrowserTestUtils.waitForCondition(
     () => sidebarBrowser.contentDocument?.querySelector("ai-window:defined"),
@@ -76,6 +101,13 @@ async function openAIWindowWithSidebar() {
   return { win, sidebarBrowser };
 }
 
+/**
+ * NOTE: If using to navigate to https://example.com/ make sure
+ * to use a trailing slash in the URL or this function will hang.
+ *
+ * @param {MozBrowser} browser
+ * @param {string} url
+ */
 function promiseNavigateAndLoad(browser, url) {
   let loaded = BrowserTestUtils.browserLoaded(browser, {
     wantLoad: url,
@@ -105,6 +137,122 @@ async function getConversationId(browser) {
 }
 
 /**
+ * @typedef {object} EngineRunResponse
+ * @property {string} [finalOutput] - The text content returned by the mock
+ *   engine's run() method. Used by non-chat features like title generation.
+ */
+
+/**
+ * @typedef {object} StubEngineNetworkBoundariesConfig
+ * @property {Set<string>} [passthroughFeatures] - Feature names that use the
+ *   real openAIEngine.build (going through RemoteSettings, ML engine creation,
+ *   and the mock HTTP server). All other features get a mock engine that
+ *   resolves immediately. Defaults to new Set(["chat"]).
+ * @property {string} [fxAccountToken] - Value that the stubbed
+ *   getFxAccountToken resolves with. Defaults to "mock-fxa-token".
+ * @property {EngineRunResponse} [engineRunResponse] - What the mock engine's
+ *   run() resolves with for non-passthrough features. Defaults to
+ *   { finalOutput: "Mock" }.
+ * @property {MockOpenAIServerOptions|null} [serverOptions] - Options passed
+ *   to startMockOpenAI. When non-null, a mock server is started and the
+ *   endpoint pref is pushed so passthrough features route to it. Defaults to
+ *   {} which starts a server with startMockOpenAI defaults (single-chunk
+ *   "Hello from mock." stream). Pass null to skip starting a server.
+ */
+
+/**
+ * @typedef {object} StubEngineNetworkBoundariesResult
+ * @property {Function} restore - Async cleanup function that restores all
+ *   stubs, pops the endpoint pref, and stops the mock server.
+ * @property {number|null} port - The mock server's port number, or null when
+ *   no server was started.
+ * @property {Array<object>} capturedRequests - Array that collects every
+ *   parsed request body sent to the mock server. Empty when no server was
+ *   started. Mutate .length = 0 to clear between phases of a test.
+ */
+
+/**
+ * Stubs openAIEngine.build and openAIEngine.getFxAccountToken so that
+ * background async operations (title generation, conversation starters, etc.)
+ * resolve immediately instead of going through RemoteSettings / ML engine
+ * creation / FxA token fetching. Without this, fire-and-forget calls like
+ * #addConversationTitle() can leave suspended async chains that prevent
+ * window GC, causing leaked-window failures under --verify.
+ *
+ * Features listed in passthroughFeatures still use the real build path
+ * (e.g. "chat" needs to hit the mock HTTP server).
+ *
+ * By default starts a mock OpenAI HTTP server and pushes the endpoint pref
+ * so passthrough features route to it. Pass serverOptions: null to skip.
+ *
+ * Call the returned async restore function to clean up stubs, pop prefs, and
+ * stop the server.
+ *
+ * @param {StubEngineNetworkBoundariesConfig} [config]
+ * @returns {Promise<StubEngineNetworkBoundariesResult>}
+ */
+async function stubEngineNetworkBoundaries({
+  passthroughFeatures = new Set(["chat"]),
+  fxAccountToken = "mock-fxa-token",
+  engineRunResponse = { finalOutput: "Mock" },
+  serverOptions = {},
+} = {}) {
+  // Save the original build before stubbing so passthrough features (e.g.
+  // "chat") can still create a real engine that routes requests to the mock
+  // HTTP server via RemoteSettings + EngineProcess.
+  const originalBuild = openAIEngine.build.bind(openAIEngine);
+  const buildStub = sinon
+    .stub(openAIEngine, "build")
+    .callsFake(async (feature, ...rest) => {
+      if (passthroughFeatures.has(feature)) {
+        return originalBuild(feature, ...rest);
+      }
+      // Non-passthrough features get a mock engine whose methods resolve
+      // synchronously, preventing dangling async chains.
+      return {
+        loadPrompt: () => "",
+        getConfig: () => ({}),
+        feature,
+        async run() {
+          return engineRunResponse;
+        },
+      };
+    });
+
+  const tokenStub = sinon
+    .stub(openAIEngine, "getFxAccountToken")
+    .resolves(fxAccountToken);
+
+  const capturedRequests = [];
+  let server = null;
+  let port = null;
+  if (serverOptions) {
+    const callerOnRequest = serverOptions.onRequest;
+    ({ server, port } = startMockOpenAI({
+      ...serverOptions,
+      onRequest(body) {
+        capturedRequests.push(body);
+        callerOnRequest?.(body);
+      },
+    }));
+    await SpecialPowers.pushPrefEnv({
+      set: [["browser.smartwindow.endpoint", `http://localhost:${port}/v1`]],
+    });
+  }
+
+  async function restore() {
+    buildStub.restore();
+    tokenStub.restore();
+    if (server) {
+      await SpecialPowers.popPrefEnv();
+      await stopMockOpenAI(server);
+    }
+  }
+
+  return { restore, port, capturedRequests };
+}
+
+/**
  * Stubs AIWindowAccountAuth.ensureAIWindowAccess to skip sign-in flow
  * Call the returned restore function to clean up the stub
  *
@@ -115,6 +263,127 @@ function skipSignIn() {
     .stub(AIWindowAccountAuth, "ensureAIWindowAccess")
     .resolves(true);
   return () => stub.restore();
+}
+
+/**
+ * Opens the Smartbar's context menu via the "+" button and clicks the
+ * panel item whose visible text matches the given label. Waits for the
+ * panel to populate before selecting.
+ *
+ * @param {MozBrowser} sidebarBrowser - The sidebar browser element
+ *   (e.g. win.document.getElementById("ai-window-browser"))
+ * @param {string} label - The visible text label of the tab to select
+ *   (e.g. the tab's title)
+ */
+async function openTabContextMenuAndClickTabByLabel(sidebarBrowser, label) {
+  await SpecialPowers.spawn(sidebarBrowser, [label], async tabLabel => {
+    const aiWindowElement = await ContentTaskUtils.waitForCondition(
+      () => content.document.querySelector("ai-window"),
+      "Wait for ai-window"
+    );
+    const smartbar = await ContentTaskUtils.waitForCondition(
+      () => aiWindowElement.shadowRoot?.querySelector("#ai-window-smartbar"),
+      "Wait for Smartbar"
+    );
+    const contextButton = smartbar.querySelector("context-icon-button");
+    const button = contextButton.shadowRoot.querySelector("moz-button");
+    button.click();
+
+    const panelList = smartbar.querySelector("smartwindow-panel-list");
+    const panel = panelList.shadowRoot.querySelector("panel-list");
+    await ContentTaskUtils.waitForMutationCondition(
+      panel,
+      { childList: true, subtree: true },
+      () => panel.querySelector("panel-item:not(.panel-section-header)")
+    );
+
+    const items = panel.querySelectorAll(
+      "panel-item:not(.panel-section-header)"
+    );
+    let targetItem;
+    for (const item of items) {
+      if (item.textContent.trim() === tabLabel) {
+        targetItem = item;
+        break;
+      }
+    }
+    Assert.ok(
+      targetItem,
+      `Should find a tab labeled '${tabLabel}' in the context menu`
+    );
+    targetItem.click();
+  });
+}
+
+async function getSmartbarContextChipLabels(browser, expectedUrl) {
+  await BrowserTestUtils.waitForCondition(
+    () => browser.contentDocument?.querySelector("ai-window:defined"),
+    "Sidebar ai-window should be loaded"
+  );
+
+  return SpecialPowers.spawn(browser, [expectedUrl], async url => {
+    const aiWindowElement = await ContentTaskUtils.waitForCondition(
+      () => content.document.querySelector("ai-window"),
+      "Wait for ai-window to be rendered"
+    );
+    const smartbar = await ContentTaskUtils.waitForCondition(
+      () => aiWindowElement.shadowRoot?.querySelector("#ai-window-smartbar"),
+      "Wait for Smartbar to be rendered"
+    );
+    const chipContainer = await ContentTaskUtils.waitForCondition(
+      () => smartbar.querySelector(".smartbar-context-chips-header"),
+      "Wait for chip container to be rendered"
+    );
+
+    if (url) {
+      await ContentTaskUtils.waitForCondition(
+        () =>
+          Array.isArray(chipContainer.websites) &&
+          chipContainer.websites.some(site => site.url.includes(url)),
+        `Wait for chip with URL containing "${url}"`
+      );
+    } else {
+      await ContentTaskUtils.waitForCondition(
+        () =>
+          Array.isArray(chipContainer.websites) &&
+          chipContainer.websites.length,
+        "Wait for at least one chip"
+      );
+    }
+
+    const chips = chipContainer.shadowRoot.querySelectorAll("ai-website-chip");
+    const chipLabels = Array.from(chips).map(
+      chip => chip.shadowRoot?.querySelector(".chip-label")?.textContent ?? ""
+    );
+
+    return chipLabels;
+  });
+}
+
+/**
+ * Submits the current smartbar input.
+ *
+ * @param {MozBrowser} browser - The browser element
+ * @param {object} [options] - Options for submission
+ * @param {boolean} [options.useButton=false] - If true, submit via CTA button
+ */
+async function submitSmartbar(browser, { useButton = false } = {}) {
+  await SpecialPowers.spawn(browser, [useButton], async clickButton => {
+    const aiWindowElement = content.document.querySelector("ai-window");
+    const smartbar = aiWindowElement.shadowRoot.querySelector(
+      "#ai-window-smartbar"
+    );
+    if (clickButton) {
+      const inputCta = smartbar.querySelector("input-cta");
+      const mozButton = inputCta.shadowRoot.querySelector("moz-button");
+      const button = mozButton.shadowRoot.querySelector("button");
+      button.click();
+    } else {
+      const inputField = smartbar.inputField;
+      inputField.focus();
+      EventUtils.synthesizeKey("KEY_Enter", {}, content);
+    }
+  });
 }
 
 /**
@@ -231,6 +500,180 @@ async function assertSmartbarSuggestionsVisible(
 }
 
 /**
+ * Wait for panel list to be visible.
+ *
+ * @param {MozBrowser} browser - The browser element
+ * @returns {Promise<boolean>} True if panel is visible
+ */
+async function waitForPanelOpen(browser) {
+  return SpecialPowers.spawn(browser, [], async () => {
+    const aiWindowElement = content.document.querySelector("ai-window");
+    const smartbar = await ContentTaskUtils.waitForCondition(
+      () => aiWindowElement.shadowRoot?.querySelector("#ai-window-smartbar"),
+      "Wait for Smartbar to be rendered"
+    );
+    const panelList = smartbar.querySelector("smartwindow-panel-list");
+    const panel = panelList.shadowRoot.querySelector("panel-list");
+
+    await ContentTaskUtils.waitForMutationCondition(
+      panel,
+      { attributes: true, attributeFilter: ["open"] },
+      () => panel.hasAttribute("open")
+    );
+
+    return panel.hasAttribute("open");
+  });
+}
+
+/**
+ * Wait for the mentions panel list to be visible.
+ *
+ * @param {MozBrowser} browser - The browser element
+ * @returns {Promise<boolean>} True if mentions are open
+ */
+async function waitForMentionsOpen(browser) {
+  return SpecialPowers.spawn(browser, [], async () => {
+    const aiWindowElement = content.document.querySelector("ai-window");
+    const smartbar = await ContentTaskUtils.waitForCondition(
+      () => aiWindowElement.shadowRoot?.querySelector("#ai-window-smartbar"),
+      "Wait for Smartbar to be rendered"
+    );
+    const panelList = smartbar.querySelector("smartwindow-panel-list");
+    const panel = panelList.shadowRoot.querySelector("panel-list");
+
+    await ContentTaskUtils.waitForMutationCondition(
+      panel,
+      { attributes: true, attributeFilter: ["open"] },
+      () => panel.hasAttribute("open")
+    );
+
+    return panel.hasAttribute("open");
+  });
+}
+
+/**
+ * Wait for a mention to be inserted.
+ *
+ * @param {MozBrowser} browser - The browser element
+ * @returns {Promise<boolean>} True if the mention exists
+ */
+async function waitForMentionInserted(browser) {
+  return SpecialPowers.spawn(browser, [], async () => {
+    const aiWindowElement = content.document.querySelector("ai-window");
+    const smartbar = aiWindowElement.shadowRoot.querySelector(
+      "#ai-window-smartbar"
+    );
+    const editor = smartbar.querySelector("moz-multiline-editor");
+
+    await ContentTaskUtils.waitForMutationCondition(
+      editor.shadowRoot,
+      { childList: true, subtree: true },
+      () => editor.shadowRoot.querySelector("ai-website-chip") !== null
+    );
+
+    return !!editor.shadowRoot.querySelector("ai-website-chip");
+  });
+}
+
+/**
+ * Click the first non-header item in the smartbar mention suggestions panel.
+ *
+ * @param {MozBrowser} browser - The browser element
+ */
+async function selectFirstMentionPanelItem(browser) {
+  await SpecialPowers.spawn(browser, [], async () => {
+    const aiWindowElement = content.document.querySelector("ai-window");
+    const smartbar = aiWindowElement.shadowRoot.querySelector(
+      "#ai-window-smartbar"
+    );
+    const panelList = smartbar.querySelector("smartwindow-panel-list");
+    const panel = panelList.shadowRoot.querySelector("panel-list");
+    const firstItem = panel.querySelector(
+      "panel-item:not(.panel-section-header)"
+    );
+    firstItem.click();
+  });
+}
+
+/**
+ * Type "@", wait for the mention panel, click the first suggestion, and wait
+ * for the mention chip to appear in the editor.
+ *
+ * @param {MozBrowser} browser - The browser element
+ */
+async function insertInlineMention(browser) {
+  await typeInSmartbar(browser, "@");
+  await waitForPanelOpen(browser);
+  await selectFirstMentionPanelItem(browser);
+  await waitForMentionInserted(browser);
+}
+
+/**
+ * Return inline @mention data from the editor's mentions plugin.
+ *
+ * @param {MozBrowser} browser - The browser element
+ * @returns {Promise<Array<{type: string, id: string, label: string}>>}
+ */
+async function getEditorInlineMentions(browser) {
+  return SpecialPowers.spawn(browser, [], async () => {
+    const aiWindowElement = content.document.querySelector("ai-window");
+    const smartbar = aiWindowElement.shadowRoot.querySelector(
+      "#ai-window-smartbar"
+    );
+    const editor = smartbar.querySelector("moz-multiline-editor");
+    return editor.getAllMentions();
+  });
+}
+
+/**
+ * Get the context chips from the smartbar header.
+ *
+ * @param {MozBrowser} browser - The browser element
+ * @returns {Promise<Array<{url: string, label: string}>>} The context chip data
+ */
+async function getSmartbarContextChips(browser) {
+  return SpecialPowers.spawn(browser, [], async () => {
+    const aiWindowElement = content.document.querySelector("ai-window");
+    const smartbar = aiWindowElement.shadowRoot.querySelector(
+      "#ai-window-smartbar"
+    );
+    const chipContainer = smartbar.querySelector(
+      ".smartbar-context-chips-header"
+    );
+    return chipContainer.websites.map(w => ({ url: w.url, label: w.label }));
+  });
+}
+
+/**
+ * Returns the chat messages currently displayed in the sidebar.
+ *
+ * @param {MozBrowser} sidebarBrowser - The sidebar browser element
+ * @returns {Promise<Array<{role: string, message: string}>>}
+ */
+async function getSidebarChatMessages(sidebarBrowser) {
+  const aiWindow = await TestUtils.waitForCondition(
+    () => sidebarBrowser.contentDocument?.querySelector("ai-window"),
+    "Wait for ai-window element"
+  );
+  const aichatBrowser = await TestUtils.waitForCondition(
+    () => aiWindow.shadowRoot?.querySelector("#aichat-browser"),
+    "Wait for #aichat-browser element"
+  );
+  return SpecialPowers.spawn(aichatBrowser, [], async () => {
+    const contentEl = await ContentTaskUtils.waitForCondition(
+      () => content.document.querySelector("ai-chat-content"),
+      "Wait for ai-chat-content element"
+    );
+    await contentEl.updateComplete;
+    const messageEls = contentEl.shadowRoot.querySelectorAll("ai-chat-message");
+    return Array.from(messageEls, el => ({
+      role: el.role,
+      message: el.message,
+    }));
+  });
+}
+
+/**
  * Mock OpenAI server helpers
  */
 
@@ -246,8 +689,45 @@ function readRequestBody(request) {
   });
 }
 
+/**
+ * @typedef {object} MockToolCall
+ * @property {string} name - The tool function name (e.g. "run_search",
+ *   "get_page_content").
+ * @property {string} [args] - JSON-encoded arguments for the tool call.
+ *   Defaults to "{}".
+ */
+
+/**
+ * @typedef {object} MockOpenAIServerOptions
+ * @property {string[]} [streamChunks] - Array of content strings sent as
+ *   individual SSE chunks in the streaming response. Defaults to
+ *   ["Hello from mock."].
+ * @property {MockToolCall|null} [toolCall] - When non-null, the first
+ *   streaming request that includes tools will respond with this tool call
+ *   instead of text content. A subsequent request containing the tool result
+ *   will receive followupChunks as the response. Defaults to null.
+ * @property {string[]} [followupChunks] - Content chunks sent in the
+ *   streaming response after a tool result is received. Only used when
+ *   toolCall is set. Defaults to ["Tool complete."].
+ * @property {Function} [onRequest] - Callback invoked with the parsed
+ *   request body for every request to /v1/chat/completions.
+ */
+
+/**
+ * Starts a local HTTP server that mimics the OpenAI chat completions API.
+ *
+ * Handles both streaming (SSE) and non-streaming (JSON) requests to
+ * /v1/chat/completions. When toolCall is configured, the server simulates
+ * a tool-use round-trip: the first request returns the tool call, and the
+ * follow-up request (containing the tool result) returns followupChunks.
+ *
+ * @param {MockOpenAIServerOptions} [options]
+ * @returns {{ server: HttpServer, port: number }} The running server and
+ *   its port number.
+ */
 function startMockOpenAI({
   streamChunks = ["Hello from mock."],
+  streamChunkDelayMs = 0,
   toolCall = null,
   followupChunks = ["Tool complete."],
   onRequest,
@@ -371,24 +851,32 @@ function startMockOpenAI({
     if (wantsStream) {
       startSSE();
 
-      streamChunks.forEach((chunk, index) => {
-        sendSSE({
-          id: `chatcmpl-aiwindow-stream-${index}`,
-          object: "chat.completion.chunk",
-          created: timestamp,
-          model: "aiwindow-mock",
-          choices: [
-            {
-              index: 0,
-              delta: { content: chunk },
-              finish_reason: index === streamChunks.length - 1 ? "stop" : null,
-            },
-          ],
-        });
-      });
+      (async () => {
+        for (const [index, chunk] of streamChunks.entries()) {
+          if (streamChunkDelayMs) {
+            await new Promise(resolve =>
+              setTimeout(resolve, streamChunkDelayMs)
+            );
+          }
+          sendSSE({
+            id: `chatcmpl-aiwindow-stream-${index}`,
+            object: "chat.completion.chunk",
+            created: timestamp,
+            model: "aiwindow-mock",
+            choices: [
+              {
+                index: 0,
+                delta: { content: chunk },
+                finish_reason:
+                  index === streamChunks.length - 1 ? "stop" : null,
+              },
+            ],
+          });
+        }
 
-      response.write("data: [DONE]\n\n");
-      response.finish();
+        response.write("data: [DONE]\n\n");
+        response.finish();
+      })();
       return;
     }
 
@@ -416,10 +904,79 @@ function startMockOpenAI({
   return { server, port: server.identity.primaryPort };
 }
 
+/**
+ * Stops a running mock OpenAI server.
+ *
+ * @param {HttpServer} server - The server instance returned by startMockOpenAI.
+ * @returns {Promise<void>} Resolves when the server has fully stopped.
+ */
 function stopMockOpenAI(server) {
   return new Promise(resolve => server.stop(resolve));
 }
 
+/**
+ * Retrieves the context chip labels from a user message rendered in the
+ * ai-chat-content area. Waits for the aichat-browser, chat content, and
+ * chips to be available before reading labels.
+ *
+ * @param {MozBrowser} sidebarBrowser - The sidebar browser element
+ *   (e.g. win.document.getElementById("ai-window-browser"))
+ * @param {number} [messageIndex=0] - Zero-based index selecting which user
+ *   message to read chips from (0 = first user message, 1 = second, etc.)
+ * @returns {Promise<string[]>} Array of chip label strings from the
+ *   website-chip-container in the selected user message
+ */
+async function getUserMessageChipLabels(sidebarBrowser, messageIndex = 0) {
+  await BrowserTestUtils.waitForCondition(
+    () => sidebarBrowser.contentDocument?.querySelector("ai-window:defined"),
+    "Sidebar ai-window should be loaded"
+  );
+
+  const aiWindowEl = sidebarBrowser.contentDocument.querySelector("ai-window");
+  const aichatBrowser = await BrowserTestUtils.waitForCondition(
+    () => aiWindowEl.shadowRoot?.querySelector("#aichat-browser"),
+    "Wait for aichat-browser"
+  );
+
+  return SpecialPowers.spawn(aichatBrowser, [messageIndex], async msgIndex => {
+    const chatContent = await ContentTaskUtils.waitForCondition(
+      () => content.document.querySelector("ai-chat-content"),
+      "Wait for ai-chat-content"
+    );
+
+    const containers = await ContentTaskUtils.waitForCondition(() => {
+      const found = chatContent.shadowRoot.querySelectorAll(
+        ".chat-bubble-user website-chip-container"
+      );
+      return found.length > msgIndex ? found : null;
+    }, `Wait for user message at index ${msgIndex}`);
+
+    const chipContainer = containers[msgIndex];
+
+    const chips = await ContentTaskUtils.waitForCondition(() => {
+      const found =
+        chipContainer.shadowRoot.querySelectorAll("ai-website-chip");
+      return found.length ? found : null;
+    }, "Wait for context chips to render");
+
+    return Array.from(chips).map(
+      chip => chip.shadowRoot?.querySelector(".chip-label")?.textContent ?? ""
+    );
+  });
+}
+
+/**
+ * Convenience wrapper that starts a mock OpenAI server, pushes the endpoint
+ * pref, stubs getFxAccountToken, runs a task, then tears everything down.
+ *
+ * Consider using stubEngineNetworkBoundaries instead for new tests — it
+ * additionally stubs openAIEngine.build to prevent leaked-window issues from
+ * background async operations, and its setup/restore pattern fits
+ * beforeEach/afterEach without requiring a callback wrapper.
+ *
+ * @param {MockOpenAIServerOptions} serverOptions - Options for the mock server.
+ * @param {Function} task - Async callback receiving { port }.
+ */
 async function withServer(serverOptions, task) {
   const { server, port } = startMockOpenAI(serverOptions);
   await SpecialPowers.pushPrefEnv({

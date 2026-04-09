@@ -1,11 +1,10 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "jit/JitOptions.h"
 
+#include <bit>
 #include <cstdlib>
 #include <type_traits>
 
@@ -409,12 +408,9 @@ DefaultJitOptions::DefaultJitOptions() {
   // example, if a regexp is too long - so we might as well turn these
   // flags on unconditionally.
   SET_DEFAULT(regexp_optimization, true);
-#if MOZ_BIG_ENDIAN()
-  // peephole optimization not supported on big endian
-  SET_DEFAULT(regexp_peephole_optimization, false);
-#else
-  SET_DEFAULT(regexp_peephole_optimization, true);
-#endif
+  // peephole optimization only supported for little endian
+  SET_DEFAULT(regexp_peephole_optimization,
+              std::endian::native == std::endian::little);
 }
 
 bool DefaultJitOptions::isSmallFunction(JSScript* script) const {

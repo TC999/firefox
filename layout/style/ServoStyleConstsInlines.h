@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -60,8 +58,10 @@ template struct StyleStrong<StyleLockedCounterStyleRule>;
 template struct StyleStrong<StyleContainerRule>;
 template struct StyleStrong<StyleScopeRule>;
 template struct StyleStrong<StyleStartingStyleRule>;
+template struct StyleStrong<StyleAppearanceBaseRule>;
 template struct StyleStrong<StyleLockedPositionTryRule>;
 template struct StyleStrong<StyleLockedNestedDeclarationsRule>;
+template struct StyleStrong<StyleViewTransitionRule>;
 
 template <typename T>
 inline void StyleOwnedSlice<T>::Clear() {
@@ -1303,14 +1303,14 @@ inline gfx::Point StyleCoordinatePair<LengthPercentage>::ToGfxPoint(
 }
 
 template <>
-inline gfx::Point StyleShapePosition<StyleCSSFloat>::ToGfxPoint(
+inline gfx::Point
+StyleGenericPosition<StyleCSSFloat, StyleCSSFloat>::ToGfxPoint(
     const CSSSize* aBasis) const {
   return gfx::Point(horizontal, vertical);
 }
 
 template <>
-inline gfx::Point StyleShapePosition<LengthPercentage>::ToGfxPoint(
-    const CSSSize* aBasis) const {
+inline gfx::Point StylePosition::ToGfxPoint(const CSSSize* aBasis) const {
   MOZ_ASSERT(aBasis);
   return gfx::Point(horizontal.ResolveToCSSPixels(aBasis->Width()),
                     vertical.ResolveToCSSPixels(aBasis->Height()));
@@ -1318,7 +1318,7 @@ inline gfx::Point StyleShapePosition<LengthPercentage>::ToGfxPoint(
 
 template <>
 inline gfx::Point
-StyleCommandEndPoint<StyleShapePosition<StyleCSSFloat>,
+StyleCommandEndPoint<StyleGenericPosition<StyleCSSFloat, StyleCSSFloat>,
                      StyleCSSFloat>::ToGfxPoint(const CSSSize* aBasis) const {
   if (IsToPosition()) {
     auto& pos = AsToPosition();
@@ -1330,9 +1330,9 @@ StyleCommandEndPoint<StyleShapePosition<StyleCSSFloat>,
 }
 
 template <>
-inline gfx::Point StyleCommandEndPoint<
-    StyleShapePosition<LengthPercentage>,
-    LengthPercentage>::ToGfxPoint(const CSSSize* aBasis) const {
+inline gfx::Point
+StyleCommandEndPoint<StylePosition, LengthPercentage>::ToGfxPoint(
+    const CSSSize* aBasis) const {
   MOZ_ASSERT(aBasis);
   if (IsToPosition()) {
     auto& pos = AsToPosition();
@@ -1368,9 +1368,10 @@ inline gfx::Coord StyleAxisEndPoint<LengthPercentage>::ToGfxCoord(
 
 template <>
 inline gfx::Point
-StyleControlPoint<StyleShapePosition<StyleCSSFloat>, StyleCSSFloat>::ToGfxPoint(
-    const gfx::Point aStatePos, const gfx::Point aEndPoint,
-    const CSSSize* aBasis) const {
+StyleControlPoint<StyleGenericPosition<StyleCSSFloat, StyleCSSFloat>,
+                  StyleCSSFloat>::ToGfxPoint(const gfx::Point aStatePos,
+                                             const gfx::Point aEndPoint,
+                                             const CSSSize* aBasis) const {
   if (IsAbsolute()) {
     auto& pos = AsAbsolute();
     return pos.ToGfxPoint();
@@ -1390,10 +1391,9 @@ StyleControlPoint<StyleShapePosition<StyleCSSFloat>, StyleCSSFloat>::ToGfxPoint(
 
 template <>
 inline gfx::Point
-StyleControlPoint<StyleShapePosition<LengthPercentage>,
-                  LengthPercentage>::ToGfxPoint(const gfx::Point aStatePos,
-                                                const gfx::Point aEndPoint,
-                                                const CSSSize* aBasis) const {
+StyleControlPoint<StylePosition, LengthPercentage>::ToGfxPoint(
+    const gfx::Point aStatePos, const gfx::Point aEndPoint,
+    const CSSSize* aBasis) const {
   MOZ_ASSERT(aBasis);
   if (IsAbsolute()) {
     auto& pos = AsAbsolute();

@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:set ts=2 sw=2 sts=2 et cindent: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -572,9 +570,12 @@ Result<bool, nsresult> FrameParser::VBRHeader::ParseVBRI(
 }
 
 bool FrameParser::VBRHeader::Parse(BufferReader* aReader, size_t aFrameSize) {
-  auto res = std::make_pair(ParseVBRI(aReader), ParseXing(aReader, aFrameSize));
-  const bool rv = (res.first.isOk() && res.first.unwrap()) ||
-                  (res.second.isOk() && res.second.unwrap());
+  auto xing = ParseXing(aReader, aFrameSize);
+  bool rv = xing.isOk() && xing.unwrap();
+  if (!rv) {
+    auto vbri = ParseVBRI(aReader);
+    rv = vbri.isOk() && vbri.unwrap();
+  }
   if (rv) {
     MP3LOG(
         "VBRHeader::Parse found valid VBR/CBR header: type=%s"

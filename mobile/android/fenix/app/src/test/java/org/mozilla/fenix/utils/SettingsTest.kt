@@ -28,6 +28,8 @@ import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.components.toolbar.ToolbarPosition
 import org.mozilla.fenix.nimbus.DefaultBrowserPrompt
 import org.mozilla.fenix.nimbus.FakeNimbusEventStore
+import org.mozilla.fenix.nimbus.FxNimbus
+import org.mozilla.fenix.nimbus.HomescreenEdgeToEdgeBackground
 import org.mozilla.fenix.settings.PhoneFeature
 import org.mozilla.fenix.settings.ShortcutType
 import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType
@@ -146,10 +148,25 @@ class SettingsTest {
     }
 
     @Test
-    fun defaultWallpaperIsEdgeToEdge() {
-        // When just created
+    fun defaultWallpaperIsEdgeToEdgeWhenEdgeToEdgeFeatureEnabled() {
+        FxNimbus.features.homescreenEdgeToEdgeBackground.withCachedValue(
+            HomescreenEdgeToEdgeBackground(enabled = true),
+        )
+        val settings = Settings(testContext)
+
         // Then
         assertEquals(Wallpaper.EdgeToEdge.name, settings.currentWallpaperName)
+    }
+
+    @Test
+    fun defaultWallpaperIsDefaultWhenEdgeToEdgeDisabled() {
+        FxNimbus.features.homescreenEdgeToEdgeBackground.withCachedValue(
+            HomescreenEdgeToEdgeBackground(enabled = false),
+        )
+        val settings = Settings(testContext)
+
+        // Then
+        assertEquals(Wallpaper.Default.name, settings.currentWallpaperName)
     }
 
     @Test
@@ -331,13 +348,6 @@ class SettingsTest {
         // When just created
         // Then
         assertTrue(settings.shouldShowClipboardSuggestions)
-    }
-
-    @Test
-    fun shouldShowSearchShortcuts() {
-        // When just created
-        // Then
-        assertFalse(settings.shouldShowSearchShortcuts)
     }
 
     @Test
@@ -1088,14 +1098,6 @@ class SettingsTest {
         every { settings.shouldUseExpandedToolbar } returns true
 
         assertEquals(64, settings.browserToolbarHeight)
-    }
-
-    @Test
-    fun `GIVEN composable toolbar is not enabled WHEN querying the toolbar heigh THEN get the height of the toolbar view`() {
-        val settings = spyk(settings)
-        every { settings.shouldUseComposableToolbar } returns false
-
-        assertEquals(56, settings.browserToolbarHeight)
     }
 
     @Test

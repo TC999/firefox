@@ -20,21 +20,13 @@ const PREF_PROMOCARD_VISIBLE = "discoverystream.promoCard.visible";
  *
  * @param spoc
  * @param dispatch
- * @param firstVisibleTimestamp
  * @param row
  * @param type
  * @param prefs
  * @returns {Element}
  * @class
  */
-export const AdBanner = ({
-  spoc,
-  dispatch,
-  firstVisibleTimestamp,
-  row,
-  type,
-  prefs,
-}) => {
+export const AdBanner = ({ spoc, dispatch, row, type, prefs }) => {
   const getDimensions = format => {
     switch (format) {
       case "leaderboard":
@@ -79,8 +71,6 @@ export const AdBanner = ({
           card_type: "spoc",
           tile_id: spoc.id,
           ...(spoc.shim?.click ? { shim: spoc.shim.click } : {}),
-          fetchTimestamp: spoc.fetchTimestamp,
-          firstVisibleTimestamp,
           format: spoc.format,
           ...(sectionsEnabled
             ? {
@@ -141,7 +131,6 @@ export const AdBanner = ({
               },
             ]}
             dispatch={dispatch}
-            firstVisibleTimestamp={firstVisibleTimestamp}
           />
           <div className="ad-banner-content">
             <img

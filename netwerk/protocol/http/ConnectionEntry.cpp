@@ -1,4 +1,3 @@
-/* vim:set ts=4 sw=2 sts=2 et cin: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -864,6 +863,13 @@ HttpRetParams ConnectionEntry::GetConnectionData() {
     data.idle.AppendElement(info);
   }
   mConnectionAttemptPool->GetConnectionData(data);
+  if (mConnInfo->IsHttp3()) {
+    data.httpVersion = "HTTP/3"_ns;
+  } else if (mUsingSpdy) {
+    data.httpVersion = "HTTP/2"_ns;
+  } else {
+    data.httpVersion = "HTTP <= 1.1"_ns;
+  }
   data.ssl = mConnInfo->EndToEndSSL();
   return data;
 }
@@ -997,9 +1003,7 @@ bool ConnectionEntry::MaybeProcessCoalescingKeys(nsIDNSAddrRecord* dnsRecord,
     }
     newKey.Truncate();
     newKey.SetCapacity(kIPv6CStrBufSize + suffix.Length() + 21);
-    newKey.SetLength(kIPv6CStrBufSize);
-    mAddresses[i].ToStringBuffer(newKey.BeginWriting(), kIPv6CStrBufSize);
-    newKey.SetLength(strlen(newKey.BeginReading()));
+    mAddresses[i].ToString(newKey);
     newKey.Append(anonFlag);
     newKey.Append(fallbackFlag);
     newKey.AppendInt(port);

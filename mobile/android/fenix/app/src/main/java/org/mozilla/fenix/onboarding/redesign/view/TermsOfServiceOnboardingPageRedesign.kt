@@ -11,6 +11,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -49,7 +50,7 @@ import org.mozilla.fenix.onboarding.view.OnboardingTermsOfService
 import org.mozilla.fenix.onboarding.view.OnboardingTermsOfServiceEventHandler
 import org.mozilla.fenix.theme.FirefoxTheme
 
-private val TOU_IMAGE_HEIGHT = 200.dp
+private val TOU_IMAGE_HEIGHT = 176.dp
 
 private val kitImageResources = listOf(
     R.drawable.nova_onboarding_tou,
@@ -61,13 +62,11 @@ private val kitImageResources = listOf(
  *
  * @param pageState The page content that's displayed.
  * @param eventHandler The event handler for all user interactions of this page.
- * @param isSmallDevice Whether to apply layout optimizations for constrained screen heights.
  */
 @Composable
 fun TermsOfServiceOnboardingPageRedesign(
     pageState: OnboardingPageState,
     eventHandler: OnboardingTermsOfServiceEventHandler,
-    isSmallDevice: Boolean,
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -75,16 +74,14 @@ fun TermsOfServiceOnboardingPageRedesign(
     ) {
         Column(
             modifier = Modifier.padding(
-                start = 16.dp,
-                end = 16.dp,
-                top = 24.dp,
-                bottom = if (isSmallDevice) 0.dp else 24.dp,
+                horizontal = 16.dp,
+                vertical = if (pageState.isSmallDevice) 0.dp else 24.dp,
             ),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             val scrollState = rememberScrollState()
 
-            if (isSmallDevice) {
+            if (!pageState.isSmallDevice) {
                 Spacer(modifier = Modifier.weight(TITLE_TOP_SPACER_WEIGHT))
             }
 
@@ -117,7 +114,7 @@ fun TermsOfServiceOnboardingPageRedesign(
                     ScrollIndicator(
                         scrollState = scrollState,
                         modifier = Modifier.align(Alignment.CenterEnd),
-                        enabled = isSmallDevice,
+                        enabled = pageState.isSmallDevice,
                     )
                 }
             }
@@ -125,6 +122,7 @@ fun TermsOfServiceOnboardingPageRedesign(
                 text = pageState.primaryButton.text,
                 modifier = Modifier
                     .width(width = FirefoxTheme.layout.size.maxWidth.small)
+                    .defaultMinSize(minHeight = FirefoxTheme.layout.size.static600)
                     .semantics {
                         testTag = pageState.title + "onboarding_card_redesign.positive_button"
                     },
@@ -282,7 +280,6 @@ private fun OnboardingPagePreview() {
                 ),
             ),
             eventHandler = object : OnboardingTermsOfServiceEventHandler {},
-            isSmallDevice = false,
         )
     }
 }

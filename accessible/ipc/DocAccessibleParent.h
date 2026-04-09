@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -13,6 +11,7 @@
 #include "mozilla/dom/BrowserBridgeParent.h"
 #include "nsClassHashtable.h"
 #include "nsHashKeys.h"
+#include "nsIMemoryReporter.h"
 #include "nsISupportsImpl.h"
 
 namespace mozilla {
@@ -295,6 +294,10 @@ class DocAccessibleParent : public RemoteAccessible,
   static DocAccessibleParent* GetFrom(dom::BrowsingContext* aBrowsingContext);
 
   size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) override;
+
+#ifdef MOZ_ENABLE_SKIA_PDF
+  mozilla::ipc::IPCResult RecvPrinting();
+#endif
 
  private:
   ~DocAccessibleParent();

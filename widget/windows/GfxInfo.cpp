@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -530,8 +529,7 @@ nsresult GfxInfo::Init() {
     if (len < sizeof(sysdir)) {
       nsString rdpudd(sysdir);
       rdpudd.AppendLiteral("\\rdpudd.dll");
-      gfxWindowsPlatform::GetDLLVersion(rdpudd.BeginReading(),
-                                        mDriverVersion[0]);
+      gfxWindowsPlatform::GetDLLVersion(rdpudd.get(), mDriverVersion[0]);
       mDriverDate[0].AssignLiteral("01-01-1970");
 
       // 0x1414 is Microsoft; 0xfefe is an invented (and unused) code
@@ -1665,13 +1663,6 @@ const nsTArray<RefPtr<GfxDriverInfo>>& GfxInfo::GetGfxDriverInfo() {
 
     ////////////////////////////////////
     // FEATURE_HW_DECODED_VIDEO_ZERO_COPY - ALLOWLIST
-#ifdef EARLY_BETA_OR_EARLIER
-    APPEND_TO_DRIVER_BLOCKLIST2(OperatingSystem::Windows, DeviceFamily::All,
-                                nsIGfxInfo::FEATURE_HW_DECODED_VIDEO_ZERO_COPY,
-                                nsIGfxInfo::FEATURE_ALLOW_ALWAYS,
-                                DRIVER_COMPARISON_IGNORED, V(0, 0, 0, 0),
-                                "FEATURE_ROLLOUT_ALL");
-#endif
     APPEND_TO_DRIVER_BLOCKLIST2(
         OperatingSystem::Windows, DeviceFamily::IntelAll,
         nsIGfxInfo::FEATURE_HW_DECODED_VIDEO_ZERO_COPY,

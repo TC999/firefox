@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -14,6 +12,8 @@
 
 #ifndef gc_TraceMethods_inl_h
 #define gc_TraceMethods_inl_h
+
+#include "mozilla/Likely.h"
 
 #include "gc/GCMarker.h"
 #include "gc/Tracer.h"
@@ -35,20 +35,6 @@
 #include "vm/StringType-inl.h"
 
 inline void js::BaseScript::traceChildren(JSTracer* trc) {
-  traceChildrenCommon(trc);
-  warmUpData_.trace(trc);
-}
-inline void js::BaseScript::traceChildrenConcurrently(JSTracer* trc,
-                                                      bool* skippedJitScript) {
-  traceChildrenCommon(trc);
-
-  ScriptWarmUpData warmUpData = warmUpData_;
-  if (!warmUpData.isJitScript()) {
-    warmUpData.trace(trc);
-  }
-  *skippedJitScript = warmUpData.isJitScript();
-}
-inline void js::BaseScript::traceChildrenCommon(JSTracer* trc) {
   TraceNullableEdge(trc, &function_, "function");
   TraceEdge(trc, &sourceObject_, "sourceObject");
 
@@ -56,6 +42,8 @@ inline void js::BaseScript::traceChildrenCommon(JSTracer* trc) {
     TraceBufferEdge(trc, this, &data_, "PrivateScriptData");
     data_->trace(trc);
   }
+
+  warmUpData_.trace(trc);
 }
 
 inline void js::Shape::traceChildren(JSTracer* trc) {
@@ -74,15 +62,37 @@ void js::GCMarker::eagerlyMarkChildren(Shape* shape) {
   MOZ_ASSERT(shape->isMarked(markColor()));
 
   BaseShape* base = shape->base();
-  checkTraversedEdge(shape, base);
-  if (mark<opts>(base)) {
-    base->traceChildren(tracer());
-  }
+  markAndTraverseEdge<opts>(shape, base);
 
   if (shape->isNative()) {
     if (PropMap* map = shape->asNative().propMap()) {
       markAndTraverseEdge<opts>(shape, map);
     }
+  }
+}
+
+inline void js::BaseShape::traceChildren(JSTracer* trc) {
+  // Note: the realm's global can be nullptr if we GC while creating the global.
+  JSObject* global = realm()->unsafeUnbarrieredMaybeGlobal();
+  if (MOZ_LIKELY(global)) {
+    TraceManuallyBarrieredEdge(trc, &global, "baseshape_global");
+  }
+
+  if (proto_.isObject()) {
+    TraceEdge(trc, &proto_, "baseshape_proto");
+  }
+}
+
+template <uint32_t opts>
+void js::GCMarker::eagerlyMarkChildren(BaseShape* base) {
+  JSObject* global = base->realm()->unsafeUnbarrieredMaybeGlobal();
+  if (MOZ_LIKELY(global)) {
+    markAndTraverseEdge<opts>(base, global);
+  }
+
+  TaggedProto proto = base->proto();
+  if (proto.isObject()) {
+    markAndTraverseEdge<opts>(base, proto.toObject());
   }
 }
 
@@ -99,7 +109,7 @@ inline void JSString::traceChildren(JSTracer* trc) {
 template <uint32_t opts>
 void js::GCMarker::eagerlyMarkChildren(JSString* str) {
   uint32_t flags = str->flags();
-  if (flags & JSString::LINEAR_BIT) {
+  if (flags & js::StringFlags::LINEAR_BIT) {
     eagerlyMarkChildren<opts>(static_cast<JSLinearString*>(str));
   } else {
     eagerlyMarkChildren<opts>(static_cast<JSRope*>(str));
@@ -360,17 +370,6 @@ void js::GCMarker::eagerlyMarkChildren(Scope* scope) {
     }
     scope = scope->enclosing();
   } while (scope && mark<opts>(scope));
-}
-
-inline void js::BaseShape::traceChildren(JSTracer* trc) {
-  // Note: the realm's global can be nullptr if we GC while creating the global.
-  if (JSObject* global = realm()->unsafeUnbarrieredMaybeGlobal()) {
-    TraceManuallyBarrieredEdge(trc, &global, "baseshape_global");
-  }
-
-  if (proto_.isObject()) {
-    TraceEdge(trc, &proto_, "baseshape_proto");
-  }
 }
 
 inline void js::GetterSetter::traceChildren(JSTracer* trc) {

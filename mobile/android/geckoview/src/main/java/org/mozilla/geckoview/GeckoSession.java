@@ -1,6 +1,4 @@
-/* -*- Mode: Java; c-basic-offset: 4; tab-width: 20; indent-tabs-mode: nil; -*-
- * vim: ts=4 sw=4 expandtab:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -344,7 +342,7 @@ public class GeckoSession {
     @WrapForJNI(calledFrom = "ui", dispatchTo = "gecko")
     public native void attachNPZC(PanZoomController.NativeProvider npzc);
 
-    @WrapForJNI(calledFrom = "ui", dispatchTo = "gecko")
+    @WrapForJNI(calledFrom = "ui", dispatchTo = "proxy")
     public native void onBoundsChanged(int left, int top, int width, int height);
 
     @WrapForJNI(calledFrom = "ui", dispatchTo = "gecko")
@@ -429,13 +427,13 @@ public class GeckoSession {
       GeckoSession.this.updateOverscrollOffset(x, y);
     }
 
-    @WrapForJNI(calledFrom = "ui", dispatchTo = "gecko")
+    @WrapForJNI(calledFrom = "ui", dispatchTo = "proxy")
     public native void onSafeAreaInsetsChanged(int top, int right, int bottom, int left);
 
     @WrapForJNI(calledFrom = "ui", dispatchTo = "gecko")
     public native void onPipModeChanged(boolean enabled);
 
-    @WrapForJNI(calledFrom = "ui", dispatchTo = "gecko")
+    @WrapForJNI(calledFrom = "ui", dispatchTo = "proxy")
     public native void onKeyboardHeightChanged(int height);
 
     @WrapForJNI(calledFrom = "ui")
@@ -594,7 +592,6 @@ public class GeckoSession {
                     message.getString("alt"),
                     message.getString("elementType"),
                     message.getString("elementSrc"),
-                    message.getString("textContent"),
                     message.getString("linkText"));
 
             delegate.onContextMenu(
@@ -4018,16 +4015,6 @@ public class GeckoSession {
       /** The source URI (src) of the element. Set for (nested) media elements. */
       public final @Nullable String srcUri;
 
-      /**
-       * The text content of the element
-       *
-       * @deprecated This field is deprecated, please use {@link ContextElement#linkText} to
-       *     retrieve the text associated with a link element.
-       */
-      @Deprecated
-      @DeprecationSchedule(id = "context-element-api-updates", version = 151)
-      public final @Nullable String textContent;
-
       /** The link text of the element */
       public final @Nullable String linkText;
 
@@ -4043,7 +4030,6 @@ public class GeckoSession {
        * @param altText The alternative text (alt).
        * @param typeStr The type of the element.
        * @param srcUri The source URI (src).
-       * @param textContent The text content.
        * @param linkText The link text content.
        */
       protected ContextElement(
@@ -4053,7 +4039,6 @@ public class GeckoSession {
           final @Nullable String altText,
           final @NonNull String typeStr,
           final @Nullable String srcUri,
-          final @Nullable String textContent,
           final @Nullable String linkText) {
         this.baseUri = baseUri;
         this.linkUri = linkUri;
@@ -4061,33 +4046,8 @@ public class GeckoSession {
         this.altText = altText;
         this.type = getType(typeStr);
         this.srcUri = srcUri;
-        this.textContent = textContent;
         this.extensionMenus = null;
         this.linkText = linkText;
-      }
-
-      /**
-       * Constructs a ContextElement without text content.
-       *
-       * @param baseUri The base URI.
-       * @param linkUri The absolute link URI (href).
-       * @param title The title text.
-       * @param altText The alternative text (alt).
-       * @param typeStr The type of the element.
-       * @param srcUri The source URI (src).
-       * @deprecated This constructor has been deprecated and will be removed in a future version.
-       *     Please use the other overloaded constructors.
-       */
-      @Deprecated
-      @DeprecationSchedule(id = "context-element-api-updates", version = 151)
-      protected ContextElement(
-          final @Nullable String baseUri,
-          final @Nullable String linkUri,
-          final @Nullable String title,
-          final @Nullable String altText,
-          final @NonNull String typeStr,
-          final @Nullable String srcUri) {
-        this(baseUri, linkUri, title, altText, typeStr, srcUri, null, null);
       }
 
       private static int getType(final String name) {

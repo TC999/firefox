@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -1650,9 +1648,8 @@ bool WarpCacheIRTranspiler::emitInt32ToStringWithBaseResult(
   add(guardedBase);
 
   // Use lower-case characters by default.
-  constexpr bool lower = true;
-
-  auto* ins = MInt32ToStringWithBase::New(alloc(), input, guardedBase, lower);
+  auto* ins = MInt32ToStringWithBase::New(alloc(), input, guardedBase,
+                                          StringCase::Lower);
   add(ins);
 
   pushResult(ins);
@@ -2959,8 +2956,7 @@ bool WarpCacheIRTranspiler::emitStringEndsWithResult(
 bool WarpCacheIRTranspiler::emitStringToLowerCaseResult(StringOperandId strId) {
   MDefinition* str = getOperand(strId);
 
-  auto* convert =
-      MStringConvertCase::New(alloc(), str, MStringConvertCase::LowerCase);
+  auto* convert = MStringConvertCase::New(alloc(), str, StringCase::Lower);
   add(convert);
 
   pushResult(convert);
@@ -2970,8 +2966,7 @@ bool WarpCacheIRTranspiler::emitStringToLowerCaseResult(StringOperandId strId) {
 bool WarpCacheIRTranspiler::emitStringToUpperCaseResult(StringOperandId strId) {
   MDefinition* str = getOperand(strId);
 
-  auto* convert =
-      MStringConvertCase::New(alloc(), str, MStringConvertCase::UpperCase);
+  auto* convert = MStringConvertCase::New(alloc(), str, StringCase::Upper);
   add(convert);
 
   pushResult(convert);

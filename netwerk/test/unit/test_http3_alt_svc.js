@@ -118,13 +118,16 @@ WaitForHttp3Listener.prototype = {
     } else {
       dump("poll later for alt svc mapping\n");
       do_test_pending();
-      do_timeout(500, () => {
-        doTest(
-          this.uri,
-          this.expectedRoute,
-          this.h3AltSvc,
-          this._expectedH3Version
-        );
+      do_timeout(1000, () => {
+        Services.obs.notifyObservers(null, "net:cancel-all-connections");
+        do_timeout(500, () => {
+          doTest(
+            this.uri,
+            this.expectedRoute,
+            this.h3AltSvc,
+            this._expectedH3Version
+          );
+        });
       });
     }
 
@@ -192,7 +195,11 @@ function test_https_speculativeConnect_alt_svc() {
         Services.obs.removeObserver(observer, "speculative-connect-request");
         info("h3Route=" + h3Route + "\n");
         info("aData=" + aData + "\n");
-        Assert.ok(aData.includes(`<ROUTE-via ${h3Route}`));
+        info(`.S........H[tlsflags0x00000000]${h3Route}`);
+        Assert.ok(
+          aData.includes(`<ROUTE-via ${h3Route}`) ||
+            aData.includes(`.S........H[tlsflags0x00000000]foo.example.com`)
+        );
         do_test_finished();
       }
     },

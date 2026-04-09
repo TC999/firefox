@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -1408,10 +1406,6 @@ class MacroAssemblerCompat : public vixl::MacroAssembler {
   }
 
   // Like unboxGCThingForGCBarrier, but loads the GC thing's chunk base.
-  void getGCThingValueChunk(Register src, Register dest) {
-    And(ARMRegister(src, 64), ARMRegister(dest, 64),
-        Operand(JS::detail::ValueGCThingPayloadChunkMask));
-  }
   void getGCThingValueChunk(const Address& src, Register dest) {
     loadPtr(src, dest);
     And(ARMRegister(dest, 64), ARMRegister(dest, 64),

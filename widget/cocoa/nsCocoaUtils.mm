@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 20; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1872,7 +1871,7 @@ already_AddRefed<nsISupports> nsCocoaUtils::GetDataFromPasteboardItem(
     return genericDataWrapper.forget();
   }
 
-  // We have never supported this on Mac OS X, we should someday. Normally
+  // We have never supported this on macOS, we should someday. Normally
   // dragging images in is accomplished with a file path drag instead of the
   // image data itself.
   /*

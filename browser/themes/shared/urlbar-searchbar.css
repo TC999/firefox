@@ -7,13 +7,12 @@
 :host,
 :root {
   --urlbar-container-min-width: 310px;
+
   /* Usually we wouldn't need snapping border widths manually, but we use this
    * for other layout calculations too */
   --urlbar-container-border-width: max(env(hairline), round(down, 1px, env(hairline)));
   --urlbar-container-padding: round(up, 1px, env(hairline));
-  --urlbar-container-border-padding: calc(var(--urlbar-container-border-width) + var(--urlbar-container-padding));
-  --urlbar-margin-inline: 5px;
-  --urlbar-padding-block: 4px;
+  --urlbar-container-inset: calc(var(--urlbar-container-border-width) + var(--urlbar-container-padding));
 
   @media (max-width: 770px) {
     --urlbar-container-min-width: 240px;
@@ -138,12 +137,12 @@ toolbar[inactive="true"] .urlbar,
   background-color: var(--toolbar-field-background-color);
   background-clip: border-box;
   border: var(--urlbar-container-border-width) solid var(--toolbar-field-border-color);
-  border-radius: var(--toolbarbutton-border-radius);
+  border-radius: var(--urlbar-border-radius);
 }
 
 .urlbar-input-container,
 #searchbar {
-  border-radius: var(--toolbarbutton-border-radius);
+  border-radius: var(--urlbar-border-radius);
   overflow: clip;
 }
 
@@ -160,7 +159,7 @@ toolbar[inactive="true"] .urlbar,
   outline: none;
 }
 
-#urlbar .urlbar-input {
+#urlbar-input {
   mask-repeat: no-repeat;
   unicode-bidi: plaintext;
   text-align: match-parent;
@@ -200,6 +199,13 @@ toolbar[inactive="true"] .urlbar,
   .urlbar:not([focused])[textoverflow="left"][domaindir="rtl"] > .urlbar-input-container > .urlbar-input-box > & {
     mask-image: linear-gradient(to right, transparent var(--urlbar-scheme-size), black calc(var(--urlbar-scheme-size) + 3ch));
   }
+
+  /* stylelint-disable-next-line media-query-no-invalid */
+  @media -moz-pref("browser.urlbar.nova.featureGate") {
+    &::selection {
+      border-radius: var(--border-radius-xsmall);
+    }
+  }
 }
 
 #urlbar-scheme {
@@ -234,7 +240,7 @@ toolbar[inactive="true"] .urlbar,
 
   /* The border moves outwards in the open state, so increase the radius
      accordingly. */
-  border-radius: calc(var(--toolbarbutton-border-radius) + 2px);
+  border-radius: var(--urlbarview-border-radius);
 
   @media (-moz-platform: macos) and (prefers-contrast) {
     /* The "increase contrast" preference on macOS draws a 1px black line around
@@ -493,7 +499,7 @@ toolbar[inactive="true"] .urlbar,
 /* Urlbar search mode indicator */
 #urlbar-search-mode-indicator {
   display: none;
-  background-color: var(--urlbar-box-bgcolor);
+  background-color: var(--urlbar-box-background-color);
   color: var(--urlbar-box-text-color);
   margin-inline-end: 8px;
   align-items: center;
@@ -501,7 +507,7 @@ toolbar[inactive="true"] .urlbar,
   padding-inline: 8px 6px;
 
   #urlbar[focused] > .urlbar-input-container > & {
-    background-color: var(--urlbar-box-focus-bgcolor);
+    background-color: var(--urlbar-box-background-color-focus);
   }
 
   #urlbar[searchmode] > .urlbar-input-container > & {
@@ -526,12 +532,12 @@ toolbar[inactive="true"] .urlbar,
   }
 
   &:hover {
-    background-color: var(--urlbar-box-hover-bgcolor);
-    color: var(--urlbar-box-hover-text-color);
+    background-color: var(--urlbar-box-background-color-hover);
+    color: var(--urlbar-box-text-color-hover);
 
     &:active {
-      background-color: var(--urlbar-box-active-bgcolor);
-      color: var(--urlbar-box-hover-text-color);
+      background-color: var(--urlbar-box-background-color-active);
+      color: var(--urlbar-box-text-color-hover);
     }
   }
 }
@@ -632,8 +638,8 @@ toolbar[inactive="true"] .urlbar,
 .urlbar-revert-button,
 .urlbar-go-button,
 .search-go-button {
-  width: calc(var(--urlbar-min-height) - 2 * var(--urlbar-container-border-padding));
-  height: calc(var(--urlbar-min-height) - 2 * var(--urlbar-container-border-padding));
+  width: calc(var(--urlbar-min-height) - 2 * var(--urlbar-container-inset));
+  height: calc(var(--urlbar-min-height) - 2 * var(--urlbar-container-inset));
   border-radius: var(--urlbar-inner-border-radius);
   padding: var(--urlbar-icon-padding);
   color: inherit;
@@ -641,15 +647,15 @@ toolbar[inactive="true"] .urlbar,
   outline-offset: var(--toolbarbutton-outline-offset);
 
   &:not([disabled]):hover {
-    background-color: var(--urlbar-box-hover-bgcolor);
-    color: var(--urlbar-box-hover-text-color);
+    background-color: var(--urlbar-box-background-color-hover);
+    color: var(--urlbar-box-text-color-hover);
     outline-color: var(--toolbarbutton-hover-outline-color);
   }
 
   &:not([disabled])[open],
   &:not([disabled]):hover:active {
-    background-color: var(--urlbar-box-active-bgcolor);
-    color: var(--urlbar-box-hover-text-color);
+    background-color: var(--urlbar-box-background-color-active);
+    color: var(--urlbar-box-text-color-hover);
     outline-color: var(--toolbarbutton-active-outline-color);
   }
 }
@@ -813,7 +819,7 @@ toolbar[inactive="true"] .urlbar,
   transition-timing-function: ease-in-out, ease-in-out, step-end, step-end;
   transition-duration: var(--cfr-animation-duration);
   align-items: center;
-  margin-block: calc((var(--urlbar-min-height) - 24px) / 2 - var(--urlbar-container-border-padding));
+  margin-block: calc((var(--urlbar-min-height) - 24px) / 2 - var(--urlbar-container-inset));
 
   &:-moz-locale-dir(rtl) {
     mask-position-x: calc(var(--cfr-label-width) * -1);
@@ -990,22 +996,22 @@ toolbar[inactive="true"] .urlbar,
   font-size: 0.8em;
   padding: 3px 7px;
   border-radius: var(--urlbar-inner-border-radius);
-  background-color: var(--urlbar-box-bgcolor);
+  background-color: var(--urlbar-box-background-color);
   color: var(--urlbar-box-text-color);
-  margin-block: calc((var(--urlbar-min-height) - 20px) / 2 - var(--urlbar-container-border-padding));
+  margin-block: calc((var(--urlbar-min-height) - 20px) / 2 - var(--urlbar-container-inset));
   overflow: hidden;
 
   :where(#urlbar[focused]) & {
-    background-color: var(--urlbar-box-focus-bgcolor);
+    background-color: var(--urlbar-box-background-color-focus);
   }
 
   &:hover {
-    background-color: var(--urlbar-box-hover-bgcolor);
-    color: var(--urlbar-box-hover-text-color);
+    background-color: var(--urlbar-box-background-color-hover);
+    color: var(--urlbar-box-text-color-hover);
 
     &:active {
-      background-color: var(--urlbar-box-active-bgcolor);
-      color: var(--urlbar-box-hover-text-color);
+      background-color: var(--urlbar-box-background-color-active);
+      color: var(--urlbar-box-text-color-hover);
     }
   }
 
@@ -1174,7 +1180,7 @@ toolbar[inactive="true"] .urlbar,
   }
 
   &[open] {
-    background-color: var(--urlbar-box-focus-bgcolor);
+    background-color: var(--urlbar-box-background-color-focus);
   }
 
   /* No need space if page information icons such as lock and shield is shown */
@@ -1183,11 +1189,11 @@ toolbar[inactive="true"] .urlbar,
   }
 
   .urlbar[searchmode] & {
-    background-color: var(--urlbar-box-bgcolor);
+    background-color: var(--urlbar-box-background-color);
   }
 
   .urlbar[focused] & {
-    background-color: var(--urlbar-box-focus-bgcolor);
+    background-color: var(--urlbar-box-background-color-focus);
   }
 
   .urlbar:not(#searchbar-new) & {
@@ -1284,6 +1290,11 @@ toolbar[inactive="true"] .urlbar,
   }
 }
 
+/* Hide footer separator if there are no menuitems between both separators */
+.searchmode-switcher-popup-installed-engine-separator + .searchmode-switcher-popup-footer-separator {
+  display: none;
+}
+
 .searchmode-switcher-popup-description {
   font-weight: revert;
 }
@@ -1313,7 +1324,7 @@ toolbar[inactive="true"] .urlbar,
 /* stylelint-disable-next-line media-query-no-invalid */
 @media not -moz-pref("browser.urlbar.unifiedSearchButton.always") {
   .searchmode-switcher {
-    background-color: var(--urlbar-box-bgcolor);
+    background-color: var(--urlbar-box-background-color);
     .urlbar:not([unifiedsearchbutton-available]) > .urlbar-input-container > & {
       /* Display as off-screen to get focus */
       position: fixed;

@@ -11,6 +11,7 @@ import { Lists } from "content-src/components/Widgets/Lists/Lists";
 import { actionTypes as at } from "common/Actions.mjs";
 import { FocusTimer } from "content-src/components/Widgets/FocusTimer/FocusTimer";
 
+const PREF_WIDGETS_ENABLED = "widgets.enabled";
 const PREF_WIDGETS_LISTS_ENABLED = "widgets.lists.enabled";
 const PREF_WIDGETS_SYSTEM_LISTS_ENABLED = "widgets.system.lists.enabled";
 const PREF_WIDGETS_TIMER_ENABLED = "widgets.focusTimer.enabled";
@@ -31,6 +32,7 @@ describe("<Widgets>", () => {
         ...INITIAL_STATE.Prefs,
         values: {
           ...INITIAL_STATE.Prefs.values,
+          [PREF_WIDGETS_ENABLED]: true,
           [PREF_WIDGETS_LISTS_ENABLED]: true,
           [PREF_WIDGETS_SYSTEM_LISTS_ENABLED]: true,
         },
@@ -53,6 +55,7 @@ describe("<Widgets>", () => {
         ...INITIAL_STATE.Prefs,
         values: {
           ...INITIAL_STATE.Prefs.values,
+          [PREF_WIDGETS_ENABLED]: true,
           [PREF_WIDGETS_TIMER_ENABLED]: true,
           [PREF_WIDGETS_SYSTEM_TIMER_ENABLED]: true,
         },
@@ -66,6 +69,31 @@ describe("<Widgets>", () => {
     assert.ok(wrapper.exists());
     assert.ok(wrapper.find(".widgets-container").exists());
     assert.ok(wrapper.find(FocusTimer).exists());
+  });
+
+  it("should render nothing when widgetsEnabled is false, even if individual widget prefs are on", () => {
+    const state = {
+      ...INITIAL_STATE,
+      Prefs: {
+        ...INITIAL_STATE.Prefs,
+        values: {
+          ...INITIAL_STATE.Prefs.values,
+          [PREF_WIDGETS_ENABLED]: false,
+          [PREF_WIDGETS_LISTS_ENABLED]: true,
+          [PREF_WIDGETS_SYSTEM_LISTS_ENABLED]: true,
+          [PREF_WIDGETS_TIMER_ENABLED]: true,
+          [PREF_WIDGETS_SYSTEM_TIMER_ENABLED]: true,
+        },
+      },
+    };
+    const wrapper = mount(
+      <WrapWithProvider state={state}>
+        <Widgets />
+      </WrapWithProvider>
+    );
+    assert.ok(!wrapper.find(".widgets-wrapper").exists());
+    assert.ok(!wrapper.find(Lists).exists());
+    assert.ok(!wrapper.find(FocusTimer).exists());
   });
 
   it("should not render FocusTimer when timer pref is disabled", () => {
@@ -147,6 +175,7 @@ describe("<Widgets>", () => {
           ...INITIAL_STATE.Prefs,
           values: {
             ...INITIAL_STATE.Prefs.values,
+            [PREF_WIDGETS_ENABLED]: true,
             [PREF_WIDGETS_LISTS_ENABLED]: true,
             [PREF_WIDGETS_SYSTEM_LISTS_ENABLED]: true,
             [PREF_WIDGETS_TIMER_ENABLED]: true,
@@ -564,6 +593,7 @@ describe("<Widgets>", () => {
           ...INITIAL_STATE.Prefs,
           values: {
             ...INITIAL_STATE.Prefs.values,
+            [PREF_WIDGETS_ENABLED]: true,
             [PREF_WIDGETS_LISTS_ENABLED]: true,
             [PREF_WIDGETS_SYSTEM_LISTS_ENABLED]: true,
           },
@@ -723,6 +753,7 @@ describe("<Widgets>", () => {
           ...INITIAL_STATE.Prefs,
           values: {
             ...INITIAL_STATE.Prefs.values,
+            [PREF_WIDGETS_ENABLED]: true,
             [PREF_WIDGETS_LISTS_ENABLED]: true,
             [PREF_WIDGETS_SYSTEM_LISTS_ENABLED]: true,
           },
@@ -872,6 +903,7 @@ describe("<Widgets>", () => {
           ...INITIAL_STATE.Prefs,
           values: {
             ...INITIAL_STATE.Prefs.values,
+            [PREF_WIDGETS_ENABLED]: true,
             [PREF_WIDGETS_LISTS_ENABLED]: true,
             [PREF_WIDGETS_SYSTEM_LISTS_ENABLED]: true,
             "widgets.maximized": false,
@@ -1013,6 +1045,7 @@ describe("<Widgets>", () => {
           ...INITIAL_STATE.Prefs,
           values: {
             ...INITIAL_STATE.Prefs.values,
+            [PREF_WIDGETS_ENABLED]: true,
             [PREF_WIDGETS_LISTS_ENABLED]: true,
             [PREF_WIDGETS_SYSTEM_LISTS_ENABLED]: true,
             "widgets.maximized": true,
@@ -1080,6 +1113,7 @@ describe("<Widgets>", () => {
           ...INITIAL_STATE.Prefs,
           values: {
             ...INITIAL_STATE.Prefs.values,
+            [PREF_WIDGETS_ENABLED]: true,
             [PREF_WIDGETS_LISTS_ENABLED]: true,
             [PREF_WIDGETS_SYSTEM_LISTS_ENABLED]: true,
             "widgets.maximized": true,
@@ -1123,6 +1157,281 @@ describe("<Widgets>", () => {
       );
 
       maximizedStore.dispatch.restore();
+    });
+
+    describe("with Nova enabled", () => {
+      const NOVA_STATE = {
+        ...INITIAL_STATE,
+        Prefs: {
+          ...INITIAL_STATE.Prefs,
+          values: {
+            ...INITIAL_STATE.Prefs.values,
+            "nova.enabled": true,
+            [PREF_WIDGETS_ENABLED]: true,
+            [PREF_WIDGETS_LISTS_ENABLED]: true,
+            [PREF_WIDGETS_SYSTEM_LISTS_ENABLED]: true,
+            [PREF_WIDGETS_TIMER_ENABLED]: true,
+            [PREF_WIDGETS_SYSTEM_TIMER_ENABLED]: true,
+            "widgets.system.weatherForecast.enabled": true,
+            "weather.display": "detailed",
+            showWeather: true,
+            "system.showWeather": true,
+            "widgets.maximized": false,
+            "widgets.system.maximized": true,
+            "widgets.lists.size": "medium",
+            "widgets.focusTimer.size": "medium",
+            "widgets.weather.size": "medium",
+          },
+        },
+        Weather: { ...INITIAL_STATE.Weather, initialized: true },
+      };
+
+      it("should set all enabled widget size prefs to large when maximizing", () => {
+        const novaStore = createStore(combineReducers(reducers), NOVA_STATE);
+        sinon.spy(novaStore, "dispatch");
+        const novaWrapper = mount(
+          <Provider store={novaStore}>
+            <Widgets />
+          </Provider>
+        );
+
+        novaWrapper.find("#toggle-widgets-size-button").prop("onClick")({
+          preventDefault: () => {},
+        });
+
+        const setPrefCalls = novaStore.dispatch
+          .getCalls()
+          .filter(call => call.args[0]?.type === at.SET_PREF);
+
+        const listsSizeCall = setPrefCalls.find(
+          call => call.args[0].data?.name === "widgets.lists.size"
+        );
+        const timerSizeCall = setPrefCalls.find(
+          call => call.args[0].data?.name === "widgets.focusTimer.size"
+        );
+        const weatherSizeCall = setPrefCalls.find(
+          call => call.args[0].data?.name === "widgets.weather.size"
+        );
+
+        assert.equal(listsSizeCall?.args[0].data.value, "large");
+        assert.equal(timerSizeCall?.args[0].data.value, "large");
+        assert.equal(weatherSizeCall?.args[0].data.value, "large");
+
+        novaStore.dispatch.restore();
+      });
+
+      it("should set all enabled widget size prefs to medium when minimizing", () => {
+        const maximizedNovaState = {
+          ...NOVA_STATE,
+          Prefs: {
+            ...NOVA_STATE.Prefs,
+            values: {
+              ...NOVA_STATE.Prefs.values,
+              "widgets.maximized": true,
+              "widgets.lists.size": "large",
+              "widgets.focusTimer.size": "large",
+              "widgets.weather.size": "large",
+            },
+          },
+        };
+        const novaStore = createStore(
+          combineReducers(reducers),
+          maximizedNovaState
+        );
+        sinon.spy(novaStore, "dispatch");
+        const novaWrapper = mount(
+          <Provider store={novaStore}>
+            <Widgets />
+          </Provider>
+        );
+
+        novaWrapper.find("#toggle-widgets-size-button").prop("onClick")({
+          preventDefault: () => {},
+        });
+
+        const setPrefCalls = novaStore.dispatch
+          .getCalls()
+          .filter(call => call.args[0]?.type === at.SET_PREF);
+
+        const listsSizeCall = setPrefCalls.find(
+          call => call.args[0].data?.name === "widgets.lists.size"
+        );
+        const timerSizeCall = setPrefCalls.find(
+          call => call.args[0].data?.name === "widgets.focusTimer.size"
+        );
+        const weatherSizeCall = setPrefCalls.find(
+          call => call.args[0].data?.name === "widgets.weather.size"
+        );
+
+        assert.equal(listsSizeCall?.args[0].data.value, "medium");
+        assert.equal(timerSizeCall?.args[0].data.value, "medium");
+        assert.equal(weatherSizeCall?.args[0].data.value, "medium");
+
+        novaStore.dispatch.restore();
+      });
+
+      it("should not update size prefs for widgets already in small mode", () => {
+        const smallSizeState = {
+          ...NOVA_STATE,
+          Prefs: {
+            ...NOVA_STATE.Prefs,
+            values: {
+              ...NOVA_STATE.Prefs.values,
+              "widgets.lists.size": "small",
+            },
+          },
+        };
+        const novaStore = createStore(
+          combineReducers(reducers),
+          smallSizeState
+        );
+        sinon.spy(novaStore, "dispatch");
+        const novaWrapper = mount(
+          <Provider store={novaStore}>
+            <Widgets />
+          </Provider>
+        );
+
+        novaWrapper.find("#toggle-widgets-size-button").prop("onClick")({
+          preventDefault: () => {},
+        });
+
+        const setPrefCalls = novaStore.dispatch
+          .getCalls()
+          .filter(call => call.args[0]?.type === at.SET_PREF);
+
+        const listsSizeCall = setPrefCalls.find(
+          call => call.args[0].data?.name === "widgets.lists.size"
+        );
+        assert.ok(
+          !listsSizeCall,
+          "should not dispatch SetPref for small widget"
+        );
+
+        novaStore.dispatch.restore();
+      });
+
+      it("should update size prefs for disabled widgets", () => {
+        const disabledTimerState = {
+          ...NOVA_STATE,
+          Prefs: {
+            ...NOVA_STATE.Prefs,
+            values: {
+              ...NOVA_STATE.Prefs.values,
+              [PREF_WIDGETS_TIMER_ENABLED]: false,
+              "widgets.focusTimer.size": "medium",
+            },
+          },
+        };
+        const novaStore = createStore(
+          combineReducers(reducers),
+          disabledTimerState
+        );
+        sinon.spy(novaStore, "dispatch");
+        const novaWrapper = mount(
+          <Provider store={novaStore}>
+            <Widgets />
+          </Provider>
+        );
+
+        novaWrapper.find("#toggle-widgets-size-button").prop("onClick")({
+          preventDefault: () => {},
+        });
+
+        const setPrefCalls = novaStore.dispatch
+          .getCalls()
+          .filter(call => call.args[0]?.type === at.SET_PREF);
+
+        const timerSizeCall = setPrefCalls.find(
+          call => call.args[0].data?.name === "widgets.focusTimer.size"
+        );
+        assert.ok(timerSizeCall, "should dispatch SetPref for disabled widget");
+        assert.equal(
+          timerSizeCall.args[0].data.value,
+          "large",
+          "should update disabled widget size to match new row state"
+        );
+
+        novaStore.dispatch.restore();
+      });
+
+      it("should not update size prefs for disabled widgets pinned to small", () => {
+        const disabledSmallTimerState = {
+          ...NOVA_STATE,
+          Prefs: {
+            ...NOVA_STATE.Prefs,
+            values: {
+              ...NOVA_STATE.Prefs.values,
+              [PREF_WIDGETS_TIMER_ENABLED]: false,
+              "widgets.focusTimer.size": "small",
+            },
+          },
+        };
+        const novaStore = createStore(
+          combineReducers(reducers),
+          disabledSmallTimerState
+        );
+        sinon.spy(novaStore, "dispatch");
+        const novaWrapper = mount(
+          <Provider store={novaStore}>
+            <Widgets />
+          </Provider>
+        );
+
+        novaWrapper.find("#toggle-widgets-size-button").prop("onClick")({
+          preventDefault: () => {},
+        });
+
+        const setPrefCalls = novaStore.dispatch
+          .getCalls()
+          .filter(call => call.args[0]?.type === at.SET_PREF);
+
+        const timerSizeCall = setPrefCalls.find(
+          call => call.args[0].data?.name === "widgets.focusTimer.size"
+        );
+        assert.ok(
+          !timerSizeCall,
+          "should not dispatch SetPref for disabled widget pinned to small"
+        );
+
+        novaStore.dispatch.restore();
+      });
+
+      it("should not dispatch individual size prefs when Nova is disabled", () => {
+        const noNovaState = {
+          ...NOVA_STATE,
+          Prefs: {
+            ...NOVA_STATE.Prefs,
+            values: { ...NOVA_STATE.Prefs.values, "nova.enabled": false },
+          },
+        };
+        const novaStore = createStore(combineReducers(reducers), noNovaState);
+        sinon.spy(novaStore, "dispatch");
+        const novaWrapper = mount(
+          <Provider store={novaStore}>
+            <Widgets />
+          </Provider>
+        );
+
+        novaWrapper.find("#toggle-widgets-size-button").prop("onClick")({
+          preventDefault: () => {},
+        });
+
+        const setPrefCalls = novaStore.dispatch
+          .getCalls()
+          .filter(call => call.args[0]?.type === at.SET_PREF);
+
+        const sizePrefCalls = setPrefCalls.filter(call =>
+          call.args[0].data?.name?.endsWith(".size")
+        );
+        assert.equal(
+          sizePrefCalls.length,
+          0,
+          "should not dispatch any size prefs without Nova"
+        );
+
+        novaStore.dispatch.restore();
+      });
     });
   });
 });

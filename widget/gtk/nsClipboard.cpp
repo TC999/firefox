@@ -1,6 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:expandtab:shiftwidth=2:tabstop=2:
- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1179,18 +1176,18 @@ void nsClipboard::SelectionGetEvent(GtkClipboard* aClipboard,
                                                  kJPGImageMime, kGIFImageMime};
     nsCOMPtr<nsISupports> imageItem;
     nsCOMPtr<imgIContainer> image;
-    for (uint32_t i = 0; i < std::size(imageMimeTypes); i++) {
-      rv = trans->GetTransferData(imageMimeTypes[i], getter_AddRefs(imageItem));
+    for (auto imageMimeType : imageMimeTypes) {
+      rv = trans->GetTransferData(imageMimeType, getter_AddRefs(imageItem));
       if (NS_FAILED(rv)) {
         MOZ_CLIPBOARD_LOG("    %s is missing at GetTransferData()\n",
-                          imageMimeTypes[i]);
+                          imageMimeType);
         continue;
       }
 
       image = do_QueryInterface(imageItem);
       if (image) {
         MOZ_CLIPBOARD_LOG("    %s is available at GetTransferData()\n",
-                          imageMimeTypes[i]);
+                          imageMimeType);
         break;
       }
     }

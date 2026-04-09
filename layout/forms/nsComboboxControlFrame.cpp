@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -8,7 +6,6 @@
 
 #include <algorithm>
 
-#include "HTMLSelectEventListener.h"
 #include "gfxContext.h"
 #include "mozilla/Likely.h"
 #include "mozilla/PresShell.h"
@@ -217,8 +214,6 @@ void nsComboboxControlFrame::Init(nsIContent* aContent,
                                   nsContainerFrame* aParent,
                                   nsIFrame* aPrevInFlow) {
   ButtonControlFrame::Init(aContent, aParent, aPrevInFlow);
-  mEventListener = new HTMLSelectEventListener(
-      Select(), HTMLSelectEventListener::SelectType::Combobox);
 }
 
 bool nsComboboxControlFrame::IsDroppedDown() const {
@@ -289,7 +284,6 @@ nsIFrame* NS_NewComboboxLabelFrame(PresShell* aPresShell,
 }
 
 void nsComboboxControlFrame::Destroy(DestroyContext& aContext) {
-  mEventListener->Detach();
   auto& select = Select();
   if (select.OpenInParentProcess()) {
     nsContentUtils::AddScriptRunner(NS_NewRunnableFunction(

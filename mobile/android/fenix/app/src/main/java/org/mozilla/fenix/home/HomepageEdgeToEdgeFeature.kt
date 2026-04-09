@@ -159,7 +159,7 @@ class HomepageEdgeToEdgeFeature(
     }
 
     private val BrowserToolbarState.isShowingResultsScreen: Boolean
-        get() = isEditMode() && editState.query.current.isNotEmpty()
+        get() = isEditMode()
 
     /**
      * Enum representing the available background drawable resources.

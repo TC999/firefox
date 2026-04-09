@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -100,6 +98,7 @@
 #include "nsString.h"
 #include "nsStyleConsts.h"
 #include "nsStyleStructInlines.h"
+#include "nsStyleTransformMatrix.h"
 #include "nsTableWrapperFrame.h"
 #include "nsTextControlFrame.h"
 #include "nsXULElement.h"
@@ -125,6 +124,9 @@
 
 #ifdef ACCESSIBILITY
 #  include "nsAccessibilityService.h"
+#endif
+#if defined(ACCESSIBILITY) && defined(MOZ_ENABLE_SKIA_PDF)
+#  include "mozilla/a11y/PdfStructTreeBuilder.h"
 #endif
 
 #include "ActiveLayerTracker.h"
@@ -1363,12 +1365,7 @@ void nsIFrame::DidSetComputedStyle(ComputedStyle* aOldComputedStyle) {
   }
 
   if (handleStickyChange && !HasAnyStateBits(NS_FRAME_IS_NONDISPLAY) &&
-      !GetPrevInFlow()) {
-    // Note that we only add first continuations, but we really only
-    // want to add first continuation-or-ib-split-siblings. But since we don't
-    // yet know if we're a later part of a block-in-inline split, we'll just
-    // add later members of a block-in-inline split here, and then
-    // StickyScrollContainer will remove them later.
+      nsLayoutUtils::IsFirstContinuationOrIBSplitSibling(this)) {
     if (auto* ssc = StickyScrollContainer::GetOrCreateForFrame(this)) {
       if (disp->mPosition == StylePositionProperty::Sticky) {
         ssc->AddFrame(this);
@@ -3016,9 +3013,9 @@ static Maybe<nsRect> ComputeClipForMaskItem(
   } else if (aMaskUsage.ShouldApplyClipPath()) {
     gfxRect result = SVGUtils::GetBBox(
         aMaskedFrame,
-        SVGUtils::eBBoxIncludeClipped | SVGUtils::eBBoxIncludeFillGeometry |
-            SVGUtils::eBBoxIncludeMarkers | SVGUtils::eBBoxIncludeStroke |
-            SVGUtils::eDoNotClipToBBoxOfContentInsideClipPath);
+        {SVGBBoxFlag::IncludeClipped, SVGBBoxFlag::IncludeFillGeometry,
+         SVGBBoxFlag::IncludeMarkers, SVGBBoxFlag::IncludeStroke,
+         SVGBBoxFlag::DoNotClipToBBoxOfContentInsideClipPath});
     combinedClip = Some(
         ThebesRect((CSSRect::FromUnknownRect(ToRect(result)) * cssToDevScale)
                        .ToUnknownRect()));
@@ -3151,7 +3148,8 @@ void nsIFrame::BuildDisplayListForStackingContext(
     return;
   }
 
-  if (HasAnyStateBits(NS_FRAME_TOO_DEEP_IN_FRAME_TREE)) {
+  if (HasAnyStateBits(NS_FRAME_TOO_DEEP_IN_FRAME_TREE |
+                      NS_FRAME_IS_NONDISPLAY)) {
     return;
   }
 
@@ -3595,7 +3593,7 @@ void nsIFrame::BuildDisplayListForStackingContext(
     nsDisplaySolidColor* color = MakeDisplayItem<nsDisplaySolidColor>(
         aBuilder, this,
         dirtyRect + aBuilder->GetCurrentFrameOffsetToReferenceFrame(),
-        NS_RGBA(255, 0, 0, 64), false);
+        NS_RGBA(255, 0, 0, 64));
     if (color) {
       color->SetOverrideZIndex(INT32_MAX);
       set.PositionedDescendants()->AppendToTop(color);
@@ -4238,6 +4236,30 @@ static bool ShouldSkipFrame(nsDisplayListBuilder* aBuilder,
          aFrame->StyleUIReset()->mMozSubtreeHiddenOnlyVisually;
 }
 
+#if defined(ACCESSIBILITY) && defined(MOZ_ENABLE_SKIA_PDF)
+// Bug 2025119: If this is inlined in nsIFrame::BuildDisplayListForChild on
+// Win32, we end up with crashes when there is deep recursion due to the
+// increased stack size caused by the additional variables here. Work around
+// this by having this code in its own function and ensuring it is never inlined
+// on Win32.
+#  if defined(XP_WIN) && !defined(_WIN64)
+MOZ_NEVER_INLINE
+#  endif
+static void MaybeAddAccId(nsIFrame* aChildOrOutOfFlow,
+                          nsDisplayListBuilder* aBuilder,
+                          const nsDisplayListSet& aLists) {
+  auto [bcId, accId] = a11y::PdfStructTreeBuilder::GetAccId(aChildOrOutOfFlow);
+  if (!bcId) {
+    return;
+  }
+  // When generating tagged PDF, associate this content with the correct
+  // node in the structure tree.
+  auto* item = MakeDisplayItem<nsDisplayAccessibleId>(
+      aBuilder, aChildOrOutOfFlow, bcId, accId);
+  aLists.Content()->AppendToTop(item);
+}
+#endif
+
 void nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder* aBuilder,
                                         nsIFrame* aChild,
                                         const nsDisplayListSet& aLists,
@@ -4269,10 +4291,14 @@ void nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder* aBuilder,
   // for the same destination that entirely overlap each other, which adds
   // nothing useful to the final PDF.
   Maybe<nsDisplayListBuilder::Linkifier> linkifier;
-  if (StaticPrefs::print_save_as_pdf_links_enabled() &&
-      aBuilder->IsForPrinting()) {
-    linkifier.emplace(aBuilder, childOrOutOfFlow, aLists.Content());
-    linkifier->MaybeAppendLink(aBuilder, childOrOutOfFlow);
+  if (aBuilder->IsForPrinting()) {
+    if (StaticPrefs::print_save_as_pdf_links_enabled()) {
+      linkifier.emplace(aBuilder, childOrOutOfFlow, aLists.Content());
+      linkifier->MaybeAppendLink(aBuilder, childOrOutOfFlow);
+    }
+#if defined(ACCESSIBILITY) && defined(MOZ_ENABLE_SKIA_PDF)
+    MaybeAddAccId(childOrOutOfFlow, aBuilder, aLists);
+#endif
   }
 
   nsIFrame* parent = childOrOutOfFlow->GetParent();
@@ -9108,7 +9134,8 @@ void nsIFrame::ListTextRuns(FILE* out, nsTHashSet<const void*>& aSeen) const {
 
 void nsIFrame::ListMatchedRules(FILE* out, const char* aPrefix) const {
   AutoTArray<StyleMatchingDeclarationBlock, 8> decls;
-  Servo_ComputedValues_GetMatchingDeclarations(Style(), &decls);
+  Servo_ComputedValues_GetMatchingDeclarations(
+      Style(), /* with_starting_style = */ false, &decls);
   for (const StyleMatchingDeclarationBlock& block : decls) {
     nsAutoCString ruleText;
     Servo_DeclarationBlock_GetCssText(block.block, &ruleText);
@@ -10901,7 +10928,7 @@ static void ComputeAndIncludeOutlineArea(nsIFrame* aFrame,
 }
 
 bool nsIFrame::FinishAndStoreOverflow(OverflowAreas& aOverflowAreas,
-                                      nsSize aNewSize, nsSize* aOldSize,
+                                      nsSize aNewSize,
                                       const nsStyleDisplay* aStyleDisplay) {
   MOZ_ASSERT(FrameMaintainsOverflow(),
              "Don't call - overflow rects not maintained on these SVG frames");
@@ -10909,7 +10936,7 @@ bool nsIFrame::FinishAndStoreOverflow(OverflowAreas& aOverflowAreas,
   const nsStyleDisplay* disp = StyleDisplayWithOptionalParam(aStyleDisplay);
   bool hasTransform = IsTransformed();
 
-  nsRect bounds(nsPoint(0, 0), aNewSize);
+  nsRect bounds(nsPoint(), aNewSize);
   // Store the passed in overflow area if we are a preserve-3d frame or we have
   // a transform, and it's not just the frame bounds.
   if (hasTransform || Combines3DTransformWithAncestors()) {
@@ -10934,8 +10961,8 @@ bool nsIFrame::FinishAndStoreOverflow(OverflowAreas& aOverflowAreas,
 #endif
   }
 
-  nsSize oldSize = mRect.Size();
-  bool sizeChanged = ((aOldSize ? *aOldSize : oldSize) != aNewSize);
+  const nsSize oldSize = mRect.Size();
+  const bool sizeChanged = oldSize != aNewSize;
 
   // Our frame size may not have been computed and set yet, but code under
   // functions such as ComputeEffectsRect (which we're about to call) use the
@@ -10954,22 +10981,17 @@ bool nsIFrame::FinishAndStoreOverflow(OverflowAreas& aOverflowAreas,
   // changed.
   SetSize(aNewSize, false);
 
-  const auto overflowClipAxes = ShouldApplyOverflowClipping(disp);
-
-  if (ChildrenHavePerspective(disp) && sizeChanged) {
-    RecomputePerspectiveChildrenOverflow(this);
-
-    if (overflowClipAxes != kPhysicalAxesBoth) {
-      aOverflowAreas.SetAllTo(bounds);
-      DebugOnly<bool> ok = ComputeCustomOverflow(aOverflowAreas);
-
-      // ComputeCustomOverflow() should not return false, when
-      // FrameMaintainsOverflow() returns true.
-      MOZ_ASSERT(ok, "FrameMaintainsOverflow() != ComputeCustomOverflow()");
-
-      UnionChildOverflow(aOverflowAreas);
-    }
+  if (sizeChanged && ChildrenHavePerspective(disp) &&
+      RecomputePerspectiveChildrenOverflow(this)) {
+    aOverflowAreas.SetAllTo(bounds);
+    DebugOnly<bool> ok = ComputeCustomOverflow(aOverflowAreas);
+    // ComputeCustomOverflow() should not return false, when
+    // FrameMaintainsOverflow() returns true.
+    MOZ_ASSERT(ok, "FrameMaintainsOverflow() != ComputeCustomOverflow()");
+    UnionChildOverflow(aOverflowAreas);
   }
+
+  const auto overflowClipAxes = ShouldApplyOverflowClipping(disp);
 
   // This is now called FinishAndStoreOverflow() instead of
   // StoreOverflow() because frame-generic ways of adding overflow
@@ -11110,25 +11132,25 @@ bool nsIFrame::FinishAndStoreOverflow(OverflowAreas& aOverflowAreas,
   return anyOverflowChanged;
 }
 
-void nsIFrame::RecomputePerspectiveChildrenOverflow(
+bool nsIFrame::RecomputePerspectiveChildrenOverflow(
     const nsIFrame* aStartFrame) {
+  bool changed = false;
   for (const auto& childList : ChildLists()) {
     for (nsIFrame* child : childList.mList) {
       if (!child->FrameMaintainsOverflow()) {
         continue;  // frame does not maintain overflow rects
       }
       if (child->HasPerspective()) {
-        OverflowAreas* overflow =
+        OverflowAreas* initialOverflow =
             child->GetProperty(nsIFrame::InitialOverflowProperty());
-        nsRect bounds(nsPoint(0, 0), child->GetSize());
-        if (overflow) {
-          OverflowAreas overflowCopy = *overflow;
-          child->FinishAndStoreOverflow(overflowCopy, bounds.Size());
+        const nsRect bounds(nsPoint(), child->GetSize());
+        OverflowAreas overflow;
+        if (initialOverflow) {
+          overflow = *initialOverflow;
         } else {
-          OverflowAreas boundsOverflow;
-          boundsOverflow.SetAllTo(bounds);
-          child->FinishAndStoreOverflow(boundsOverflow, bounds.Size());
+          overflow.SetAllTo(bounds);
         }
+        changed |= child->FinishAndStoreOverflow(overflow, bounds.Size());
       } else if (child->GetContent() == aStartFrame->GetContent() ||
                  child->GetClosestFlattenedTreeAncestorPrimaryFrame() ==
                      aStartFrame) {
@@ -11137,10 +11159,16 @@ void nsIFrame::RecomputePerspectiveChildrenOverflow(
         // style. We must find any descendant frames using our size
         // (by recursing into frames that have the same containing block)
         // to update their overflow rects too.
-        child->RecomputePerspectiveChildrenOverflow(aStartFrame);
+        if (child->RecomputePerspectiveChildrenOverflow(aStartFrame)) {
+          changed = true;
+          // Update the overflow for the child to take any changes from its
+          // children into account.
+          child->UpdateOverflow();
+        }
       }
     }
   }
+  return changed;
 }
 
 void nsIFrame::ComputePreserve3DChildrenOverflow(
@@ -11548,7 +11576,8 @@ bool nsIFrame::IsFocusableDueToScrollFrame() {
   if (scrollContainer->GetScrollStyles().IsHiddenInBothDirections()) {
     return false;
   }
-  if (scrollContainer->GetScrollRange().IsEqualEdges(nsRect())) {
+  if (scrollContainer->GetScrollRangeForUserInputEvents().IsEqualEdges(
+          nsRect())) {
     return false;
   }
   return true;
@@ -12337,6 +12366,7 @@ PhysicalAxes nsIFrame::ShouldApplyOverflowClipping(
       case LayoutFrameType::SVGOuterSVG:
       case LayoutFrameType::SVGSymbol:
       case LayoutFrameType::Image:
+      case LayoutFrameType::HTMLVideo:
       case LayoutFrameType::TableCell:
         return kPhysicalAxesBoth;
       case LayoutFrameType::Table:

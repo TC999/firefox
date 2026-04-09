@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -310,8 +308,8 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   void ReplacedBy(CanonicalBrowsingContext* aNewContext,
                   const NavigationIsolationOptions& aRemotenessOptions);
 
-  bool HasHistoryEntry(nsISHEntry* aEntry);
-  bool HasLoadingHistoryEntry(nsISHEntry* aEntry) {
+  bool HasHistoryEntry(SessionHistoryEntry* aEntry);
+  bool HasLoadingHistoryEntry(SessionHistoryEntry* aEntry) {
     for (const LoadingSessionHistoryEntry& loading : mLoadingEntries) {
       if (loading.mEntry == aEntry) {
         return true;
@@ -320,7 +318,8 @@ class CanonicalBrowsingContext final : public BrowsingContext {
     return false;
   }
 
-  void SwapHistoryEntries(nsISHEntry* aOldEntry, nsISHEntry* aNewEntry);
+  void SwapHistoryEntries(SessionHistoryEntry* aOldEntry,
+                          SessionHistoryEntry* aNewEntry);
 
   void AddLoadingSessionHistoryEntry(uint64_t aLoadId,
                                      SessionHistoryEntry* aEntry);
@@ -374,7 +373,7 @@ class CanonicalBrowsingContext final : public BrowsingContext {
 
  private:
   static nsresult ContainsSameOriginBfcacheEntry(
-      nsISHEntry* aEntry, mozilla::dom::BrowsingContext* aBC,
+      SessionHistoryEntry* aEntry, mozilla::dom::BrowsingContext* aBC,
       int32_t aChildIndex, void* aData);
 
  public:
@@ -406,6 +405,15 @@ class CanonicalBrowsingContext final : public BrowsingContext {
                                           ErrorResult& aRv);
 
   bool IsReplaced() const { return mIsReplaced; }
+
+#ifdef ANDROID
+  uint32_t GetAndroidAppLinkLaunchType() const {
+    return mAndroidAppLinkLaunchType;
+  }
+  void SetAndroidAppLinkLaunchType(uint32_t aType) {
+    mAndroidAppLinkLaunchType = aType;
+  }
+#endif
 
   const JS::Heap<JS::Value>& PermanentKey() { return mPermanentKey; }
   void ClearPermanentKey() { mPermanentKey.setNull(); }
@@ -687,6 +695,12 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   uint32_t mDocumentPiPWindowCount = 0;
 
   bool mIsReplaced = false;
+
+#ifdef ANDROID
+  // App link launch type for the current load; 0 means not an app link.
+  // Stored here so it survives process switches and COOP-triggered BC swaps.
+  uint32_t mAndroidAppLinkLaunchType = 0;
+#endif
 
   // A Promise created when cloning documents for printing.
   RefPtr<GenericNonExclusivePromise> mClonePromise;

@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:set ts=2 sw=2 sts=2 et cindent: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -274,6 +272,7 @@ nsresult nsSpeechTask::DispatchMarkImpl(const nsAString& aName,
 void nsSpeechTask::Pause() {
   MOZ_ASSERT(XRE_IsParentProcess());
 
+  RefPtr<nsSpeechTask> kungFuDeathGrip(this);
   if (mCallback) {
     DebugOnly<nsresult> rv = mCallback->OnPause();
     NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "Unable to call onPause() callback");
@@ -287,6 +286,7 @@ void nsSpeechTask::Pause() {
 void nsSpeechTask::Resume() {
   MOZ_ASSERT(XRE_IsParentProcess());
 
+  RefPtr<nsSpeechTask> kungFuDeathGrip(this);
   if (mCallback) {
     DebugOnly<nsresult> rv = mCallback->OnResume();
     NS_WARNING_ASSERTION(NS_SUCCEEDED(rv),
@@ -304,8 +304,8 @@ void nsSpeechTask::Cancel() {
 
   LOG(LogLevel::Debug, ("nsSpeechTask::Cancel"));
 
-  if (mCallback) {
-    DebugOnly<nsresult> rv = mCallback->OnCancel();
+  if (nsCOMPtr<nsISpeechTaskCallback> callback = mCallback) {
+    DebugOnly<nsresult> rv = callback->OnCancel();
     NS_WARNING_ASSERTION(NS_SUCCEEDED(rv),
                          "Unable to call onCancel() callback");
   }

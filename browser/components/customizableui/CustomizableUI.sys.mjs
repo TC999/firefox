@@ -4,7 +4,6 @@
 
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
-import { SearchWidgetTracker } from "moz-src:///browser/components/customizableui/SearchWidgetTracker.sys.mjs";
 
 const lazy = {};
 
@@ -442,8 +441,6 @@ var CustomizableUIInternal = {
     this.reconcileSidebarPrefs(kPrefSidebarVerticalTabsEnabled);
 
     this.initializeForTabsOrientation(CustomizableUI.verticalTabsEnabled);
-
-    SearchWidgetTracker.init();
 
     Services.obs.addObserver(this, "browser-set-toolbar-visibility");
 

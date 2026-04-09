@@ -1,6 +1,4 @@
-/* -*- Mode: c++; c-basic-offset: 2; tab-width: 4; indent-tabs-mode: nil; -*-
- * vim: set sw=2 ts=4 expandtab:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -37,6 +35,7 @@
 #include "ScreenHelperAndroid.h"
 #include "TouchResampler.h"
 #include "WidgetUtils.h"
+#include "WindowEvent.h"
 #include "WindowRenderer.h"
 
 #include "mozilla/EventForwards.h"
@@ -1170,6 +1169,11 @@ class LayerViewSupport final
 
   using Base::AttachNative;
   using Base::DisposeNative;
+
+  template <typename Functor>
+  static void OnNativeCall(Functor&& aCall) {
+    NS_DispatchToMainThread(new WindowEvent<Functor>(std::move(aCall)));
+  }
 
   void OnWeakNonIntrusiveDetach(already_AddRefed<Runnable> aDisposer) {
     RefPtr<Runnable> disposer = aDisposer;

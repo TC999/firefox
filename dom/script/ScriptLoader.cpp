@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -204,7 +202,6 @@ ScriptLoader::ScriptLoader(Document* aDocument)
   mSpeculativeOMTParsingEnabled = StaticPrefs::
       dom_script_loader_external_scripts_speculative_omt_parse_enabled();
 
-#ifdef NIGHTLY_BUILD
   // NOTE: The loader for the system principal aren't supposed to
   //       load remote contents, and it doesn't have to use the in-memory cache.
   //       A non-system-principal document can also load internal resources,
@@ -216,7 +213,6 @@ ScriptLoader::ScriptLoader(Document* aDocument)
     RegisterToCache();
     LOG(("ScriptLoader (%p): Using in-memory cache.", this));
   }
-#endif
 
   mShutdownObserver = new AsyncCompileShutdownObserver(this);
   nsContentUtils::RegisterShutdownObserver(mShutdownObserver);
@@ -448,6 +444,7 @@ nsContentPolicyType ScriptLoadRequestToContentPolicyType(
         case JS::ModuleType::CSS:
           return nsIContentPolicy::TYPE_INTERNAL_STYLESHEET_PRELOAD;
         case JS::ModuleType::Bytes:
+        case JS::ModuleType::Text:
         case JS::ModuleType::Unknown:
           MOZ_ASSERT_UNREACHABLE("Unknown module type");
       }
@@ -460,6 +457,7 @@ nsContentPolicyType ScriptLoadRequestToContentPolicyType(
     switch (aRequest->AsModuleRequest()->mModuleType) {
       case JS::ModuleType::Unknown:
       case JS::ModuleType::Bytes:
+      case JS::ModuleType::Text:
         MOZ_CRASH("Unexpected module type");
       case JS::ModuleType::JavaScript:
         return nsIContentPolicy::TYPE_INTERNAL_MODULE;
@@ -1385,7 +1383,7 @@ bool ScriptLoader::ProcessExternalScript(nsIScriptElement* aElement,
                           &nsIScriptElement::FireErrorEvent));
     nsContentUtils::ReportToConsole(
         nsIScriptError::warningFlag, "Script Loader"_ns, mDocument,
-        nsContentUtils::eDOM_PROPERTIES, "ImportMapExternalNotSupported");
+        PropertiesFile::DOM_PROPERTIES, "ImportMapExternalNotSupported");
     return false;
   }
 
@@ -1681,7 +1679,7 @@ bool ScriptLoader::ProcessInlineScript(nsIScriptElement* aElement,
                             : "ImportMapNotAllowedAfterModuleLoad";
       nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
                                       "Script Loader"_ns, mDocument,
-                                      nsContentUtils::eDOM_PROPERTIES, msg);
+                                      PropertiesFile::DOM_PROPERTIES, msg);
       NS_DispatchToCurrentThread(
           NewRunnableMethod("nsIScriptElement::FireErrorEvent", aElement,
                             &nsIScriptElement::FireErrorEvent));
@@ -4554,7 +4552,7 @@ void ScriptLoader::ReportErrorToConsole(ScriptLoadRequest* aRequest,
 
   nsContentUtils::ReportToConsole(
       nsIScriptError::warningFlag, "Script Loader"_ns, mDocument,
-      nsContentUtils::eDOM_PROPERTIES, message, params, loc.ref());
+      PropertiesFile::DOM_PROPERTIES, message, params, loc.ref());
 }
 
 void ScriptLoader::ReportWarningToConsole(
@@ -4568,7 +4566,7 @@ void ScriptLoader::ReportWarningToConsole(
       aRequest->GetScriptLoadContext()->GetScriptColumnNumber();
   nsContentUtils::ReportToConsole(
       nsIScriptError::warningFlag, "Script Loader"_ns, mDocument,
-      nsContentUtils::eDOM_PROPERTIES, aMessageName, aParams,
+      PropertiesFile::DOM_PROPERTIES, aMessageName, aParams,
       SourceLocation{mDocument->GetDocumentURI(), lineNo,
                      columnNo.oneOriginValue()});
 }
@@ -4834,6 +4832,7 @@ static bool MimeTypeMatchesExpectedModuleType(
       return nsContentUtils::HasCssMimeTypeEssence(typeString);
     case JS::ModuleType::Unknown:
     case JS::ModuleType::Bytes:
+    case JS::ModuleType::Text:
       break;
   }
 

@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -48,6 +46,11 @@
 
 #ifdef XP_WIN
 #  include "ScaledFontDWrite.h"
+#endif
+
+#if defined(ACCESSIBILITY) && defined(MOZ_ENABLE_SKIA_PDF)
+#  include "mozilla/a11y/PdfStructTreeBuilder.h"
+#  include "skia/include/docs/SkPDFDocument.h"
 #endif
 
 namespace mozilla {
@@ -466,14 +469,12 @@ static sk_sp<SkImage> ExtractAlphaImage(const sk_sp<SkImage>& aImage,
   // Skia does not fully allocate the last row according to stride.
   // Since some of our algorithms (i.e. blur) depend on this, we must allocate
   // the bitmap pixels manually.
-  size_t stride = GetAlignedStride<4>(info.width(), info.bytesPerPixel());
-  if (stride) {
-    CheckedInt<size_t> size = stride;
+  if (auto stride = GetAlignedStride<4>(info.width(), info.bytesPerPixel())) {
+    CheckedInt<size_t> size = stride.value();
     size *= info.height();
     if (size.isValid()) {
-      void* buf = sk_malloc_flags(size.value(), 0);
-      if (buf) {
-        SkPixmap pixmap(info, buf, stride);
+      if (void* buf = sk_malloc_flags(size.value(), 0)) {
+        SkPixmap pixmap(info, buf, stride.value());
         if (aImage->readPixels(pixmap, 0, 0)) {
           if (sk_sp<SkImage> result =
                   SkImages::RasterFromPixmap(pixmap, FreeAlphaImage, buf)) {
@@ -1824,6 +1825,44 @@ static inline SkPixelGeometry GetSkPixelGeometry() {
   }
 }
 
+static Maybe<SkSurfaceProps> sSurfaceProps;
+
+static const SkSurfaceProps& GetSkSurfaceProps() {
+  if (!sSurfaceProps ||
+      sSurfaceProps->pixelGeometry() != GetSkPixelGeometry()) {
+    DrawTargetSkia::UpdateSurfaceProps();
+  }
+  return *sSurfaceProps;
+}
+
+void DrawTargetSkia::UpdateSurfaceProps() {
+  // Default to no enhanced contrast.
+  SkScalar contrast = 0;
+
+#ifdef XP_DARWIN
+  // Default to sRGB gamma.
+  SkScalar gamma = 0;
+#else
+  // Default to linear gamma.
+  SkScalar gamma = SK_Scalar1;
+#endif
+
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_ANDROID)
+  int32_t gammaVal = StaticPrefs::gfx_font_rendering_freetype_gamma();
+  int32_t contrastVal =
+      StaticPrefs::gfx_font_rendering_freetype_enhanced_contrast();
+  if (gammaVal >= 0) {
+    gamma = SkScalar(std::min(gammaVal, 400)) / 100;
+  }
+  if (contrastVal > 0) {
+    contrast = SkScalar(std::min(contrastVal, 100)) / 100;
+  }
+#endif
+
+  sSurfaceProps =
+      Some(SkSurfaceProps(0, GetSkPixelGeometry(), contrast, gamma));
+}
+
 template <typename T>
 [[nodiscard]] static already_AddRefed<T> AsRefPtr(sk_sp<T>&& aSkPtr) {
   return already_AddRefed<T>(aSkPtr.release());
@@ -1842,17 +1881,17 @@ bool DrawTargetSkia::Init(const IntSize& aSize, SurfaceFormat aFormat) {
   if (info.bytesPerPixel() != BytesPerPixel(aFormat)) {
     return false;
   }
-  size_t stride = GetAlignedStride<4>(info.width(), info.bytesPerPixel());
-  if (!stride || stride < info.minRowBytes64()) {
+  auto stride = GetAlignedStride<4>(info.width(), info.bytesPerPixel());
+  if (stride.isNothing() || size_t(stride.value()) < info.minRowBytes64()) {
     return false;
   }
-  SkSurfaceProps props(0, GetSkPixelGeometry());
+  const SkSurfaceProps& props = GetSkSurfaceProps();
 
   if (aFormat == SurfaceFormat::A8) {
     // Skia does not fully allocate the last row according to stride.
     // Since some of our algorithms (i.e. blur) depend on this, we must allocate
     // the bitmap pixels manually.
-    CheckedInt<size_t> size = stride;
+    CheckedInt<size_t> size = stride.value();
     size *= info.height();
     if (!size.isValid()) {
       return false;
@@ -1862,9 +1901,9 @@ bool DrawTargetSkia::Init(const IntSize& aSize, SurfaceFormat aFormat) {
       return false;
     }
     mSurface = AsRefPtr(SkSurfaces::WrapPixels(
-        info, buf, stride, FreeAlphaPixels, nullptr, &props));
+        info, buf, stride.value(), FreeAlphaPixels, nullptr, &props));
   } else {
-    mSurface = AsRefPtr(SkSurfaces::Raster(info, stride, &props));
+    mSurface = AsRefPtr(SkSurfaces::Raster(info, stride.value(), &props));
   }
   if (!mSurface) {
     return false;
@@ -1917,7 +1956,7 @@ bool DrawTargetSkia::Init(unsigned char* aData, const IntSize& aSize,
     return false;
   }
 
-  SkSurfaceProps props(0, GetSkPixelGeometry());
+  const SkSurfaceProps& props = GetSkSurfaceProps();
   mSurface = AsRefPtr(SkSurfaces::WrapPixels(info, aData, aStride, &props));
   if (!mSurface) {
     return false;
@@ -1951,7 +1990,7 @@ bool DrawTargetSkia::Init(RefPtr<DataSourceSurface>&& aSurface) {
     return false;
   }
 
-  SkSurfaceProps props(0, GetSkPixelGeometry());
+  const SkSurfaceProps& props = GetSkSurfaceProps();
   mSurface = AsRefPtr(SkSurfaces::WrapPixels(
       MakeSkiaImageInfo(size, format), map->GetData(), map->GetStride(),
       DrawTargetSkia::ReleaseMappedSkSurface, map, &props));
@@ -2207,6 +2246,15 @@ void DrawTargetSkia::DetachAllSnapshots() {
 void DrawTargetSkia::MarkChanged() {
   DetachAllSnapshots();
   mIsClear = false;
+}
+
+void DrawTargetSkia::AccessibleId(uint64_t aBrowsingContextId,
+                                  uint64_t aAccId) {
+#if defined(ACCESSIBILITY) && defined(MOZ_ENABLE_SKIA_PDF)
+  int pdfId =
+      mozilla::a11y::PdfStructTreeBuilder::GetPdfId(aBrowsingContextId, aAccId);
+  SkPDF::SetNodeId(mCanvas, pdfId);
+#endif
 }
 
 }  // namespace mozilla::gfx

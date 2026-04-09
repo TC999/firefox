@@ -1,5 +1,3 @@
-/* -*- tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -104,6 +102,7 @@ using mozilla::dom::NativeThreadId from "mozilla/dom/NativeThreadId.h";
 using mozilla::hal::ProcessPriority from "mozilla/HalTypes.h";
 using mozilla::gfx::IntSize from "mozilla/gfx/2D.h";
 using mozilla::gfx::SurfaceFormat from "mozilla/gfx/Types.h";
+using mozilla::gfx::CrashGuardType from "DriverCrashGuard.h";
 using gfxPlatform::GlobalReflowFlags from "gfxPlatform.h";
 using mozilla::dom::TabId from "mozilla/dom/ipc/IdType.h";
 using mozilla::dom::ContentParentId from "mozilla/dom/ipc/IdType.h";
@@ -146,8 +145,8 @@ using mozilla::dom::PermitUnloadResult from "nsIDocumentViewer.h";
 using mozilla::dom::MaybeDiscardedWindowContext from "mozilla/dom/WindowContext.h";
 using mozilla::dom::WindowContextTransaction from "mozilla/dom/WindowContext.h";
 [MoveOnly] using mozilla::ipc::ReadOnlySharedMemoryHandle from "mozilla/ipc/SharedMemoryHandle.h";
-using gfxSparseBitSet from "gfxFontUtils.h";
-using FontVisibility from "gfxFontEntry.h";
+using gfxSparseBitSet from "gfxSparseBitSet.h";
+using FontVisibility from "gfxTypes.h";
 using mozilla::dom::MediaControlAction from "mozilla/dom/MediaControlKeySource.h";
 using mozilla::dom::MediaPlaybackState from "mozilla/dom/MediaPlaybackStatus.h";
 using mozilla::dom::MediaAudibleState from "mozilla/dom/MediaPlaybackStatus.h";
@@ -774,6 +773,15 @@ child:
     async AddPermission(Permission permission);
     async RemoveAllPermissions();
 
+    // Browser-scoped (per-tab) permission forwarded from the parent process.
+    async SetBrowserPermission(nsCString origin, nsCString type,
+                               uint32_t action, uint64_t browserId,
+                               bool isRemoval);
+
+    // Clear all browser-scoped permissions for a given browserId, optionally
+    // filtered by action (0 = clear all regardless of action).
+    async ClearBrowserPermissions(uint64_t browserId, uint32_t actionFilter);
+
     // memory-pressure and memory-pressure-stop notifications.
     async MemoryPressure(nsString reason);
     async MemoryPressureStop();
@@ -1280,9 +1288,8 @@ parent:
     // Graphics errors
     async GraphicsError(nsCString aError);
 
-    // Driver crash guards. aGuardType must be a member of CrashGuardType.
-    sync BeginDriverCrashGuard(uint32_t aGuardType) returns (bool crashDetected);
-    sync EndDriverCrashGuard(uint32_t aGuardType);
+    sync BeginDriverCrashGuard(CrashGuardType aGuardType) returns (bool crashDetected);
+    sync EndDriverCrashGuard(CrashGuardType aGuardType);
 
     async AddIdleObserver(uint64_t observerId, uint32_t idleTimeInS);
     async RemoveIdleObserver(uint64_t observerId, uint32_t idleTimeInS);
@@ -1589,7 +1596,7 @@ parent:
     /**
      * Messages for communicating child Glean data to the parent process
      */
-    async RecordPageLoadEvent(PageloadEventData event, TimeStamp navigationStartTime, uint64_t aAndroidAppLinkLoadIdentifier);
+    async RecordPageLoadEvent(PageloadEventData event, TimeStamp navigationStartTime, MaybeDiscardedBrowsingContext aBrowsingContext);
 
     /**
      * Messages for communicating child Telemetry to the parent process

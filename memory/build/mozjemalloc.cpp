@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -244,7 +242,7 @@ struct ArenaTreeTrait {
 //   used by the standard API.
 class ArenaCollection {
  public:
-  constexpr ArenaCollection() {}
+  constexpr ArenaCollection() = default;
 
   bool Init() MOZ_REQUIRES(gInitLock) MOZ_EXCLUDES(mLock) {
     arena_params_t params;
@@ -312,12 +310,21 @@ class ArenaCollection {
   void SetDefaultMaxDirtyPageModifier(int32_t aModifier) {
     {
       MutexAutoLock lock(mLock);
+      bool decreased = aModifier < mDefaultMaxDirtyPageModifier;
       mDefaultMaxDirtyPageModifier = aModifier;
       for (auto* arena : iter()) {
         // We can only update max-dirty for main-thread-only arenas from the
         // main thread.
         if (!arena->IsMainThreadOnly() || IsOnMainThreadWeak()) {
           arena->UpdateMaxDirty();
+          if (decreased) {
+            purge_action_t action;
+            {
+              MaybeMutexAutoLock arena_lock(arena->mLock);
+              action = arena->ShouldStartPurge();
+            }
+            arena->MayDoOrQueuePurge(action, "SetDefaultMaxDirtyPageModifier");
+          }
         }
       }
     }
@@ -825,8 +832,8 @@ void arena_t::TouchMadvisedPage(arena_chunk_t* aChunk, size_t page) {
 }
 #endif
 
-bool arena_t::SplitRun(arena_run_t* aRun, size_t aSize, bool aLarge,
-                       bool aZero) {
+bool arena_t::SplitAndAllocRun(arena_run_t* aRun, size_t aSize, bool aLarge,
+                               bool aZero) {
   arena_chunk_t* chunk = GetChunkForPtr(aRun);
   size_t old_ndirty = chunk->mNumDirty;
   size_t run_ind =
@@ -904,8 +911,6 @@ bool arena_t::SplitRun(arena_run_t* aRun, size_t aSize, bool aLarge,
     }
   }
 #endif
-
-  mRunsAvail.Remove(&chunk->mPageMap[run_ind]);
 
   // Keep track of trailing unused pages for later use.
   if (rem_pages > 0) {
@@ -1048,8 +1053,8 @@ void arena_t::InitChunk(arena_chunk_t* aChunk, size_t aMinCommittedPages) {
       gChunkNumPages - gPagesPerRealPage - gChunkHeaderNumPages;
 #endif
 
-  // The committed pages are marked as Fresh.  Our caller, SplitRun will update
-  // this when it uses them.
+  // The committed pages are marked as Fresh.  Our caller, SplitAndAllocRun will
+  // update this when it uses them.
   for (size_t j = 0; j < n_fresh_pages; j++) {
     aChunk->mPageMap[i + j].bits = CHUNK_MAP_ZEROED | CHUNK_MAP_FRESH;
   }
@@ -1081,7 +1086,6 @@ void arena_t::InitChunk(arena_chunk_t* aChunk, size_t aMinCommittedPages) {
   aChunk->mPageMap[gChunkHeaderNumPages].bits |= gMaxLargeClass;
   aChunk->mPageMap[gChunkNumPages - gPagesPerRealPage - 1].bits |=
       gMaxLargeClass;
-  mRunsAvail.Insert(&aChunk->mPageMap[gChunkHeaderNumPages]);
 }
 
 bool arena_t::RemoveChunk(arena_chunk_t* aChunk) {
@@ -1168,16 +1172,16 @@ arena_run_t* arena_t::AllocRun(size_t aSize, bool aLarge, bool aZero) {
 
     MOZ_ASSERT((chunk->mPageMap[pageind].bits & CHUNK_MAP_BUSY) == 0);
     run = (arena_run_t*)(uintptr_t(chunk) + (pageind << gPageSize2Pow));
+    mRunsAvail.Remove(mapelm);
   } else if (mSpare && !mSpare->mIsPurging) {
     // Use the spare.
     arena_chunk_t* chunk = mSpare;
     mSpare = nullptr;
     run = (arena_run_t*)(uintptr_t(chunk) +
                          (gChunkHeaderNumPages << gPageSize2Pow));
-    // Insert the run into the tree of available runs.
     MOZ_ASSERT((chunk->mPageMap[gChunkHeaderNumPages].bits & CHUNK_MAP_BUSY) ==
                0);
-    mRunsAvail.Insert(&chunk->mPageMap[gChunkHeaderNumPages]);
+    mapelm = &chunk->mPageMap[gChunkHeaderNumPages];
   } else {
     // No usable runs.  Create a new chunk from which to allocate
     // the run.
@@ -1190,9 +1194,14 @@ arena_run_t* arena_t::AllocRun(size_t aSize, bool aLarge, bool aZero) {
     InitChunk(chunk, aSize >> gPageSize2Pow);
     run = (arena_run_t*)(uintptr_t(chunk) +
                          (gChunkHeaderNumPages << gPageSize2Pow));
+    mapelm = &chunk->mPageMap[gChunkHeaderNumPages];
   }
   // Update page map.
-  return SplitRun(run, aSize, aLarge, aZero) ? run : nullptr;
+  if (!SplitAndAllocRun(run, aSize, aLarge, aZero)) {
+    mRunsAvail.Insert(mapelm);
+    return nullptr;
+  }
+  return run;
 }
 
 void arena_t::UpdateMaxDirty() {
@@ -1403,8 +1412,9 @@ ArenaPurgeResult arena_t::Purge(
       continue_purge_arena = purge_info.mArena.ShouldContinuePurge(aCond);
       chunk_is_dying = chunk->mDying;
 
-      // The code below will exit returning false if these are both false, so
-      // clear mIsDeferredPurgeNeeded while we still hold the lock.
+      // The code below will exit returning ReachedThresholdOrBusy if these are
+      // both false, so clear mIsDeferredPurgeNeeded while we still hold the
+      // lock.
       if (!continue_purge_chunk && !continue_purge_arena) {
         purge_info.mArena.mIsPurgePending = false;
       }
@@ -1419,6 +1429,10 @@ ArenaPurgeResult arena_t::Purge(
       // if continue_purge_arena is true.
       return continue_purge_arena ? NotDone : ReachedThresholdOrBusy;
     }
+    // Note that even if continue_purge_arena is false, then the purge may still
+    // continue (as long as continue_purge_chunk is true). It must because the
+    // pages have already been marked in FindDirtyPages(), then it will exit
+    // after phase 2.
 
 #ifdef MALLOC_DECOMMIT
     pages_decommit(purge_info.DirtyPtr(), purge_info.DirtyLenBytes());
@@ -2842,9 +2856,12 @@ bool arena_t::RallocGrowLarge(arena_chunk_t* aChunk, void* aPtr, size_t aSize,
       // The next run is available and sufficiently large.  Split the
       // following run, then merge the first part with the existing
       // allocation.
-      if (!SplitRun((arena_run_t*)(uintptr_t(aChunk) +
-                                   ((pageind + npages) << gPageSize2Pow)),
-                    aSize - aOldSize, true, false)) {
+      mRunsAvail.Remove(&aChunk->mPageMap[pageind + npages]);
+      if (!SplitAndAllocRun(
+              (arena_run_t*)(uintptr_t(aChunk) +
+                             ((pageind + npages) << gPageSize2Pow)),
+              aSize - aOldSize, true, false)) {
+        mRunsAvail.Insert(&aChunk->mPageMap[pageind + npages]);
         return false;
       }
 

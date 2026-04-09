@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -287,6 +285,13 @@ class nsFrameSelection final {
                                           CaretAssociationHint aHint);
 
  public:
+  [[nodiscard]] bool IsAvailable() const {
+    // mDomSelections is initialized at construction and cleared if the cycle
+    // collector unlink them so that if the first selection is available, the
+    // others should be fine.
+    return !!mDomSelections[0];
+  }
+
   /**
    * Sets the type of the selection based on whether a selection is created
    * by doubleclick, long tapping a word or tripleclick.

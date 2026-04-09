@@ -23,7 +23,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
   NetUtil: "resource://gre/modules/NetUtil.sys.mjs",
   NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
-  ScreenshotsUtils: "resource:///modules/ScreenshotsUtils.sys.mjs",
+  ScreenshotsUtils:
+    "moz-src:///browser/components/screenshots/ScreenshotsUtils.sys.mjs",
   SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   SearchUIUtils: "moz-src:///browser/components/search/SearchUIUtils.sys.mjs",
   SearchUtils: "moz-src:///toolkit/components/search/SearchUtils.sys.mjs",
@@ -516,9 +517,14 @@ export class nsContextMenu {
       lazy.LinkPreview.shouldShowContextMenu(this)
     );
     let isHiddenTab = !!window.gBrowser?.getTabForBrowser(this.browser)?.hidden;
+    let isPinnedTab = !!window.gBrowser?.getTabForBrowser(this.browser)?.pinned;
     this.showItem(
       "context-openlinkinsplitview",
-      shouldShow && showSplitViews && !currentTabInSplitView && !isHiddenTab
+      shouldShow &&
+        showSplitViews &&
+        !currentTabInSplitView &&
+        !isHiddenTab &&
+        !isPinnedTab
     );
   }
 
@@ -531,7 +537,8 @@ export class nsContextMenu {
         this.onCanvas ||
         this.onVideo ||
         this.onAudio ||
-        this.onTextInput
+        this.onTextInput ||
+        this.window.browsingContext.isDocumentPiP
       ) && this.inTabBrowser;
     if (AppConstants.platform == "macosx") {
       for (let id of [
@@ -708,10 +715,9 @@ export class nsContextMenu {
       );
     }
 
-    // Copy image contents depends on whether we're on an image.
     // Note: the element doesn't exist on all platforms, but showItem() takes
     // care of that by itself.
-    this.showItem("context-copyimage-contents", this.onImage);
+    this.showItem("context-copyimage-contents", this.onImage || this.onCanvas);
 
     // Copy image location depends on whether we're on an image.
     this.showItem("context-copyimage", this.onImage || showBGImage);
@@ -792,14 +798,15 @@ export class nsContextMenu {
         lazy.gPrintEnabled
     );
 
-    var shouldShow = !(
+    var showViewSource = !(
       this.isContentSelected ||
       this.onImage ||
       this.onCanvas ||
       this.onVideo ||
       this.onAudio ||
       this.onLink ||
-      this.onTextInput
+      this.onTextInput ||
+      this.window.browsingContext.isDocumentPiP
     );
 
     var showInspect =
@@ -818,7 +825,7 @@ export class nsContextMenu {
         // through normal use, and we've passed an ESR cycle (91).
         lazy.DevToolsShim.isDevToolsUser());
 
-    this.showItem("context-viewsource", shouldShow);
+    this.showItem("context-viewsource", showViewSource);
     this.showItem("context-inspect", showInspect);
 
     this.showItem("context-inspect-a11y", showInspectA11Y);
@@ -845,7 +852,8 @@ export class nsContextMenu {
         this.onVideo ||
         this.onAudio ||
         this.onCanvas ||
-        this.inWebExtBrowser
+        this.inWebExtBrowser ||
+        this.window.browsingContext.isDocumentPiP
       )
     );
 
@@ -1674,6 +1682,12 @@ export class nsContextMenu {
 
   _canvasToBlobURL(targetIdentifier) {
     return this.actor.canvasToBlobURL(targetIdentifier);
+  }
+
+  copyCanvasImage() {
+    this.actor.copyCanvasImage(this.targetIdentifier).then(arrayBuffer => {
+      lazy.BrowserUtils.copyImageToClipboard(arrayBuffer);
+    }, console.error);
   }
 
   // Change current window to the URL of the image, video, or audio.

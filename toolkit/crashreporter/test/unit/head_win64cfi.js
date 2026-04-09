@@ -75,7 +75,7 @@ function stackFrameToString(frameIndex, frame) {
     frame.module_index >= 0 &&
     frame.module_index < gModules.length
   ) {
-    let base = gModules[frame.module_index].base_addr;
+    let base = gModules[frame.module_index].base_address;
     moduleOffset = getModuleOffset(base, ip);
     filename = gModules[frame.module_index].filename;
 
@@ -159,7 +159,7 @@ function assertStack(stack, expected) {
         Assert.ok(false, "module exists");
         return;
       }
-      let base = gModules[frame.module_index].base_addr;
+      let base = gModules[frame.module_index].base_address;
       let moduleOffset = getModuleOffset(base, frame.ip);
       let filename = gModules[frame.module_index].filename;
       if (filename == "testcrasher.dll") {
@@ -198,7 +198,7 @@ async function do_x64CFITest(how, expectedStack) {
 
     initTestCrasherSymbols();
     let stackTraces = extra.StackTraces;
-    let crashingThreadIndex = stackTraces.crash_info.crashing_thread;
+    let crashingThreadIndex = stackTraces.crash_thread;
     gModules = stackTraces.modules;
     let crashingFrames = stackTraces.threads[crashingThreadIndex].frames;
 

@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -39,7 +37,6 @@
 #include "mozilla/RenderingPhase.h"
 #include "mozilla/Result.h"
 #include "mozilla/SegmentedVector.h"
-#include "mozilla/ServoStyleSet.h"
 #include "mozilla/StorageAccessAPIHelper.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/UniquePtr.h"
@@ -273,6 +270,7 @@ enum class OrientationType : uint8_t;
 enum class PopoverAttributeState : uint8_t;
 class ProcessingInstruction;
 class Promise;
+struct PropertyDefinition;
 class ScriptLoader;
 class Selection;
 class ServiceWorkerDescriptor;
@@ -289,6 +287,7 @@ class TrustedHTMLOrString;
 class OwningTrustedHTMLOrString;
 enum class ViewportFitType : uint8_t;
 class ViewTransition;
+struct ViewTransitionParams;
 class ViewTransitionUpdateCallbackOrStartViewTransitionOptions;
 class WakeLockSentinel;
 class WindowContext;
@@ -3355,6 +3354,10 @@ class Document : public nsINode,
   // features values changing.
   void NotifyMediaFeatureValuesChanged();
 
+  // Observe loading=lazy sizes=auto image for size changes.
+  void ObserveAutoSizesImage(HTMLImageElement& aElement);
+  void UnobserveAutoSizesImage(HTMLImageElement& aElement);
+
   nsresult GetStateObject(JS::MutableHandle<JS::Value> aState);
 
   nsDOMNavigationTiming* GetNavigationTiming() const { return mTiming; }
@@ -4127,6 +4130,16 @@ class Document : public nsINode,
 
   void ScheduleViewTransitionUpdateCallback(ViewTransition* aVt);
   MOZ_CAN_RUN_SCRIPT void FlushViewTransitionUpdateCallbackQueue();
+
+  // Returns some ViewTransition::TypeList or Nothing if skip transition.
+  // https://drafts.csswg.org/css-view-transitions-2/#resolve-view-transition-rule
+  Maybe<nsTArray<RefPtr<nsAtom>>> ResolveViewTransitionRule();
+
+  void SetInboundViewTransitionParams(UniquePtr<ViewTransitionParams> aParams);
+
+  // Returns some ViewTransition or Nothing if skip transition.
+  // https://drafts.csswg.org/css-view-transitions-2/#resolve-inbound-cross-document-view-transition
+  Maybe<RefPtr<ViewTransition>> ResolveInboundCrossDocumentViewTransition();
 
   // Getter for PermissionDelegateHandler. Performs lazy initialization.
   PermissionDelegateHandler* GetPermissionDelegateHandler();
@@ -5716,6 +5729,9 @@ class Document : public nsINode,
 
   RefPtr<HTMLAllCollection> mAll;
 
+  // https://drafts.csswg.org/css-view-transitions-2/#document-inbound-view-transition-params
+  UniquePtr<ViewTransitionParams> mInboundViewTransitionParams;
+
   // The active view transition.
   // https://drafts.csswg.org/css-view-transitions-1/#document-active-view-transition
   RefPtr<ViewTransition> mActiveViewTransition;
@@ -5802,6 +5818,9 @@ class Document : public nsINode,
   nsTArray<CanvasUsage> mCanvasUsageData;
   // Timestamp (PR_Now microseconds) of the last update to mCanvasUsageData.
   uint64_t mCanvasUsageLastTimestamp = 0;
+
+  // ResizeObserver for loading=lazy sizes=auto images.
+  RefPtr<ResizeObserver> mAutoSizeImageObserver;
 
   RefPtr<class FragmentDirective> mFragmentDirective;
   UniquePtr<RadioGroupContainer> mRadioGroupContainer;
@@ -5897,7 +5916,7 @@ class MOZ_RAII IgnoreOpensDuringUnload final {
   }
 
  private:
-  Document* mDoc;
+  RefPtr<Document> mDoc;
 };
 
 /**

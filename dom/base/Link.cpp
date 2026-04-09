@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -394,9 +392,6 @@ void Link::BindToTree(const BindContext& aContext) {
 
 void Link::ResetLinkState(bool aNotify, bool aHasHref) {
   // If we have an href, we should register with the history.
-  //
-  // FIXME(emilio): Do we really want to allow all MathML elements to be
-  // :visited? That seems not great.
   mNeedsRegistration = aHasHref;
 
   // If we've cached the URI, reset always invalidates it.

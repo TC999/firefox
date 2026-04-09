@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -4565,13 +4563,13 @@ void nsGlobalWindowOuter::MakeMessageWithPrincipal(
   nsAutoCString contentDesc;
 
   if (aSubjectPrincipal->GetIsNullPrincipal()) {
-    nsContentUtils::GetLocalizedString(
-        nsContentUtils::eCOMMON_DIALOG_PROPERTIES, aNullMessage, aOutMessage);
+    nsContentUtils::GetLocalizedString(PropertiesFile::COMMON_DIALOG_PROPERTIES,
+                                       aNullMessage, aOutMessage);
   } else {
     auto* addonPolicy = BasePrincipal::Cast(aSubjectPrincipal)->AddonPolicy();
     if (addonPolicy) {
       nsContentUtils::FormatLocalizedString(
-          aOutMessage, nsContentUtils::eCOMMON_DIALOG_PROPERTIES,
+          aOutMessage, PropertiesFile::COMMON_DIALOG_PROPERTIES,
           aContentMessage, addonPolicy->Name());
     } else {
       nsresult rv = NS_ERROR_FAILURE;
@@ -4587,7 +4585,7 @@ void nsGlobalWindowOuter::MakeMessageWithPrincipal(
       if (NS_SUCCEEDED(rv) && !contentDesc.IsEmpty()) {
         NS_ConvertUTF8toUTF16 ucsPrePath(contentDesc);
         nsContentUtils::FormatLocalizedString(
-            aOutMessage, nsContentUtils::eCOMMON_DIALOG_PROPERTIES,
+            aOutMessage, PropertiesFile::COMMON_DIALOG_PROPERTIES,
             aContentMessage, ucsPrePath);
       }
     }
@@ -4595,9 +4593,8 @@ void nsGlobalWindowOuter::MakeMessageWithPrincipal(
 
   if (aOutMessage.IsEmpty()) {
     // We didn't find a host so use the generic heading
-    nsContentUtils::GetLocalizedString(
-        nsContentUtils::eCOMMON_DIALOG_PROPERTIES, aFallbackMessage,
-        aOutMessage);
+    nsContentUtils::GetLocalizedString(PropertiesFile::COMMON_DIALOG_PROPERTIES,
+                                       aFallbackMessage, aOutMessage);
   }
 
   // Just in case
@@ -4828,8 +4825,8 @@ void nsGlobalWindowOuter::PromptOuter(const nsAString& aMessage,
   nsAutoString label;
   label.SetIsVoid(true);
   if (ShouldPromptToBlockDialogs()) {
-    nsContentUtils::GetLocalizedString(
-        nsContentUtils::eCOMMON_DIALOG_PROPERTIES, "ScriptDialogLabel", label);
+    nsContentUtils::GetLocalizedString(PropertiesFile::COMMON_DIALOG_PROPERTIES,
+                                       "ScriptDialogLabel", label);
   }
 
   nsAutoSyncOperation sync(mDoc, SyncOperationBehavior::eSuspendInput);
@@ -6054,7 +6051,7 @@ void nsGlobalWindowOuter::CloseOuter(bool aTrustedCaller) {
         nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
                                         "DOM Window"_ns,
                                         mDoc,  // Better name for the category?
-                                        nsContentUtils::eDOM_PROPERTIES,
+                                        PropertiesFile::DOM_PROPERTIES,
                                         "WindowCloseByScriptBlockedWarning");
 
         return;
@@ -7149,76 +7146,6 @@ void nsGlobalWindowOuter::EnsureSizeAndPositionUpToDate() {
     RefPtr<Document> parent = mDoc->GetInProcessParentDocument();
     parent->FlushPendingNotifications(FlushType::Layout);
   }
-}
-
-already_AddRefed<nsISupports> nsGlobalWindowOuter::SaveWindowState() {
-  MOZ_ASSERT(!mozilla::SessionHistoryInParent());
-
-  if (!mContext || !GetWrapperPreserveColor()) {
-    // The window may be getting torn down; don't bother saving state.
-    return nullptr;
-  }
-
-  nsGlobalWindowInner* inner = GetCurrentInnerWindowInternal(this);
-  NS_ASSERTION(inner, "No inner window to save");
-
-  if (WindowContext* wc = inner->GetWindowContext()) {
-    MOZ_ASSERT(!wc->GetWindowStateSaved());
-    (void)wc->SetWindowStateSaved(true);
-  }
-
-  // Don't do anything else to this inner window! After this point, all
-  // calls to SetTimeoutOrInterval will create entries in the timeout
-  // list that will only run after this window has come out of the bfcache.
-  // Also, while we're frozen, we won't dispatch online/offline events
-  // to the page.
-  inner->Freeze();
-
-  nsCOMPtr<nsISupports> state = new WindowStateHolder(inner);
-
-  MOZ_LOG(gPageCacheLog, LogLevel::Debug,
-          ("saving window state, state = %p", (void*)state));
-
-  return state.forget();
-}
-
-nsresult nsGlobalWindowOuter::RestoreWindowState(nsISupports* aState) {
-  MOZ_ASSERT(!mozilla::SessionHistoryInParent());
-
-  if (!mContext || !GetWrapperPreserveColor()) {
-    // The window may be getting torn down; don't bother restoring state.
-    return NS_OK;
-  }
-
-  nsCOMPtr<WindowStateHolder> holder = do_QueryInterface(aState);
-  NS_ENSURE_TRUE(holder, NS_ERROR_FAILURE);
-
-  MOZ_LOG(gPageCacheLog, LogLevel::Debug,
-          ("restoring window state, state = %p", (void*)holder));
-
-  // And we're ready to go!
-  nsGlobalWindowInner* inner = GetCurrentInnerWindowInternal(this);
-
-  // if a link is focused, refocus with the FLAG_SHOWRING flag set. This makes
-  // it easy to tell which link was last clicked when going back a page.
-  RefPtr<Element> focusedElement = inner->GetFocusedElement();
-  if (nsContentUtils::ContentIsLink(focusedElement)) {
-    if (RefPtr<nsFocusManager> fm = nsFocusManager::GetFocusManager()) {
-      fm->SetFocus(focusedElement, nsIFocusManager::FLAG_NOSCROLL |
-                                       nsIFocusManager::FLAG_SHOWRING);
-    }
-  }
-
-  if (WindowContext* wc = inner->GetWindowContext()) {
-    MOZ_ASSERT(wc->GetWindowStateSaved());
-    (void)wc->SetWindowStateSaved(false);
-  }
-
-  inner->Thaw();
-
-  holder->DidRestoreWindow();
-
-  return NS_OK;
 }
 
 void nsGlobalWindowOuter::AddSizeOfIncludingThis(

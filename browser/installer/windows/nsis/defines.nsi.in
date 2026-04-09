@@ -90,8 +90,6 @@
 !define BETA_UPDATE_CHANNEL
 !endif
 
-!define BaseURLStubPing "http://download-stats.mozilla.org/stub"
-
 # ARCH is used when it is necessary to differentiate the x64 registry keys from
 # the x86 registry keys (e.g. the uninstall registry key).
 #ifdef HAVE_64BIT_BUILD

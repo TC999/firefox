@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1058,8 +1056,8 @@ NS_IMETHODIMP NrUdpSocketIpc::CallListenerError(const nsACString& message,
   ASSERT_ON_THREAD(io_thread_);
 
   r_log(LOG_GENERIC, LOG_ERR, "UDP socket error:%s at %s:%d this=%p",
-        message.BeginReading(), filename.BeginReading(), line_number,
-        (void*)this);
+        PromiseFlatCString(message).get(), PromiseFlatCString(filename).get(),
+        line_number, (void*)this);
 
   ReentrantMonitorAutoEnter mon(monitor_);
   err_ = true;
@@ -1079,7 +1077,8 @@ NS_IMETHODIMP NrUdpSocketIpc::CallListenerReceivedData(
   {
     ReentrantMonitorAutoEnter mon(monitor_);
 
-    if (PR_SUCCESS != PR_StringToNetAddr(host.BeginReading(), &addr)) {
+    if (PR_SUCCESS !=
+        PR_StringToNetAddr(PromiseFlatCString(host).get(), &addr)) {
       err_ = true;
       MOZ_ASSERT(false, "Failed to convert remote host to PRNetAddr");
       return NS_OK;
@@ -1117,7 +1116,7 @@ nsresult NrUdpSocketIpc::SetAddress() {
     return NS_OK;
   }
 
-  if (PR_SUCCESS != PR_StringToNetAddr(address.BeginReading(), &praddr)) {
+  if (PR_SUCCESS != PR_StringToNetAddr(address.get(), &praddr)) {
     err_ = true;
     MOZ_ASSERT(false, "Failed to convert local host to PRNetAddr");
     return NS_OK;

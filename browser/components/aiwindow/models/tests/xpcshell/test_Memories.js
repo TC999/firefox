@@ -4,6 +4,9 @@
 
 do_get_profile();
 
+const { sanitizeUntrustedContent } = ChromeUtils.importESModule(
+  "moz-src:///browser/components/aiwindow/models/ChatUtils.sys.mjs"
+);
 const { ChatStore, ChatMessage, MESSAGE_ROLE } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/ui/modules/ChatStore.sys.mjs"
 );
@@ -18,10 +21,15 @@ const {
 const { getRecentChats } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/models/memories/MemoriesChatSource.sys.mjs"
 );
-const { DEFAULT_ENGINE_ID, MODEL_FEATURES, openAIEngine, SERVICE_TYPES } =
-  ChromeUtils.importESModule(
-    "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs"
-  );
+const {
+  DEFAULT_ENGINE_ID,
+  MODEL_FEATURES,
+  openAIEngine,
+  SERVICE_TYPES,
+  PURPOSES,
+} = ChromeUtils.importESModule(
+  "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs"
+);
 const { sinon } = ChromeUtils.importESModule(
   "resource://testing-common/Sinon.sys.mjs"
 );
@@ -152,11 +160,11 @@ add_task(async function test_buildRecentHistoryCSV_only_search() {
     renderedBrowserHistory,
     `# Website Titles
 Website Title,Importance Score
-Google Search: firefox history | www.google.com,100
+${sanitizeUntrustedContent("Google Search: firefox history | www.google.com", true)},100
 
 # Web Searches
 Search Query,Importance Score
-Google Search: firefox history | www.google.com,1`.trim()
+${sanitizeUntrustedContent("Google Search: firefox history | www.google.com", true)},1`.trim()
   );
 });
 
@@ -191,8 +199,8 @@ add_task(async function test_buildRecentHistoryCSV_only_browsing_history() {
     renderedBrowserHistory,
     `# Website Titles
 Website Title,Importance Score
-Hacker News | news.ycombinator.com,100
-Internet for people, not profit — Mozilla | mozilla.org,100`.trim()
+${sanitizeUntrustedContent("Hacker News | news.ycombinator.com", true)},100
+${sanitizeUntrustedContent("Internet for people, not profit — Mozilla | mozilla.org", true)},100`.trim()
   );
 });
 
@@ -271,7 +279,8 @@ Tell me a joke about my favorite animals.`.trim(),
     const engine = await openAIEngine.build(
       MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
       DEFAULT_ENGINE_ID,
-      SERVICE_TYPES.MEMORIES
+      SERVICE_TYPES.MEMORIES,
+      PURPOSES.MEMORY_GENERATION
     );
 
     Assert.ok(engineStub.calledOnce, "_createEngine should be called once");
@@ -357,7 +366,8 @@ add_task(async function test_generateInitialMemoriesList_happy_path() {
     const engine = await openAIEngine.build(
       MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
       DEFAULT_ENGINE_ID,
-      SERVICE_TYPES.MEMORIES
+      SERVICE_TYPES.MEMORIES,
+      PURPOSES.MEMORY_GENERATION
     );
     Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -442,7 +452,8 @@ add_task(
       const engine = await openAIEngine.build(
         MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
         DEFAULT_ENGINE_ID,
-        SERVICE_TYPES.MEMORIES
+        SERVICE_TYPES.MEMORIES,
+        PURPOSES.MEMORY_GENERATION
       );
       Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -483,7 +494,8 @@ add_task(
       const engine = await openAIEngine.build(
         MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
         DEFAULT_ENGINE_ID,
-        SERVICE_TYPES.MEMORIES
+        SERVICE_TYPES.MEMORIES,
+        PURPOSES.MEMORY_GENERATION
       );
       Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -524,7 +536,8 @@ add_task(
       const engine = await openAIEngine.build(
         MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
         DEFAULT_ENGINE_ID,
-        SERVICE_TYPES.MEMORIES
+        SERVICE_TYPES.MEMORIES,
+        PURPOSES.MEMORY_GENERATION
       );
       Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -611,7 +624,8 @@ add_task(
       const engine = await openAIEngine.build(
         MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
         DEFAULT_ENGINE_ID,
-        SERVICE_TYPES.MEMORIES
+        SERVICE_TYPES.MEMORIES,
+        PURPOSES.MEMORY_GENERATION
       );
       Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -686,7 +700,8 @@ add_task(async function test_deduplicateMemoriesList_happy_path() {
     const engine = await openAIEngine.build(
       MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
       DEFAULT_ENGINE_ID,
-      SERVICE_TYPES.MEMORIES
+      SERVICE_TYPES.MEMORIES,
+      PURPOSES.MEMORY_GENERATION
     );
     Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -752,7 +767,8 @@ add_task(async function test_deduplicateMemoriesList_sad_path_empty_output() {
     const engine = await openAIEngine.build(
       MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
       DEFAULT_ENGINE_ID,
-      SERVICE_TYPES.MEMORIES
+      SERVICE_TYPES.MEMORIES,
+      PURPOSES.MEMORY_GENERATION
     );
     Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -793,7 +809,8 @@ add_task(
       const engine = await openAIEngine.build(
         MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
         DEFAULT_ENGINE_ID,
-        SERVICE_TYPES.MEMORIES
+        SERVICE_TYPES.MEMORIES,
+        PURPOSES.MEMORY_GENERATION
       );
       Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -841,7 +858,8 @@ add_task(
       const engine = await openAIEngine.build(
         MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
         DEFAULT_ENGINE_ID,
-        SERVICE_TYPES.MEMORIES
+        SERVICE_TYPES.MEMORIES,
+        PURPOSES.MEMORY_GENERATION
       );
       Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -889,7 +907,8 @@ add_task(
       const engine = await openAIEngine.build(
         MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
         DEFAULT_ENGINE_ID,
-        SERVICE_TYPES.MEMORIES
+        SERVICE_TYPES.MEMORIES,
+        PURPOSES.MEMORY_GENERATION
       );
       Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -958,7 +977,8 @@ add_task(
       const engine = await openAIEngine.build(
         MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
         DEFAULT_ENGINE_ID,
-        SERVICE_TYPES.MEMORIES
+        SERVICE_TYPES.MEMORIES,
+        PURPOSES.MEMORY_GENERATION
       );
       Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -1019,7 +1039,8 @@ add_task(
       const engine = await openAIEngine.build(
         MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
         DEFAULT_ENGINE_ID,
-        SERVICE_TYPES.MEMORIES
+        SERVICE_TYPES.MEMORIES,
+        PURPOSES.MEMORY_GENERATION
       );
       Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -1078,7 +1099,8 @@ add_task(async function test_filterSensitiveMemories_happy_path() {
     const engine = await openAIEngine.build(
       MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
       DEFAULT_ENGINE_ID,
-      SERVICE_TYPES.MEMORIES
+      SERVICE_TYPES.MEMORIES,
+      PURPOSES.MEMORY_GENERATION
     );
     Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -1135,7 +1157,8 @@ add_task(async function test_filterSensitiveMemories_sad_path_empty_output() {
     const engine = await openAIEngine.build(
       MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
       DEFAULT_ENGINE_ID,
-      SERVICE_TYPES.MEMORIES
+      SERVICE_TYPES.MEMORIES,
+      PURPOSES.MEMORY_GENERATION
     );
     Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -1182,7 +1205,8 @@ add_task(
       const engine = await openAIEngine.build(
         MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
         DEFAULT_ENGINE_ID,
-        SERVICE_TYPES.MEMORIES
+        SERVICE_TYPES.MEMORIES,
+        PURPOSES.MEMORY_GENERATION
       );
       Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -1232,7 +1256,8 @@ add_task(
       const engine = await openAIEngine.build(
         MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
         DEFAULT_ENGINE_ID,
-        SERVICE_TYPES.MEMORIES
+        SERVICE_TYPES.MEMORIES,
+        PURPOSES.MEMORY_GENERATION
       );
       Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -1284,7 +1309,8 @@ add_task(
       const engine = await openAIEngine.build(
         MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
         DEFAULT_ENGINE_ID,
-        SERVICE_TYPES.MEMORIES
+        SERVICE_TYPES.MEMORIES,
+        PURPOSES.MEMORY_GENERATION
       );
       Assert.ok(stub.calledOnce, "_createEngine should be called once");
 
@@ -1338,7 +1364,8 @@ add_task(
       const engine = await openAIEngine.build(
         MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
         DEFAULT_ENGINE_ID,
-        SERVICE_TYPES.MEMORIES
+        SERVICE_TYPES.MEMORIES,
+        PURPOSES.MEMORY_GENERATION
       );
       Assert.ok(stub.calledOnce, "_createEngine should be called once");
 

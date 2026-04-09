@@ -612,7 +612,7 @@ async function collectCrashInfo() {
         return null;
       }
 
-      const crashAddr = parseBigInt(stackInfo.crash_info?.address);
+      const crashAddr = parseBigInt(stackInfo.crash_address);
       if (typeof crashAddr !== "bigint") {
         return null;
       }
@@ -622,8 +622,8 @@ async function collectCrashInfo() {
       // because comparing BigInt with NaN returns false.
       return stackInfo.modules?.find(
         module =>
-          crashAddr >= parseBigInt(module.base_addr) &&
-          crashAddr < parseBigInt(module.end_addr)
+          crashAddr >= parseBigInt(module.base_address) &&
+          crashAddr < parseBigInt(module.end_address)
       )?.filename;
     })
   );

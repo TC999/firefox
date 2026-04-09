@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -27,7 +25,6 @@
 #include "mozilla/dom/RemoteType.h"
 #include "mozilla/dom/quota/ResultExtensions.h"
 #include "mozilla/glean/LibprefMetrics.h"
-#include "mozilla/glean/GleanPings.h"
 #include "mozilla/HashFunctions.h"
 #include "mozilla/IdleTaskRunner.h"
 #include "mozilla/HashTable.h"
@@ -2138,30 +2135,12 @@ class Parser {
   }
 };
 
-#ifdef NIGHTLY_BUILD
-static nsCString RedactUUIDs(const nsCString& aData) {
-  static const std::regex sUUIDPattern(
-      "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
-      "[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}");
-  std::string result = std::regex_replace(
-      aData.get(), sUUIDPattern, "00000000-0000-0000-0000-000000000000");
-  return nsCString(result.c_str());
-}
-#endif
-
 static nsresult parsePrefFileData(PrefValueKind aKind, const char* aPath,
                                   const nsCString& aData,
                                   PrefsParserPrefFn aPrefFn,
                                   PrefsParserErrorFn aErrorFn) {
   if (!prefs_parser_parse(aPath, aKind, aData.get(), aData.Length(), aPrefFn,
                           aErrorFn)) {
-#ifdef NIGHTLY_BUILD
-    // Added for bug 2004956. We are seeing prefs files fail to parse
-    // much more often than expected, and we want to see a few examples
-    // of failing ones. It's fine to only get one of these per client.
-    glean::preferences::prefs_file_that_failed_to_parse.Set(RedactUUIDs(aData));
-    glean_pings::PrefsFileInvalid.Submit();
-#endif
     return NS_ERROR_FILE_CORRUPTED;
   }
   return NS_OK;
@@ -5042,7 +5021,7 @@ struct Internals {
     NS_ENSURE_TRUE(Preferences::InitStaticMembers(), NS_ERROR_NOT_AVAILABLE);
 
     if (Maybe<PrefWrapper> pref = pref_Lookup(aPrefName)) {
-      rv = pref->GetValue(aKind, std::forward<T>(aResult));
+      rv = pref->GetValue(aKind, aResult);
 
       if (profiler_thread_is_being_profiled_for_markers()) {
         profiler_add_marker(
@@ -6521,7 +6500,6 @@ static const PrefListEntry sDynamicPrefOverrideList[]{
     PREF_LIST_ENTRY("media.peerconnection.nat_simulator.network_delay_ms"),
     PREF_LIST_ENTRY("media.video_loopback_dev"),
     PREF_LIST_ENTRY("media.webspeech.service.endpoint"),
-    PREF_LIST_ENTRY("network.gio.supported-protocols"),
     PREF_LIST_ENTRY("network.protocol-handler.external."),
     PREF_LIST_ENTRY("network.security.ports.banned"),
     PREF_LIST_ENTRY("nimbus.syncdatastore."),

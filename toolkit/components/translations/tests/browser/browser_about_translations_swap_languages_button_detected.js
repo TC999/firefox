@@ -87,6 +87,7 @@ add_task(
       enabled: false,
     });
     await aboutTranslationsTestUtils.assertTargetTextArea({
+      languageTag: null,
       showsPlaceholder: true,
     });
 
@@ -497,7 +498,7 @@ add_task(
         ],
       },
       async () => {
-        await aboutTranslationsTestUtils.clickSwapLanguagesButton();
+        await aboutTranslationsTestUtils.invokeSwapLanguagesButton();
       }
     );
 
@@ -531,7 +532,7 @@ add_task(
         ],
       },
       async () => {
-        await aboutTranslationsTestUtils.clickSwapLanguagesButton();
+        await aboutTranslationsTestUtils.invokeSwapLanguagesButton();
       }
     );
 

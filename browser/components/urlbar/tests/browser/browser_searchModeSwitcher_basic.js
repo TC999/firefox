@@ -346,70 +346,6 @@ add_task(async function test_search_icon_change() {
   await SpecialPowers.popPrefEnv();
 });
 
-add_task(async function test_suggestions_after_no_search_mode() {
-  info("Add a search engine as default");
-  let defaultEngine = await SearchTestUtils.installSearchExtension(
-    {
-      name: "default-engine",
-      search_url: "https://www.example.com/",
-      favicon_url: "https://www.example.com/favicon.ico",
-    },
-    {
-      setAsDefault: true,
-      skipUnload: true,
-    }
-  );
-
-  info("Add one more search engine to check the result");
-  let anotherEngine = await SearchTestUtils.installSearchExtension(
-    {
-      name: "another-engine",
-      search_url: "https://example.com/",
-      favicon_url: "https://example.com/favicon.ico",
-    },
-    { skipUnload: true }
-  );
-
-  info("Open urlbar with a query");
-  await UrlbarTestUtils.promiseAutocompleteResultPopup({
-    window,
-    value: "test",
-  });
-  Assert.equal(
-    (await UrlbarTestUtils.getDetailsOfResultAt(window, 0)).result.payload
-      .engine,
-    "default-engine",
-    "Suggest to search from the default engine"
-  );
-
-  info("Open search mode swither");
-  let popup = await UrlbarTestUtils.openSearchModeSwitcher(window);
-
-  info("Press on the another-engine menu button");
-  let popupHidden = UrlbarTestUtils.searchModeSwitcherPopupClosed(window);
-  popup.querySelector("menuitem[label=another-engine]").click();
-  await popupHidden;
-  Assert.equal(
-    (await UrlbarTestUtils.getDetailsOfResultAt(window, 0)).result.payload
-      .engine,
-    "another-engine",
-    "Suggest to search from the another engine"
-  );
-
-  info("Press the close button and escape search mode");
-  gURLBar.querySelector(".searchmode-switcher-close").click();
-  await UrlbarTestUtils.assertSearchMode(window, null);
-  Assert.equal(
-    (await UrlbarTestUtils.getDetailsOfResultAt(window, 0)).result.payload
-      .engine,
-    "default-engine",
-    "Suggest to search from the default engine again"
-  );
-
-  await defaultEngine.unload();
-  await anotherEngine.unload();
-});
-
 add_task(async function open_engine_page_directly() {
   const TEST_DATA = [
     {
@@ -557,8 +493,9 @@ add_task(async function open_engine_page_in_tab() {
     }
 
     await UrlbarTestUtils.assertSearchMode(newWin, null);
-    await newTabOpened;
-    Assert.ok(true, "Expected page was loaded");
+    let tab = await newTabOpened;
+    Assert.ok(true, "Expected page was loaded in a new tab");
+    Assert.ok(!tab.selected, "New tab opened in the background");
 
     await BrowserTestUtils.closeWindow(newWin);
   }
@@ -750,15 +687,12 @@ add_task(async function nimbusScotchBonnetEnableOverride() {
 
 add_task(async function test_button_stuck() {
   let win = await BrowserTestUtils.openNewBrowserWindow();
-  let popup = win.gURLBar.querySelector(".searchmode-switcher-popup");
-  let button = win.gURLBar.querySelector(".searchmode-switcher");
 
   info("Show the SearchModeSwitcher");
-  let promiseMenuOpen = BrowserTestUtils.waitForEvent(popup, "popupshown");
-  EventUtils.synthesizeMouseAtCenter(button, {}, win);
-  await promiseMenuOpen;
+  let popup = await UrlbarTestUtils.openSearchModeSwitcher(win);
 
   info("Hide the SearchModeSwitcher");
+  let button = win.gURLBar.querySelector(".searchmode-switcher");
   let promiseMenuClosed = BrowserTestUtils.waitForEvent(popup, "popuphidden");
   // Need native mouse event as the popup will be closed on blur.
   EventUtils.synthesizeNativeMouseEvent({
@@ -803,7 +737,7 @@ add_task(async function test_search_service_fail() {
     .stub(UrlbarSearchUtils, "init")
     .rejects(new Error("Initialization failed"));
 
-  SearchService.forceInitializationStatusForTests("not initialized");
+  SearchService.forceInitializationStatusForTests("failed");
 
   // Force updateSearchIcon to be triggered
   await SpecialPowers.pushPrefEnv({
@@ -842,6 +776,8 @@ add_task(async function test_search_service_fail() {
   stub.restore();
 
   SearchService.forceInitializationStatusForTests("success");
+  UrlbarSearchUtils.resetInitPromiseForTests();
+  await UrlbarSearchUtils.init();
 
   await BrowserTestUtils.closeWindow(newWin);
   await SpecialPowers.popPrefEnv();

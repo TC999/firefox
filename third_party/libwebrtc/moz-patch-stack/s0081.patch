@@ -18,7 +18,7 @@ Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/d92a578327f524ec3
  4 files changed, 22 insertions(+), 5 deletions(-)
 
 diff --git a/call/rtp_video_sender.cc b/call/rtp_video_sender.cc
-index 8a09f25ce0..1166c8b71f 100644
+index 9044105539..b20259b03b 100644
 --- a/call/rtp_video_sender.cc
 +++ b/call/rtp_video_sender.cc
 @@ -528,6 +528,7 @@ void RtpVideoSender::SetModuleIsActive(bool sending,
@@ -60,10 +60,10 @@ index 2b936a151e..43d9fc784d 100644
  
  void RTCPSender::SetNonSenderRttMeasurement(bool enabled) {
 diff --git a/modules/rtp_rtcp/source/rtcp_sender_unittest.cc b/modules/rtp_rtcp/source/rtcp_sender_unittest.cc
-index 5d0b47e262..9263f12ab3 100644
+index 0b4d30a7ee..8f7a5ac35b 100644
 --- a/modules/rtp_rtcp/source/rtcp_sender_unittest.cc
 +++ b/modules/rtp_rtcp/source/rtcp_sender_unittest.cc
-@@ -338,12 +338,13 @@ TEST_F(RtcpSenderTest, SendBye) {
+@@ -340,12 +340,13 @@ TEST_F(RtcpSenderTest, SendBye) {
    EXPECT_EQ(kSenderSsrc, parser()->bye()->sender_ssrc());
  }
  

@@ -116,6 +116,12 @@ export class ContextMenuParent extends JSWindowActorParent {
     return this.sendQuery("ContextMenu:Canvas:ToBlobURL", { targetIdentifier });
   }
 
+  copyCanvasImage(targetIdentifier) {
+    return this.sendQuery("ContextMenu:Canvas:CopyImage", {
+      targetIdentifier,
+    });
+  }
+
   saveVideoFrameAsImage(targetIdentifier) {
     return this.sendQuery("ContextMenu:SaveVideoFrameAsImage", {
       targetIdentifier,

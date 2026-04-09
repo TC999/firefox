@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -137,6 +136,7 @@ class TRRService : public TRRServiceBase,
   // or false if mPrivateURI already had that value.
   bool MaybeSetPrivateURI(const nsACString& aURI) override;
   void ClearEntireCache();
+  void MaybeSpeculativeConnectToTRR();
 
   virtual void ReadEtcHostsFile() override;
   void AddEtcHosts(const nsTArray<nsCString>&);

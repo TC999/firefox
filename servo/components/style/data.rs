@@ -47,9 +47,6 @@ bitflags! {
         /// The former gives us stronger transitive guarantees that allows us to
         /// apply the style sharing cache to cousins.
         const PRIMARY_STYLE_REUSED_VIA_RULE_NODE = 1 << 2;
-
-        /// Whether this element may have matched rules inside @starting-style.
-        const MAY_HAVE_STARTING_STYLE = 1 << 3;
     }
 }
 
@@ -112,10 +109,7 @@ impl fmt::Debug for EagerPseudoArray {
 
 // Can't use [None; EAGER_PSEUDO_COUNT] here because it complains
 // about Copy not being implemented for our Arc type.
-#[cfg(feature = "gecko")]
 const EMPTY_PSEUDO_ARRAY: &'static EagerPseudoArrayInner = &[None, None, None, None];
-#[cfg(feature = "servo")]
-const EMPTY_PSEUDO_ARRAY: &'static EagerPseudoArrayInner = &[None, None, None];
 
 impl EagerPseudoStyles {
     /// Returns whether there are any pseudo styles.
@@ -368,6 +362,21 @@ pub enum RestyleKind {
     CascadeOnly,
 }
 
+fn needs_to_match_self(hint: RestyleHint, style: &ComputedValues) -> bool {
+    if hint.intersects(RestyleHint::RESTYLE_SELF) {
+        return true;
+    }
+    if hint.intersects(RestyleHint::RESTYLE_SELF_IF_PSEUDO) && style.is_pseudo_style() {
+        return true;
+    }
+    hint.intersects(
+        RestyleHint::RESTYLE_IF_AFFECTED_BY_STYLE_QUERIES
+            | RestyleHint::RESTYLE_IF_AFFECTED_BY_NAMED_STYLE_CONTAINER,
+    ) && style
+        .flags
+        .contains(ComputedValueFlags::DEPENDS_ON_CONTAINER_STYLE_QUERY)
+}
+
 impl ElementData {
     /// Invalidates style for this element, its descendants, and later siblings,
     /// based on the snapshot of the element that we took when attributes or
@@ -433,15 +442,25 @@ impl ElementData {
         let reused_via_rule_node = self
             .flags
             .contains(ElementDataFlags::PRIMARY_STYLE_REUSED_VIA_RULE_NODE);
-        let may_have_starting_style = self
-            .flags
-            .contains(ElementDataFlags::MAY_HAVE_STARTING_STYLE);
 
         PrimaryStyle {
             style: ResolvedStyle(self.styles.primary().clone()),
             reused_via_rule_node,
-            may_have_starting_style,
         }
+    }
+
+    /// Return a copy of the element's primary style as a resolved style with the
+    /// given flags.
+    pub fn clone_style_with_flags(&self, flags: ComputedValueFlags) -> ResolvedStyle {
+        let primary_style = self.styles.primary();
+        // We are only using this pseudo to find the correct pseudo type so it
+        // does not matter it technically belongs to a different style.
+        let pseudo = primary_style.pseudo();
+        ResolvedStyle(
+            primary_style
+                .deref()
+                .clone_with_flags(flags, pseudo.as_ref()),
+        )
     }
 
     /// Sets a new set of styles, returning the old ones.
@@ -450,11 +469,6 @@ impl ElementData {
             ElementDataFlags::PRIMARY_STYLE_REUSED_VIA_RULE_NODE,
             new_styles.primary.reused_via_rule_node,
         );
-        self.flags.set(
-            ElementDataFlags::MAY_HAVE_STARTING_STYLE,
-            new_styles.primary.may_have_starting_style,
-        );
-
         mem::replace(&mut self.styles, new_styles.into())
     }
 
@@ -475,9 +489,7 @@ impl ElementData {
             return None;
         }
 
-        let needs_to_match_self = hint.intersects(RestyleHint::RESTYLE_SELF)
-            || (hint.intersects(RestyleHint::RESTYLE_SELF_IF_PSEUDO) && style.is_pseudo_style());
-        if needs_to_match_self {
+        if needs_to_match_self(hint, style) {
             return Some(RestyleKind::MatchAndCascade);
         }
 
@@ -632,13 +644,5 @@ impl ElementData {
         // We may measure more fields in the future if DMD says it's worth it.
 
         n
-    }
-
-    /// Returns true if this element data may need to compute the starting style for CSS
-    /// transitions.
-    #[inline]
-    pub fn may_have_starting_style(&self) -> bool {
-        self.flags
-            .contains(ElementDataFlags::MAY_HAVE_STARTING_STYLE)
     }
 }

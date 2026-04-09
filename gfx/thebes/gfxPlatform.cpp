@@ -1,5 +1,4 @@
-/* -*- Mode: C++; tab-width: 20; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -1853,7 +1852,7 @@ bool gfxPlatform::UseGraphiteShaping() {
 
 bool gfxPlatform::IsFontFormatSupported(
     StyleFontFaceSourceFormatKeyword aFormatHint,
-    StyleFontFaceSourceTechFlags aTechFlags) {
+    const StyleFontFaceSourceTechFlags& aTechFlags) {
   // By default, font resources are assumed to be supported; but if the format
   // hint or technology flags explicitly indicate something we don't support,
   // then return false.
@@ -1907,19 +1906,18 @@ bool gfxPlatform::IsKnownIconFontFamily(const nsAtom* aFamilyName) const {
 
 gfxFontEntry* gfxPlatform::LookupLocalFont(
     FontVisibilityProvider* aFontVisibilityProvider,
-    const nsACString& aFontName, WeightRange aWeightForEntry,
-    StretchRange aStretchForEntry, SlantStyleRange aStyleForEntry) {
+    const nsACString& aFontName, const WeightRange& aWeightForEntry,
+    const StretchRange& aStretchForEntry,
+    const SlantStyleRange& aStyleForEntry) {
   return gfxPlatformFontList::PlatformFontList()->LookupLocalFont(
       aFontVisibilityProvider, aFontName, aWeightForEntry, aStretchForEntry,
       aStyleForEntry);
 }
 
-gfxFontEntry* gfxPlatform::MakePlatformFont(const nsACString& aFontName,
-                                            WeightRange aWeightForEntry,
-                                            StretchRange aStretchForEntry,
-                                            SlantStyleRange aStyleForEntry,
-                                            const uint8_t* aFontData,
-                                            uint32_t aLength) {
+gfxFontEntry* gfxPlatform::MakePlatformFont(
+    const nsACString& aFontName, const WeightRange& aWeightForEntry,
+    const StretchRange& aStretchForEntry, const SlantStyleRange& aStyleForEntry,
+    const uint8_t* aFontData, uint32_t aLength) {
   return gfxPlatformFontList::PlatformFontList()->MakePlatformFont(
       aFontName, aWeightForEntry, aStretchForEntry, aStyleForEntry, aFontData,
       aLength);
@@ -2114,6 +2112,8 @@ void gfxPlatform::InitializeCMS() {
   gCMSMode = GfxColorManagementMode();
 
   mCMSsRGBProfile = qcms_profile_sRGB();
+  NS_ASSERTION(!qcms_profile_is_bogus(mCMSsRGBProfile),
+               "Builtin sRGB profile tagged as bogus!!!");
 
   /* Determine if we're using the internal override to force sRGB as
      an output profile for reftests. See Bug 452125.
@@ -2132,16 +2132,25 @@ void gfxPlatform::InitializeCMS() {
     if (!outputProfileData.IsEmpty()) {
       mCMSOutputProfile = qcms_profile_from_memory_curves_only(
           outputProfileData.Elements(), outputProfileData.Length());
-    }
-  }
 
-  /* Determine if the profile looks bogus. If so, close the profile
-   * and use sRGB instead. See bug 460629, */
-  if (mCMSOutputProfile && qcms_profile_is_bogus(mCMSOutputProfile)) {
-    NS_ASSERTION(mCMSOutputProfile != mCMSsRGBProfile,
-                 "Builtin sRGB profile tagged as bogus!!!");
-    qcms_profile_release(mCMSOutputProfile);
-    mCMSOutputProfile = nullptr;
+      /* Determine if the profile looks bogus. If so, close the profile
+       * and use sRGB instead. See bug 460629, */
+      if (mCMSOutputProfile && qcms_profile_is_bogus(mCMSOutputProfile)) {
+        NS_WARNING("system ICC profile looks bogus, ignoring, using sRGB");
+        qcms_profile_release(mCMSOutputProfile);
+        mCMSOutputProfile = nullptr;
+        mCMSOutputProfileData.reset();
+      }
+
+      // mCMSOutputProfileData is outputProfileData in the content process. In
+      // the parent process it comes from the OS specific way of getting the
+      // profile data and hasn't been put into mCMSOutputProfileData yet, so
+      // store it so we have access to it later.
+      if (mCMSOutputProfile && (mCMSOutputProfileData.isNothing() ||
+                                mCMSOutputProfileData->IsEmpty())) {
+        mCMSOutputProfileData = Some(std::move(outputProfileData));
+      }
+    }
   }
 
   if (!mCMSOutputProfile) {
@@ -2292,6 +2301,11 @@ void gfxPlatform::FontsPrefsChanged(const char* aPref) {
   } else if (!strcmp(GFX_PREF_OPENTYPE_SVG, aPref)) {
     gfxFontCache::GetCache()->Flush();
     gfxFontCache::GetCache()->NotifyGlyphsChanged();
+  } else if (!strcmp("gfx.font_rendering.freetype.gamma", aPref) ||
+             !strcmp("gfx.font_rendering.freetype.enhanced_contrast", aPref)) {
+    FlushFontAndWordCaches();
+    ForceGlobalReflow(GlobalReflowFlags::FontsChanged |
+                      GlobalReflowFlags::BroadcastToChildren);
   }
 }
 
@@ -3128,6 +3142,19 @@ void gfxPlatform::InitWebGLConfig() {
     return (status == nsIGfxInfo::FEATURE_STATUS_OK);
   };
 
+  FeatureState& featureWebGL = gfxConfig::GetFeature(Feature::WEBGL);
+  featureWebGL.EnableByDefault();
+
+  nsCString message;
+  nsCString failureId;
+  if (!IsGfxInfoStatusOkay(nsIGfxInfo::FEATURE_WEBGL, &message, failureId)) {
+    if (StaticPrefs::webgl_ignore_blocklist_AtStartup()) {
+      featureWebGL.UserForceEnable(
+          "Ignoring blocklist entry because webgl.ignore-blocklist is true.");
+    }
+    featureWebGL.Disable(FeatureStatus::Blocklisted, message.get(), failureId);
+  }
+
   gfxVars::SetAllowWebgl2(IsFeatureOk(nsIGfxInfo::FEATURE_WEBGL2));
   gfxVars::SetWebglAllowWindowsNativeGl(
       IsFeatureOk(nsIGfxInfo::FEATURE_WEBGL_OPENGL));
@@ -3165,6 +3192,18 @@ void gfxPlatform::InitWebGLConfig() {
     }
 #endif
   }
+
+  if (!gfxConfig::IsEnabled(Feature::GPU_PROCESS) &&
+#ifdef ANDROID
+      !StaticPrefs::webgl_allow_in_content_AtStartup() &&
+#endif
+      !StaticPrefs::webgl_allow_in_parent_AtStartup()) {
+    featureWebGL.Disable(FeatureStatus::UnavailableNoGpuProcess,
+                         "Disabled without GPU process",
+                         "FEATURE_WEBGL_NO_GPU_PROCESS"_ns);
+  }
+
+  gfxVars::SetAllowWebGL(featureWebGL.IsEnabled());
 
   bool threadsafeGL = IsFeatureOk(nsIGfxInfo::FEATURE_THREADSAFE_GL);
   threadsafeGL |= StaticPrefs::webgl_threadsafe_gl_force_enabled_AtStartup();
@@ -3250,6 +3289,9 @@ void gfxPlatform::InitWebGPUConfig() {
     return;
   }
 
+  nsCString message;
+  nsCString failureId;
+
   FeatureState& featureWebGPU = gfxConfig::GetFeature(Feature::WEBGPU);
   featureWebGPU.EnableByDefault();
 
@@ -3258,17 +3300,16 @@ void gfxPlatform::InitWebGPUConfig() {
     featureWebGPU.Disable(FeatureStatus::UnavailableNoGpuProcess,
                           "Disabled without GPU process",
                           "FEATURE_WEBGPU_NO_GPU_PROCESS"_ns);
-  }
-
-  nsCString message;
-  nsCString failureId;
-  if (!IsGfxInfoStatusOkay(nsIGfxInfo::FEATURE_WEBGPU, &message, failureId)) {
+  } else if (!IsGfxInfoStatusOkay(nsIGfxInfo::FEATURE_WEBGPU, &message,
+                                  failureId)) {
     if (StaticPrefs::gfx_webgpu_ignore_blocklist_AtStartup()) {
       featureWebGPU.UserForceEnable(
           "Ignoring blocklist entry because gfx.webgpu.ignore-blocklist is "
           "true.");
+    } else {
+      featureWebGPU.Disable(FeatureStatus::Blocklisted, message.get(),
+                            failureId);
     }
-    featureWebGPU.Disable(FeatureStatus::Blocklisted, message.get(), failureId);
   }
 
   gfxVars::SetAllowWebGPU(featureWebGPU.IsEnabled());
@@ -3741,10 +3782,10 @@ void gfxPlatform::GetDisplayInfo(mozilla::widget::InfoObject& aObj) {
   size_t i = 0;
   for (auto& screen : screens) {
     const LayoutDeviceIntRect rect = screen->GetRect();
-    nsPrintfCString value("%dx%d@%dHz scales:%f|%f", rect.width, rect.height,
-                          screen->GetRefreshRate(),
-                          screen->GetContentsScaleFactor(),
-                          screen->GetDefaultCSSScaleFactor());
+    nsPrintfCString value(
+        "%dx%d@%dHz scales:%f|%f %s", rect.width, rect.height,
+        screen->GetRefreshRate(), screen->GetContentsScaleFactor(),
+        screen->GetDefaultCSSScaleFactor(), screen->GetIsHDR() ? "HDR" : "SDR");
 
     aObj.DefineProperty(nsPrintfCString("Display%zu", i++).get(),
                         NS_ConvertUTF8toUTF16(value));
@@ -3785,9 +3826,14 @@ void gfxPlatform::GetOverlayInfo(mozilla::widget::InfoObject& aObj) {
     return "Not Supported";
   };
 
+  // HwOverlayHDR is a somewhat redundant name given that this entire section is
+  // OverlaySupport, but it was being misinterpreted by people as to whether the
+  // desktop mode is HDR (which would be a Screen property), this has no bearing
+  // on whether HDR surfaces are supported by the OS compositor, only whether
+  // they can be promoted to a hardware overlay by the OS compositor.
   nsPrintfCString value(
       "NV12=%s YUV2=%s BGRA8=%s RGB10A2=%s RGBA16F=%s VpSR=%s VpAutoHDR=%s "
-      "HDR=%s",
+      "HwOverlayHDR=%s",
       toString(mOverlayInfo.ref().mNv12Overlay),
       toString(mOverlayInfo.ref().mYuy2Overlay),
       toString(mOverlayInfo.ref().mBgra8Overlay),
@@ -4034,6 +4080,8 @@ bool gfxPlatform::FallbackFromAcceleration(FeatureStatus aStatus,
        !StaticPrefs::gfx_canvas_accelerated_allow_in_parent_AtStartup()) ||
       (gfxVars::AllowWebGPU() &&
        !StaticPrefs::dom_webgpu_allow_in_parent_AtStartup()) ||
+      (gfxVars::AllowWebGL() &&
+       !StaticPrefs::webgl_allow_in_parent_AtStartup()) ||
       (kIsAndroid && gfxVars::AllowWebglOop())) {
     // Because content has a lot of control over inputs to remote canvas, we
     // try to disable it as part of our final fallback step before disabling
@@ -4078,6 +4126,15 @@ void gfxPlatform::DisableAllCanvasForFallback(FeatureStatus aStatus,
       !StaticPrefs::dom_webgpu_allow_in_parent_AtStartup()) {
     gfxConfig::Disable(Feature::WEBGPU, aStatus, aMessage, aFailureId);
     gfxVars::SetAllowWebGPU(false);
+  }
+
+  if (gfxVars::AllowWebGL() &&
+#ifdef ANDROID
+      !StaticPrefs::webgl_allow_in_content_AtStartup() &&
+#endif
+      !StaticPrefs::webgl_allow_in_parent_AtStartup()) {
+    gfxConfig::Disable(Feature::WEBGL, aStatus, aMessage, aFailureId);
+    gfxVars::SetAllowWebGL(false);
   }
 
   if (kIsAndroid) {

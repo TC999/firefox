@@ -52,27 +52,6 @@ impl<E: TElement> PreTraverseToken<E> {
     }
 }
 
-/// A global variable holding the state of
-/// `is_servo_nonincremental_layout()`.
-/// See [#22854](https://github.com/servo/servo/issues/22854).
-#[cfg(feature = "servo")]
-pub static IS_SERVO_NONINCREMENTAL_LAYOUT: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-#[cfg(feature = "servo")]
-#[inline]
-fn is_servo_nonincremental_layout() -> bool {
-    use std::sync::atomic::Ordering;
-
-    IS_SERVO_NONINCREMENTAL_LAYOUT.load(Ordering::Relaxed)
-}
-
-#[cfg(not(feature = "servo"))]
-#[inline]
-fn is_servo_nonincremental_layout() -> bool {
-    false
-}
-
 /// A DOM Traversal trait, that is used to generically implement styling for
 /// Gecko and Servo.
 pub trait DomTraversal<E: TElement>: Sync {
@@ -219,11 +198,6 @@ pub trait DomTraversal<E: TElement>: Sync {
             el, traversal_flags, data
         );
 
-        // Non-incremental layout visits every node.
-        if is_servo_nonincremental_layout() {
-            return true;
-        }
-
         // Unwrap the data.
         let data = match data {
             Some(d) if d.has_styles() => d,
@@ -348,11 +322,7 @@ where
             rule_inclusion,
             PseudoElementResolution::IfApplicable,
         )
-        .resolve_primary_style(
-            style.as_deref(),
-            layout_parent_style.as_deref(),
-            selectors::matching::IncludeStartingStyle::No,
-        );
+        .resolve_primary_style(style.as_deref(), layout_parent_style.as_deref());
 
         let is_display_contents = primary_style.style().is_display_contents();
 
@@ -424,8 +394,7 @@ pub fn recalc_style_at<E, D, F>(
 
     // Compute style for this element if necessary.
     if let Some(restyle_kind) = restyle_kind {
-        child_restyle_hint =
-            compute_style(traversal_data, context, element, data, restyle_kind);
+        child_restyle_hint = compute_style(traversal_data, context, element, data, restyle_kind);
 
         if !element.matches_user_and_content_rules() {
             // We must always cascade native anonymous subtrees, since they
@@ -494,8 +463,7 @@ pub fn recalc_style_at<E, D, F>(
     // We only do this if we're not a display: none root, since in that case
     // it's useless to style children.
     let mut traverse_children = has_dirty_descendants_for_this_restyle
-        || !propagated_hint.is_empty()
-        || is_servo_nonincremental_layout();
+        || !propagated_hint.is_empty();
 
     traverse_children = traverse_children && !data.styles.is_display_none();
 
@@ -621,8 +589,7 @@ where
                 PseudoElementResolution::IfApplicable,
             );
 
-            resolver
-                .cascade_styles_with_default_parents(cascade_inputs, data.may_have_starting_style())
+            resolver.cascade_styles_with_default_parents(cascade_inputs)
         },
         CascadeOnly => {
             // Skipping full matching, load cascade inputs from previous values.
@@ -636,10 +603,7 @@ where
                     PseudoElementResolution::IfApplicable,
                 );
 
-                resolver.cascade_styles_with_default_parents(
-                    cascade_inputs,
-                    data.may_have_starting_style(),
-                )
+                resolver.cascade_styles_with_default_parents(cascade_inputs)
             };
 
             // Insert into the cache, but only if this style isn't reused from a
@@ -740,9 +704,7 @@ fn note_children<E, D, F>(
         let child = match child_node.as_element() {
             Some(el) => el,
             None => {
-                if is_servo_nonincremental_layout()
-                    || D::text_node_needs_traversal(child_node, data)
-                {
+                if D::text_node_needs_traversal(child_node, data) {
                     note_child(child_node);
                 }
                 continue;

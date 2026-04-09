@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -390,9 +388,6 @@ struct DIGroup {
        mClippedImageBounds.height);
     LayerIntSize size = mVisibleRect.Size();
     GP("imageSize: %d %d\n", size.width, size.height);
-    /*if (aItem->IsReused() && aData->mGeometry) {
-      return;
-    }*/
 
     GP("pre mInvalidRect: %s %p-%d - inv: %d %d %d %d\n", aItem->Name(),
        aItem->Frame(), aItem->GetPerFrameKey(), mInvalidRect.x, mInvalidRect.y,
@@ -1855,11 +1850,6 @@ void WebRenderCommandBuilder::CreateWebRenderCommands(
   auto* item = aItem->AsPaintedDisplayItem();
   MOZ_RELEASE_ASSERT(item, "Tried to paint item that cannot be painted");
 
-  if (aBuilder.ReuseItem(item)) {
-    // No further processing should be needed, since the item was reused.
-    return;
-  }
-
   RenderRootStateManager* manager = mManager->GetRenderRootStateManager();
 
   // Note: this call to CreateWebRenderCommands can recurse back into
@@ -2036,14 +2026,8 @@ void WebRenderCommandBuilder::CreateWebRenderCommandsFromDisplayList(
     // the display item cache for descendants, since it's possible that some of
     // them got cached with a flattened opacity values., which may no longer be
     // applied.
-    Maybe<AutoDisplayItemCacheSuppressor> cacheSuppressor;
-
     if (itemType == DisplayItemType::TYPE_OPACITY) {
       nsDisplayOpacity* opacity = static_cast<nsDisplayOpacity*>(item);
-
-      if (!opacity->IsReused()) {
-        cacheSuppressor.emplace(aBuilder.GetDisplayItemCache());
-      }
 
       if (opacity->CanApplyOpacityToChildren(
               mManager->GetRenderRootStateManager()->LayerManager(),

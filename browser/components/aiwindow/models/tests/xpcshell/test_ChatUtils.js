@@ -13,6 +13,7 @@ const {
   constructRelevantMemoriesContextMessage,
   parseContentWithTokens,
   detectTokens,
+  sanitizeUntrustedContent,
 } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/models/ChatUtils.sys.mjs"
 );
@@ -104,147 +105,91 @@ add_task(function test_getLocalIsoTime_returns_offset_timestamp() {
 });
 
 add_task(async function test_getCurrentTabMetadata_returns_browser_info() {
-  const sb = sinon.createSandbox();
-  const tracker = { getTopWindow: sb.stub() };
-  const fakeBrowser = {
-    currentURI: { spec: "https://example.com/article" },
-    contentTitle: "Example Article",
-    documentTitle: "Document Title",
-  };
+  const contextMentions = [
+    {
+      type: "currentTab",
+      url: "https://example.com/article",
+      label: "Example Article",
+    },
+  ];
 
-  tracker.getTopWindow.returns({
-    gBrowser: { selectedBrowser: fakeBrowser },
-  });
+  const result = await getCurrentTabMetadata(contextMentions);
 
-  try {
-    const result = await getCurrentTabMetadata({
-      BrowserWindowTracker: tracker,
-    });
-
-    Assert.equal(
-      result.url,
-      "https://example.com/article",
-      "Should return URL"
-    );
-    Assert.equal(
-      result.title,
-      "Example Article",
-      "Should return title from contentTitle"
-    );
-    Assert.equal(
-      result.description,
-      "",
-      "Description should be empty (not yet implemented)"
-    );
-  } finally {
-    sb.restore();
-  }
+  Assert.equal(result.url, "https://example.com/article", "Should return URL");
+  Assert.equal(
+    result.title,
+    sanitizeUntrustedContent("Example Article"),
+    "Should return title from contextMentions label"
+  );
+  Assert.equal(
+    result.description,
+    "",
+    "Description should be empty (not yet implemented)"
+  );
 });
 
 add_task(
-  async function test_getCurrentTabMetadata_falls_back_to_documentTitle() {
-    const sb = sinon.createSandbox();
-    const tracker = { getTopWindow: sb.stub() };
-    const fakeBrowser = {
-      currentURI: { spec: "https://example.com/page" },
-      contentTitle: "", // Empty contentTitle
-      documentTitle: "Document Title Fallback",
-    };
+  async function test_getCurrentTabMetadata_returns_empty_when_no_currentTab() {
+    const contextMentions = [
+      { type: "tab", url: "https://other.com", label: "Other" },
+    ];
 
-    tracker.getTopWindow.returns({
-      gBrowser: { selectedBrowser: fakeBrowser },
-    });
+    const result = await getCurrentTabMetadata(contextMentions);
 
-    try {
-      const result = await getCurrentTabMetadata({
-        BrowserWindowTracker: tracker,
-      });
-
-      Assert.equal(
-        result.title,
-        "Document Title Fallback",
-        "Should fall back to documentTitle when contentTitle is empty"
-      );
-    } finally {
-      sb.restore();
-    }
+    Assert.equal(result.url, "", "Should return empty URL");
+    Assert.equal(result.title, "", "Should return empty title");
+    Assert.equal(result.description, "", "Should return empty description");
   }
 );
 
 add_task(
   async function test_getCurrentTabMetadata_constructRealTimeInfoInjectionMessage() {
-    const sb = sinon.createSandbox();
-    const tracker = { getTopWindow: sb.stub() };
-    const fakeBrowser = {
-      currentURI: { spec: "https://example.com/page" },
-      contentTitle: "", // Empty contentTitle
-      documentTitle: "Document Title Fallback",
-    };
+    const contextMentions = [
+      {
+        type: "currentTab",
+        url: "https://example.com/page",
+        label: "Example Page",
+      },
+    ];
     const locale = Services.locale.appLocaleAsBCP47;
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-    tracker.getTopWindow.returns({
-      gBrowser: { selectedBrowser: fakeBrowser },
-    });
+    const mapping =
+      await constructRealTimeInfoInjectionMessage(contextMentions);
 
-    try {
-      const mapping = await constructRealTimeInfoInjectionMessage({
-        BrowserWindowTracker: tracker,
-      });
+    Assert.equal(mapping.url, "https://example.com/page", "Should include URL");
+    Assert.equal(
+      mapping.title,
+      sanitizeUntrustedContent("Example Page"),
+      "Should include title"
+    );
+    Assert.equal(mapping.description, "", "Should include description");
 
-      // Test that it returns a mapping object with the correct properties
-      Assert.equal(
-        mapping.url,
-        "https://example.com/page",
-        "Should include URL"
-      );
-      Assert.equal(
-        mapping.title,
-        "Document Title Fallback",
-        "Should include title"
-      );
-      Assert.equal(mapping.description, "", "Should include description");
-
-      Assert.equal(mapping.locale, locale, "Should include locale");
-      Assert.equal(mapping.timezone, timezone, "Should include timezone");
-      Assert.ok(
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(mapping.isoTimestamp),
-        `Should have valid ISO timestamp format (YYYY-MM-DDTHH:MM:SS), got: ${mapping.isoTimestamp}`
-      );
-      Assert.ok(
-        /^\d{4}-\d{2}-\d{2}$/.test(mapping.todayDate),
-        `Should have valid date format (YYYY-MM-DD), got: ${mapping.todayDate}`
-      );
-      Assert.equal(
-        mapping.hasTabInfo,
-        true,
-        "Should indicate tab info is present"
-      );
-    } finally {
-      sb.restore();
-    }
+    Assert.equal(mapping.locale, locale, "Should include locale");
+    Assert.equal(mapping.timezone, timezone, "Should include timezone");
+    Assert.ok(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(mapping.isoTimestamp),
+      `Should have valid ISO timestamp format (YYYY-MM-DDTHH:MM:SS), got: ${mapping.isoTimestamp}`
+    );
+    Assert.ok(
+      /^\d{4}-\d{2}-\d{2}$/.test(mapping.todayDate),
+      `Should have valid date format (YYYY-MM-DD), got: ${mapping.todayDate}`
+    );
+    Assert.equal(
+      mapping.hasTabInfo,
+      true,
+      "Should indicate tab info is present"
+    );
   }
 );
 
 add_task(
   async function test_constructRealTimeInfoInjectionMessage_without_tab_info() {
     const sb = sinon.createSandbox();
-    const tracker = { getTopWindow: sb.stub() };
-    const pageData = {
-      getCached: sb.stub(),
-    };
-
-    tracker.getTopWindow.returns({
-      gBrowser: { selectedBrowser: null },
-    });
-    pageData.getCached.returns(null);
     const clock = sb.useFakeTimers({ now: Date.UTC(2025, 11, 27, 14, 0, 0) });
 
     try {
-      const mapping = await constructRealTimeInfoInjectionMessage({
-        BrowserWindowTracker: tracker,
-        PageDataService: pageData,
-      });
+      const mapping = await constructRealTimeInfoInjectionMessage([]);
 
       Assert.equal(mapping.url, "", "Should not have URL");
       Assert.equal(mapping.title, "", "Should not have title");
@@ -540,111 +485,4 @@ add_task(function test_detectTokens_custom_key() {
     !result[0].hasOwnProperty("query"),
     "Result should not have default 'query' property"
   );
-});
-
-// extractValidUrls tests
-const { extractValidUrls } = ChromeUtils.importESModule(
-  "moz-src:///browser/components/aiwindow/models/ChatUtils.sys.mjs"
-);
-
-add_task(function test_extractValidUrls_basic() {
-  const sources = [
-    { url: "https://example1.com", title: "Page 1" },
-    { url: "https://example2.com", title: "Page 2" },
-  ];
-  const urls = extractValidUrls(sources);
-
-  Assert.equal(urls.length, 2, "Should extract two URLs");
-  Assert.equal(urls[0], "https://example1.com", "First URL");
-  Assert.equal(urls[1], "https://example2.com", "Second URL");
-});
-
-add_task(function test_extractValidUrls_deduplication() {
-  const sources = [
-    { url: "https://example.com", title: "Page 1" },
-    { url: "https://example.com", title: "Page 1 duplicate" },
-    { url: "https://other.com", title: "Other Page" },
-  ];
-  const urls = extractValidUrls(sources);
-
-  Assert.equal(urls.length, 2, "Should deduplicate URLs");
-  Assert.equal(urls[0], "https://example.com", "First unique URL");
-  Assert.equal(urls[1], "https://other.com", "Second unique URL");
-});
-
-add_task(function test_extractValidUrls_filters_chrome() {
-  const sources = [
-    { url: "chrome://browser/content/test.html", title: "Chrome Page" },
-    { url: "https://example.com", title: "Normal Page" },
-  ];
-  const urls = extractValidUrls(sources);
-
-  Assert.equal(urls.length, 1, "Should filter chrome:// URL");
-  Assert.equal(urls[0], "https://example.com", "Should include https URL");
-});
-
-add_task(function test_extractValidUrls_filters_about() {
-  const sources = [
-    { url: "about:config", title: "Config Page" },
-    { url: "https://example.com", title: "Normal Page" },
-  ];
-  const urls = extractValidUrls(sources);
-
-  Assert.equal(urls.length, 1, "Should filter about: URL");
-  Assert.equal(urls[0], "https://example.com", "Should include https URL");
-});
-
-add_task(function test_extractValidUrls_filters_resource() {
-  const sources = [
-    { url: "resource://gre/modules/test.js", title: "Resource" },
-    { url: "https://example.com", title: "Normal Page" },
-  ];
-  const urls = extractValidUrls(sources);
-
-  Assert.equal(urls.length, 1, "Should filter resource:// URL");
-  Assert.equal(urls[0], "https://example.com", "Should include https URL");
-});
-
-add_task(function test_extractValidUrls_filters_moz_extension() {
-  const sources = [
-    { url: "moz-extension://abc123/page.html", title: "Extension" },
-    { url: "https://example.com", title: "Normal Page" },
-  ];
-  const urls = extractValidUrls(sources);
-
-  Assert.equal(urls.length, 1, "Should filter moz-extension:// URL");
-  Assert.equal(urls[0], "https://example.com", "Should include https URL");
-});
-
-add_task(function test_extractValidUrls_skips_missing_url() {
-  const sources = [
-    { title: "No URL Page" },
-    { url: "", title: "Empty URL Page" },
-    { url: "https://example.com", title: "Normal Page" },
-  ];
-  const urls = extractValidUrls(sources);
-
-  Assert.equal(urls.length, 1, "Should skip sources without URLs");
-  Assert.equal(urls[0], "https://example.com", "Should include valid URL");
-});
-
-add_task(function test_extractValidUrls_empty_array() {
-  const urls = extractValidUrls([]);
-  Assert.equal(urls.length, 0, "Should return empty array");
-});
-
-add_task(function test_extractValidUrls_null_input() {
-  const urls = extractValidUrls(null);
-  Assert.equal(urls.length, 0, "Should return empty array for null");
-});
-
-add_task(function test_extractValidUrls_non_string_url() {
-  const sources = [
-    { url: 123, title: "Numeric URL" },
-    { url: "https://example.com", title: "Normal Page" },
-  ];
-  const urls = extractValidUrls(sources);
-
-  Assert.equal(urls.length, 1, "Should skip non-string URLs");
-  Assert.equal(urls[0], "https://example.com", "Should include string URL");
 });

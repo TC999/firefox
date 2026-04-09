@@ -418,9 +418,9 @@ The mar-channel-ids this build will accept updates to. It should usually be the 
 the value mar_channel_id.  If more than one ID is needed, then you should use a
 comma separated list of values.
 
-openh264_rev
-============
-Only used for openh264 plugin builds, used to signify the revision (and thus inform artifact name) of the given build.
+openh264_version
+================
+Only used for openh264 plugin builds, used to signify the version (and thus inform artifact name) of the given build.
 
 code-review
 ===========
@@ -605,3 +605,8 @@ dxc-crash-symbols
 =================
 
 Indicates that the job produces crash symbols for `dxcompiler.dll`.
+
+flatpak_name
+============
+
+name of the built flatpak app (e.g. `org.mozilla.firefox`)

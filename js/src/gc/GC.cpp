@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -320,7 +318,23 @@ static_assert(std::size(slotsToAllocKindBytes) == std::size(slotsToThingKind));
 
 MOZ_THREAD_LOCAL(JS::GCContext*) js::TlsGCContext;
 
-JS::GCContext::GCContext(JSRuntime* runtime) : runtime_(runtime) {}
+JS::GCContext::GCContext(js::gc::GCRuntime* gc) : gc_(gc) {}
+
+JSRuntime* JS::GCContext::runtime() const {
+  MOZ_ASSERT(onMainThread());
+  return runtimeFromAnyThread();
+}
+
+JSRuntime* JS::GCContext::runtimeFromAnyThread() const {
+  MOZ_ASSERT(gc_);
+  return gc_->rt;
+}
+
+#ifdef DEBUG
+bool JS::GCContext::onMainThread() const {
+  return js::CurrentThreadCanAccessRuntime(gc_->rt);
+}
+#endif
 
 JS::GCContext::~GCContext() {
   MOZ_ASSERT(!hasJitCodeToPoison());
@@ -434,7 +448,7 @@ void GCRuntime::releaseArena(Arena* arena, const AutoLockGC& lock) {
 GCRuntime::GCRuntime(JSRuntime* rt)
     : rt(rt),
       systemZone(nullptr),
-      mainThreadContext(rt),
+      mainThreadContext(this),
       heapState_(JS::HeapState::Idle),
       stats_(this),
       sweepingTracer(rt),
@@ -487,9 +501,6 @@ GCRuntime::GCRuntime(JSRuntime* rt)
       sweepZone(nullptr),
       abortSweepAfterCurrentGroup(false),
       sweepMarkResult(IncrementalProgress::NotFinished),
-#ifdef DEBUG
-      testMarkQueue(rt),
-#endif
       startedCompacting(false),
       zonesCompacted(0),
 #ifdef DEBUG
@@ -506,16 +517,11 @@ GCRuntime::GCRuntime(JSRuntime* rt)
       concurrentMarkingEnabled(TuningDefaults::ConcurrentMarkingEnabled),
 #endif
       rootsRemoved(false),
-#ifdef JS_GC_ZEAL
-      zealModeBits(0),
-      zealFrequency(0),
-      nextScheduled(0),
-      deterministicOnly(false),
-      zealSliceBudget(0),
-      selectedForMarking(rt),
-#endif
       fullCompartmentChecks(false),
       gcCallbackDepth(0),
+      destroyZoneCallback(nullptr),
+      destroyCompartmentCallback(nullptr),
+      destroyRealmCallback(nullptr),
       alwaysPreserveCode(false),
       lowMemoryState(false),
       lock(mutexid::GCLock),
@@ -529,8 +535,22 @@ GCRuntime::GCRuntime(JSRuntime* rt)
       freeTask(this),
       decommitTask(this),
       nursery_(this),
-      storeBuffer_(rt),
-      lastAllocRateUpdateTime(TimeStamp::Now()) {
+      storeBuffer_(this),
+      lastAllocRateUpdateTime(TimeStamp::Now())
+#ifdef JS_GC_ZEAL
+      ,
+      zealModeBits(0),
+      zealFrequency(0),
+      nextScheduled(0),
+      deterministicOnly(false),
+      zealSliceBudget(0),
+      selectedForMarking(rt)
+#endif
+#ifdef DEBUG
+      ,
+      testMarkQueue(rt)
+#endif
+{
 }
 
 bool js::gc::SplitStringBy(const char* text, char delimiter,
@@ -1050,7 +1070,7 @@ void GCRuntime::finish() {
   // before we forcefully release any remaining GC memory.
   markTask.join();
   sweepTask.join();
-  markTask.join();
+  unmarkTask.join();
   freeTask.join();
   allocTask.cancelAndWait();
   decommitTask.cancelAndWait();
@@ -1849,6 +1869,40 @@ void GCRuntime::callNurseryCollectionCallbacks(JS::GCNurseryProgress progress,
   }
 }
 
+void GCRuntime::setDestroyZoneCallback(JSDestroyZoneCallback callback) {
+  destroyZoneCallback = callback;
+}
+
+void GCRuntime::callDestroyZoneCallback(JS::GCContext* gcx,
+                                        JS::Zone* zone) const {
+  if (JSDestroyZoneCallback callback = destroyZoneCallback) {
+    callback(gcx, zone);
+  }
+}
+
+void GCRuntime::setDestroyCompartmentCallback(
+    JSDestroyCompartmentCallback callback) {
+  destroyCompartmentCallback = callback;
+}
+
+void GCRuntime::callDestroyCompartmentCallback(
+    JS::GCContext* gcx, JS::Compartment* compartment) const {
+  if (JSDestroyCompartmentCallback callback = destroyCompartmentCallback) {
+    callback(gcx, compartment);
+  }
+}
+
+void GCRuntime::setDestroyRealmCallback(JS::DestroyRealmCallback callback) {
+  destroyRealmCallback = callback;
+}
+
+void GCRuntime::callDestroyRealmCallback(JS::GCContext* gcx,
+                                         JS::Realm* realm) const {
+  if (JS::DestroyRealmCallback callback = destroyRealmCallback) {
+    callback(gcx, realm);
+  }
+}
+
 JS::DoCycleCollectionCallback GCRuntime::setDoCycleCollectionCallback(
     JS::DoCycleCollectionCallback callback) {
   const auto prior = gcDoCycleCollectionCallback.ref();
@@ -1916,7 +1970,7 @@ bool GCRuntime::shouldCompact() {
   }
 
   return !isIncremental ||
-         !IsCurrentlyAnimating(rt->lastAnimationTime, TimeStamp::Now());
+         !IsCurrentlyAnimating(lastAnimationTime(), TimeStamp::Now());
 }
 
 bool GCRuntime::isCompactingGCEnabled() const {
@@ -2412,12 +2466,10 @@ void GCRuntime::queueBuffersForFreeAfterMinorGC(
 }
 
 void Realm::destroy(JS::GCContext* gcx) {
-  JSRuntime* rt = gcx->runtime();
-  if (auto callback = rt->destroyRealmCallback) {
-    callback(gcx, this);
-  }
+  GCRuntime* gc = gcx->gcRuntime();
+  gc->callDestroyRealmCallback(gcx, this);
   if (principals()) {
-    JS_DropPrincipals(rt->mainContextFromOwnThread(), principals());
+    JS_DropPrincipals(gc->rt->mainContextFromOwnThread(), principals());
   }
   // Bug 1560019: Malloc memory associated with a zone but not with a specific
   // GC thing is not currently tracked.
@@ -2425,26 +2477,22 @@ void Realm::destroy(JS::GCContext* gcx) {
 }
 
 void Compartment::destroy(JS::GCContext* gcx) {
-  JSRuntime* rt = gcx->runtime();
-  if (auto callback = rt->destroyCompartmentCallback) {
-    callback(gcx, this);
-  }
+  GCRuntime* gc = gcx->gcRuntime();
+  gc->callDestroyCompartmentCallback(gcx, this);
   // Bug 1560019: Malloc memory associated with a zone but not with a specific
   // GC thing is not currently tracked.
   gcx->deleteUntracked(this);
-  rt->gc.stats().sweptCompartment();
+  gc->stats().sweptCompartment();
 }
 
 void Zone::destroy(JS::GCContext* gcx) {
   MOZ_ASSERT(compartments().empty());
-  JSRuntime* rt = gcx->runtime();
-  if (auto callback = rt->destroyZoneCallback) {
-    callback(gcx, this);
-  }
+  GCRuntime* gc = gcx->gcRuntime();
+  gc->callDestroyZoneCallback(gcx, this);
   // Bug 1560019: Malloc memory associated with a zone but not with a specific
   // GC thing is not currently tracked.
   gcx->deleteUntracked(this);
-  gcx->runtime()->gc.stats().sweptZone();
+  gc->stats().sweptZone();
 }
 
 /*
@@ -2677,7 +2725,7 @@ static bool InCrossCompartmentMap(JSRuntime* rt, JSObject* src,
 
   if (dst.is<JSObject>()) {
     if (ObjectWrapperMap::Ptr p = srccomp->lookupWrapper(&dst.as<JSObject>())) {
-      if (*p->value().unsafeGet() == src) {
+      if (p->value().unbarrieredGet() == src) {
         return true;
       }
     }
@@ -3173,6 +3221,10 @@ void GCRuntime::beginMarkPhase(AutoGCSession& session) {
   incMajorGcNumber();
 
   markSliceCount = 0;
+
+#ifdef JS_GC_CONCURRENT_MARKING
+  concurrentMarkingFinishedCount = 0;
+#endif
 
 #ifdef DEBUG
   queuePos = 0;
@@ -4112,6 +4164,12 @@ void GCRuntime::finishAnyConcurrentMarking(JS::SliceBudget& budget) {
 
   pauseBackgroundMarking();
 
+  if (concurrentMarker().isMarkStackEmpty()) {
+    concurrentMarkingFinishedCount++;
+  } else {
+    concurrentMarkingFinishedCount = 0;
+  }
+
   // Perform as much main-thread-only marking as we can within the budget.
   concurrentMarker().processMainThreadBuffers(budget);
 
@@ -4157,19 +4215,17 @@ std::tuple<JS::SliceBudget, JS::SliceBudget> GCRuntime::budgetConcurrentMarking(
 
   // Try to ensure we don't get bogged down bouncing things we can't mark
   // concurrently between the helper thread and the main thread. If the helper
-  // thread has run out of work and we're several slices in, try to perform an
+  // thread has run out of work more than a couple of times, start performing an
   // increasing amount of marking on the main thread.
-  //
-  // TODO: Investigate better heuristics for this. We could check whether the
-  // background thread ran out of work in which case we may be nearly finished.
 
-  const size_t MarkOnMainThreadAfterSlices = 5;
+  const size_t MarkOnMainThreadAfterFinishedSlices = 2;
   const double MainThreadMarkTimePerSlice = 0.5;
   if (sliceReason == JS::GCReason::BG_TASK_FINISHED &&
       requestedBudget.isTimeBudget() &&
-      markSliceCount > MarkOnMainThreadAfterSlices) {
-    double millis = MainThreadMarkTimePerSlice *
-                    (markSliceCount - MarkOnMainThreadAfterSlices);
+      concurrentMarkingFinishedCount >= MarkOnMainThreadAfterFinishedSlices) {
+    double millis =
+        MainThreadMarkTimePerSlice *
+        (concurrentMarkingFinishedCount - MarkOnMainThreadAfterFinishedSlices);
     TimeDuration remaining = requestedBudget.deadline() - TimeStamp::Now();
     millis = std::min(millis, remaining.ToMilliseconds());
     if (millis > 0.0) {
@@ -5891,11 +5947,16 @@ void GCRuntime::setPerformanceHint(PerformanceHint hint) {
 }
 
 #ifdef MOZ_TSAN
-void js::FullMemoryFence(JSRuntime* runtime) {
-  // TSAN doesn't understand use of atomic_thread_fence to synchronize relaxed
-  // atomics. Do a full memory barrier to tell TSAN it's OK. Note
-  // std::atomic_thread_fence is stronger than an atomic store-release
-  // operation.
-  runtime->gc.tsanMemoryBarrier++;
+// TSAN doesn't understand use of std::atomic_thread_fence to synchronize
+// relaxed atomics. Do an actual release or acquire atomic operation
+// instead.
+//
+// Bug 2003767: We should be able to use __tsan_acquire/release for this but
+// these don't link.
+void js::TSANMemoryReleaseFence(JSRuntime* runtime) {
+  runtime->gc.tsanFenceAtomic = 0;
+}
+void js::TSANMemoryAcquireFence(JSRuntime* runtime) {
+  (void)(int)runtime->gc.tsanFenceAtomic;
 }
 #endif

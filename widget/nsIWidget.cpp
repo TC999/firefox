@@ -1,6 +1,3 @@
-
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -16,7 +13,6 @@
 #include "TouchEvents.h"
 #include "X11UndefineNone.h"
 #include "base/thread.h"
-#include "mozilla/Attributes.h"
 #include "mozilla/GlobalKeyListener.h"
 #include "mozilla/IMEStateManager.h"
 #include "mozilla/Logging.h"
@@ -133,11 +129,10 @@ WidgetShutdownObserver::WidgetShutdownObserver(nsIWidget* aWidget)
   Register();
 }
 
-WidgetShutdownObserver::~WidgetShutdownObserver() {
-  // No need to call Unregister(), we can't be destroyed until nsIWidget
-  // gets torn down. The observer service and nsIWidget.have a ref on us
-  // so nsIWidget.has to call Unregister and then clear its ref.
-}
+// No need to call Unregister(), we can't be destroyed until nsIWidget
+// gets torn down. The observer service and nsIWidget.have a ref on us
+// so nsIWidget.has to call Unregister and then clear its ref.
+WidgetShutdownObserver::~WidgetShutdownObserver() = default;
 
 NS_IMETHODIMP
 WidgetShutdownObserver::Observe(nsISupports* aSubject, const char* aTopic,
@@ -219,11 +214,10 @@ LocalesChangedObserver::LocalesChangedObserver(nsIWidget* aWidget)
   Register();
 }
 
-LocalesChangedObserver::~LocalesChangedObserver() {
-  // No need to call Unregister(), we can't be destroyed until nsIWidget
-  // gets torn down. The observer service and nsIWidget.have a ref on us
-  // so nsIWidget.has to call Unregister and then clear its ref.
-}
+// No need to call Unregister(), we can't be destroyed until nsIWidget
+// gets torn down. The observer service and nsIWidget.have a ref on us
+// so nsIWidget.has to call Unregister and then clear its ref.
+LocalesChangedObserver::~LocalesChangedObserver() = default;
 
 NS_IMETHODIMP
 LocalesChangedObserver::Observe(nsISupports* aSubject, const char* aTopic,
@@ -279,7 +273,7 @@ int32_t nsIWidget::sPointerIdCounter = 0;
 // Some statics from nsIWidget.h
 /*static*/
 uint64_t AutoSynthesizedEventCallbackNotifier::sCallbackId = 0;
-MOZ_RUNINIT nsTHashMap<uint64_t, nsCOMPtr<nsISynthesizedEventCallback>>
+constinit nsTHashMap<uint64_t, nsCOMPtr<nsISynthesizedEventCallback>>
     AutoSynthesizedEventCallbackNotifier::sSavedCallbacks;
 
 // The maximum amount of time to let the EnableDragDrop runnable wait in the
@@ -1513,8 +1507,6 @@ already_AddRefed<WebRenderLayerManager> nsIWidget::CreateCompositorSession(
     options.SetInitiallyPaused(CompositorInitiallyPaused());
 #endif
 
-    RefPtr<WebRenderLayerManager> lm = new WebRenderLayerManager(this);
-
     uint64_t innerWindowId = 0;
     if (Document* doc = GetDocument()) {
       innerWindowId = doc->InnerWindowID();
@@ -1522,15 +1514,18 @@ already_AddRefed<WebRenderLayerManager> nsIWidget::CreateCompositorSession(
 
     bool retry = false;
     mCompositorSession = gpm->CreateTopLevelCompositor(
-        this, lm, GetDefaultScale(), options, UseExternalCompositingSurface(),
+        this, GetDefaultScale(), options, UseExternalCompositingSurface(),
         gfx::IntSize(aWidth, aHeight), innerWindowId, &retry);
 
+    RefPtr<WebRenderLayerManager> lm;
     if (mCompositorSession) {
-      TextureFactoryIdentifier textureFactoryIdentifier;
       nsCString error;
-      lm->Initialize(mCompositorSession->GetCompositorBridgeChild(),
-                     wr::AsPipelineId(mCompositorSession->RootLayerTreeId()),
-                     &textureFactoryIdentifier, error);
+      TextureFactoryIdentifier textureFactoryIdentifier;
+      lm = mCompositorSession->GetCompositorBridgeChild()->CreateLayerManager(
+          this, wr::AsPipelineId(mCompositorSession->RootLayerTreeId()), error);
+      if (lm) {
+        lm->Initialize(&textureFactoryIdentifier, error);
+      }
       if (textureFactoryIdentifier.mParentBackend != LayersBackend::LAYERS_WR) {
         retry = true;
         DestroyCompositor();
@@ -2296,6 +2291,7 @@ void nsIWidget::TrackScrollEventAsSwipe(
 
   mSwipeTracker =
       new SwipeTracker(*this, aSwipeStartEvent, aAllowedDirections, direction);
+  mSwipeTracker->StartTracking(aSwipeStartEvent);
 
   if (!mAPZC) {
     mCurrentPanGestureBelongsToSwipe = true;
@@ -3342,9 +3338,9 @@ static PrefPair debug_PrefValues[] = {
 bool nsIWidget::debug_GetCachedBoolPref(const char* aPrefName) {
   NS_ASSERTION(nullptr != aPrefName, "cmon, pref name is null.");
 
-  for (uint32_t i = 0; i < std::size(debug_PrefValues); i++) {
-    if (strcmp(debug_PrefValues[i].name, aPrefName) == 0) {
-      return debug_PrefValues[i].value;
+  for (const auto& debug_PrefValue : debug_PrefValues) {
+    if (strcmp(debug_PrefValue.name, aPrefName) == 0) {
+      return debug_PrefValue.value;
     }
   }
 
@@ -3354,10 +3350,9 @@ bool nsIWidget::debug_GetCachedBoolPref(const char* aPrefName) {
 static void debug_SetCachedBoolPref(const char* aPrefName, bool aValue) {
   NS_ASSERTION(nullptr != aPrefName, "cmon, pref name is null.");
 
-  for (uint32_t i = 0; i < std::size(debug_PrefValues); i++) {
-    if (strcmp(debug_PrefValues[i].name, aPrefName) == 0) {
-      debug_PrefValues[i].value = aValue;
-
+  for (auto& debug_PrefValue : debug_PrefValues) {
+    if (strcmp(debug_PrefValue.name, aPrefName) == 0) {
+      debug_PrefValue.value = aValue;
       return;
     }
   }
@@ -3397,16 +3392,14 @@ Debug_PrefObserver::Observe(nsISupports* subject, const char* topic,
   once = false;
 
   nsCOMPtr<nsIObserver> obs(new Debug_PrefObserver());
-  for (uint32_t i = 0; i < std::size(debug_PrefValues); i++) {
+  for (auto& debug_PrefValue : debug_PrefValues) {
     // Initialize the pref values
-    debug_PrefValues[i].value =
-        Preferences::GetBool(debug_PrefValues[i].name, false);
+    debug_PrefValue.value = Preferences::GetBool(debug_PrefValue.name, false);
 
     if (obs) {
       // Register callbacks for when these change
       nsCString name;
-      name.AssignLiteral(debug_PrefValues[i].name,
-                         strlen(debug_PrefValues[i].name));
+      name.AssignLiteral(debug_PrefValue.name, strlen(debug_PrefValue.name));
       Preferences::AddStrongObserver(obs, name);
     }
   }

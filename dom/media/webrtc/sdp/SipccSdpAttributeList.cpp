@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -19,7 +17,7 @@ namespace mozilla {
 using InternalResults = SdpParser::InternalResults;
 
 /* static */
-MOZ_RUNINIT const std::string SipccSdpAttributeList::kEmptyString = "";
+MOZ_GLIBCXX_CONSTINIT const std::string SipccSdpAttributeList::kEmptyString;
 
 SipccSdpAttributeList::SipccSdpAttributeList(
     const SipccSdpAttributeList* sessionLevel)
@@ -39,8 +37,8 @@ SipccSdpAttributeList::SipccSdpAttributeList(
 }
 
 SipccSdpAttributeList::~SipccSdpAttributeList() {
-  for (size_t i = 0; i < kNumAttributeTypes; ++i) {
-    delete mAttributes[i];
+  for (auto& mAttribute : mAttributes) {
+    delete mAttribute;
   }
 }
 
@@ -75,8 +73,8 @@ void SipccSdpAttributeList::Clear() {
 
 uint32_t SipccSdpAttributeList::Count() const {
   uint32_t count = 0;
-  for (size_t i = 0; i < kNumAttributeTypes; ++i) {
-    if (mAttributes[i]) {
+  for (auto mAttribute : mAttributes) {
+    if (mAttribute) {
       count++;
     }
   }
@@ -663,12 +661,12 @@ bool SipccSdpAttributeList::LoadMsidSemantics(sdp_t* sdp, uint16_t level,
 
     sdp_msid_semantic_t* msid_semantic = &(attr->attr.msid_semantic);
     std::vector<std::string> msids;
-    for (size_t i = 0; i < SDP_MAX_MEDIA_STREAMS; ++i) {
-      if (!msid_semantic->msids[i]) {
+    for (auto& msid : msid_semantic->msids) {
+      if (!msid) {
         break;
       }
 
-      msids.push_back(msid_semantic->msids[i]);
+      msids.push_back(msid);
     }
 
     msidSemantics->PushEntry(msid_semantic->semantic, msids);
@@ -1401,9 +1399,9 @@ const SdpSsrcGroupAttributeList& SipccSdpAttributeList::GetSsrcGroup() const {
 }
 
 void SipccSdpAttributeList::Serialize(std::ostream& os) const {
-  for (size_t i = 0; i < kNumAttributeTypes; ++i) {
-    if (mAttributes[i]) {
-      os << *mAttributes[i];
+  for (auto mAttribute : mAttributes) {
+    if (mAttribute) {
+      os << *mAttribute;
     }
   }
 }

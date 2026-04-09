@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 20; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -278,7 +277,8 @@ extern void wgpu_parent_create_swap_chain(
   }
   auto size = gfx::IntSize(aWidth, aHeight);
   auto format = gfx::SurfaceFormat(aFormat);
-  auto desc = layers::RGBDescriptor(size, format);
+  auto desc = layers::RGBDescriptor(size, format, gfx::ColorSpace2::SRGB,
+                                    gfx::TransferFunction::SRGB);
   auto owner = layers::RemoteTextureOwnerId{aRemoteTextureOwnerId};
   parent->DeviceCreateSwapChain(aDeviceId, aQueueId, desc, buffer_ids, owner,
                                 aUseSharedTextureInSwapChain);
@@ -1202,13 +1202,18 @@ ipc::IPCResult WebGPUParent::GetFrontBufferSnapshot(
   RefPtr<PresentationData> data = lookup->second.get();
   data->mReadbackSnapshotCallbackCalled = false;
 
-  const size_t stride = layers::ImageDataSerializer::GetRGBStride(data->mDesc);
-  // `GetRGBStride` returns 0 if it overflows
-  if (stride == 0) {
+  const Maybe<int32_t> maybeStride =
+      layers::ImageDataSerializer::GetRGBStride(data->mDesc);
+  if (maybeStride.isNothing()) {
+    return IPC_OK();
+  }
+  const auto stride = maybeStride.value();
+  const auto& size = data->mDesc.size();
+
+  if (size.width > INT16_MAX || size.height > INT16_MAX || stride > INT16_MAX) {
     return IPC_OK();
   }
 
-  const auto& size = data->mDesc.size();
   const auto len = CheckedInt<size_t>(size.height) * stride;
   if (!len.isValid()) {
     return IPC_OK();
@@ -1341,20 +1346,11 @@ ipc::IPCResult WebGPUParent::GetFrontBufferSnapshot(
   auto snapshotRequest = MakeUnique<ReadbackSnapshotRequest>(
       mContext.get(), data, bufferId, shmem, stride);
 
-  ffi::WGPUBufferMapClosure closure = {
-      &ReadbackSnapshotCallback,
-      reinterpret_cast<uint8_t*>(snapshotRequest.release())};
-
-  ErrorBuffer error;
-  ffi::wgpu_server_buffer_map(mContext.get(), data->mDeviceId, bufferId, 0,
-                              bufferSize, ffi::WGPUHostMap_Read, closure,
-                              error.ToFFI());
-  if (ForwardError(error)) {
-    return IPC_OK();
-  }
-
-  // Callback should be called during the poll.
-  ffi::wgpu_server_poll_all_devices(mContext.get(), true);
+  ffi::WGPUBufferMapAsyncStatus status = ffi::wgpu_server_buffer_map_blocking(
+      mContext.get(), data->mDeviceId, bufferId, 0, bufferSize,
+      ffi::WGPUHostMap_Read);
+  ReadbackSnapshotCallback(
+      reinterpret_cast<uint8_t*>(snapshotRequest.release()), status);
 
   // Check if ReadbackSnapshotCallback is called.
   MOZ_RELEASE_ASSERT(data->mReadbackSnapshotCallbackCalled == true);
@@ -1427,6 +1423,11 @@ void WebGPUParent::SwapChainPresent(
     }
     std::shared_ptr<SharedTexture> sharedTexture = it->second;
     mSharedTextures.erase(it);
+
+    if (!sharedTexture->IsSubmitted()) {
+      gfxCriticalNoteOnce << "Texture is not submitted";
+      return;
+    }
 
     MOZ_ASSERT(sharedTexture->GetOwnerId() == aOwnerId);
 

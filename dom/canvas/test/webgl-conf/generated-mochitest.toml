@@ -3,7 +3,12 @@
 # Mark failing (fail-if) and crashing (skip-if) tests in mochitest-errata.toml.
 
 [DEFAULT]
-prefs = "media.seamless-looping-video=false"
+prefs = [
+  # Bug 1799213
+  "media.seamless-looping-video=false",
+  # Bug 2021606
+  "privacy.baselineFingerprintingProtection=false",
+]
 
 support-files = [
                   "always-fail.html",
@@ -9479,9 +9484,6 @@ fail-if = [
 
 ["generated/test_2_conformance2__wasm__bufferdata-4gb-wasm-memory.html"]
 subsuite = "webgl2-core"
-fail-if = [
-  "true",
-]
 
 ["generated/test_2_conformance2__wasm__buffersubdata-16gb-wasm-memory.html"]
 subsuite = "webgl2-core"
@@ -9491,9 +9493,6 @@ fail-if = [
 
 ["generated/test_2_conformance2__wasm__buffersubdata-4gb-wasm-memory.html"]
 subsuite = "webgl2-core"
-fail-if = [
-  "true",
-]
 
 ["generated/test_2_conformance2__wasm__getbuffersubdata-16gb-wasm-memory.html"]
 subsuite = "webgl2-core"
@@ -9503,9 +9502,6 @@ fail-if = [
 
 ["generated/test_2_conformance2__wasm__getbuffersubdata-4gb-wasm-memory.html"]
 subsuite = "webgl2-core"
-fail-if = [
-  "true",
-]
 
 ["generated/test_2_conformance2__wasm__readpixels-16gb-wasm-memory.html"]
 subsuite = "webgl2-core"
@@ -9515,9 +9511,6 @@ fail-if = [
 
 ["generated/test_2_conformance2__wasm__readpixels-4gb-wasm-memory.html"]
 subsuite = "webgl2-core"
-fail-if = [
-  "true",
-]
 
 ["generated/test_2_conformance2__wasm__teximage2d-16gb-wasm-memory.html"]
 subsuite = "webgl2-core"
@@ -9527,9 +9520,6 @@ fail-if = [
 
 ["generated/test_2_conformance2__wasm__teximage2d-4gb-wasm-memory.html"]
 subsuite = "webgl2-core"
-fail-if = [
-  "true",
-]
 
 ["generated/test_2_conformance2__wasm__texsubimage2d-16gb-wasm-memory.html"]
 subsuite = "webgl2-core"
@@ -9539,9 +9529,6 @@ fail-if = [
 
 ["generated/test_2_conformance2__wasm__texsubimage2d-4gb-wasm-memory.html"]
 subsuite = "webgl2-core"
-fail-if = [
-  "true",
-]
 
 ["generated/test_2_conformance__attribs__gl-bindAttribLocation-aliasing.html"]
 subsuite = "webgl2-core"

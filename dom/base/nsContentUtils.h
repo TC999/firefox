@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -264,6 +262,26 @@ struct EventNameMapping {
   int32_t mType;
   mozilla::EventMessage mMessage;
   mozilla::EventClassID mEventClassID;
+};
+
+enum class PropertiesFile : uint8_t {
+  CSS_PROPERTIES,
+  XUL_PROPERTIES,
+  LAYOUT_PROPERTIES,
+  FORMS_PROPERTIES,
+  PRINTING_PROPERTIES,
+  DOM_PROPERTIES,
+  HTMLPARSER_PROPERTIES,
+  SVG_PROPERTIES,
+  BRAND_PROPERTIES,
+  COMMON_DIALOG_PROPERTIES,
+  MATHML_PROPERTIES,
+  SECURITY_PROPERTIES,
+  NECKO_PROPERTIES,
+  FORMS_PROPERTIES_en_US,
+  DOM_PROPERTIES_en_US,
+  NECKO_PROPERTIES_en_US,
+  COUNT
 };
 
 namespace mozilla::dom {
@@ -1359,25 +1377,6 @@ class nsContentUtils {
               localized message.
    *   @param aLocation message location. Pass the empty location to omit it.
    */
-  enum PropertiesFile {
-    eCSS_PROPERTIES,
-    eXUL_PROPERTIES,
-    eLAYOUT_PROPERTIES,
-    eFORMS_PROPERTIES,
-    ePRINTING_PROPERTIES,
-    eDOM_PROPERTIES,
-    eHTMLPARSER_PROPERTIES,
-    eSVG_PROPERTIES,
-    eBRAND_PROPERTIES,
-    eCOMMON_DIALOG_PROPERTIES,
-    eMATHML_PROPERTIES,
-    eSECURITY_PROPERTIES,
-    eNECKO_PROPERTIES,
-    eFORMS_PROPERTIES_en_US,
-    eDOM_PROPERTIES_en_US,
-    eNECKO_PROPERTIES_en_US,
-    PropertiesFile_COUNT
-  };
   static nsresult ReportToConsole(
       uint32_t aErrorFlags, const nsACString& aCategory,
       const Document* aDocument, PropertiesFile aFile, const char* aMessageName,
@@ -3470,6 +3469,14 @@ class nsContentUtils {
   static already_AddRefed<mozilla::dom::ContentFrameMessageManager>
   TryGetBrowserChildGlobal(nsISupports* aFrom);
 
+  /**
+   * Attempts to retrieve the extant document from a window global.
+   *
+   * @param aFrom The object expected to represent a window global.
+   * @return The associated document, or nullptr if not available.
+   */
+  static Document* TryGetDocumentFromWindowGlobal(nsISupports* aFrom);
+
   // Get a serial number for a newly created inner or outer window.
   static uint32_t InnerOrOuterWindowCreated();
   // Record that an inner or outer window has been destroyed.
@@ -3636,7 +3643,8 @@ class nsContentUtils {
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
   static nsIContent* AttachDeclarativeShadowRoot(
       nsIContent* aHost, mozilla::dom::ShadowRootMode aMode, bool aIsClonable,
-      bool aIsSerializable, bool aDelegatesFocus, const nsAString&);
+      bool aIsSerializable, bool aDelegatesFocus, bool aCustomElementRegistry,
+      const nsAString&);
 
   static bool NavigationMustBeAReplace(nsIURI& aURI, const Document& aDocument);
 

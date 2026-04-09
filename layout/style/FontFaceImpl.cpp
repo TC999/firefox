@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -137,7 +135,6 @@ void FontFaceImpl::InitializeSourceBuffer(uint8_t* aBuffer, uint32_t aLength) {
     mBufferSource = new FontFaceBufferSource(aBuffer, aLength);
   }
 
-  SetStatus(FontFaceLoadStatus::Loading);
   DoLoad();
 }
 
@@ -311,7 +308,7 @@ void FontFaceImpl::DescriptorUpdated() {
 
 FontFaceLoadStatus FontFaceImpl::Status() { return mStatus; }
 
-void FontFaceImpl::Load(ErrorResult& aRv) {
+void FontFaceImpl::Load() {
   mFontFaceSet->FlushUserFontSet();
 
   // Calling Load on a FontFace constructed with an ArrayBuffer data source,
@@ -321,11 +318,6 @@ void FontFaceImpl::Load(ErrorResult& aRv) {
       mStatus != FontFaceLoadStatus::Unloaded) {
     return;
   }
-
-  // Calling the user font entry's Load method will end up setting our
-  // status to Loading, but the spec requires us to set it to Loading
-  // here.
-  SetStatus(FontFaceLoadStatus::Loading);
 
   DoLoad();
 }
@@ -351,6 +343,8 @@ gfxUserFontEntry* FontFaceImpl::CreateUserFontEntry() {
 }
 
 void FontFaceImpl::DoLoad() {
+  // FIXME(emilio): Should this be set even if we bail out right after?
+  SetStatus(FontFaceLoadStatus::Loading);
   if (!CreateUserFontEntry()) {
     return;
   }
@@ -387,36 +381,46 @@ void FontFaceImpl::SetStatus(FontFaceLoadStatus aStatus) {
 }
 
 void FontFaceImpl::UpdateOwnerPromise() {
-  if (!mFontFaceSet->IsOnOwningThread()) {
-    mFontFaceSet->DispatchToOwningThread(
-        "FontFaceImpl::UpdateOwnerPromise",
-        [self = RefPtr{this}] { self->UpdateOwnerPromise(); });
+  mFontFaceSet->DispatchToOwningThread(
+      "FontFaceImpl::UpdateOwnerPromise",
+      [self = RefPtr{this}] { self->UpdateOwnerPromiseSync(); });
+}
+
+void FontFaceImpl::UpdateOwnerKeepAlive() {
+  AssertIsOnOwningThread();
+  if (!mOwner) {
+    MOZ_DIAGNOSTIC_ASSERT(!mKeepingOwnerAlive);
     return;
   }
+  const bool shouldKeepOwnerAlive =
+      mStatus == FontFaceLoadStatus::Loading && !!mOwner->GetParentObject();
+  if (shouldKeepOwnerAlive == mKeepingOwnerAlive) {
+    return;
+  }
+  mKeepingOwnerAlive = shouldKeepOwnerAlive;
+  if (shouldKeepOwnerAlive) {
+    mOwner->AddRef();
+  } else {
+    mOwner->Release();
+  }
+}
 
+void FontFaceImpl::UpdateOwnerPromiseSync() {
   if (NS_WARN_IF(!mOwner)) {
     MOZ_DIAGNOSTIC_ASSERT(!mKeepingOwnerAlive);
     return;
   }
 
+  RefPtr owner = mOwner;
+  UpdateOwnerKeepAlive();
   if (mStatus == FontFaceLoadStatus::Loaded) {
-    mOwner->MaybeResolve();
+    owner->MaybeResolve();
   } else if (mStatus == FontFaceLoadStatus::Error) {
     if (mSourceType == eSourceType_Buffer) {
-      mOwner->MaybeReject(FontFaceLoadedRejectReason::Syntax,
-                          nsCString("Invalid source buffer"_ns));
+      owner->MaybeReject(FontFaceLoadedRejectReason::Syntax,
+                         nsCString("Invalid source buffer"_ns));
     } else {
-      mOwner->MaybeReject(FontFaceLoadedRejectReason::Network, nsCString());
-    }
-  }
-
-  const bool shouldKeepOwnerAlive = mStatus == FontFaceLoadStatus::Loading;
-  if (shouldKeepOwnerAlive != mKeepingOwnerAlive) {
-    mKeepingOwnerAlive = shouldKeepOwnerAlive;
-    if (shouldKeepOwnerAlive) {
-      mOwner->AddRef();
-    } else {
-      mOwner->Release();
+      owner->MaybeReject(FontFaceLoadedRejectReason::Network, nsCString());
     }
   }
 }

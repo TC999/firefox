@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set sw=2 sts=2 ts=8 et tw=80 : */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -41,7 +39,7 @@ class ScopedRequestSuspender {
   }
 
  private:
-  nsIRequest* mRequest;
+  nsCOMPtr<nsIRequest> mRequest;
 };
 
 // Used to suspend data events from mRequest within a function scope.  This is

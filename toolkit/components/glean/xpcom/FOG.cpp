@@ -367,7 +367,7 @@ FOG::TestGetExperimentData(const nsACString& aExperimentId, JSContext* aCx,
   for (unsigned int i = 0; i < extraKeys.Length(); i++) {
     JS::RootedValue jsValueStr(aCx);
     if (!dom::ToJSValue(aCx, extraValues[i], &jsValueStr) ||
-        !JS_DefineProperty(aCx, jsExtraObj, extraKeys[i].Data(), jsValueStr,
+        !JS_DefineProperty(aCx, jsExtraObj, extraKeys[i].get(), jsValueStr,
                            JSPROP_ENUMERATE)) {
       NS_WARNING("Failed to define extra property for experiment data object.");
       return NS_ERROR_FAILURE;

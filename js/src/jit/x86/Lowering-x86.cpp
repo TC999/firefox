@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -736,7 +734,6 @@ void LIRGeneratorX86::lowerWasmBuiltinModI64(MWasmBuiltinModI64* mod) {
   MOZ_ASSERT(lhs->type() == rhs->type());
   MOZ_ASSERT(IsNumberType(mod->type()));
 
-  MOZ_ASSERT(mod->type() == MIRType::Int64);
   MOZ_ASSERT(mod->type() == MIRType::Int64);
 
   if (mod->isUnsigned()) {

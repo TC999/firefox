@@ -11,6 +11,8 @@ import android.view.ViewGroup
 import androidx.compose.ui.platform.ComposeView
 import androidx.fragment.app.Fragment
 import androidx.navigation.findNavController
+import androidx.navigation.fragment.navArgs
+import org.mozilla.fenix.e2e.SystemInsetsPaddedFragment
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.settings.SupportUtils
@@ -19,7 +21,8 @@ import org.mozilla.fenix.theme.FirefoxTheme
 /**
  * Lets the user toggle telemetry on/off.
  */
-class DataChoicesFragment : Fragment() {
+class DataChoicesFragment : Fragment(), SystemInsetsPaddedFragment {
+    private val args by navArgs<DataChoicesFragmentArgs>()
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -31,7 +34,7 @@ class DataChoicesFragment : Fragment() {
                 FirefoxTheme {
                     val store =
                         DataChoicesStore(
-                            initialState = DataChoicesState(),
+                            initialState = DataChoicesState(itemToScrollTo = args.preferenceToScrollTo),
                             middleware = listOf(
                                 DataChoicesMiddleware(
                                     settings = context.settings(),

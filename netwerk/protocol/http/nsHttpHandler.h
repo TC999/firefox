@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -319,10 +318,7 @@ class nsHttpHandler final : public nsIHttpProtocolHandler,
   [[nodiscard]] nsresult SpeculativeConnect(nsHttpConnectionInfo* ci,
                                             nsIInterfaceRequestor* callbacks,
                                             uint32_t caps,
-                                            SpeculativeTransaction* aTrans) {
-    RefPtr<nsHttpConnectionInfo> clone = ci->Clone();
-    return mConnMgr->SpeculativeConnect(clone, callbacks, caps, aTrans);
-  }
+                                            SpeculativeTransaction* aTrans);
 
   // Alternate Services Maps are main thread only
   void UpdateAltServiceMapping(AltSvcMapping* map, nsProxyInfo* proxyInfo,
@@ -813,7 +809,7 @@ class nsHttpHandler final : public nsIHttpProtocolHandler,
   DataMutex<TimeStamp> mLastActiveTabLoadOptimizationHit{
       "nsHttpConnectionMgr::LastActiveTabLoadOptimization"};
 
-  Mutex mHttpExclusionLock MOZ_UNANNOTATED{"nsHttpHandler::HttpExclusion"};
+  Mutex mHttpExclusionLock{"nsHttpHandler::HttpExclusion"};
 
  public:
   [[nodiscard]] uint64_t NewChannelId();
@@ -836,8 +832,10 @@ class nsHttpHandler final : public nsIHttpProtocolHandler,
 #endif
 
  private:
-  nsTHashSet<nsCString> mExcludedHttp2Origins;
-  nsTHashSet<nsCString> mExcludedHttp3Origins;
+  nsTHashSet<nsCString> mExcludedHttp2Origins
+      MOZ_GUARDED_BY(mHttpExclusionLock);
+  nsTHashSet<nsCString> mExcludedHttp3Origins
+      MOZ_GUARDED_BY(mHttpExclusionLock);
   nsTHashSet<nsCString> mExcluded0RttTcpOrigins;
   // A set of hosts that we should not upgrade to HTTPS with HTTPS RR.
   nsTHashSet<nsCString> mExcludedHostsForHTTPSRRUpgrade;

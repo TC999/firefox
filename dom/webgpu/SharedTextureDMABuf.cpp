@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -95,14 +94,17 @@ SharedTextureDMABuf::SharedTextureDMABuf(
       mSurface(std::move(aSurface)),
       mSurfaceDescriptor(aSurfaceDescriptor) {}
 
-SharedTextureDMABuf::~SharedTextureDMABuf() {}
+SharedTextureDMABuf::~SharedTextureDMABuf() = default;
 
 void SharedTextureDMABuf::CleanForRecycling() {
+  SharedTexture::CleanForRecycling();
   mSemaphoreFds.Clear();
   mVkSemaphoreHandles.Clear();
 }
 
 Maybe<layers::SurfaceDescriptor> SharedTextureDMABuf::ToSurfaceDescriptor() {
+  MOZ_ASSERT(mSubmissionIndex > 0);
+
   layers::SurfaceDescriptor sd;
   if (!mSurface->Serialize(sd)) {
     return Nothing();
@@ -163,6 +165,7 @@ const ffi::WGPUVkImageHandle* SharedTextureDMABuf::GetHandle() {
 }
 
 void SharedTextureDMABuf::onBeforeQueueSubmit(RawId aQueueId) {
+  SharedTexture::onBeforeQueueSubmit(aQueueId);
   if (!mParent) {
     return;
   }

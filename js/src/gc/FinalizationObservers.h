@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -220,10 +218,10 @@ class FinalizationObservers {
   void removeWeakRefTarget(Handle<Value> target,
                            Handle<WeakRefObject*> weakRef);
 
-  void traceWeakEdges(JSTracer* trc);
+  void traceWeakEdges(JSTracer* trc, JS::Zone* zone);
 
  private:
-  void traceWeakFinalizationRegistryEdges(JSTracer* trc);
+  void traceWeakFinalizationRegistryEdges(JSTracer* trc, JS::Zone* zone);
   void traceWeakWeakRefEdges(JSTracer* trc);
   void traceWeakWeakRefList(JSTracer* trc, ObserverList& weakRefs,
                             Value target);

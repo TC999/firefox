@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -28,7 +26,6 @@
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
-#include <functional>
 #include <utility>
 
 #if defined(XP_UNIX) && !defined(XP_DARWIN)
@@ -108,6 +105,7 @@
 #include "js/Wrapper.h"
 #include "threading/CpuCount.h"
 #include "util/DifferentialTesting.h"
+#include "util/LanguageId.h"
 #include "util/StringBuilder.h"
 #include "util/Text.h"
 #include "vm/BooleanObject.h"
@@ -7210,7 +7208,6 @@ class BackEdge {
   EdgeName forgetName() { return std::move(name_); }
   JS::ubi::Node predecessor() const { return predecessor_; }
 
- private:
   // No copy constructor or copying assignment.
   BackEdge(const BackEdge&) = delete;
   BackEdge& operator=(const BackEdge&) = delete;
@@ -8698,7 +8695,7 @@ static bool GetTimeZone(JSContext* cx, unsigned argc, Value* vp) {
 #    else
     std::tm* localtm = std::localtime(now);
     if (localtm) {
-      *local = *localtm;
+      local = *localtm;
 #    endif /* HAVE_LOCALTIME_R */
 
 #    if defined(HAVE_TM_ZONE_TM_GMTOFF)
@@ -8924,7 +8921,13 @@ static bool GetRealmLocale(JSContext* cx, unsigned argc, Value* vp) {
   }
 
 #ifdef JS_HAS_INTL_API
-  auto* str = cx->global()->globalIntlData().defaultLocale(cx);
+  auto defaultLocale = LanguageId::und();
+  if (!cx->global()->globalIntlData().defaultLocale(cx, &defaultLocale)) {
+    return false;
+  }
+
+  auto* str =
+      NewStringCopy<CanGC>(cx, std::string_view{defaultLocale.toString()});
   if (!str) {
     return false;
   }
@@ -9325,32 +9328,6 @@ static bool IsConstructor(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 
-static bool SetTimeResolution(JSContext* cx, unsigned argc, Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-  RootedObject callee(cx, &args.callee());
-
-  if (!args.requireAtLeast(cx, "setTimeResolution", 2)) {
-    return false;
-  }
-
-  if (!args[0].isInt32()) {
-    ReportUsageErrorASCII(cx, callee, "First argument must be an Int32.");
-    return false;
-  }
-  int32_t resolution = args[0].toInt32();
-
-  if (!args[1].isBoolean()) {
-    ReportUsageErrorASCII(cx, callee, "Second argument must be a Boolean");
-    return false;
-  }
-  bool jitter = args[1].toBoolean();
-
-  JS::SetTimeResolutionUsec(resolution, jitter);
-
-  args.rval().setUndefined();
-  return true;
-}
-
 static bool ScriptedCallerGlobal(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
@@ -9641,6 +9618,10 @@ static bool BaselineCompile(JSContext* cx, unsigned argc, Value* vp) {
     if (!jit::IsBaselineJitEnabled(cx)) {
       returnedStr = "baseline disabled";
       break;
+    }
+    if (script->length() > jit::BaselineMaxScriptLength ||
+        script->nslots() > jit::BaselineMaxScriptSlots) {
+      script->disableBaselineCompile();
     }
     if (!script->canBaselineCompile()) {
       returnedStr = "can't compile";
@@ -11102,11 +11083,6 @@ JS_FOR_WASM_FEATURES(WASM_FEATURE)
 "getCoreCount()",
 "  Get the number of CPU cores from the platform layer.  Typically this\n"
 "  means the number of hyperthreads on systems where that makes sense.\n"),
-
-    JS_FN_HELP("setTimeResolution", SetTimeResolution, 2, 0,
-"setTimeResolution(resolution, jitter)",
-"  Enables time clamping and jittering. Specify a time resolution in\n"
-"  microseconds and whether or not to jitter\n"),
 
     JS_FN_HELP("scriptedCallerGlobal", ScriptedCallerGlobal, 0, 0,
 "scriptedCallerGlobal()",

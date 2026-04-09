@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -26,10 +24,12 @@
 using namespace mozilla;
 
 MacIOSurface::MacIOSurface(CFTypeRefPtr<IOSurfaceRef> aIOSurfaceRef,
-                           bool aHasAlpha, gfx::YUVColorSpace aColorSpace)
+                           bool aHasAlpha, gfx::YUVColorSpace aColorSpace,
+                           gfx::TransferFunction aTransferFunction)
     : mIOSurfaceRef(std::move(aIOSurfaceRef)),
       mHasAlpha(aHasAlpha),
-      mColorSpace(aColorSpace) {
+      mColorSpace(aColorSpace),
+      mTransferFunction(aTransferFunction) {
   IncrementUseCount();
 }
 
@@ -269,7 +269,8 @@ already_AddRefed<MacIOSurface> MacIOSurface::CreateBiPlanarSurface(
   SetIOSurfaceCommonProperties(surfaceRef, aColorSpace, aTransferFunction);
 
   RefPtr<MacIOSurface> ioSurface =
-      new MacIOSurface(std::move(surfaceRef), false, aColorSpace);
+      new MacIOSurface(std::move(surfaceRef), /* hasAlpha */ false, aColorSpace,
+                       aTransferFunction);
 
   return ioSurface.forget();
 }
@@ -313,21 +314,23 @@ already_AddRefed<MacIOSurface> MacIOSurface::CreateSinglePlanarSurface(
   SetIOSurfaceCommonProperties(surfaceRef, aColorSpace, aTransferFunction);
 
   RefPtr<MacIOSurface> ioSurface =
-      new MacIOSurface(std::move(surfaceRef), false, aColorSpace);
+      new MacIOSurface(std::move(surfaceRef), /* hasAlpha */ false, aColorSpace,
+                       aTransferFunction);
 
   return ioSurface.forget();
 }
 
 /* static */
 already_AddRefed<MacIOSurface> MacIOSurface::LookupSurface(
-    IOSurfaceID aIOSurfaceID, bool aHasAlpha, gfx::YUVColorSpace aColorSpace) {
+    IOSurfaceID aIOSurfaceID, bool aHasAlpha, gfx::YUVColorSpace aColorSpace,
+    gfx::TransferFunction aTransferFunction) {
   CFTypeRefPtr<IOSurfaceRef> surfaceRef =
       CFTypeRefPtr<IOSurfaceRef>::WrapUnderCreateRule(
           ::IOSurfaceLookup(aIOSurfaceID));
   if (!surfaceRef) return nullptr;
 
-  RefPtr<MacIOSurface> ioSurface =
-      new MacIOSurface(std::move(surfaceRef), aHasAlpha, aColorSpace);
+  RefPtr<MacIOSurface> ioSurface = new MacIOSurface(
+      std::move(surfaceRef), aHasAlpha, aColorSpace, aTransferFunction);
 
   return ioSurface.forget();
 }

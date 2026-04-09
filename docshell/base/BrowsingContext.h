@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -857,6 +855,9 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
     mWindowProxy = aWindowProxy;
   }
 
+  // Since mWindowProxy is a weak pointer it has to be updated during sweeping.
+  static void SweepWindowProxies(JSTracer* aTrc);
+
   Nullable<WindowProxyHolder> GetWindow();
 
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
@@ -1604,10 +1605,8 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
 
   JS::UniqueChars mDefaultLocale;
 
-  // This is not a strong reference, but using a JS::Heap for that should be
-  // fine. The JSObject stored in here should be a proxy with a
-  // nsOuterWindowProxy handler, which will update the pointer from its
-  // objectMoved hook and clear it from its finalize hook.
+  // This is a weak reference. It will be updated automatically during sweeping
+  // by SweepWindowProxies.
   JS::Heap<JSObject*> mWindowProxy;
   LocationProxy mLocation;
 

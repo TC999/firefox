@@ -11,15 +11,19 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import mozilla.components.feature.tabs.TabsUseCases.RemoveTabsUseCase
 import mozilla.components.lib.state.Middleware
 import mozilla.components.lib.state.Store
 import mozilla.components.support.base.log.logger.Logger
+import mozilla.components.support.utils.DateTimeProvider
+import mozilla.components.support.utils.DefaultDateTimeProvider
 import org.mozilla.fenix.tabgroups.storage.database.StoredTabGroup
 import org.mozilla.fenix.tabgroups.storage.repository.TabGroupRepository
 import org.mozilla.fenix.tabstray.data.TabData
 import org.mozilla.fenix.tabstray.data.TabGroupTheme
 import org.mozilla.fenix.tabstray.data.TabStorageUpdate
 import org.mozilla.fenix.tabstray.data.TabsTrayItem
+import org.mozilla.fenix.tabstray.redux.action.TabGroupAction
 import org.mozilla.fenix.tabstray.redux.action.TabsTrayAction
 import org.mozilla.fenix.tabstray.redux.action.TabsTrayAction.InitAction
 import org.mozilla.fenix.tabstray.redux.action.TabsTrayAction.TabDataUpdateReceived
@@ -36,6 +40,8 @@ private typealias TabGroupMap = HashMap<TabItemId, TabsTrayItem.TabGroup>
  * @param tabGroupsEnabled Whether the inactive tabs feature is enabled.
  * @param tabDataFlow [StateFlow] used to observe tab data.
  * @param tabGroupRepository The [TabGroupRepository] used to read/write tab group data.
+ * @param removeTabsUseCase The [RemoveTabsUseCase] used to delete the tabs in a tab group.
+ * @param dateTimeProvider The [DateTimeProvider] that will be used to get the current date.
  * @param scope The [CoroutineScope] for running the tab data transformation off of the main thread.
  * @param mainScope The [CoroutineScope] used for returning to the main thread.
  **/
@@ -44,6 +50,8 @@ class TabStorageMiddleware(
     private val tabGroupsEnabled: Boolean,
     private val tabDataFlow: Flow<TabData>,
     private val tabGroupRepository: TabGroupRepository,
+    private val removeTabsUseCase: RemoveTabsUseCase,
+    private val dateTimeProvider: DateTimeProvider = DefaultDateTimeProvider(),
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default),
     private val mainScope: CoroutineScope = CoroutineScope(Dispatchers.Main),
 ) : Middleware<TabsTrayState, TabsTrayAction> {
@@ -114,6 +122,34 @@ class TabStorageMiddleware(
                     }
                 }
             }
+
+            TabGroupAction.SaveClicked -> handleSaveClicked(store)
+
+            is TabGroupAction.TabsAddedToGroup -> {
+                val selectedTabIds = store.state.mode.selectedTabIds
+                val selectedTabGroupIds = store.state.mode.selectedTabGroupIds
+
+                scope.launch {
+                    tabGroupRepository.addTabsToTabGroup(
+                        tabGroupId = action.groupId,
+                        tabIds = selectedTabIds,
+                    )
+
+                    // If group(s) were merged, delete them
+                    tabGroupRepository.deleteTabGroupsById(ids = selectedTabGroupIds)
+                }
+            }
+
+            is TabGroupAction.TabAddedToGroup -> {
+                scope.launch {
+                    tabGroupRepository.addTabGroupAssignment(
+                        tabId = action.tabId,
+                        tabGroupId = action.groupId,
+                    )
+                }
+            }
+
+            is TabGroupAction.DeleteConfirmed -> handleDeleteClicked(action.group)
         }
     }
 
@@ -185,13 +221,56 @@ class TabStorageMiddleware(
                 id = tabGroup.id,
                 theme = safeTheme,
                 title = tabGroup.title,
-                tabs = hashSetOf(),
+                tabs = mutableListOf(),
                 closed = tabGroup.closed,
             )
         }
 
         return transformedTabGroups
     }
+
+    private fun handleSaveClicked(
+        store: Store<TabsTrayState, TabsTrayAction>,
+    ) {
+        val formState = store.state.tabGroupFormState ?: return
+        val selectedTabIds = store.state.mode.selectedTabIds
+
+        scope.launch {
+            if (formState.tabGroupId == null) {
+                val storedTabGroup = StoredTabGroup(
+                    title = formState.name,
+                    theme = formState.theme.toStorageValue(),
+                    lastModified = dateTimeProvider.currentTimeMillis(),
+                )
+                if (selectedTabIds.isNotEmpty()) {
+                    tabGroupRepository.createTabGroupWithTabs(
+                        tabGroup = storedTabGroup,
+                        tabIds = selectedTabIds,
+                    )
+                } else {
+                    tabGroupRepository.addNewTabGroup(storedTabGroup)
+                }
+            } else {
+                tabGroupRepository.updateTabGroup(
+                    StoredTabGroup(
+                        id = formState.tabGroupId,
+                        title = formState.name,
+                        theme = formState.theme.toStorageValue(),
+                        lastModified = dateTimeProvider.currentTimeMillis(),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun handleDeleteClicked(group: TabsTrayItem.TabGroup) {
+        scope.launch {
+            removeTabsUseCase.invoke(ids = group.tabs.map { it.id })
+            tabGroupRepository.deleteTabGroupById(group.id)
+        }
+    }
+
+    internal fun TabGroupTheme.toStorageValue(): String = name
 
     internal fun String.toTabGroupTheme() = try {
         TabGroupTheme.valueOf(this)

@@ -49,7 +49,7 @@ if (AppConstants.platform == "linux") {
         );
 
         Assert.ok(
-          annotations.StackTraces.crash_info.type.startsWith("SIGSYS"),
+          annotations.StackTraces.crash_type.startsWith("SIGSYS"),
           "The crash type is SIGSYS"
         );
 
@@ -66,7 +66,7 @@ if (AppConstants.platform == "linux") {
         }
 
         Assert.equal(
-          annotations.StackTraces.crash_info.address,
+          annotations.StackTraces.crash_address,
           chroot_syscall_number(),
           "The address corresponds to the chroot() syscall number"
         );

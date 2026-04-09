@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -2299,8 +2297,7 @@ nsStyleDisplay::nsStyleDisplay()
       mBaselineSource(StyleBaselineSource::Auto),
       mWebkitLineClamp(0),
       mShapeMargin(LengthPercentage::Zero()),
-      mShapeOutside(StyleShapeOutside::None()),
-      mAnchorScope(StyleScopedNameKeyword::None()) {
+      mShapeOutside(StyleShapeOutside::None()) {
   MOZ_COUNT_CTOR(nsStyleDisplay);
 }
 
@@ -2439,8 +2436,12 @@ static bool ScrollbarGenerationChanged(const nsStyleDisplay& aOld,
 static bool AppearanceValueAffectsFrames(StyleAppearance aAppearance,
                                          StyleAppearance aDefaultAppearance) {
   switch (aAppearance) {
+    case StyleAppearance::Base:
+      /* TODO: Other appearance: base cases */
+      return aDefaultAppearance == StyleAppearance::Checkbox ||
+             aDefaultAppearance == StyleAppearance::Radio;
     case StyleAppearance::None:
-      // Checkbox / radio with appearance none doesn't construct an
+      // Checkbox / radio with appearance: none don't construct an
       // nsCheckboxRadioFrame.
       return aDefaultAppearance == StyleAppearance::Checkbox ||
              aDefaultAppearance == StyleAppearance::Radio;
@@ -3297,7 +3298,7 @@ nsStyleUIReset::nsStyleUIReset()
       mIMEMode(StyleImeMode::Auto),
       mWindowDragging(StyleWindowDragging::Default),
       mWindowShadow(StyleWindowShadow::Auto),
-      mWindowOpacity(1.0),
+      mFieldSizing(StyleFieldSizing::Fixed),
       mMozWindowInputRegionMargin(StyleLength::Zero()),
       mTransitions(
           nsStyleAutoArray<StyleTransition>::WITH_SINGLE_INITIAL_ELEMENT),
@@ -3306,6 +3307,7 @@ nsStyleUIReset::nsStyleUIReset()
       mTransitionDelayCount(1),
       mTransitionPropertyCount(1),
       mTransitionBehaviorCount(1),
+      mWindowOpacity(1.0),
       mAnimations(
           nsStyleAutoArray<StyleAnimation>::WITH_SINGLE_INITIAL_ELEMENT),
       mAnimationTimingFunctionCount(1),
@@ -3329,9 +3331,7 @@ nsStyleUIReset::nsStyleUIReset()
       mViewTimelineNameCount(1),
       mViewTimelineAxisCount(1),
       mViewTimelineInsetCount(1),
-      mFieldSizing(StyleFieldSizing::Fixed),
-      mViewTransitionName(StyleViewTransitionName::None()),
-      mTimelineScope(StyleScopedNameKeyword::None()) {
+      mViewTransitionName(StyleAtom{nsGkAtoms::none}) {
   MOZ_COUNT_CTOR(nsStyleUIReset);
 }
 
@@ -3343,7 +3343,7 @@ nsStyleUIReset::nsStyleUIReset(const nsStyleUIReset& aSource)
       mIMEMode(aSource.mIMEMode),
       mWindowDragging(aSource.mWindowDragging),
       mWindowShadow(aSource.mWindowShadow),
-      mWindowOpacity(aSource.mWindowOpacity),
+      mFieldSizing(aSource.mFieldSizing),
       mMozWindowInputRegionMargin(aSource.mMozWindowInputRegionMargin),
       mMozWindowTransform(aSource.mMozWindowTransform),
       mTransitions(aSource.mTransitions.Clone()),
@@ -3352,6 +3352,7 @@ nsStyleUIReset::nsStyleUIReset(const nsStyleUIReset& aSource)
       mTransitionDelayCount(aSource.mTransitionDelayCount),
       mTransitionPropertyCount(aSource.mTransitionPropertyCount),
       mTransitionBehaviorCount(aSource.mTransitionBehaviorCount),
+      mWindowOpacity(aSource.mWindowOpacity),
       mAnimations(aSource.mAnimations.Clone()),
       mAnimationTimingFunctionCount(aSource.mAnimationTimingFunctionCount),
       mAnimationDurationCount(aSource.mAnimationDurationCount),
@@ -3372,7 +3373,6 @@ nsStyleUIReset::nsStyleUIReset(const nsStyleUIReset& aSource)
       mViewTimelineNameCount(aSource.mViewTimelineNameCount),
       mViewTimelineAxisCount(aSource.mViewTimelineAxisCount),
       mViewTimelineInsetCount(aSource.mViewTimelineInsetCount),
-      mFieldSizing(aSource.mFieldSizing),
       mViewTransitionName(aSource.mViewTransitionName),
       mViewTransitionClass(aSource.mViewTransitionClass),
       mTimelineScope(aSource.mTimelineScope) {
@@ -3412,7 +3412,7 @@ nsChangeHint nsStyleUIReset::CalcDifference(
     hint |= nsChangeHint_SchedulePaint;
   }
 
-  if (mViewTransitionName != aNewData.mViewTransitionName) {
+  if (mViewTransitionName.value != aNewData.mViewTransitionName.value) {
     if (HasViewTransitionName() != aNewData.HasViewTransitionName()) {
       hint |= nsChangeHint_RepaintFrame;
     } else {
@@ -3420,7 +3420,7 @@ nsChangeHint nsStyleUIReset::CalcDifference(
     }
   }
 
-  if (mViewTransitionClass != aNewData.mViewTransitionClass) {
+  if (mViewTransitionClass.value != aNewData.mViewTransitionClass.value) {
     hint |= nsChangeHint_NeutralChange;
   }
 
@@ -3463,15 +3463,6 @@ nsChangeHint nsStyleUIReset::CalcDifference(
   }
 
   return hint;
-}
-
-StyleScrollbarWidth nsStyleUIReset::ScrollbarWidth() const {
-  if (MOZ_UNLIKELY(StaticPrefs::layout_css_scrollbar_width_thin_disabled())) {
-    if (mScrollbarWidth == StyleScrollbarWidth::Thin) {
-      return StyleScrollbarWidth::Auto;
-    }
-  }
-  return mScrollbarWidth;
 }
 
 //-----------------------

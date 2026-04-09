@@ -4,7 +4,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+#![cfg_attr(all(coverage_nightly, test), feature(coverage_attribute))]
 #![expect(
     clippy::missing_errors_doc,
     reason = "Functions simply delegate to tokio and quinn-udp."
@@ -40,9 +40,9 @@ const RECV_BUF_SIZE: usize = u16::MAX as usize;
 /// - Linux/Android: use segmentation offloading via GRO
 /// - Windows: use segmentation offloading via URO (caveat see <https://github.com/quinn-rs/quinn/issues/2041>)
 /// - Apple: no segmentation offloading available, use multiple buffers
-#[cfg(not(all(apple, feature = "fast-apple-datapath")))]
+#[cfg(not(apple))]
 const NUM_BUFS: usize = 1;
-#[cfg(all(apple, feature = "fast-apple-datapath"))]
+#[cfg(apple)]
 // Value approximated based on neqo-bin "Download" benchmark only.
 const NUM_BUFS: usize = 16;
 
@@ -229,10 +229,26 @@ pub struct Socket<S> {
 impl<S: SocketRef> Socket<S> {
     /// Create a new [`Socket`] given a raw file descriptor managed externally.
     pub fn new(socket: S) -> Result<Self, io::Error> {
+        let state = UdpSocketState::new((&socket).into())?;
         Ok(Self {
-            state: UdpSocketState::new((&socket).into())?,
+            state,
             inner: socket,
         })
+    }
+
+    /// Enable the Apple fast UDP datapath (`sendmsg_x`/`recvmsg_x`) for this
+    /// socket.
+    ///
+    /// # Safety
+    ///
+    /// `sendmsg_x` and `recvmsg_x` are private Apple APIs. Quinn-udp resolves
+    /// them at runtime via `dlsym` and falls back to standard `sendmsg`/`recvmsg`
+    /// if they are unavailable, so this will not crash on unsupported OS versions.
+    /// The `unsafe` contract is inherited from [`quinn_udp::UdpSocketState::set_apple_fast_path`].
+    #[cfg(apple)]
+    pub unsafe fn enable_apple_fast_path(&self) {
+        // SAFETY: Caller ensures the APIs are available on this OS version.
+        unsafe { self.state.set_apple_fast_path() }
     }
 
     /// Send a [`datagram::Batch`] on the given [`Socket`].
@@ -271,7 +287,7 @@ mod tests {
         clippy::unwrap_in_result,
         reason = "OK in tests."
     )]
-    use std::env;
+    use std::{env, num::NonZeroUsize};
 
     use neqo_common::{Dscp, Ecn};
 
@@ -404,8 +420,6 @@ mod tests {
         ignore = "GRO not available"
     )]
     fn many_datagrams_through_gso_gro() -> Result<(), io::Error> {
-        use std::num::NonZeroUsize;
-
         const SEGMENT_SIZE: usize = 128;
 
         let sender = socket()?;
@@ -451,15 +465,21 @@ mod tests {
         let receiver = Socket::new(std::net::UdpSocket::bind("127.0.0.1:0")?)?;
         let receiver_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
 
-        // Send oversized datagram and expect `EMSGSIZE` error to be ignored.
-        let oversized_datagram = Datagram::new(
+        // Send oversized batch and expect `EMSGSIZE` error to be ignored.
+        //
+        // Use two segments to ensure quinn-udp's `effective_segment_size()` returns `Some`,
+        // which sets `UDP_SEND_MSG_SIZE` on Windows. With a single segment,
+        // `effective_segment_size()` returns `None`, and Windows silently truncates
+        // the oversized datagram instead of returning `EMSGSIZE`.
+        let segment_size = u16::MAX as usize + 1;
+        let oversized_batch = datagram::Batch::new(
             sender.inner.local_addr()?,
             receiver.inner.local_addr()?,
             Tos::from((Dscp::Le, Ecn::Ect1)),
-            vec![0; u16::MAX as usize + 1],
-        )
-        .into();
-        sender.send(&oversized_datagram)?;
+            NonZeroUsize::new(segment_size).unwrap(),
+            vec![0; segment_size * 2],
+        );
+        sender.send(&oversized_batch)?;
 
         let mut recv_buf = RecvBuf::default();
         match receiver.recv(receiver_addr, &mut recv_buf) {
@@ -486,6 +506,16 @@ mod tests {
             normal_datagram.data()
         );
 
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(apple)]
+    fn apple_fast_path() -> Result<(), io::Error> {
+        let socket = socket()?;
+        // SAFETY: Tests run on Apple OS versions that support sendmsg_x/recvmsg_x.
+        unsafe { socket.enable_apple_fast_path() };
+        assert!(socket.max_gso_segments() > 1);
         Ok(())
     }
 }

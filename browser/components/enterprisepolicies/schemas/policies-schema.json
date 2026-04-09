@@ -16,6 +16,96 @@
       }
     },
 
+    "AIControls": {
+      "type": "object",
+      "properties": {
+        "Default": {
+          "type": "object",
+          "properties": {
+            "Value": {
+              "type": "string",
+              "enum": ["available", "blocked"]
+            },
+            "Locked": {
+              "type": "boolean"
+            }
+          }
+        },
+        "Translations": {
+          "type": "object",
+          "properties": {
+            "Value": {
+              "type": "string",
+              "enum": ["available", "blocked"]
+            },
+            "Locked": {
+              "type": "boolean"
+            }
+          }
+        },
+        "PDFAltText": {
+          "type": "object",
+          "properties": {
+            "Value": {
+              "type": "string",
+              "enum": ["available", "blocked"]
+            },
+            "Locked": {
+              "type": "boolean"
+            }
+          }
+        },
+        "SmartTabGroups": {
+          "type": "object",
+          "properties": {
+            "Value": {
+              "type": "string",
+              "enum": ["available", "blocked"]
+            },
+            "Locked": {
+              "type": "boolean"
+            }
+          }
+        },
+        "LinkPreviewKeyPoints": {
+          "type": "object",
+          "properties": {
+            "Value": {
+              "type": "string",
+              "enum": ["available", "blocked"]
+            },
+            "Locked": {
+              "type": "boolean"
+            }
+          }
+        },
+        "SidebarChatbot": {
+          "type": "object",
+          "properties": {
+            "Value": {
+              "type": "string",
+              "enum": ["available", "blocked"]
+            },
+            "Locked": {
+              "type": "boolean"
+            }
+          }
+        },
+        "SmartWindow": {
+          "type": "object",
+          "properties": {
+            "Value": {
+              "type": "string",
+              "enum": ["available", "blocked"]
+            },
+            "Locked": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+
     "AllowedDomainsForApps": {
       "type": "string"
     },
@@ -999,6 +1089,10 @@
       }
     },
 
+    "IPProtectionAvailable": {
+      "type": "boolean"
+    },
+
     "LegacyProfiles": {
       "type": "boolean"
     },
@@ -1486,6 +1580,26 @@
       }
     },
 
+    "RelaunchRequired": {
+      "type": "object",
+      "properties": {
+        "NotificationPeriodHours": {
+          "type": "number"
+        },
+        "RestartTimeOfDay": {
+          "type": "object",
+          "properties": {
+            "Hour": {
+              "type": "number"
+            },
+            "Minute": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+
     "RequestedLocales": {
       "type": ["string", "array"],
       "items": {
@@ -1747,6 +1861,10 @@
     },
 
     "WindowsSSO": {
+      "type": "boolean"
+    },
+
+    "XSLTEnabled": {
       "type": "boolean"
     }
   }

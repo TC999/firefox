@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -112,7 +110,6 @@ struct ParamTraits<mozilla::wr::BuiltDisplayListDescriptor> {
     WriteParam(aWriter, aParam.send_start_time);
     WriteParam(aWriter, aParam.total_clip_nodes);
     WriteParam(aWriter, aParam.total_spatial_nodes);
-    WriteParam(aWriter, aParam.cache_size);
   }
 
   static bool Read(MessageReader* aReader, paramType* aResult) {
@@ -121,8 +118,7 @@ struct ParamTraits<mozilla::wr::BuiltDisplayListDescriptor> {
            ReadParam(aReader, &aResult->builder_finish_time) &&
            ReadParam(aReader, &aResult->send_start_time) &&
            ReadParam(aReader, &aResult->total_clip_nodes) &&
-           ReadParam(aReader, &aResult->total_spatial_nodes) &&
-           ReadParam(aReader, &aResult->cache_size);
+           ReadParam(aReader, &aResult->total_spatial_nodes);
   }
 };
 
@@ -222,7 +218,7 @@ inline auto TiedFields<mozilla::wr::FontInstancePlatformOptions>(
 #elif defined(XP_MACOSX)
   return std::tie(a.unused);
 #else
-  return std::tie(a.lcd_filter, a.hinting);
+  return std::tie(a.lcd_filter, a.hinting, a.gamma, a.enhanced_contrast);
 #endif
 }
 

@@ -12,7 +12,7 @@ Subject: Bug 1766646 - (fix-ae0d117d51) ifdef our Csrc impl vs upstream's
  5 files changed, 20 insertions(+)
 
 diff --git a/modules/rtp_rtcp/source/rtp_header_extensions.cc b/modules/rtp_rtcp/source/rtp_header_extensions.cc
-index c0e46cc918..b26f0943e0 100644
+index 0a221f5e70..c5c476f296 100644
 --- a/modules/rtp_rtcp/source/rtp_header_extensions.cc
 +++ b/modules/rtp_rtcp/source/rtp_header_extensions.cc
 @@ -182,6 +182,7 @@ bool AudioLevelExtension::Write(ArrayView<uint8_t> data,
@@ -84,7 +84,7 @@ index 3416ce8cf3..cc811cae3a 100644
  // Base extension class for RTP header extensions which are strings.
  // Subclasses must defined kId and kUri static constexpr members.
 diff --git a/modules/rtp_rtcp/source/rtp_packet.cc b/modules/rtp_rtcp/source/rtp_packet.cc
-index 60e582bf29..30d19e16eb 100644
+index a869de1489..034fcd225f 100644
 --- a/modules/rtp_rtcp/source/rtp_packet.cc
 +++ b/modules/rtp_rtcp/source/rtp_packet.cc
 @@ -193,7 +193,9 @@ void RtpPacket::ZeroMutableExtensions() {

@@ -50,8 +50,7 @@ NS_IMETHODIMP FetchParent::FetchParentCSPEventListener::OnCSPViolationEvent(
   return NS_OK;
 }
 
-MOZ_RUNINIT nsTHashMap<nsIDHashKey, RefPtr<FetchParent>>
-    FetchParent::sActorTable;
+constinit nsTHashMap<nsIDHashKey, RefPtr<FetchParent>> FetchParent::sActorTable;
 
 /*static*/
 RefPtr<FetchParent> FetchParent::GetActorByID(const nsID& aID) {
@@ -90,6 +89,9 @@ IPCResult FetchParent::RecvFetchOp(FetchOpArgs&& aArgs) {
   FETCH_LOG(("FetchParent::RecvFetchOp [%p]", this));
   AssertIsOnBackgroundThread();
 
+  if (mReceivedFetchOp.exchange(true)) {
+    return IPC_FAIL(this, "FetchOp received more than once on this actor");
+  }
   MOZ_ASSERT(!mIsDone);
   if (mActorDestroyed) {
     return IPC_OK();

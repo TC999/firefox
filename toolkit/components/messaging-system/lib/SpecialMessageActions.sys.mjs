@@ -128,8 +128,8 @@ export const SpecialMessageActions = {
    *
    * @param {Window} window Reference to a window object
    */
-  setDefaultPDFHandler(window, onlyIfKnownBrowser = false) {
-    window.getShellService().setAsDefaultPDFHandler(onlyIfKnownBrowser);
+  async setDefaultPDFHandler(window, onlyIfKnownBrowser = false) {
+    await window.getShellService().setAsDefaultPDFHandler(onlyIfKnownBrowser);
   },
 
   /**
@@ -743,7 +743,7 @@ export const SpecialMessageActions = {
         await this.setDefaultBrowser(window);
         break;
       case "SET_DEFAULT_PDF_HANDLER":
-        this.setDefaultPDFHandler(
+        await this.setDefaultPDFHandler(
           window,
           action.data?.onlyIfKnownBrowser ?? false
         );
@@ -759,6 +759,37 @@ export const SpecialMessageActions = {
           "resource://gre/modules/WindowsLaunchOnLogin.sys.mjs"
         );
         await WindowsLaunchOnLogin.createLaunchOnLogin();
+        break;
+      }
+      case "CREATE_GROUP_FROM_CURRENT_TAB": {
+        let tab =
+          window.gBrowser.getTabForBrowser(browser) ??
+          window.gBrowser.selectedTab;
+        if (tab.group) {
+          // Create a new tab after the current tab's group, add the new tab to
+          // a new tab group.
+          /** @type {Extract<nsIObserver, Function>} */
+          async function observer(aSubject) {
+            Services.obs.removeObserver(observer, "browser-open-newtab-start");
+            /** @type {nsIBrowser} */
+            let newBrowser = await aSubject.wrappedJSObject;
+            let newTab = window.gBrowser.getTabForBrowser(newBrowser);
+            window.gBrowser.addTabGroup([newTab], {
+              insertBefore: tab.group.nextElementSibling,
+              isUserTriggered: true,
+              telemetryUserCreateSource: "messaging",
+            });
+          }
+          Services.obs.addObserver(observer, "browser-open-newtab-start");
+          window.gBrowser.addAdjacentNewTab(tab);
+        } else {
+          // Add the current tab to a new tab group in place.
+          window.gBrowser.addTabGroup([tab], {
+            insertBefore: tab,
+            isUserTriggered: true,
+            telemetryUserCreateSource: "messaging",
+          });
+        }
         break;
       }
       case "PIN_CURRENT_TAB": {
@@ -847,13 +878,6 @@ export const SpecialMessageActions = {
         throw new Error(
           `Special message action with type ${action.type} is unsupported.`
         );
-      case "CLICK_ELEMENT": {
-        const clickElement = window.document.querySelector(
-          action.data.selector
-        );
-        clickElement?.click();
-        break;
-      }
       case "RELOAD_BROWSER":
         browser.reload();
         break;

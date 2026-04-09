@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -298,14 +296,6 @@ struct SimplePayloadMarkerTemplate
 
   static constexpr MS::Location Locations[] = {MS::Location::MarkerChart,
                                                MS::Location::MarkerTable};
-
-  static void StreamJSONMarkerData(
-      mozilla::baseprofiler::SpliceableJSONWriter& aWriter,
-      const typename ArgTypes::type&... args) {
-    mozilla::BaseMarkerType<
-        SimplePayloadMarkerTemplate<ArgName, ArgTableLabel, ArgTypes...>>::
-        StreamJSONMarkerDataImpl(aWriter, args...);
-  }
 };
 }  // namespace geckoprofiler::markers
 
@@ -621,12 +611,18 @@ namespace detail {
 
 // Implement this here to prevent BaseProfilerMarkersPrerequisites from pulling
 // in nsString.h
-template <>
-inline void StreamPayload<ProfilerString16View>(
-    baseprofiler::SpliceableJSONWriter& aWriter, const Span<const char> aKey,
-    const ProfilerString16View& aPayload) {
-  aWriter.StringProperty(aKey, NS_ConvertUTF16toUTF8(aPayload));
-}
+template <MarkerSchema::Format aFormat>
+struct StreamPayloadHelper<ProfilerString16View, aFormat> {
+  static void Stream(baseprofiler::SpliceableJSONWriter& aWriter,
+                     const Span<const char> aKey,
+                     const ProfilerString16View& aPayload) {
+    if constexpr (aFormat == MarkerSchema::Format::UniqueString) {
+      aWriter.UniqueStringProperty(aKey, NS_ConvertUTF16toUTF8(aPayload));
+    } else {
+      aWriter.StringProperty(aKey, NS_ConvertUTF16toUTF8(aPayload));
+    }
+  }
+};
 
 }  // namespace detail
 }  // namespace mozilla

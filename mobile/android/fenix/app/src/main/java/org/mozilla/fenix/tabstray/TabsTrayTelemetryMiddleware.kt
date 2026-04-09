@@ -47,7 +47,7 @@ class TabsTrayTelemetryMiddleware(
             is TabsTrayAction.EnterSelectMode -> {
                 TabsTray.enterMultiselectMode.record(TabsTray.EnterMultiselectModeExtra(false))
             }
-            is TabsTrayAction.AddSelectTab -> {
+            is TabsTrayAction.AddSelectTabItem -> {
                 TabsTray.enterMultiselectMode.record(TabsTray.EnterMultiselectModeExtra(true))
             }
             is TabsTrayAction.TabAutoCloseDialogShown -> {

@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
-/* vim:set ts=4 sw=4 sts=4 et cin: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -19,7 +17,8 @@ class SpeculativeTransaction : public NullHttpTransaction {
  public:
   SpeculativeTransaction(nsHttpConnectionInfo* aConnInfo,
                          nsIInterfaceRequestor* aCallbacks, uint32_t aCaps,
-                         std::function<void(nsresult)>&& aCallback = nullptr);
+                         std::function<void(nsresult)>&& aCallback = nullptr,
+                         bool reportActivity = true);
 
   already_AddRefed<SpeculativeTransaction> CreateWithNewConnInfo(
       nsHttpConnectionInfo* aConnInfo);

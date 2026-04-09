@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -15,6 +13,7 @@
 #include "mozilla/TextControlState.h"
 #include "mozilla/TextEditor.h"
 #include "mozilla/dom/Document.h"
+#include "mozilla/dom/HTMLBRElement.h"
 #include "mozilla/dom/ShadowRoot.h"
 #include "nsFocusManager.h"
 #include "nsFrameSelection.h"
@@ -257,6 +256,11 @@ void TextControlElement::SetupShadowTree(ShadowRoot& aShadow, bool aNotify) {
       text->MarkAsMaybeMasked();
     }
     root->AppendChildTo(text, false, IgnoreErrors());
+    if (IsTextArea()) {
+      RefPtr br = doc.CreateHTMLElement(nsGkAtoms::br);
+      br->SetFlags(NS_PADDING_FOR_EMPTY_LAST_LINE);
+      root->AppendChildTo(br, false, IgnoreErrors());
+    }
   }
   aShadow.AppendChildTo(root, aNotify, IgnoreErrors());
 
@@ -349,7 +353,7 @@ void TextControlElement::ShowSelection() {
   if (!ourSel) {
     return;
   }
-  auto* ps = OwnerDoc()->GetPresShell();
+  RefPtr<PresShell> ps = OwnerDoc()->GetPresShell();
   if (!ps) {
     return;
   }
@@ -373,6 +377,9 @@ void TextControlElement::ShowSelection() {
 
   if (!docSel->IsCollapsed()) {
     docSel->RemoveAllRanges(IgnoreErrors());
+  }
+  if (ps->IsDestroying()) {
+    return;
   }
 
   // If the focus moved to a text control during text selection by pointer

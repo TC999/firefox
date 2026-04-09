@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -45,6 +43,7 @@
 #include "frontend/ScriptIndex.h"  // ScriptIndex
 #include "frontend/TokenStream.h"  // IsKeyword, ReservedWordTokenKind, ReservedWordToCharZ, DeprecatedContent, *TokenStream*, CharBuffer, TokenKindToDesc
 #include "irregexp/RegExpAPI.h"
+#include "jit/JitOptions.h"  // fuzzingSafe
 #include "js/ColumnNumber.h"  // JS::LimitedColumnNumberOneOrigin, JS::ColumnNumberOneOrigin
 #include "js/ErrorReport.h"           // JSErrorBase
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
@@ -3651,12 +3650,6 @@ bool GeneralParser<ParseHandler, Unit>::functionFormalParametersAndBody(
     }
 
     setFunctionEndFromCurrentToken(funbox);
-
-    if (kind == FunctionSyntaxKind::Statement) {
-      if (!matchOrInsertSemicolon()) {
-        return false;
-      }
-    }
   }
 
   if (IsMethodDefinitionKind(kind) && pc_->superScopeNeedsHomeObject()) {
@@ -4157,11 +4150,8 @@ GeneralParser<ParseHandler, Unit>::PossibleError::error(ErrorKind kind) {
   if (kind == ErrorKind::Expression) {
     return exprError_;
   }
-  if (kind == ErrorKind::Destructuring) {
-    return destructuringError_;
-  }
-  MOZ_ASSERT(kind == ErrorKind::DestructuringWarning);
-  return destructuringWarning_;
+  MOZ_ASSERT(kind == ErrorKind::Destructuring);
+  return destructuringError_;
 }
 
 template <class ParseHandler, typename Unit>
@@ -4206,13 +4196,6 @@ void GeneralParser<ParseHandler, Unit>::PossibleError::
 
 template <class ParseHandler, typename Unit>
 void GeneralParser<ParseHandler, Unit>::PossibleError::
-    setPendingDestructuringWarningAt(const TokenPos& pos,
-                                     unsigned errorNumber) {
-  setPending(ErrorKind::DestructuringWarning, pos, errorNumber);
-}
-
-template <class ParseHandler, typename Unit>
-void GeneralParser<ParseHandler, Unit>::PossibleError::
     setPendingExpressionErrorAt(const TokenPos& pos, unsigned errorNumber) {
   setPending(ErrorKind::Expression, pos, errorNumber);
 }
@@ -4246,7 +4229,6 @@ bool GeneralParser<ParseHandler,
   // Clear pending destructuring error, because we're definitely not
   // in a destructuring context.
   setResolved(ErrorKind::Destructuring);
-  setResolved(ErrorKind::DestructuringWarning);
 
   // Report any pending expression error.
   return checkForError(ErrorKind::Expression);
@@ -5300,9 +5282,19 @@ GeneralParser<ParseHandler, Unit>::importDeclaration() {
 
           importSourceBinding = MOZ_TRY(newName(bindingAtom));
 
-          if (!noteDeclaredName(bindingAtom, DeclarationKind::Import, pos())) {
+          // We handle import source like namespace imports.
+          // It's not an indirect binding, but instead a lexical definition,
+          // that's treated like a const variable.
+          if (!noteDeclaredName(bindingAtom, DeclarationKind::Const, pos())) {
             return errorResult();
           }
+
+          // The source phase import name is currently required to live on the
+          // environment.
+          pc_->varScope()
+              .lookupDeclaredName(bindingAtom)
+              ->value()
+              ->setClosedOver();
         }
       }
       if (!isSourcePhaseImport)
@@ -5404,7 +5396,7 @@ GeneralParser<ParseHandler, Unit>::importDeclaration() {
   if (isSourcePhaseImport) {
     BinaryNodeType node = MOZ_TRY(handler_.newImportSourceDeclaration(
         importSourceBinding, moduleRequest, TokenPos(begin, pos().end)));
-    if (!processImportSource(node)) {
+    if (!processImport(node)) {
       return errorResult();
     }
 
@@ -5724,21 +5716,6 @@ inline bool PerHandlerParser<SyntaxParseHandler>::processImport(
   MOZ_ALWAYS_FALSE(abortIfSyntaxParser());
   return false;
 }
-
-#ifdef ENABLE_SOURCE_PHASE_IMPORTS
-template <>
-inline bool PerHandlerParser<FullParseHandler>::processImportSource(
-    BinaryNodeType node) {
-  return pc_->sc()->asModuleContext()->builder.processImportSource(node);
-}
-
-template <>
-inline bool PerHandlerParser<SyntaxParseHandler>::processImportSource(
-    BinaryNodeType node) {
-  MOZ_ALWAYS_FALSE(abortIfSyntaxParser());
-  return false;
-}
-#endif
 
 template <class ParseHandler, typename Unit>
 typename ParseHandler::BinaryNodeResult
@@ -7667,6 +7644,11 @@ bool GeneralParser<ParseHandler, Unit>::classMember(
 #ifdef ENABLE_DECORATORS
   ListNodeType decorators = null();
   if (tt == TokenKind::At) {
+    if (fuzzingSafe) {
+      error(JSMSG_DECORATOR_FUZZING_UNSAFE);
+      return false;
+    }
+
     MOZ_TRY_VAR_OR_RETURN(decorators, decoratorList(yieldHandling), false);
 
     if (!tokenStream.getToken(&tt, TokenStream::SlashIsInvalid)) {
@@ -7718,6 +7700,14 @@ bool GeneralParser<ParseHandler, Unit>::classMember(
                            /* maybeDecl = */ Nothing(), classMembers, &propType,
                            &propAtom),
       false);
+
+#ifdef ENABLE_DECORATORS
+  if (!propAtom &&
+      (decorators || propType == PropertyType::FieldWithAccessor)) {
+    error(JSMSG_DECORATOR_COMPUTED_NYI);
+    return false;
+  }
+#endif
 
   if (propType == PropertyType::Field ||
       propType == PropertyType::FieldWithAccessor) {
@@ -8140,6 +8130,11 @@ GeneralParser<ParseHandler, Unit>::classDefinition(
   ListNodeType decorators = null();
   FunctionNodeType addInitializerFunction = null();
   if (anyChars.isCurrentTokenType(TokenKind::At)) {
+    if (fuzzingSafe) {
+      error(JSMSG_DECORATOR_FUZZING_UNSAFE);
+      return errorResult();
+    }
+
     decorators = MOZ_TRY(decoratorList(yieldHandling));
     TokenKind next;
     if (!tokenStream.getToken(&next)) {
@@ -9019,7 +9014,7 @@ GeneralParser<ParseHandler, Unit>::synthesizeAddInitializerFunction(
   if (!notePositionalFormalParameter(
           funNode, TaggedParserAtomIndex::WellKnown::initializer(), pos().begin,
           disallowDuplicateParams, &duplicatedParam)) {
-    return null();
+    return errorResult();
   }
   MOZ_ASSERT(!duplicatedParam);
   MOZ_ASSERT(pc_->positionalFormalParameterNames().length() == 1);
@@ -9035,15 +9030,15 @@ GeneralParser<ParseHandler, Unit>::synthesizeAddInitializerFunction(
   ListNodeType stmtList = MOZ_TRY(handler_.newStatementList(propNamePos));
 
   if (!noteUsedName(initializers)) {
-    return null();
+    return errorResult();
   }
 
   bool canSkipLazyClosedOverBindings = handler_.reuseClosedOverBindings();
   if (!pc_->declareFunctionThis(usedNames_, canSkipLazyClosedOverBindings)) {
-    return null();
+    return errorResult();
   }
   if (!pc_->declareNewTarget(usedNames_, canSkipLazyClosedOverBindings)) {
-    return null();
+    return errorResult();
   }
 
   LexicalScopeNodeType addInitializerBody = MOZ_TRY(finishLexicalScope(
@@ -9216,10 +9211,12 @@ GeneralParser<ParseHandler, Unit>::synthesizeAccessorBody(
     // that captures privateStateName and performs the following steps when
     // called:
     //   1.a. Let o be the this value.
-    notePositionalFormalParameter(funNode,
-                                  TaggedParserAtomIndex::WellKnown::value(),
-                                  /* pos = */ 0, false,
-                                  /* duplicatedParam = */ nullptr);
+    if (!notePositionalFormalParameter(
+            funNode, TaggedParserAtomIndex::WellKnown::value(),
+            /* pos = */ 0, false,
+            /* duplicatedParam = */ nullptr)) {
+      return errorResult();
+    }
 
     Node initializerExpr = MOZ_TRY(handler_.newName(
         TaggedParserAtomIndex::WellKnown::value(), propNamePos));
@@ -9774,6 +9771,10 @@ GeneralParser<ParseHandler, Unit>::statementListItem(
       //   DecoratorList[?Yield, ?Await] opt ClassDeclaration[?Yield, ~Default]
 #ifdef ENABLE_DECORATORS
     case TokenKind::At:
+      if (fuzzingSafe) {
+        error(JSMSG_DECORATOR_FUZZING_UNSAFE);
+        return errorResult();
+      }
       return classDefinition(yieldHandling, ClassStatement, NameRequired);
 #endif
 
@@ -10701,6 +10702,10 @@ typename ParseHandler::NodeResult GeneralParser<ParseHandler, Unit>::unaryExpr(
         return errorResult();
       }
 
+      if (handler_.isArgumentsLength(expr)) {
+        pc_->sc()->setIneligibleForArgumentsLength();
+      }
+
       return handler_.newDelete(begin, expr);
     }
     case TokenKind::Await: {
@@ -10981,7 +10986,7 @@ typename ParseHandler::NodeResult GeneralParser<ParseHandler, Unit>::memberExpr(
 #ifdef ENABLE_DECORATORS
         if (!noteUsedName(TaggedParserAtomIndex::WellKnown::
                               dot_instanceExtraInitializers_())) {
-          return null();
+          return errorResult();
         }
 #endif
       } else {
@@ -11687,24 +11692,13 @@ void GeneralParser<ParseHandler, Unit>::checkDestructuringAssignmentName(
 
   if (pc_->sc()->strict()) {
     if (handler_.isArgumentsName(name)) {
-      if (pc_->sc()->strict()) {
-        possibleError->setPendingDestructuringErrorAt(
-            namePos, JSMSG_BAD_STRICT_ASSIGN_ARGUMENTS);
-      } else {
-        possibleError->setPendingDestructuringWarningAt(
-            namePos, JSMSG_BAD_STRICT_ASSIGN_ARGUMENTS);
-      }
+      possibleError->setPendingDestructuringErrorAt(
+          namePos, JSMSG_BAD_STRICT_ASSIGN_ARGUMENTS);
       return;
     }
-
     if (handler_.isEvalName(name)) {
-      if (pc_->sc()->strict()) {
-        possibleError->setPendingDestructuringErrorAt(
-            namePos, JSMSG_BAD_STRICT_ASSIGN_EVAL);
-      } else {
-        possibleError->setPendingDestructuringWarningAt(
-            namePos, JSMSG_BAD_STRICT_ASSIGN_EVAL);
-      }
+      possibleError->setPendingDestructuringErrorAt(
+          namePos, JSMSG_BAD_STRICT_ASSIGN_EVAL);
       return;
     }
   }
@@ -12036,6 +12030,10 @@ GeneralParser<ParseHandler, Unit>::propertyOrMethodName(
     // ClassElementName[?Yield, ?Await] Initializer[+In, ?Yield, ?Await]opt`
     if (TokenKindCanStartPropertyName(tt)) {
       tokenStream.consumeKnownToken(tt);
+      if (fuzzingSafe) {
+        error(JSMSG_DECORATOR_FUZZING_UNSAFE);
+        return errorResult();
+      }
       hasAccessor = true;
     }
   }
@@ -12635,6 +12633,11 @@ GeneralParser<ParseHandler, Unit>::primaryExpr(
 
 #ifdef ENABLE_DECORATORS
     case TokenKind::At:
+      if (fuzzingSafe) {
+        error(JSMSG_DECORATOR_FUZZING_UNSAFE);
+        return errorResult();
+      }
+
       return classDefinition(yieldHandling, ClassExpression, NameRequired);
 #endif
 

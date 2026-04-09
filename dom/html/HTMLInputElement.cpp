@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -723,7 +721,7 @@ static bool IsPickerBlocked(Document* aDoc) {
   }
 
   nsContentUtils::ReportToConsole(nsIScriptError::warningFlag, "DOM"_ns, aDoc,
-                                  nsContentUtils::eDOM_PROPERTIES,
+                                  PropertiesFile::DOM_PROPERTIES,
                                   "InputPickerBlockedNoUserActivation");
   return true;
 }
@@ -888,7 +886,7 @@ nsresult HTMLInputElement::InitColorPicker() {
 
   // Get Loc title
   nsAutoString title;
-  nsContentUtils::GetLocalizedString(nsContentUtils::eFORMS_PROPERTIES,
+  nsContentUtils::GetLocalizedString(PropertiesFile::FORMS_PROPERTIES,
                                      "ColorPicker", title);
 
   nsCOMPtr<nsIColorPicker> colorPicker =
@@ -939,14 +937,14 @@ nsresult HTMLInputElement::InitFilePicker(FilePickerType aType) {
   nsAutoString title;
   nsAutoString okButtonLabel;
   if (aType == FILE_PICKER_DIRECTORY) {
-    nsContentUtils::GetMaybeLocalizedString(nsContentUtils::eFORMS_PROPERTIES,
+    nsContentUtils::GetMaybeLocalizedString(PropertiesFile::FORMS_PROPERTIES,
                                             "DirectoryUpload", doc, title);
 
-    nsContentUtils::GetMaybeLocalizedString(nsContentUtils::eFORMS_PROPERTIES,
+    nsContentUtils::GetMaybeLocalizedString(PropertiesFile::FORMS_PROPERTIES,
                                             "DirectoryPickerOkButtonLabel", doc,
                                             okButtonLabel);
   } else {
-    nsContentUtils::GetMaybeLocalizedString(nsContentUtils::eFORMS_PROPERTIES,
+    nsContentUtils::GetMaybeLocalizedString(PropertiesFile::FORMS_PROPERTIES,
                                             "FileUpload", doc, title);
   }
 
@@ -1165,6 +1163,7 @@ HTMLInputElement::HTMLInputElement(already_AddRefed<dom::NodeInfo>&& aNodeInfo,
       mHasBeenTypePassword(false),
       mHasPatternAttribute(false),
       mUserChangedSinceFocus(false),
+      mIsUserInteracting(false),
       mRadioGroupContainer(nullptr) {
   // If size is above 512, mozjemalloc allocates 1kB, see
   // memory/build/mozjemalloc.cpp
@@ -1875,7 +1874,7 @@ void HTMLInputElement::SetValue(const nsAString& aValue, CallerType aCallerType,
         return;
       }
 
-      if (!State().HasState(ElementState::FOCUS)) {
+      if (!State().HasState(ElementState::FOCUS) && !mIsUserInteracting) {
         GetValue(mFocusedValue, aCallerType);
       }
     } else {
@@ -1958,7 +1957,7 @@ void HTMLInputElement::GetValueAsDate(JSContext* aCx,
         return;
       }
 
-      time.emplace(JS::TimeClip(millisecond));
+      time.emplace(JS::TimeClip(int64_t(millisecond)));
       MOZ_ASSERT(time->toDouble() == millisecond,
                  "HTML times are restricted to the day after the epoch and "
                  "never clip");
@@ -2654,15 +2653,14 @@ void HTMLInputElement::GetDisplayFileName(nsAString& aValue) const {
   if (mFileData->mFilesOrDirectories.IsEmpty()) {
     if (StaticPrefs::dom_webkitBlink_dirPicker_enabled() &&
         HasAttr(nsGkAtoms::webkitdirectory)) {
-      nsContentUtils::GetMaybeLocalizedString(nsContentUtils::eFORMS_PROPERTIES,
-                                              "NoDirSelected", OwnerDoc(),
-                                              value);
+      nsContentUtils::GetMaybeLocalizedString(
+          PropertiesFile::FORMS_PROPERTIES, "NoDirSelected", OwnerDoc(), value);
     } else if (HasAttr(nsGkAtoms::multiple)) {
-      nsContentUtils::GetMaybeLocalizedString(nsContentUtils::eFORMS_PROPERTIES,
+      nsContentUtils::GetMaybeLocalizedString(PropertiesFile::FORMS_PROPERTIES,
                                               "NoFilesSelected", OwnerDoc(),
                                               value);
     } else {
-      nsContentUtils::GetMaybeLocalizedString(nsContentUtils::eFORMS_PROPERTIES,
+      nsContentUtils::GetMaybeLocalizedString(PropertiesFile::FORMS_PROPERTIES,
                                               "NoFileSelected", OwnerDoc(),
                                               value);
     }
@@ -2671,7 +2669,7 @@ void HTMLInputElement::GetDisplayFileName(nsAString& aValue) const {
     count.AppendInt(int(mFileData->mFilesOrDirectories.Length()));
 
     nsContentUtils::FormatMaybeLocalizedString(
-        value, nsContentUtils::eFORMS_PROPERTIES, "XFilesSelected", OwnerDoc(),
+        value, PropertiesFile::FORMS_PROPERTIES, "XFilesSelected", OwnerDoc(),
         count);
   }
 
@@ -2814,6 +2812,7 @@ void HTMLInputElement::FireChangeEventIfNeeded() {
   }
   const bool changedByUser = mUserChangedSinceFocus;
   mUserChangedSinceFocus = false;
+  mIsUserInteracting = false;
   if (mFocusedValue.Equals(value)) {
     return;
   }
@@ -2976,10 +2975,14 @@ nsresult HTMLInputElement::SetValueInternal(
         nsColorControlFrame* colorControlFrame =
             do_QueryFrame(GetPrimaryFrame());
         if (colorControlFrame) {
+          AutoWeakFrame weakFrame(colorControlFrame);
           colorControlFrame->UpdateColor();
 #ifdef ACCESSIBILITY
-          if (nsAccessibilityService* accService = GetAccService()) {
-            accService->ColorValueChanged(colorControlFrame->PresShell(), this);
+          if (weakFrame.IsAlive()) {
+            if (nsAccessibilityService* accService = GetAccService()) {
+              accService->ColorValueChanged(colorControlFrame->PresShell(),
+                                            this);
+            }
           }
 #endif
         }
@@ -3572,6 +3575,7 @@ void HTMLInputElement::StartRangeThumbDrag(WidgetGUIEvent* aEvent) {
   }
 
   mIsDraggingRange = true;
+  mIsUserInteracting = true;
   mRangeThumbDragStartValue = GetValueAsDecimal();
   // Don't use CaptureFlags::RetargetToElement, as that breaks pseudo-class
   // styling of the thumb.
@@ -3607,6 +3611,7 @@ void HTMLInputElement::CancelRangeThumbDrag(bool aIsForUserEvent) {
   MOZ_ASSERT(mIsDraggingRange);
 
   mIsDraggingRange = false;
+  mIsUserInteracting = false;
   if (PresShell::GetCapturingContent() == this) {
     PresShell::ReleaseCapturingContent();
   }
@@ -3715,6 +3720,8 @@ void HTMLInputElement::StepNumberControlForUserEvent(int32_t aDirection) {
   if (!newValue.isFinite()) {
     return;  // value should not or will not change
   }
+
+  mIsUserInteracting = true;
 
   nsAutoString newVal;
   mInputType->ConvertNumberToString(newValue, InputType::Localized::No, newVal);
@@ -6235,7 +6242,7 @@ HTMLInputElement::SubmitNamesValues(FormData* aFormData) {
       !HasAttr(nsGkAtoms::value)) {
     // Get our default value, which is the same as our default label
     nsAutoString defaultValue;
-    nsContentUtils::GetMaybeLocalizedString(nsContentUtils::eFORMS_PROPERTIES,
+    nsContentUtils::GetMaybeLocalizedString(PropertiesFile::FORMS_PROPERTIES,
                                             "Submit", OwnerDoc(), defaultValue);
     value = defaultValue;
   }
@@ -7420,7 +7427,7 @@ void HTMLInputElement::SetFilePickerFiltersFromAccept(
   // Add "All Supported Types" filter
   if (filters.Length() > 1) {
     nsAutoString title;
-    nsContentUtils::GetLocalizedString(nsContentUtils::eFORMS_PROPERTIES,
+    nsContentUtils::GetLocalizedString(PropertiesFile::FORMS_PROPERTIES,
                                        "AllSupportedTypes", title);
     filePicker->AppendFilter(title, allExtensionsList);
   }

@@ -456,10 +456,7 @@ export class UrlbarView {
 
     let { value } = this.#l10nCache.get(l10n);
     row.setAttribute("feedback-acknowledgment", value);
-    this.window.A11yUtils.announce({
-      raw: value,
-      source: row._content.closest("[role=option]"),
-    });
+    row._content.closest("[role=option]").ariaNotify(value);
   }
 
   /**
@@ -546,6 +543,8 @@ export class UrlbarView {
       return;
     }
 
+    this.#stopTail150();
+
     this.#inputWidthOnLastClose = getBoundsWithoutFlushing(this.input).width;
 
     // We exit search mode preview on close since the result previewing it is
@@ -593,6 +592,59 @@ export class UrlbarView {
         Glean.urlbarZeroprefix.abandonment.add(1);
       }
     }
+  }
+
+  startTail150() {
+    if (this.#tail150) {
+      return;
+    }
+
+    let doc = this.document;
+    let ns = "http://www.w3.org/1999/xhtml";
+    let overlay = doc.createElementNS(ns, "div");
+    overlay.className = "urlbarView-tail150-overlay";
+
+    let closeBtn = doc.createElementNS(ns, "div");
+    closeBtn.className = "close-button";
+    closeBtn.setAttribute("role", "button");
+    closeBtn.addEventListener("click", () => this.close());
+
+    let canvas = doc.createElementNS(ns, "canvas");
+    let dpr = this.window.devicePixelRatio || 1;
+    canvas.width = 400 * dpr;
+    canvas.height = 400 * dpr;
+    canvas.getContext("2d").scale(dpr, dpr);
+    canvas.className = "urlbarView-tail150-canvas";
+    overlay.append(closeBtn, canvas);
+
+    this.input.appendChild(overlay);
+    this.#tail150 = { overlay, keyHandler: null };
+    this.#runTail150(canvas);
+  }
+
+  #stopTail150() {
+    if (!this.#tail150) {
+      return;
+    }
+    if (this.#tail150.keyHandler) {
+      this.window.removeEventListener(
+        "keydown",
+        this.#tail150.keyHandler,
+        true
+      );
+    }
+    this.#tail150.overlay.remove();
+    this.#tail150 = null;
+  }
+
+  #runTail150(canvas) {
+    let S = this.window.getComputedStyle(canvas);
+    let AC = S.getPropertyValue("--color-gray-05");
+    let FD = S.getPropertyValue("--color-yellow-30");
+    let SP = new this.window.Image();
+    SP.src = "chrome://branding/content/icon48.png";
+    // prettier-ignore
+    (() => { let c=canvas,W=this.window,A=t=>W.requestAnimationFrame(t),X=c.getContext("2d"),CA=(x,y,r)=>{X.beginPath();X.arc(x,y,r,0,7);X.fill()},g=()=>20*Math.random()|0,V=[,[-1,0],[0,-1],[1,0],[0,1]],s,d,n,f,e,r=0,l=0,GO=m=>{r=0,X.shadowColor="#000",X.shadowBlur=8,X.fillStyle=AC,X.fillText(m,200,180),X.fillText(e,200,230)},PF=()=>{let a=[];for(let x=0;x<20;x++)for(let y=0;y<20;y++)s.every($=>$.x!=x||$.y!=y)&&a.push({x,y});a.length?f=a[a.length*Math.random()|0]:GO("GG")},I=()=>{s=[...Array(8)].map(($,t)=>({x:10-t,y:10})),d=n=V[3],e=0,f={x:15,y:15},r=1,A(L)},L=$=>{if(!this.#tail150||!r)return;A(L);let p=($-l)/100;if(p>=1){l=$,d=n,p=0;let t={x:s[0].x+d[0],y:s[0].y+d[1]};if(t.x<0||t.x>19||t.y<0||t.y>19||s.some($=>$.x==t.x&&$.y==t.y)){GO("GAME OVER");return}s.unshift(t),t.x==f.x&&t.y==f.y?(e++,PF()):s.pop();if(!r)return}X.clearRect(0,0,400,400),X.fillStyle=FD,CA(20*f.x+10,20*f.y+10,6),s.map(($,t)=>{if(X.save(),X.translate(Math.min(390,Math.max(10,20*($.x+(!t&&d[0]*p))+10)),Math.min(390,Math.max(10,20*($.y+(!t&&d[1]*p))+10))),t){let i=t/s.length;X.fillStyle=`oklch(${62+17*i}% ${.21-.01*i} ${90*i})`,CA(0,0,8)}else SP.complete&&X.drawImage(SP,-10,-10,20,20);X.restore()})};X.fillStyle=AC;X.textAlign="center";X.font="30px Arial";X.fillText("← ↑ ↓ →",200,200);W.addEventListener("keydown",this.#tail150.keyHandler=$=>{$.keyCode!=27&&($.preventDefault(),$.stopPropagation());let t=V[$.keyCode-36];!r&&t&&I(),t&&(t[0]!=-d[0]||t[1]!=-d[1])&&(n=t)},true); })(); // eslint-disable-line
   }
 
   /**
@@ -860,11 +912,11 @@ export class UrlbarView {
       this.#previousTabToSearchEngine != secondResult.payload.engine
     ) {
       let engine = secondResult.payload.engine;
-      this.window.A11yUtils.announce({
-        id: secondResult.payload.isGeneralPurposeEngine
-          ? "urlbar-result-action-before-tabtosearch-web"
-          : "urlbar-result-action-before-tabtosearch-other",
-        args: { engine },
+      let stringId = secondResult.payload.isGeneralPurposeEngine
+        ? "urlbar-result-action-before-tabtosearch-web"
+        : "urlbar-result-action-before-tabtosearch-other";
+      this.#ariaNotifyLocalizedString(this.#rows.children[1], stringId, {
+        engine,
       });
       this.#previousTabToSearchEngine = engine;
       // Do not set aria-activedescendant when the user tabs to the result
@@ -1086,6 +1138,7 @@ export class UrlbarView {
   // Private properties and methods below.
   #announceTabToSearchOnSelection;
   #blobUrlsByResultUrl = null;
+  #tail150 = null;
   #inputWidthOnLastClose = 0;
   #l10nCache;
   #mousedownSelectedElement;
@@ -2146,12 +2199,16 @@ export class UrlbarView {
         result.providerName == "UrlbarProviderSearchTips" ||
         result.payload.type == "dismissalAcknowledgment"
       ) {
-        // For a11y, we treat search tips as alerts. We use A11yUtils.announce
+        // For a11y, we treat search tips as alerts. We use ariaNotify
         // instead of role="alert" because role="alert" will only fire an alert
         // event when the alert (or something inside it) is the root of an
         // insertion. In this case, the entire tip result gets inserted into the
         // a11y tree as a single insertion, so no alert event would be fired.
-        this.window.A11yUtils.announce(result.payload.titleL10n);
+        this.#ariaNotifyLocalizedString(
+          item,
+          result.payload.titleL10n.id,
+          result.payload.titleL10n.args
+        );
       }
     } else if (result.source == lazy.UrlbarUtils.RESULT_SOURCE.BOOKMARKS) {
       item.setAttribute("type", "bookmark");
@@ -2890,6 +2947,11 @@ export class UrlbarView {
         this.#setElementOverflowing(tagsContainer, false);
       }
     }
+  }
+
+  async #ariaNotifyLocalizedString(element, l10nId, l10nArgs) {
+    let message = await this.document.l10n.formatValue(l10nId, l10nArgs);
+    element.ariaNotify(message);
   }
 
   /**
@@ -3662,7 +3724,7 @@ export class UrlbarView {
      */
     let commands = this.#providersManager
       .getProvider(result.providerName)
-      ?.tryMethod("getResultCommands", result);
+      ?.tryMethod("getResultCommands", result, this.#queryContext?.isPrivate);
     if (commands) {
       this.#resultMenuCommands.set(result, commands);
       return commands;

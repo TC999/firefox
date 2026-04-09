@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -56,9 +54,11 @@ class CachedInheritingStyles {
   // Skips null entries.
   void AppendTo(nsTArray<const ComputedStyle*>& aArray) const;
 
-  // Appends all cached entries (with functional parameters) to the given array.
-  // Includes null entries.
-  void AppendEntriesTo(nsTArray<CachedStyleEntry>& aArray) const;
+  // Calls aFunc(ComputedStyle*, nsAtom*, PseudoStyleType) for each
+  // lazily-cascaded pseudo element entry (null or non-null). Anon box entries
+  // are skipped. The ComputedStyle* and nsAtom* are non-owning.
+  template <typename Func>
+  void ForEachLazyPseudoEntry(Func&& aFunc) const;
 
   CachedInheritingStyles() : mBits(0) {}
   ~CachedInheritingStyles() {

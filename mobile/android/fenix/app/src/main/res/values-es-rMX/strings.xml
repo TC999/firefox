@@ -19,6 +19,8 @@
   <string name="content_description_menu">Más opciones</string>
   <!-- Content description (not visible, for screen readers etc.): "Private Browsing" menu button. -->
   <string name="content_description_private_browsing">Navegación privada</string>
+  <!-- Content description (not visible, for screen readers etc.): "Normal Browsing" menu button. -->
+  <string name="content_description_normal_browsing">Navegación normal</string>
   <!-- Placeholder text shown in the search bar before a user enters text for the default engine -->
   <string name="search_hint">Buscar o ingresar dirección</string>
   <!-- Placeholder text shown in the search bar before a user enters text for a general engine -->
@@ -35,6 +37,10 @@
   <string name="no_open_tabs_description" tools:ignore="UnusedResources" moz:removedIn="149">Las pestañas abiertas aparecerán aquí.</string>
   <!-- No Private Tabs Message Description -->
   <string name="no_private_tabs_description" tools:ignore="UnusedResources" moz:removedIn="149">Tus pestañas privadas aparecerán aquí.</string>
+  <!-- The header text displayed on the private tabs page when no private tabs are open -->
+  <string name="tab_manager_empty_private_tabs_page_header">Navegación privada</string>
+  <!-- The supplementary text displayed on the private tabs page when no private tabs are open. %1$s is the name of the app (for example "Firefox") -->
+  <string name="tab_manager_empty_private_tabs_page_description">%1$s no recordará el historial ni las cookies, pero los nuevos marcadores se guardarán.</string>
   <!-- Tab tray multi select title in app bar. %1$d is the number of tabs selected -->
   <string name="tab_tray_multi_select_title">%1$d seleccionadas</string>
   <!-- Tab tray multi select title in app bar when no tabs are selected -->
@@ -1275,10 +1281,6 @@
   <string name="studies_remove">Eliminar</string>
   <!-- Title of the active section on the studies list -->
   <string name="studies_active">Activo</string>
-  <!-- Description for studies -->
-  <string name="studies_description_3" moz:removedIn="148" tools:ignore="UnusedResources">Prueba funcionalidades e ideas antes de que estén disponibles para todos.</string>
-  <!-- Title of the Studies data preference -->
-  <string name="studies_title" moz:removedIn="148" tools:ignore="UnusedResources">Instalar y ejecutar estudios</string>
   <!-- Learn more link for studies, links to an article for more information about studies. -->
   <string name="studies_learn_more">Saber más</string>
   <!--
@@ -1670,12 +1672,16 @@
   -->
   <string name="bookmark_deletion_snackbar_message">Se eliminó %1$s</string>
   <!-- Bookmark undo button for deletion snackbar action -->
-  <string name="bookmark_undo_deletion">DESHACER</string>
+  <string name="bookmark_undo_deletion" tools:ignore="UnusedResources" moz:removedIn="150">DESHACER</string>
   <!-- Bookmark snackbar message for deleting a single item. %s is the title of the item being deleted -->
-  <string name="bookmark_delete_single_item">%s eliminado</string>
+  <string name="bookmark_delete_single_item" tools:ignore="UnusedResources" moz:removedIn="150">%s eliminado</string>
   <!-- Bookmark snackbar message for deleting multiple items. %s is the number of items being deleted -->
-  <string name="bookmark_delete_multiple_items">Elementos eliminados: %s</string>
-  <!-- Content description for the bookmark navigation bar back button -->
+  <string name="bookmark_delete_multiple_items" tools:ignore="UnusedResources" moz:removedIn="150">Elementos eliminados: %s</string>
+  <!--
+    Bookmark undo button for deletion snackbar action
+
+    Content description for the bookmark navigation bar back button
+  -->
   <string name="bookmark_navigate_back_button_content_description">Regresar a la navegación</string>
   <!-- Content description for the bookmark list new folder navigation bar button -->
   <string name="bookmark_add_new_folder_button_content_description">Agregar una nueva carpeta</string>
@@ -2851,7 +2857,7 @@
   <!-- The title of the warning card informs the user that the list of languages cannot be loaded. -->
   <string name="translation_error_could_not_load_languages_warning_text">No se pudieron cargar los idiomas. Verifica tu conexión a Internet y vuelve a intentarlo.</string>
   <!-- The title of the warning card informs the user that a language is not supported. %1$s is the name of the language that is not supported. -->
-  <string name="translation_error_language_not_supported_warning_text">Lo sentimos, %1$s aún no está disponible.</string>
+  <string name="translation_error_language_not_supported_warning_text" tools:ignore="UnusedResources" moz:removedIn="150">Lo sentimos, %1$s aún no está disponible.</string>
   <!-- Snackbar title shown if the user closes the Translation Request dialogue and a translation is in progress. -->
   <string name="translation_in_progress_snackbar">Traduciendo…</string>
   <!--

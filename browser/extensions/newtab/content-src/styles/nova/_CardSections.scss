@@ -1,0 +1,41 @@
+// @nova-cleanup(merge-styles): Move to components/DiscoveryStreamComponents/CardSections/_CardSections.scss
+
+.section-title-wrapper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-medium);
+
+  @include at-content-cols(12) {
+    column-gap: var(--space-large);
+  }
+
+  .section-subtitle {
+    flex-basis: 100%;
+  }
+}
+
+.ds-section .section-follow,
+.ds-section .section-context-menu {
+  @include wallpaper-contrast-fix;
+}
+
+.ds-section .section-follow {
+  moz-button::part(button) {
+    transition: background-color 0.2s ease;
+  }
+
+  moz-button::part(moz-button-label) {
+    // CSS can only transition between fixed values;
+    // 30ch accommodates the longest localized string (Georgian: 26ch)
+    max-width: 30ch;
+    transition:
+      max-width 0.2s ease,
+      opacity 0.2s ease;
+
+    @starting-style {
+      max-width: 0;
+      opacity: 0;
+    }
+  }
+}

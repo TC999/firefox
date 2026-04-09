@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -971,7 +969,7 @@ nsresult HTMLTextAreaElement::GetValidationMessage(
       strTextLength.AppendInt(textLength);
 
       rv = nsContentUtils::FormatMaybeLocalizedString(
-          message, nsContentUtils::eDOM_PROPERTIES, "FormValidationTextTooLong",
+          message, PropertiesFile::DOM_PROPERTIES, "FormValidationTextTooLong",
           OwnerDoc(), strMaxLength, strTextLength);
       aValidationMessage = message;
     } break;
@@ -986,15 +984,14 @@ nsresult HTMLTextAreaElement::GetValidationMessage(
       strTextLength.AppendInt(textLength);
 
       rv = nsContentUtils::FormatMaybeLocalizedString(
-          message, nsContentUtils::eDOM_PROPERTIES,
-          "FormValidationTextTooShort", OwnerDoc(), strMinLength,
-          strTextLength);
+          message, PropertiesFile::DOM_PROPERTIES, "FormValidationTextTooShort",
+          OwnerDoc(), strMinLength, strTextLength);
       aValidationMessage = message;
     } break;
     case VALIDITY_STATE_VALUE_MISSING: {
       nsAutoString message;
       rv = nsContentUtils::GetMaybeLocalizedString(
-          nsContentUtils::eDOM_PROPERTIES, "FormValidationValueMissing",
+          PropertiesFile::DOM_PROPERTIES, "FormValidationValueMissing",
           OwnerDoc(), message);
       aValidationMessage = message;
     } break;

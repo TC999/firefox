@@ -2387,12 +2387,10 @@ pub extern "C" fn wr_transaction_set_display_list(
     pipeline_id: WrPipelineId,
     dl_descriptor: BuiltDisplayListDescriptor,
     dl_items_data: &mut WrVecU8,
-    dl_cache_data: &mut WrVecU8,
     dl_spatial_tree_data: &mut WrVecU8,
 ) {
     let payload = DisplayListPayload {
         items_data: dl_items_data.flush_into_vec(),
-        cache_data: dl_cache_data.flush_into_vec(),
         spatial_tree: dl_spatial_tree_data.flush_into_vec(),
     };
 
@@ -2756,12 +2754,11 @@ pub extern "C" fn wr_resource_updates_add_raw_font(
     txn.add_raw_font(key, bytes.flush_into_vec(), index);
 }
 
-fn generate_capture_path(path: *const c_char, moz_revision: *const c_char) -> Option<PathBuf> {
+fn generate_capture_path(moz_revision: *const c_char) -> Option<PathBuf> {
     use std::fs::{create_dir_all, File};
     use std::io::Write;
 
-    let cstr = unsafe { CStr::from_ptr(path) };
-    let local_dir = PathBuf::from(&*cstr.to_string_lossy());
+    let local_dir = PathBuf::from("wr-capture");
 
     // On Android we need to write into a particular folder on external
     // storage so that (a) it can be written without requiring permissions
@@ -2812,26 +2809,16 @@ fn generate_capture_path(path: *const c_char, moz_revision: *const c_char) -> Op
 }
 
 #[no_mangle]
-pub extern "C" fn wr_api_capture(
-    dh: &mut DocumentHandle,
-    path: *const c_char,
-    moz_revision: *const c_char,
-    bits_raw: u32,
-) {
-    if let Some(path) = generate_capture_path(path, moz_revision) {
+pub extern "C" fn wr_api_capture(dh: &mut DocumentHandle, moz_revision: *const c_char, bits_raw: u32) {
+    if let Some(path) = generate_capture_path(moz_revision) {
         let bits = CaptureBits::from_bits(bits_raw as _).unwrap();
         dh.api.save_capture(path, bits);
     }
 }
 
 #[no_mangle]
-pub extern "C" fn wr_api_start_capture_sequence(
-    dh: &mut DocumentHandle,
-    path: *const c_char,
-    moz_revision: *const c_char,
-    bits_raw: u32,
-) {
-    if let Some(path) = generate_capture_path(path, moz_revision) {
+pub extern "C" fn wr_api_start_capture_sequence(dh: &mut DocumentHandle, moz_revision: *const c_char, bits_raw: u32) {
+    if let Some(path) = generate_capture_path(moz_revision) {
         let bits = CaptureBits::from_bits(bits_raw as _).unwrap();
         dh.api.start_capture_sequence(path, bits);
     }
@@ -3192,8 +3179,10 @@ pub extern "C" fn wr_dp_push_stacking_context(
         result.id = wr_spatial_id.0;
         assert_ne!(wr_spatial_id.0, 0);
     } else if bounds.min != LayoutPoint::zero() {
-        assert!(sc_origin_key != SpatialTreeItemKey::default(),
-            "sc_origin_key must be set when stacking context has non-zero origin");
+        assert!(
+            sc_origin_key != SpatialTreeItemKey::default(),
+            "sc_origin_key must be set when stacking context has non-zero origin"
+        );
         wr_spatial_id = state.frame_builder.dl_builder.push_reference_frame(
             bounds.min,
             wr_spatial_id,
@@ -4400,31 +4389,6 @@ pub extern "C" fn wr_dp_push_box_shadow(
 }
 
 #[no_mangle]
-pub extern "C" fn wr_dp_start_item_group(state: &mut WrState) {
-    state.frame_builder.dl_builder.start_item_group();
-}
-
-#[no_mangle]
-pub extern "C" fn wr_dp_cancel_item_group(state: &mut WrState, discard: bool) {
-    state.frame_builder.dl_builder.cancel_item_group(discard);
-}
-
-#[no_mangle]
-pub extern "C" fn wr_dp_finish_item_group(state: &mut WrState, key: ItemKey) -> bool {
-    state.frame_builder.dl_builder.finish_item_group(key)
-}
-
-#[no_mangle]
-pub extern "C" fn wr_dp_push_reuse_items(state: &mut WrState, key: ItemKey) {
-    state.frame_builder.dl_builder.push_reuse_items(key);
-}
-
-#[no_mangle]
-pub extern "C" fn wr_dp_set_cache_size(state: &mut WrState, cache_size: usize) {
-    state.frame_builder.dl_builder.set_cache_size(cache_size);
-}
-
-#[no_mangle]
 pub extern "C" fn wr_dump_display_list(
     state: &mut WrState,
     indent: usize,
@@ -4471,13 +4435,11 @@ pub unsafe extern "C" fn wr_api_end_builder(
     state: &mut WrState,
     dl_descriptor: &mut BuiltDisplayListDescriptor,
     dl_items_data: &mut WrVecU8,
-    dl_cache_data: &mut WrVecU8,
     dl_spatial_tree: &mut WrVecU8,
 ) {
     let (_, dl) = state.frame_builder.dl_builder.end();
     let (payload, descriptor) = dl.into_data();
     *dl_items_data = WrVecU8::from_vec(payload.items_data);
-    *dl_cache_data = WrVecU8::from_vec(payload.cache_data);
     *dl_spatial_tree = WrVecU8::from_vec(payload.spatial_tree);
     *dl_descriptor = descriptor;
 }

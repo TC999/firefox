@@ -211,7 +211,7 @@ ChromeUtils.defineLazyGetter(lazy, "KeyShortcuts", function () {
   // but also from the web page when it is focused.
   if (
     Services.prefs.getBoolPref(
-      "devtools.debugger.features.javascript-tracing",
+      "devtools.command-button-jstracer.enabled",
       false
     )
   ) {

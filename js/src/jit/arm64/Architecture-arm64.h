@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -143,12 +141,15 @@ class Registers {
     uintptr_t r;
   };
 
-  static uint32_t SetSize(SetType x) {
-    static_assert(sizeof(SetType) == 4, "SetType must be 32 bits");
-    return std::popcount(x);
+  static uint32_t SetSize(SetType x) { return std::popcount(x); }
+  static uint32_t FirstBit(SetType x) {
+    MOZ_ASSERT(x);
+    return std::countr_zero(x);
   }
-  static uint32_t FirstBit(SetType x) { return std::countr_zero(x); }
-  static uint32_t LastBit(SetType x) { return std::bit_width(x) - 1; }
+  static uint32_t LastBit(SetType x) {
+    MOZ_ASSERT(x);
+    return std::bit_width(x) - 1;
+  }
 
   static const char* GetName(uint32_t code) {
     static const char* const Names[] = {
@@ -314,6 +315,8 @@ class Bitset128 {
     }
     return std::countl_zero(lo) + 64;
   }
+
+  uint32_t bitWidth() const { return 128 - countLeadingZeroes(); }
 };
 
 class FloatRegisters {
@@ -561,7 +564,6 @@ struct FloatRegister {
   using SetType = Codes::SetType;
 
   static uint32_t SetSize(SetType x) {
-    static_assert(sizeof(SetType) == 16, "SetType must be 128 bits");
     x |= x >> FloatRegisters::TotalPhys;
     x |= x >> FloatRegisters::TotalPhys;
     x &= FloatRegisters::AllPhysMask;
@@ -571,12 +573,12 @@ struct FloatRegister {
   }
 
   static uint32_t FirstBit(SetType x) {
-    static_assert(sizeof(SetType) == 16, "SetType");
+    MOZ_ASSERT(x);
     return x.countTrailingZeroes();
   }
   static uint32_t LastBit(SetType x) {
-    static_assert(sizeof(SetType) == 16, "SetType");
-    return 127 - x.countLeadingZeroes();
+    MOZ_ASSERT(x);
+    return x.bitWidth() - 1;
   }
 
   static constexpr size_t SizeOfSimd128 = 16;

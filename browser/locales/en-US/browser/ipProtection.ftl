@@ -28,6 +28,8 @@ ipprotection-title = VPN
 ipprotection-feature-introduction-title = Introducing VPN, now right inside your browser
 ipprotection-feature-introduction-link-text-2 = Use our new <a data-l10n-name="learn-more-vpn">built-in VPN</a> to hide your location and protect your data.
 ipprotection-feature-introduction-link-text-private-browsing-2 = Use our new <a data-l10n-name="learn-more-vpn">built-in VPN</a> to hide your location and protect your data, even when you’re in a Private Window.
+ipprotection-feature-introduction-description-private-browsing = Browse with extra protection by hiding your location, even when you’re in a Private Window.
+ipprotection-feature-introduction-description-captive-portal = Browse with extra protection by hiding your location, even on public Wi-Fi.
 ipprotection-feature-introduction-button-primary = Next
 ipprotection-feature-introduction-button-secondary-not-now = Not now
 ipprotection-feature-introduction-button-secondary-no-thanks = No thanks
@@ -41,7 +43,7 @@ ipprotection-site-settings-callout-button = Got it
 ## Panel
 
 unauthenticated-vpn-title = Try { -brand-product-name }’s built-in VPN
-unauthenticated-hide-location-message-2 = Hide your location while browsing in { -brand-product-name }.
+unauthenticated-hide-location-message-3 = <a data-l10n-name="learn-more-vpn">Hide your location</a> while browsing in { -brand-product-name }.
 # Variables
 #   $maxUsage (number) - The maximum amount of data a user can use in a month (in GB)
 unauthenticated-bandwidth-limit-message = Get { $maxUsage } GB of free VPN data every month.
@@ -88,9 +90,13 @@ upgrade-vpn-button = Try { -mozilla-vpn-brand-name }
 
 ipprotection-connection-status-generic-error-title = Couldn’t connect to VPN
 ipprotection-connection-status-generic-error-description = Try again in a few minutes.
+ipprotection-connection-status-generic-error-try-again = Please try again later.
 
 ipprotection-connection-status-network-error-title = Check your internet connection
 ipprotection-connection-status-network-error-description = Connect to the internet, then try turning VPN on.
+
+ipprotection-connection-status-blocked-error-title = VPN is unavailable
+ipprotection-connection-status-blocked-error-description = Local laws prevent us from providing VPN service in this region. <a data-l10n-name="learn-more-link">Learn more</a>
 
 # Variables
 #   $usageLeft (number) - The amount of data a user has left in a month (in GB)

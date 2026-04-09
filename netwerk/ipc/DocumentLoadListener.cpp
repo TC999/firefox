@@ -1,6 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set sw=2 ts=8 et tw=80 : */
-
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -637,7 +634,6 @@ bool CheckRecursiveLoad(CanonicalBrowsingContext* aLoadingContext,
 static Result<SessionHistoryEntry*, const char*> ValidateHistoryLoad(
     CanonicalBrowsingContext* aLoadingContext,
     nsDocShellLoadState* aLoadState) {
-  MOZ_ASSERT(SessionHistoryInParent());
   MOZ_ASSERT(aLoadState->LoadIsFromSessionHistory());
 
   if (!aLoadState->GetLoadingSessionHistoryInfo()) {
@@ -743,7 +739,7 @@ auto DocumentLoadListener::Open(nsDocShellLoadState* aLoadState,
   // NOTE: Keep this check in-sync with the check in
   // `nsDocShellLoadState::GetEffectiveTriggeringRemoteType()`!
   RefPtr<SessionHistoryEntry> existingEntry;
-  if (SessionHistoryInParent() && aLoadState->LoadIsFromSessionHistory() &&
+  if (aLoadState->LoadIsFromSessionHistory() &&
       aLoadState->LoadType() != LOAD_ERROR_PAGE) {
     Result<SessionHistoryEntry*, const char*> result =
         ValidateHistoryLoad(loadingContext, aLoadState);
@@ -862,8 +858,7 @@ auto DocumentLoadListener::Open(nsDocShellLoadState* aLoadState,
     aLoadState->SetPartitionedPrincipalToInherit(partitionedPrincipal);
   }
 
-  if (documentContext && aLoadState->LoadType() != LOAD_ERROR_PAGE &&
-      mozilla::SessionHistoryInParent()) {
+  if (documentContext && aLoadState->LoadType() != LOAD_ERROR_PAGE) {
     // It's hard to know at this point whether session history will be enabled
     // in the browsing context, so we always create an entry for a load here.
     mLoadingSessionHistoryInfo =
@@ -2473,19 +2468,35 @@ void DocumentLoadListener::TriggerRedirectToRealChannel(
     return;
   }
 
-  // Validate that the target process, if specified, would be allowed to load
-  // this principal, and fail the navigation if it would not.
-  // Don't enforce this requirement for silent error loads, as those never
-  // process switch, and should not result in a document being loaded in the
-  // content process.
-  // System principals are allowed for now, as they are used in some edge-cases.
-  if (!silentErrorLoad && contentParent &&
-      !contentParent->ValidatePrincipal(
-          unsandboxedPrincipal, {ValidatePrincipalOptions::AllowSystem})) {
-    ContentParent::LogAndAssertFailedPrincipalValidationInfo(
-        unsandboxedPrincipal, "TriggerRedirectToRealChannel");
-    RedirectToRealChannelFinished(NS_ERROR_FAILURE);
-    return;
+  // Checks related to loads which will complete in a content process.
+  //
+  // These checks are skipped for silent error loads, as those never process
+  // switch, and should not result in a document being loaded in the content
+  // process.
+  if (contentParent && !silentErrorLoad) {
+    // Validate that the target process, if specified, would be allowed to load
+    // this principal, and fail the navigation if it would not.
+    // System principals are allowed for now, as they are used in some
+    // edge-cases.
+    if (!contentParent->ValidatePrincipal(
+            unsandboxedPrincipal, {ValidatePrincipalOptions::AllowSystem})) {
+      ContentParent::LogAndAssertFailedPrincipalValidationInfo(
+          unsandboxedPrincipal, "TriggerRedirectToRealChannel");
+      RedirectToRealChannelFinished(NS_ERROR_FAILURE);
+      return;
+    }
+
+    // Give ContentParent a chance to transmit information such as permissions
+    // into the content process.
+    rv = contentParent->AboutToLoadDocumentForChild(mChannel);
+    if (NS_FAILED(rv)) {
+      LOG(
+          ("DocumentLoadListener::TriggerRedirectToRealChannel [this=%p] "
+           "AboutToLoadDocumentForChild failed",
+           this));
+      RedirectToRealChannelFinished(rv);
+      return;
+    }
   }
 
   // Ensure that the BrowsingContextGroup which will finish this load has the
@@ -2886,6 +2897,10 @@ nsresult DocumentLoadListener::DoOnStartRequest(nsIRequest* aRequest) {
     // channels, which may have extra information (e.g. navigation timing) which
     // would be relevant to the content process.
     if (!httpChannel) {
+      // Resume the channel that was suspended above so that the pump
+      // can call OnStopRequest, which breaks the reference cycle between
+      // DocumentLoadListener and ParentChannelListener.
+      mChannel->Resume();
       DisconnectListeners(status, status);
       return NS_OK;
     }
@@ -3325,6 +3340,7 @@ NS_IMETHODIMP DocumentLoadListener::EarlyHint(const nsACString& aLinkHeader,
                                               const nsACString& aReferrerPolicy,
                                               const nsACString& aCSPHeader) {
   LOG(("DocumentLoadListener::EarlyHint.\n"));
+  RefPtr<DocumentLoadListener> kungFuDeathGrip(this);
   mEarlyHintsService.EarlyHint(aLinkHeader, GetChannelCreationURI(), mChannel,
                                aReferrerPolicy, aCSPHeader,
                                GetLoadingBrowsingContext());

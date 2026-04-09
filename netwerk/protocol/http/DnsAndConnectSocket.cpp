@@ -1,4 +1,3 @@
-/* vim:set ts=4 sw=2 sts=2 et cin: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -756,6 +755,33 @@ DnsAndConnectSocket::OnTransportStatus(nsITransport* trans, nsresult status,
                                        int64_t progress, int64_t progressMax) {
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
 
+  if (status == NS_NET_STATUS_CONNECTED_TO) {
+    TransportSetup* transport =
+        IsPrimary(trans) ? static_cast<TransportSetup*>(&mPrimaryTransport)
+                         : static_cast<TransportSetup*>(&mBackupTransport);
+
+    // Early LNA check: close socket before TLS handshake can send SNI.
+    // This is called synchronously from nsSocketTransport::OnSocketConnected,
+    // which runs after TCP connect but before TRANSFERRING-mode polling.
+    if (mConnInfo->FirstHopSSL() && !mConnInfo->UsingProxy() &&
+        StaticPrefs::network_lna_blocking()) {
+      NetAddr peerAddr;
+      if (NS_SUCCEEDED(transport->mSocketTransport->GetPeerAddr(&peerAddr))) {
+        auto addrSpace = peerAddr.GetIpAddressSpace();
+        if ((addrSpace == nsILoadInfo::IPAddressSpace::Local ||
+             addrSpace == nsILoadInfo::IPAddressSpace::Private) &&
+            mTransaction &&
+            !mTransaction->AllowedToConnectToIpAddressSpace(addrSpace)) {
+          transport->mSocketTransport->Close(
+              NS_ERROR_LOCAL_NETWORK_ACCESS_DENIED);
+          return NS_ERROR_LOCAL_NETWORK_ACCESS_DENIED;
+        }
+      }
+    }
+
+    transport->mConnectedOK = true;
+  }
+
   MOZ_ASSERT(IsPrimary(trans) || IsBackup(trans));
   if (mTransaction) {
     if (IsPrimary(trans) ||
@@ -772,14 +798,6 @@ DnsAndConnectSocket::OnTransportStatus(nsITransport* trans, nsresult status,
       // mBackupTransport must be connected before mSocketTransport(e.g.
       // mPrimaryTransport.mSocketTransport != nullpttr).
       mTransaction->OnTransportStatus(trans, status, progress);
-    }
-  }
-
-  if (status == NS_NET_STATUS_CONNECTED_TO) {
-    if (IsPrimary(trans)) {
-      mPrimaryTransport.mConnectedOK = true;
-    } else {
-      mBackupTransport.mConnectedOK = true;
     }
   }
 

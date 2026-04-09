@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 20; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -202,7 +201,18 @@ ClientWebGLContext::ClientWebGLContext(const bool webgl2)
     : mIsWebGL2(webgl2),
       mExtLoseContext(new ClientWebGLExtensionLoseContext(*this)) {}
 
-ClientWebGLContext::~ClientWebGLContext() { RemovePostRefreshObserver(); }
+static inline void SafeReleaseNotLostData(RefPtr<webgl::NotLostData>& notLost) {
+  if (notLost) {
+    const auto keepAlive = std::move(notLost);
+    keepAlive->extensions = {};
+    keepAlive->state = {};
+  }
+}
+
+ClientWebGLContext::~ClientWebGLContext() {
+  RemovePostRefreshObserver();
+  SafeReleaseNotLostData(mNotLost);
+}
 
 void ClientWebGLContext::JsWarning(const std::string& utf8) const {
   nsIGlobalObject* global = nullptr;
@@ -393,7 +403,7 @@ void ClientWebGLContext::ThrowEvent_WebGLContextCreationError(
     const std::string& text) const {
   nsCString msg;
   msg.AppendPrintf("Failed to create WebGL context: %s", text.c_str());
-  JsWarning(msg.BeginReading());
+  JsWarning(std::string(msg.View()));
 
   RefPtr<dom::EventTarget> target = mCanvasElement;
   if (!target && mOffscreenCanvas) {
@@ -854,6 +864,10 @@ bool ClientWebGLContext::CreateHostContext(const uvec2& requestedSize) {
   auto& notLost = *pNotLost;
 
   auto res = [&]() -> Result<Ok, std::string> {
+    if (!gfx::gfxVars::AllowWebGL()) {
+      return Err("WebGL disabled, see about:support for why");
+    }
+
     auto options = *mInitialOptions;
     if (StaticPrefs::webgl_disable_fail_if_major_performance_caveat()) {
       options.failIfMajorPerformanceCaveat = false;
@@ -891,6 +905,13 @@ bool ClientWebGLContext::CreateHostContext(const uvec2& requestedSize) {
     }
 
     if (!useOop) {
+#ifdef ANDROID
+      if (!StaticPrefs::webgl_allow_in_content_AtStartup()) {
+        return Err(
+            "WebGL disabled in remote and content processes (about:config "
+            "override available: webgl.allow-in-content)");
+      }
+#endif
       notLost.inProcess =
           HostWebGLContext::Create({this, nullptr}, initDesc, &notLost.info);
       return Ok();
@@ -1390,14 +1411,14 @@ ClientWebGLContext::GetInputStream(
   const auto& premultAlpha = notLost->info.options.premultipliedAlpha;
 
   nsRFPService::PotentiallyDumpImage(PrincipalOrNull(), dataSurface);
-  if (ShouldResistFingerprinting(RFPTarget::CanvasRandomization)) {
+  if (extractionBehavior == CanvasUtils::ImageExtraction::Randomize) {
     return gfxUtils::GetInputStreamWithRandomNoise(
         dataSurface, premultAlpha, mimeType, encoderOptions,
         GetCookieJarSettings(), PrincipalOrNull(), out_stream);
   }
 
   return gfxUtils::GetInputStream(dataSurface, premultAlpha, mimeType,
-                                  encoderOptions, out_stream);
+                                  encoderOptions, randomizationKey, out_stream);
 }
 
 // ------------------------- Client WebGL Objects -------------------------
@@ -2550,7 +2571,7 @@ void ClientWebGLContext::GetParameter(JSContext* cx, GLenum pname,
                                ToChars(bool(inProcess)));
       }
       str += *maybe;
-      retval.set(StringValue(cx, str.c_str(), rv));
+      retval.set(StringValue(cx, str, rv));
     }
   } else {
     const auto maybe = GetNumber(pname);
@@ -3391,7 +3412,7 @@ Maybe<const webgl::ErrorInfo> ValidateBindBuffer(
         "Buffer previously bound to %s cannot be now bound to %s.",
         fnKindStr(curKind), fnKindStr(requiredKind));
     return Some(
-        webgl::ErrorInfo{LOCAL_GL_INVALID_OPERATION, info.BeginReading()});
+        webgl::ErrorInfo{LOCAL_GL_INVALID_OPERATION, std::string(info.View())});
   }
 
   return {};
@@ -3401,7 +3422,7 @@ Maybe<webgl::ErrorInfo> CheckBindBufferRange(
     const GLenum target, const GLuint index, const bool isBuffer,
     const uint64_t offset, const uint64_t size, const webgl::Limits& limits) {
   const auto fnSome = [&](const GLenum type, const nsACString& info) {
-    return Some(webgl::ErrorInfo{type, info.BeginReading()});
+    return Some(webgl::ErrorInfo{type, std::string(info.View())});
   };
 
   switch (target) {
@@ -3616,7 +3637,7 @@ void ClientWebGLContext::GetBufferSubData(GLenum target, GLintptr srcByteOffset,
   if (!ValidateNonNegative("srcByteOffset", srcByteOffset)) return;
 
   size_t elemSize = SizeOfViewElem(dstData);
-  dstData.ProcessFixedData([&](const Span<uint8_t>& aData) {
+  dstData.ProcessFixedData<true>([&](const Span<uint8_t>& aData) {
     const auto& destView =
         ValidateArrayBufferView(aData, elemSize, dstElemOffset,
                                 dstElemCountOverride, LOCAL_GL_INVALID_VALUE);
@@ -3699,7 +3720,7 @@ void ClientWebGLContext::BufferData(
   if (!ValidateNonNull("src", maybeSrc)) return;
   const auto& src = maybeSrc.Value();
 
-  src.ProcessFixedData([&](const Span<const uint8_t>& aData) {
+  src.ProcessFixedData<true>([&](const Span<const uint8_t>& aData) {
     Run<RPROC(BufferData)>(target, aData, usage);
   });
 }
@@ -3710,7 +3731,7 @@ void ClientWebGLContext::BufferData(GLenum target,
                                     GLuint srcElemCountOverride) {
   const FuncScope funcScope(*this, "bufferData");
   size_t elemSize = SizeOfViewElem(src);
-  src.ProcessFixedData([&](const Span<uint8_t>& aData) {
+  src.ProcessFixedData<true>([&](const Span<uint8_t>& aData) {
     const auto& range =
         ValidateArrayBufferView(aData, elemSize, srcElemOffset,
                                 srcElemCountOverride, LOCAL_GL_INVALID_VALUE);
@@ -3727,7 +3748,7 @@ void ClientWebGLContext::BufferSubData(GLenum target,
                                        WebGLsizeiptr dstByteOffset,
                                        const dom::ArrayBuffer& src) {
   const FuncScope funcScope(*this, "bufferSubData");
-  src.ProcessFixedData([&](const Span<const uint8_t>& aData) {
+  src.ProcessFixedData<true>([&](const Span<const uint8_t>& aData) {
     Run<RPROC(BufferSubData)>(target, dstByteOffset, aData,
                               /* unsynchronized */ false);
   });
@@ -3740,7 +3761,7 @@ void ClientWebGLContext::BufferSubData(GLenum target,
                                        GLuint srcElemCountOverride) {
   const FuncScope funcScope(*this, "bufferSubData");
   size_t elemSize = SizeOfViewElem(src);
-  src.ProcessFixedData([&](const Span<uint8_t>& aData) {
+  src.ProcessFixedData<true>([&](const Span<uint8_t>& aData) {
     const auto& range =
         ValidateArrayBufferView(aData, elemSize, srcElemOffset,
                                 srcElemCountOverride, LOCAL_GL_INVALID_VALUE);
@@ -4480,7 +4501,7 @@ void ClientWebGLContext::TexImage(uint8_t funcDims, GLenum imageTarget,
           break;
       }
 
-      return view.ProcessData(
+      return view.ProcessData<true>(
           [&](const Span<uint8_t>& aData,
               JS::AutoCheckCannotGC&& nogc) -> Maybe<webgl::TexUnpackBlobDesc> {
             const auto range = GetRangeFromData(aData, SizeOfViewElem(view),
@@ -4856,8 +4877,8 @@ void ClientWebGLContext::CompressedTexImage(bool sub, uint8_t funcDims,
   }
 
   if (src.mView) {
-    src.mView->ProcessData([&](const Span<uint8_t>& aData,
-                               JS::AutoCheckCannotGC&& aNoGC) {
+    src.mView->ProcessData<true>([&](const Span<uint8_t>& aData,
+                                     JS::AutoCheckCannotGC&& aNoGC) {
       const auto range =
           GetRangeFromData(aData, SizeOfViewElem(*src.mView),
                            src.mViewElemOffset, src.mViewElemLengthOverride);
@@ -5355,7 +5376,7 @@ void ClientWebGLContext::ReadPixels(GLint x, GLint y, GLsizei width,
     nsCString name;
     WebGLContext::EnumName(type, &name);
     EnqueueError(LOCAL_GL_INVALID_ENUM, "type: invalid enum value %s",
-                 name.BeginReading());
+                 name.get());
     return;
   }
 
@@ -5370,7 +5391,7 @@ void ClientWebGLContext::ReadPixels(GLint x, GLint y, GLsizei width,
   }
 
   size_t elemSize = SizeOfViewElem(dstData);
-  dstData.ProcessFixedData([&](const Span<uint8_t>& aData) {
+  dstData.ProcessFixedData<true>([&](const Span<uint8_t>& aData) {
     const auto& range = ValidateArrayBufferView(aData, elemSize, dstElemOffset,
                                                 0, LOCAL_GL_INVALID_VALUE);
     if (!range) {
@@ -7240,11 +7261,7 @@ void ImplCycleCollectionTraverse(nsCycleCollectionTraversalCallback& callback,
 }
 
 void ImplCycleCollectionUnlink(RefPtr<webgl::NotLostData>& field) {
-  if (!field) return;
-  const auto keepAlive = field;
-  keepAlive->extensions = {};
-  keepAlive->state = {};
-  field = nullptr;
+  SafeReleaseNotLostData(field);
 }
 
 // -----------------------------------------------------

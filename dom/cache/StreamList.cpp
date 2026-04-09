@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -31,7 +29,6 @@ StreamList::StreamList(SafeRefPtr<Manager> aManager,
       mStreamControl(nullptr),
       mActivated(false) {
   MOZ_DIAGNOSTIC_ASSERT(mManager);
-  mContext->AddActivity(*this);
 }
 
 Manager& StreamList::GetManager() const {
@@ -74,6 +71,9 @@ void StreamList::Activate(CacheId aCacheId) {
   MOZ_DIAGNOSTIC_ASSERT(mCacheId == INVALID_CACHE_ID);
   mActivated = true;
   mCacheId = aCacheId;
+
+  mContext->AddActivity(*this);
+
   mManager->AddRefCacheId(mCacheId);
   mManager->AddStreamList(*this);
 
@@ -198,8 +198,8 @@ StreamList::~StreamList() {
       mManager->ReleaseBodyId(mList[i].mId);
     }
     mManager->ReleaseCacheId(mCacheId);
+    mContext->RemoveActivity(*this);
   }
-  mContext->RemoveActivity(*this);
 }
 
 }  // namespace mozilla::dom::cache

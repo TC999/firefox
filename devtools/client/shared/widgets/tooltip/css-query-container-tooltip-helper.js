@@ -10,16 +10,27 @@ class CssQueryContainerTooltipHelper {
   /**
    * Fill the tooltip with container information.
    */
-  async setContent(data, tooltip) {
+  async setContentAndShowContainerHighlighter(data, tooltip) {
     const res = await data.rule.domRule.getQueryContainerForNode(
       data.ancestorIndex,
       data.rule.inherited ||
-        data.rule.elementStyle.ruleView.inspector.selection.nodeFront
+        data.rule.elementStyle.ruleView.inspector.selection.nodeFront,
+      data.conditionIndex
     );
 
+    const inspector = data.rule.elementStyle.ruleView.inspector;
+    await inspector.highlighters.showHighlighterTypeForNode(
+      inspector.highlighters.TYPES.BOXMODEL,
+      res.node
+    );
+    tooltip.once("hidden", () => {
+      inspector.highlighters.hideHighlighterType(
+        inspector.highlighters.TYPES.BOXMODEL
+      );
+    });
+
     const fragment = this.#getTemplate(res, tooltip);
-    tooltip.panel.innerHTML = "";
-    tooltip.panel.appendChild(fragment);
+    tooltip.panel.replaceChildren(fragment);
 
     // Size the content.
     tooltip.setContentSize({ width: 267 });

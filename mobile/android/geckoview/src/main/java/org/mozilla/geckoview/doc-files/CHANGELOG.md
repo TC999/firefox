@@ -13,14 +13,35 @@ exclude: true
 
 ⚠️  breaking change and deprecation notices
 
+## v151
+- Added `isBlocked` to `AIFeature` on [`AIFeaturesController`][150.3].
+- ⚠️ Remove deprecated `ContentDelegate.ContextElement` constructor.
+- ⚠️ Removed deprecated `ContentDelegate.ContextElement.textContent`.
+- ⚠️ Renamed `RuntimeAIFeatures.resetFeature` to [`RuntimeAIFeatures.makeFeatureAvailable`][151.1] in [`AIFeaturesController`][150.3] and `disable` to `block` to align with updated toolkit API naming.
+- Added [`ERROR_ENGINE_DEACTIVATED`][151.2] to `TranslationsController.TranslationsException` to indicate that session-level translation operations failed because the translations engine was deactivated by AI controls.
+
+[151.1]: {{javadoc_uri}}/AIFeaturesController.RuntimeAIFeatures.html#makeFeatureAvailable(java.lang.String)
+[151.2]: {{javadoc_uri}}/TranslationsController.TranslationsException.html#ERROR_ENGINE_DEACTIVATED
+
 ## v150
 - Added support for `COOKIES_PARTITIONED_TRACKER` in the tracking protection blocking log. ([bug 2020898 ]({{bugzilla}}2020898))
 - Added [`GeckoSession.qwacStatus`][150.1] API.
 - Added [`GeckoRuntime.warmUp`][150.2] method.
 - ⚠️ Creating a GeckoRuntime will no longer eagerly start a child process. You can manually "preallocate" them by calling `GeckoRuntime.warmUp`.
+- Added experimental [`AIFeaturesController`][150.3] for coordinating GeckoView AI feature state.
+- ⚠️ Deprecated [`GeckoRuntimeSettings.getDisableShip`][150.4] and [`GeckoRuntimeSettings.Builder.disableShip`][150.5].
+- Added [`PageMetadata`][150.6] to `PageExtractionController` and [`getPageMetadata`][150.7] to [`SessionPageExtractor`][149.3] for retrieving structured metadata about the current page.
+    ([bug 2020508]({{bugzilla}}2020508))
+- Added `getSafeBrowsingGlobalCacheEnabled`/`setSafeBrowsingGlobalCacheEnabled`, `getSafeBrowsingRealTimeEnabled`/`setSafeBrowsingRealTimeEnabled`, `getSafeBrowsingRealTimeSimulationEnabled`/`setSafeBrowsingRealTimeSimulationEnabled`, `getSafeBrowsingRealTimeSimulationHitProbability`/`setSafeBrowsingRealTimeSimulationHitProbability`, `getSafeBrowsingRealTimeSimulationCacheTTLSec`/`setSafeBrowsingRealTimeSimulationCacheTTLSec`, `getSafeBrowsingRealTimeSimulationNegativeCacheEnabled`/`setSafeBrowsingRealTimeSimulationNegativeCacheEnabled`, and `getSafeBrowsingRealTimeSimulationNegativeCacheTTLSec`/`setSafeBrowsingRealTimeSimulationNegativeCacheTTLSec` to [`ContentBlocking.Settings`][150.8] to control SafeBrowsing real-time lookup and simulation.
 
 [150.1]: {{javadoc_uri}}/GeckoSession.html#qwacStatus()
 [150.2]: {{javadoc_uri}}/GeckoRuntime.html#warmUp
+[150.3]: {{javadoc_uri}}/AIFeaturesController.html
+[150.4]: {{javadoc_uri}}/GeckoRuntimeSettings.html#getDisableShip()
+[150.5]: {{javadoc_uri}}/GeckoRuntimeSettings.Builder.html#disableShip(boolean)
+[150.6]: {{javadoc_uri}}/PageExtractionController.PageMetadata.html
+[150.7]: {{javadoc_uri}}/PageExtractionController.SessionPageExtractor.html#getPageMetadata()
+[150.8]: {{javadoc_uri}}/ContentBlocking.Settings.html
 
 ## v149
 - Introduce the Firefox Relay APIs in `GeckoRuntimeSettings`.
@@ -1918,4 +1939,4 @@ to allow adding gecko profiler markers.
 [65.24]: {{javadoc_uri}}/CrashReporter.html#sendCrashReport(android.content.Context,android.os.Bundle,java.lang.String)
 [65.25]: {{javadoc_uri}}/GeckoResult.html
 
-[api-version]: db340825ad3ac6c08c735d5ee48cd0e3b2c64a67
+[api-version]: 67d6c6e8e37c2e6d096369e929df40762626ce17

@@ -13,6 +13,8 @@ import "chrome://browser/content/aiwindow/components/chat-assistant-loader.mjs";
 // eslint-disable-next-line import/no-unassigned-import
 import "chrome://browser/content/aiwindow/components/website-chip-container.mjs";
 
+const FOLLOW_UP_QTY = 2;
+
 /**
  * A custom element for managing AI Chat Content
  */
@@ -24,13 +26,12 @@ export class AIChatContent extends MozLitElement {
     errorObj: { type: Object },
     isSearching: { type: Boolean },
     tokens: { type: Object },
-    /**
-     * Trusted URLs for link validation, pushed from parent via child actor.
-     * Passed down to ai-chat-message for synchronous validation during render.
-     * Array type for Xray wrapper compatibility.
-     */
-    trustedUrls: { type: Array, attribute: false },
+    seenUrls: { type: Object },
+    conversationId: { type: String },
   };
+
+  #lastScrollReq = null;
+  #overflowObserver = null;
 
   constructor() {
     super();
@@ -39,7 +40,21 @@ export class AIChatContent extends MozLitElement {
     this.followUpSuggestions = [];
     this.errorObj = null;
     this.isSearching = false;
-    this.trustedUrls = null;
+
+    /**
+     * The set of URLs that have been seen by the conversation. Used for determining
+     * if a URL will be unfurled or not.
+     *
+     * @type {Set<string>}
+     */
+    this.seenUrls = new Set();
+
+    /**
+     * The current conversationId for the seenUrls.
+     *
+     * @type {null | string}
+     */
+    this.conversationId = null;
   }
 
   connectedCallback() {
@@ -50,6 +65,13 @@ export class AIChatContent extends MozLitElement {
       new CustomEvent("AIChatContent:Ready", { bubbles: true })
     );
     this.#initFooterActionListeners();
+    this.#initOverflowObserver();
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this.#overflowObserver?.disconnect();
+    this.#overflowObserver = null;
   }
 
   #dispatchAction(action, detail) {
@@ -86,8 +108,8 @@ export class AIChatContent extends MozLitElement {
     );
 
     this.addEventListener(
-      "aiChatContentActor:trustedUrlsUpdated",
-      this.#handleTrustedUrlsUpdated.bind(this)
+      "aiChatContentActor:seen-urls",
+      this.#handleSeenUrls.bind(this)
     );
 
     this.addEventListener(
@@ -134,6 +156,33 @@ export class AIChatContent extends MozLitElement {
     this.addEventListener("remove-applied-memory", event => {
       this.#dispatchAction("remove-applied-memory", event.detail);
     });
+
+    this.addEventListener("toggle-applied-memories", event => {
+      this.#dispatchAction("toggle-applied-memories", event.detail);
+    });
+
+    this.addEventListener("manage-memories", event => {
+      this.#dispatchAction("manage-memories", event.detail);
+    });
+
+    this.addEventListener("open-memories-learn-more", event => {
+      this.#dispatchAction("open-memories-learn-more", event.detail);
+    });
+  }
+
+  #initOverflowObserver() {
+    this.#overflowObserver = new ResizeObserver(() => {
+      const wrapper = this.shadowRoot.querySelector(".chat-content-wrapper");
+      wrapper?.toggleAttribute(
+        "overflowing",
+        wrapper.scrollHeight > wrapper.clientHeight
+      );
+    });
+    this.updateComplete.then(() => {
+      this.#overflowObserver.observe(
+        this.shadowRoot.querySelector(".chat-inner-wrapper")
+      );
+    });
   }
 
   #getAssistantMessageBody(messageId) {
@@ -159,9 +208,21 @@ export class AIChatContent extends MozLitElement {
     );
   }
 
-  #handleTrustedUrlsUpdated(event) {
-    const { trustedUrls } = event.detail;
-    this.trustedUrls = Array.isArray(trustedUrls) ? [...trustedUrls] : [];
+  /**
+   * Add new seen URLs to the current conversation.
+   *
+   * @param {object} event
+   * @param {object} event.detail
+   * @param {string} event.detail.conversationId
+   * @param {Set<string>} event.detail.seenUrls
+   */
+  #handleSeenUrls({ detail: { conversationId, seenUrls } }) {
+    if (this.conversationId == conversationId) {
+      this.seenUrls = this.seenUrls.union(seenUrls);
+    } else {
+      this.conversationId = conversationId;
+      this.seenUrls = seenUrls;
+    }
   }
 
   messageEvent(event) {
@@ -173,10 +234,10 @@ export class AIChatContent extends MozLitElement {
     }
 
     this.errorObj = null;
-    this.#checkConversationState(message);
 
     switch (message.role) {
       case "loading":
+        this.#checkConversationState(message);
         this.handleLoadingEvent(event);
         break;
       case "assistant":
@@ -187,10 +248,26 @@ export class AIChatContent extends MozLitElement {
         this.#checkConversationState(message);
         this.handleUserPromptEvent(event);
         break;
+      case "assistant-message-complete":
+        this.#setMessageCompleteAttr(message);
+        break;
       // Used to clear the conversation state via side effects ( new conv id )
       case "clear-conversation":
         this.#checkConversationState(message);
     }
+  }
+
+  #setMessageCompleteAttr(message) {
+    const assistantLastMessage = this.conversationState.findLast(
+      msg => msg?.messageId === message.content.id
+    );
+
+    if (!assistantLastMessage) {
+      return;
+    }
+
+    assistantLastMessage.isLastChunk = true;
+    this.requestUpdate();
   }
 
   /**
@@ -214,6 +291,9 @@ export class AIChatContent extends MozLitElement {
     if (convIdChanged || isReloadingSameConvo) {
       this.conversationState = [];
       this.followUpSuggestions = [];
+      this.shadowRoot
+        ?.querySelector(".chat-inner-wrapper")
+        ?.style.removeProperty("--content-height");
       this.requestUpdate();
     }
   }
@@ -223,7 +303,6 @@ export class AIChatContent extends MozLitElement {
     this.isSearching = !!isSearching;
     this.assistantIsLoading = true;
     this.requestUpdate();
-    this.#scrollToBottom();
   }
 
   handleErrorEvent(error) {
@@ -254,7 +333,9 @@ export class AIChatContent extends MozLitElement {
       ordinal,
     };
     this.requestUpdate();
-    this.#scrollToBottom();
+    if (!isPreviousMessage) {
+      this.#scrollUserMessageIntoView();
+    }
   }
 
   retryUserMessageAfterError() {
@@ -290,22 +371,20 @@ export class AIChatContent extends MozLitElement {
       id: messageId,
       content,
       memoriesApplied,
-      tokens,
+      showMemoriesCallout,
       webSearchQueries,
+      followUpSuggestions = [],
+      isPreviousMessage,
     } = event.detail;
 
     if (typeof content.body !== "string" || !content.body) {
       return;
     }
 
-    // The "webSearchQueries" are coming from a conversation that is being initialized
-    // and "tokens" are streaming in from a live conversation.
-    const searchTokens = webSearchQueries ?? tokens?.search ?? [];
-
-    // Prefer showing web search handoff over followup suggestions.
-    this.followUpSuggestions = searchTokens.length
+    // favor web search display over follow ups.
+    this.followUpSuggestions = webSearchQueries.length
       ? []
-      : (tokens?.followup ?? []).slice(0, 2);
+      : followUpSuggestions.slice(0, FOLLOW_UP_QTY);
 
     this.conversationState[ordinal] = {
       role: "assistant",
@@ -313,18 +392,40 @@ export class AIChatContent extends MozLitElement {
       messageId,
       body: content.body,
       appliedMemories: memoriesApplied ?? [],
-      searchTokens,
+      showCallout: showMemoriesCallout ?? false,
+      searchTokens: webSearchQueries ?? [],
+      isLastChunk: !!isPreviousMessage,
     };
 
     this.requestUpdate();
   }
 
-  #scrollToBottom() {
+  #scrollUserMessageIntoView() {
+    let scrollReq = {};
+    this.#lastScrollReq = scrollReq;
     this.updateComplete.then(() => {
-      const wrapper = this.shadowRoot?.querySelector(".chat-content-wrapper");
-      wrapper?.lastElementChild?.scrollIntoView({
-        behavior: "smooth",
-        block: "end",
+      const msgs = this.shadowRoot?.querySelectorAll(".chat-bubble-user");
+      if (!msgs?.length) {
+        return;
+      }
+      let lastMessage = msgs[msgs.length - 1];
+      let haveMultipleMessages = msgs.length > 1;
+      requestAnimationFrame(() => {
+        if (scrollReq !== this.#lastScrollReq) {
+          return;
+        }
+        let elTop = lastMessage.offsetTop;
+        let spacer = haveMultipleMessages ? "small" : "large";
+        lastMessage.parentNode.style.setProperty(
+          "--content-height",
+          `calc(${elTop}px + 100% - var(--space-${spacer}) - var(--space-xsmall))`
+        );
+
+        requestAnimationFrame(() => {
+          if (scrollReq == this.#lastScrollReq) {
+            lastMessage.scrollIntoView({ block: "start" });
+          }
+        });
       });
     });
   }
@@ -417,13 +518,15 @@ export class AIChatContent extends MozLitElement {
           .role=${msg.role}
           .messageId=${msg.messageId}
           .searchTokens=${msg.searchTokens || []}
-          .trustedUrls=${this.trustedUrls}
+          .conversationId=${this.conversationId}
+          .seenUrls=${this.seenUrls}
         ></ai-chat-message>
-        ${msg.role === "assistant"
+        ${msg.role === "assistant" && msg.isLastChunk
           ? html`
               <assistant-message-footer
                 .messageId=${msg.messageId}
                 .appliedMemories=${msg.appliedMemories}
+                .showCallout=${msg.showCallout}
               ></assistant-message-footer>
             `
           : nothing}
@@ -480,8 +583,10 @@ export class AIChatContent extends MozLitElement {
         href="chrome://browser/content/aiwindow/components/ai-chat-content.css"
       />
       <div class="chat-content-wrapper">
-        ${this.#renderMessages()} ${this.#renderFollowUpSuggestions()}
-        ${this.#renderLoader()} ${this.#renderError()}
+        <div class="chat-inner-wrapper">
+          ${this.#renderMessages()} ${this.#renderFollowUpSuggestions()}
+          ${this.#renderLoader()} ${this.#renderError()}
+        </div>
       </div>
     `;
   }

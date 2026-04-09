@@ -358,7 +358,7 @@ class BrowserToolbarMiddleware(
                         ),
                     )
                 } else {
-                    store.dispatch(SearchQueryUpdated(BrowserToolbarQuery(searchTerms)))
+                    store.dispatch(SearchQueryUpdated(BrowserToolbarQuery(searchTerms), true))
                     appStore.dispatch(SearchStarted(selectedTab.id))
                 }
             }
@@ -378,7 +378,7 @@ class BrowserToolbarMiddleware(
                 }
             }
             is PasteFromClipboardClicked -> {
-                store.dispatch(SearchQueryUpdated(BrowserToolbarQuery(clipboard.text.orEmpty())))
+                store.dispatch(SearchQueryUpdated(BrowserToolbarQuery(clipboard.text.orEmpty()), true))
                 appStore.dispatch(SearchStarted(browserStore.state.selectedTabId))
             }
             is LoadFromClipboardClicked -> {
@@ -736,12 +736,13 @@ class BrowserToolbarMiddleware(
         val isWideWindow = isWideScreen()
         val isTallWindow = isTallScreen()
         val shouldUseExpandedToolbar = settings.shouldUseExpandedToolbar
-        val primarySlotAction = ShortcutType.fromValue(settings.toolbarSimpleShortcut)
-            ?.toToolbarAction() ?: ToolbarAction.NewTab
+        val primarySlotAction = ShortcutType.fromValue(settings.toolbarSimpleShortcut)?.toToolbarAction()
 
-        val configs = listOf(
-            ToolbarActionConfig(primarySlotAction) {
-                !shouldUseExpandedToolbar || !isTallWindow || isWideWindow
+        val configs = listOfNotNull(
+            primarySlotAction?.let {
+                ToolbarActionConfig(it) {
+                    !shouldUseExpandedToolbar || !isTallWindow || isWideWindow
+                }
             },
             ToolbarActionConfig(ToolbarAction.TabCounter) {
                 !shouldUseExpandedToolbar || !isTallWindow || isWideWindow
@@ -806,7 +807,7 @@ class BrowserToolbarMiddleware(
                     onClick = AddNewTab(source),
                 ),
                 BrowserToolbarMenuButton(
-                    icon = DrawableResIcon(iconsR.drawable.mozac_ic_private_mode_24),
+                    icon = DrawableResIcon(iconsR.drawable.mozac_ic_private_mode_fill_24),
                     text = StringResText(tabcounterR.string.mozac_browser_menu_new_private_tab),
                     contentDescription =
                         StringResContentDescription(tabcounterR.string.mozac_browser_menu_new_private_tab),
@@ -1294,5 +1295,6 @@ class BrowserToolbarMiddleware(
         ShortcutType.TRANSLATE -> ToolbarAction.Translate
         ShortcutType.HOMEPAGE -> ToolbarAction.Homepage
         ShortcutType.BACK -> ToolbarAction.Back
+        ShortcutType.NONE -> null
     }
 }

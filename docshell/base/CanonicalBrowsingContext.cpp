@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -10,6 +8,7 @@
 
 #include "ContentAnalysis.h"
 #include "ErrorList.h"
+#include "SessionHistoryEntry.h"
 #include "mozilla/CheckedInt.h"
 #include "mozilla/Components.h"
 #include "mozilla/ErrorResult.h"
@@ -357,6 +356,12 @@ void CanonicalBrowsingContext::ReplacedBy(
 
   BackgroundSessionStorageManager::PropagateManager(Id(), aNewContext->Id());
 
+#ifdef ANDROID
+  // Transfer the app link launch type to the replacement BC (e.g., COOP swap).
+  aNewContext->mAndroidAppLinkLaunchType =
+      std::exchange(mAndroidAppLinkLaunchType, 0);
+#endif
+
   // Transfer the ownership of the priority active status from the old context
   // to the new context.
   aNewContext->mPriorityActive = mPriorityActive;
@@ -492,28 +497,27 @@ void CanonicalBrowsingContext::SetActiveSessionHistoryEntryFromBFCache(
   mActiveEntry = aEntry;
 }
 
-bool CanonicalBrowsingContext::HasHistoryEntry(nsISHEntry* aEntry) {
+bool CanonicalBrowsingContext::HasHistoryEntry(SessionHistoryEntry* aEntry) {
   // XXX Should we check also loading entries?
   return aEntry && mActiveEntry == aEntry;
 }
 
-void CanonicalBrowsingContext::SwapHistoryEntries(nsISHEntry* aOldEntry,
-                                                  nsISHEntry* aNewEntry) {
+void CanonicalBrowsingContext::SwapHistoryEntries(
+    SessionHistoryEntry* aOldEntry, SessionHistoryEntry* aNewEntry) {
   // XXX Should we check also loading entries?
   if (mActiveEntry != aOldEntry) {
     return;
   }
 
-  nsCOMPtr<SessionHistoryEntry> newEntry = do_QueryInterface(aNewEntry);
   MOZ_LOG(gSHLog, LogLevel::Verbose,
           ("Swapping History Entries: mActiveEntry=%p, aNewEntry=%p. ",
            mActiveEntry.get(), aNewEntry));
-  if (!newEntry) {
+  if (!aNewEntry) {
     mActiveEntry = nullptr;
     return;
   }
 
-  mActiveEntry = newEntry.forget();
+  mActiveEntry = aNewEntry;
 }
 
 void CanonicalBrowsingContext::AddLoadingSessionHistoryEntry(
@@ -536,15 +540,12 @@ void CanonicalBrowsingContext::GetLoadingSessionHistoryInfoFromParent(
     for (BrowsingContext* sibling : GetParent()->Children()) {
       ++index;
       if (sibling == this) {
-        nsCOMPtr<nsISHEntry> shEntry;
-        parentSHE->GetChildSHEntryIfHasNoDynamicallyAddedChild(
-            index, getter_AddRefs(shEntry));
-        nsCOMPtr<SessionHistoryEntry> she = do_QueryInterface(shEntry);
-        if (she) {
-          aLoadingInfo.emplace(she);
+        if (RefPtr entry =
+                parentSHE->GetChildSHEntryIfHasNoDynamicallyAddedChild(index)) {
+          aLoadingInfo.emplace(entry);
           mLoadingEntries.AppendElement(LoadingSessionHistoryEntry{
-              aLoadingInfo.value().mLoadId, she.get()});
-          (void)SetHistoryID(she->DocshellID());
+              aLoadingInfo.value().mLoadId, entry.get()});
+          (void)SetHistoryID(entry->DocshellID());
         }
         break;
       }
@@ -590,10 +591,6 @@ CanonicalBrowsingContext::CreateLoadingSessionHistoryEntryForLoad(
     entry = mActiveEntry;
   } else {
     entry = new SessionHistoryEntry(aLoadState, aChannel);
-    if (IsTop() &&
-        !nsDocShell::ShouldAddToSessionHistory(aLoadState->URI(), aChannel)) {
-      entry->SetTransient();
-    }
     if (!IsTop() && (mActiveEntry || !mLoadingEntries.IsEmpty())) {
       entry->SetIsSubFrame(true);
     }
@@ -717,14 +714,7 @@ CanonicalBrowsingContext::ReplaceLoadingSessionHistoryEntryForLoad(
       RefPtr<SessionHistoryEntry> loadingEntry = mLoadingEntries[i].mEntry;
       loadingEntry->SetInfo(&newInfo);
 
-      if (IsTop()) {
-        // Only top level pages care about Get/SetTransient.
-        nsCOMPtr<nsIURI> uri;
-        aNewChannel->GetURI(getter_AddRefs(uri));
-        if (!nsDocShell::ShouldAddToSessionHistory(uri, aNewChannel)) {
-          loadingEntry->SetTransient();
-        }
-      } else {
+      if (!IsTop()) {
         loadingEntry->SetIsSubFrame(aInfo->mInfo.IsSubFrame());
       }
       loadingEntry->SetDocshellID(GetHistoryID());
@@ -1189,7 +1179,8 @@ void CanonicalBrowsingContext::SessionHistoryCommit(
 
       int32_t indexOfHistoryLoad = -1;
       if (loadFromSessionHistory) {
-        nsCOMPtr<nsISHEntry> root = nsSHistory::GetRootSHEntry(newActiveEntry);
+        RefPtr<SessionHistoryEntry> root =
+            nsSHistory::GetRootSHEntry(newActiveEntry);
         indexOfHistoryLoad = shistory->GetIndexOfEntry(root);
         if (indexOfHistoryLoad < 0) {
           // Entry has been removed from the session history.
@@ -1205,9 +1196,10 @@ void CanonicalBrowsingContext::SessionHistoryCommit(
       nsAutoString nameOfNewEntry;
       newActiveEntry->GetName(nameOfNewEntry);
       if (!nameOfNewEntry.IsEmpty()) {
-        nsSHistory::WalkContiguousEntries(
-            newActiveEntry,
-            [](nsISHEntry* aEntry) { aEntry->SetName(EmptyString()); });
+        nsSHistory::WalkContiguousEntries(newActiveEntry,
+                                          [](SessionHistoryEntry* aEntry) {
+                                            aEntry->SetName(EmptyString());
+                                          });
       }
 
       MOZ_LOG(gSHLog, LogLevel::Verbose,
@@ -1495,7 +1487,7 @@ void CanonicalBrowsingContext::RemoveDynEntriesFromActiveSessionHistoryEntry() {
   // In theory shistory can be null here if the method is called right after
   // CanonicalBrowsingContext::ReplacedBy call.
   NS_ENSURE_TRUE_VOID(shistory);
-  nsCOMPtr<nsISHEntry> root = nsSHistory::GetRootSHEntry(mActiveEntry);
+  RefPtr<SessionHistoryEntry> root = nsSHistory::GetRootSHEntry(mActiveEntry);
   shistory->RemoveDynEntries(shistory->GetIndexOfEntry(root), mActiveEntry);
 }
 
@@ -1503,7 +1495,7 @@ void CanonicalBrowsingContext::RemoveFromSessionHistory(const nsID& aChangeID) {
   nsSHistory* shistory = static_cast<nsSHistory*>(GetSessionHistory());
   if (shistory) {
     CallerWillNotifyHistoryIndexAndLengthChanges caller(shistory);
-    nsCOMPtr<nsISHEntry> root = nsSHistory::GetRootSHEntry(mActiveEntry);
+    RefPtr<SessionHistoryEntry> root = nsSHistory::GetRootSHEntry(mActiveEntry);
     bool didRemove;
     AutoTArray<nsID, 16> ids({GetHistoryID()});
     shistory->RemoveEntries(ids, shistory->GetIndexOfEntry(root), &didRemove);
@@ -2219,8 +2211,7 @@ nsresult CanonicalBrowsingContext::PendingRemotenessChange::FinishTopContent() {
         return error.StealNSResult();
       }
 
-      rv = newDocShell->ResumeRedirectedLoad(mPendingSwitchId,
-                                             /* aHistoryIndex */ -1);
+      rv = newDocShell->ResumeRedirectedLoad(mPendingSwitchId);
       if (NS_FAILED(rv)) {
         return rv;
       }
@@ -2867,10 +2858,7 @@ void CanonicalBrowsingContext::ReactivateDocuments(
   if (Navigation::IsAPIEnabled()) {
     nsSHistory::WalkContiguousEntriesInOrder(
         aEntry, [&topNewSHIs](auto* aContiguousEntry) {
-          if (nsCOMPtr<SessionHistoryEntry> she =
-                  do_QueryInterface(aContiguousEntry)) {
-            topNewSHIs.AppendElement(she->Info());
-          }
+          topNewSHIs.AppendElement(aContiguousEntry->Info());
           return true;
         });
   }
@@ -3436,8 +3424,8 @@ struct ClearSiteWalkHistoryData {
 
 // static
 nsresult CanonicalBrowsingContext::ContainsSameOriginBfcacheEntry(
-    nsISHEntry* aEntry, mozilla::dom::BrowsingContext* aBC, int32_t aChildIndex,
-    void* aData) {
+    SessionHistoryEntry* aEntry, mozilla::dom::BrowsingContext* aBC,
+    int32_t aChildIndex, void* aData) {
   if (!aEntry) {
     return NS_OK;
   }
@@ -3492,12 +3480,12 @@ nsresult CanonicalBrowsingContext::ClearBfcacheByPrincipal(
         continue;
       }
 
-      AutoTArray<nsCOMPtr<nsISHEntry>, 4> entriesToDelete;
+      AutoTArray<RefPtr<SessionHistoryEntry>, 4> entriesToDelete;
       // We only need to traverse all top-level history items due to bfcache
       // only caching top level sites and partitioning origins. If an iframe has
       // the same origin, we only want to clear it, if the top level has the
       // same origin.
-      for (nsCOMPtr<nsISHEntry>& entry : sh->Entries()) {
+      for (RefPtr<SessionHistoryEntry>& entry : sh->Entries()) {
         // Determine whether this history entry matches the origin, or contains
         // an iframe with that origin
         ClearSiteWalkHistoryData data;
@@ -3509,7 +3497,7 @@ nsresult CanonicalBrowsingContext::ClearBfcacheByPrincipal(
           entriesToDelete.AppendElement(entry);
         }
       }
-      for (nsCOMPtr<nsISHEntry>& entry : entriesToDelete) {
+      for (RefPtr<SessionHistoryEntry>& entry : entriesToDelete) {
         sh->EvictDocumentViewerForEntry(entry);
       }
     }

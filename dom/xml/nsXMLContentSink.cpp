@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -732,10 +730,11 @@ nsresult nsXMLContentSink::MaybeProcessXSLTLink(
     ProcessingInstruction* aProcessingInstruction, const nsAString& aHref,
     bool aAlternate, const nsAString& aTitle, const nsAString& aType,
     const nsAString& aMedia, const nsAString& aReferrerPolicy, bool* aWasXSLT) {
-  bool wasXSLT = aType.LowerCaseEqualsLiteral(TEXT_XSL) ||
-                 aType.LowerCaseEqualsLiteral(APPLICATION_XSLT_XML) ||
-                 aType.LowerCaseEqualsLiteral(TEXT_XML) ||
-                 aType.LowerCaseEqualsLiteral(APPLICATION_XML);
+  bool wasXSLT = StaticPrefs::dom_xslt_enabled() &&
+                 (aType.LowerCaseEqualsLiteral(TEXT_XSL) ||
+                  aType.LowerCaseEqualsLiteral(APPLICATION_XSLT_XML) ||
+                  aType.LowerCaseEqualsLiteral(TEXT_XML) ||
+                  aType.LowerCaseEqualsLiteral(APPLICATION_XML));
 
   if (aWasXSLT) {
     *aWasXSLT = wasXSLT;

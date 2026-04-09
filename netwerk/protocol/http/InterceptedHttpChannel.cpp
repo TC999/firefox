@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set sw=2 ts=8 et tw=80 : */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  *  License, v. 2.0. If a copy of the MPL was not distributed with this
  *  file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1341,15 +1339,6 @@ NS_IMETHODIMP
 InterceptedHttpChannel::HasCacheEntry(bool* value) {
   if (mSynthesizedCacheInfo) {
     return mSynthesizedCacheInfo->HasCacheEntry(value);
-  }
-  *value = false;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-InterceptedHttpChannel::IsRacing(bool* value) {
-  if (mSynthesizedCacheInfo) {
-    return mSynthesizedCacheInfo->IsRacing(value);
   }
   *value = false;
   return NS_OK;

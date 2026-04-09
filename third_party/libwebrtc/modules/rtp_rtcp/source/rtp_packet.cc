@@ -224,20 +224,27 @@ void RtpPacket::ZeroMutableExtensions() {
   }
 }
 
-void RtpPacket::SetCsrcs(ArrayView<const uint32_t> csrcs) {
+void RtpPacket::SetCsrcs(std::span<const uint32_t> csrcs) {
   RTC_DCHECK_EQ(extensions_size_, 0);
   RTC_DCHECK_EQ(payload_size_, 0);
   RTC_DCHECK_EQ(padding_size_, 0);
   RTC_DCHECK_LE(csrcs.size(), 0x0fu);
   RTC_DCHECK_LE(kFixedHeaderSize + 4 * csrcs.size(), capacity());
+
+  if (csrcs.size() > kMaxCsrcs) {
+    RTC_LOG(LS_WARNING) << "Truncating CSRC list to spec length " << kMaxCsrcs
+                        << " from " << csrcs.size();
+    csrcs = csrcs.first(kMaxCsrcs);
+  }
+
   payload_offset_ = kFixedHeaderSize + 4 * csrcs.size();
+  buffer_.SetSize(payload_offset_);
   WriteAt(0, (data()[0] & 0xF0) | dchecked_cast<uint8_t>(csrcs.size()));
   size_t offset = kFixedHeaderSize;
   for (uint32_t csrc : csrcs) {
     ByteWriter<uint32_t>::WriteBigEndian(WriteAt(offset), csrc);
     offset += 4;
   }
-  buffer_.SetSize(payload_offset_);
 }
 
 ArrayView<uint8_t> RtpPacket::AllocateRawExtension(int id, size_t length) {
@@ -411,6 +418,10 @@ uint8_t* RtpPacket::AllocatePayload(size_t size_bytes) {
 }
 
 void RtpPacket::SetPayload(ArrayView<const uint8_t> payload) {
+  if (payload.empty()) {
+    SetPayloadSize(0);
+    return;
+  }
   memcpy(AllocatePayload(payload.size()), payload.data(), payload.size());
 }
 

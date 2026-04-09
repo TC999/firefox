@@ -114,6 +114,7 @@ import org.mozilla.fenix.telemetry.ACTION_QR_CLICKED
 import org.mozilla.fenix.telemetry.SOURCE_ADDRESS_BAR
 import kotlin.LazyThreadSafetyMode.NONE
 import mozilla.components.browser.toolbar.R as toolbarR
+import mozilla.components.ui.icons.R as iconsR
 import org.mozilla.fenix.GleanMetrics.Toolbar as GleanMetricsToolbar
 
 typealias SearchDialogFragmentStore = SearchFragmentStore
@@ -389,8 +390,6 @@ class SearchDialogFragment : AppCompatDialogFragment(), UserInteractionHandler {
 
         binding.awesomeBar.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
 
-        val showUnifiedSearchFeature = requireContext().settings().showUnifiedSearchFeature
-
         consumeFlow(requireComponents.core.store) { flow ->
             flow.map { state -> state.search }
                 .distinctUntilChanged()
@@ -398,7 +397,7 @@ class SearchDialogFragment : AppCompatDialogFragment(), UserInteractionHandler {
                     store.dispatch(
                         SearchFragmentAction.UpdateSearchState(
                             search,
-                            showUnifiedSearchFeature,
+                            isPrivate = requireComponents.appStore.state.mode.isPrivate,
                         ),
                     )
 
@@ -582,7 +581,7 @@ class SearchDialogFragment : AppCompatDialogFragment(), UserInteractionHandler {
          *  query as consumeFrom may run several times on fragment start due to state updates.
          * */
 
-        flow.map { state -> (state.url != state.query && state.query.isNotBlank()) || state.showSearchShortcuts }
+        flow.map { state -> state.url != state.query && state.query.isNotBlank() }
             .distinctUntilChanged()
             .collect { shouldShowAwesomebar ->
                 binding.awesomeBar.visibility = if (shouldShowAwesomebar) {
@@ -597,7 +596,7 @@ class SearchDialogFragment : AppCompatDialogFragment(), UserInteractionHandler {
         flow.map { state ->
             val shouldShowView = state.showClipboardSuggestions &&
                 state.query.isEmpty() &&
-                state.clipboardHasUrl && !state.showSearchShortcuts
+                state.clipboardHasUrl
             Pair(shouldShowView, state.clipboardHasUrl)
         }
             .distinctUntilChanged()
@@ -824,9 +823,7 @@ class SearchDialogFragment : AppCompatDialogFragment(), UserInteractionHandler {
 
     private fun updateSearchSuggestionsHintVisibility(state: SearchFragmentState) {
         view?.apply {
-            val showHint = state.showSearchSuggestionsHint &&
-                !state.showSearchShortcuts &&
-                state.url != state.query
+            val showHint = state.showSearchSuggestionsHint && state.url != state.query
 
             binding.searchSuggestionsHint.isVisible = showHint
             binding.searchSuggestionsHintDivider.isVisible = showHint
@@ -927,7 +924,7 @@ class SearchDialogFragment : AppCompatDialogFragment(), UserInteractionHandler {
                 if (qrButtonAction == null) {
                     qrButtonAction = IncreasedTapAreaActionDecorator(
                         BrowserToolbar.Button(
-                            AppCompatResources.getDrawable(requireContext(), R.drawable.ic_qr)!!,
+                            AppCompatResources.getDrawable(requireContext(), iconsR.drawable.mozac_ic_qr_code_24)!!,
                             requireContext().getString(R.string.search_scan_button_2),
                             autoHide = { true },
                             listener = ::launchQr,

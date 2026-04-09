@@ -15,12 +15,12 @@ use crate::dom::{AttributeTracker, TElement};
 use crate::font_metrics::FontMetricsOrientation;
 use crate::logical_geometry::WritingMode;
 use crate::properties::{
-    property_counts, CSSWideKeyword, ComputedValues, DeclarationImportanceIterator, LonghandId,
+    CASCADE_PROPERTY, CSSWideKeyword, ComputedValues, DeclarationImportanceIterator, LonghandId,
     LonghandIdSet, PrioritaryPropertyId, PropertyDeclaration, PropertyDeclarationId, PropertyFlags,
-    ShorthandsWithPropertyReferencesCache, StyleBuilder, CASCADE_PROPERTY,
+    ShorthandsWithPropertyReferencesCache, StyleBuilder, property_counts,
 };
 use crate::rule_cache::{RuleCache, RuleCacheConditions};
-use crate::rule_tree::{CascadeLevel, CascadeOrigin, StrongRuleNode};
+use crate::rule_tree::{CascadeLevel, CascadeOrigin, RuleCascadeFlags, StrongRuleNode};
 use crate::selector_parser::PseudoElement;
 use crate::shared_lock::StylesheetGuards;
 use crate::style_adjuster::StyleAdjuster;
@@ -74,6 +74,7 @@ pub fn cascade<E>(
     try_tactic: &PositionTryFallbacksTryTactic,
     visited_rules: Option<&StrongRuleNode>,
     cascade_input_flags: ComputedValueFlags,
+    included_cascade_flags: RuleCascadeFlags,
     rule_cache: Option<&RuleCache>,
     rule_cache_conditions: &mut RuleCacheConditions,
     element: Option<E>,
@@ -92,6 +93,7 @@ where
         try_tactic,
         CascadeMode::Unvisited { visited_rules },
         cascade_input_flags,
+        included_cascade_flags,
         rule_cache,
         rule_cache_conditions,
         element,
@@ -123,6 +125,7 @@ impl<'a> DeclarationIterator<'a> {
             priority: CascadePriority::new(
                 CascadeLevel::new(CascadeOrigin::UA),
                 LayerOrder::root(),
+                RuleCascadeFlags::empty(),
             ),
             declarations: DeclarationImportanceIterator::default(),
             restriction,
@@ -187,6 +190,7 @@ fn cascade_rules<E>(
     try_tactic: &PositionTryFallbacksTryTactic,
     cascade_mode: CascadeMode,
     cascade_input_flags: ComputedValueFlags,
+    included_cascade_flags: RuleCascadeFlags,
     rule_cache: Option<&RuleCache>,
     rule_cache_conditions: &mut RuleCacheConditions,
     element: Option<E>,
@@ -206,6 +210,7 @@ where
         try_tactic,
         cascade_mode,
         cascade_input_flags,
+        included_cascade_flags,
         rule_cache,
         rule_cache_conditions,
         element,
@@ -241,9 +246,9 @@ fn iter_declarations<'builder, 'decls: 'builder>(
         } else {
             let id = declaration.id().as_longhand().unwrap();
             declarations.note_declaration(declaration, priority, id);
-            if CustomPropertiesBuilder::might_have_non_custom_dependency(id, declaration) {
+            if CustomPropertiesBuilder::might_have_non_custom_or_attr_dependency(id, declaration) {
                 if let Some(ref mut builder) = custom_builder {
-                    builder.maybe_note_non_custom_dependency(id, declaration);
+                    builder.maybe_note_non_custom_dependency(id, declaration, attribute_tracker);
                 }
             }
         }
@@ -264,6 +269,7 @@ pub fn apply_declarations<'a, E, I>(
     try_tactic: &'a PositionTryFallbacksTryTactic,
     cascade_mode: CascadeMode,
     cascade_input_flags: ComputedValueFlags,
+    included_cascade_flags: RuleCascadeFlags,
     rule_cache: Option<&'a RuleCache>,
     rule_cache_conditions: &'a mut RuleCacheConditions,
     element: Option<E>,
@@ -295,6 +301,7 @@ where
         stylist.quirks_mode(),
         rule_cache_conditions,
         container_size_query,
+        included_cascade_flags,
     );
 
     context.style().add_flags(cascade_input_flags);
@@ -308,9 +315,11 @@ where
         Some(ref attr_provider) => AttributeTracker::new(attr_provider),
         None => AttributeTracker::new_dummy(),
     };
+
     let properties_to_apply = match cascade_mode {
         CascadeMode::Visited { unvisited_context } => {
-            context.builder.custom_properties = unvisited_context.builder.custom_properties.clone();
+            context.builder.substitution_functions =
+                unvisited_context.builder.substitution_functions.clone();
             context.builder.writing_mode = unvisited_context.builder.writing_mode;
             context.builder.color_scheme = unvisited_context.builder.color_scheme;
             // We never insert visited styles into the cache so we don't need to try looking it up.
@@ -373,11 +382,8 @@ where
                 );
             }
 
-            using_cached_reset_properties = cascade.try_to_use_cached_reset_properties(
-                &mut context.builder,
-                rule_cache,
-                guards,
-            );
+            using_cached_reset_properties =
+                cascade.try_to_use_cached_reset_properties(&mut context, rule_cache, guards);
 
             if using_cached_reset_properties {
                 LonghandIdSet::late_group_only_inherited()
@@ -399,8 +405,6 @@ where
 
     cascade.finished_applying_properties(&mut context.builder);
 
-    std::mem::drop(cascade);
-
     context.builder.clear_modified_reset();
 
     if matches!(cascade_mode, CascadeMode::Unvisited { .. }) {
@@ -408,6 +412,7 @@ where
             layout_parent_style.unwrap_or(inherited_style),
             element,
             try_tactic,
+            &cascade.author_specified,
         );
     }
 
@@ -429,6 +434,22 @@ where
 ///
 /// This is a bit of a clunky way of achieving this.
 type DeclarationsToApplyUnlessOverriden = SmallVec<[PropertyDeclaration; 2]>;
+
+#[cfg(feature = "gecko")]
+fn is_base_appearance(context: &computed::Context) -> bool {
+    use computed::Appearance;
+    let box_style = context.builder.get_box();
+    match box_style.clone_appearance() {
+        Appearance::BaseSelect => {
+            matches!(
+                box_style.clone__moz_default_appearance(),
+                Appearance::Listbox | Appearance::Menulist
+            )
+        },
+        Appearance::Base => box_style.clone__moz_default_appearance() != Appearance::None,
+        _ => false,
+    }
+}
 
 fn tweak_when_ignoring_colors(
     context: &computed::Context,
@@ -694,18 +715,10 @@ impl<'b> Cascade<'b> {
             // declarations, but we don't have that information at this point,
             // and it doesn't seem like an important enough optimization to
             // warrant it.
-            match declaration.id {
-                LonghandId::Display => {
-                    context
-                        .builder
-                        .add_flags(ComputedValueFlags::DISPLAY_DEPENDS_ON_INHERITED_STYLE);
-                },
-                LonghandId::Content => {
-                    context
-                        .builder
-                        .add_flags(ComputedValueFlags::CONTENT_DEPENDS_ON_INHERITED_STYLE);
-                },
-                _ => {},
+            if matches!(declaration.id, LonghandId::Display | LonghandId::Content) {
+                context
+                    .builder
+                    .add_flags(ComputedValueFlags::DISPLAY_OR_CONTENT_DEPEND_ON_INHERITED_STYLE);
             }
         }
 
@@ -715,7 +728,7 @@ impl<'b> Cascade<'b> {
         );
         declaration.value.substitute_variables(
             declaration.id,
-            context.builder.custom_properties(),
+            &context.builder.substitution_functions(),
             context.builder.stylist.unwrap(),
             context,
             shorthand_cache,
@@ -755,10 +768,6 @@ impl<'b> Cascade<'b> {
                 return true; // Common case, we're done.
             }
             debug_assert!(
-                self.reverted_set.contains(longhand_id),
-                "How else can we fail to apply a prioritary property?"
-            );
-            debug_assert!(
                 decl.next_index == 0 || decl.next_index > index,
                 "should make progress! {} -> {}",
                 index,
@@ -795,6 +804,18 @@ impl<'b> Cascade<'b> {
 
         if !decls.has_prioritary_properties {
             return;
+        }
+
+        #[cfg(feature = "gecko")]
+        apply!(MozDefaultAppearance);
+        #[cfg(feature = "gecko")]
+        if apply!(Appearance) && is_base_appearance(&context) {
+            context
+                .style()
+                .add_flags(ComputedValueFlags::IS_IN_APPEARANCE_BASE_SUBTREE);
+            context
+                .included_cascade_flags
+                .insert(RuleCascadeFlags::APPEARANCE_BASE);
         }
 
         let has_writing_mode = apply!(WritingMode) | apply!(Direction);
@@ -949,8 +970,11 @@ impl<'b> Cascade<'b> {
         attribute_tracker: &mut AttributeTracker,
     ) {
         debug_assert!(!longhand_id.is_logical());
-        let origin = priority.cascade_level().origin();
         if self.seen.contains(longhand_id) {
+            return;
+        }
+
+        if !(priority.flags() - context.included_cascade_flags).is_empty() {
             return;
         }
 
@@ -967,6 +991,7 @@ impl<'b> Cascade<'b> {
 
         // When document colors are disabled, do special handling of
         // properties that are marked as ignored in that mode.
+        let origin = priority.cascade_level().origin();
         if self.ignore_colors {
             tweak_when_ignoring_colors(
                 context,
@@ -1074,6 +1099,7 @@ impl<'b> Cascade<'b> {
             // Cascade input flags don't matter for the visited style, they are
             // in the main (unvisited) style.
             Default::default(),
+            context.included_cascade_flags,
             // The rule cache doesn't care about caching :visited
             // styles, we cache the unvisited style instead. We still do
             // need to set the caching dependencies properly if present
@@ -1104,10 +1130,6 @@ impl<'b> Cascade<'b> {
             builder.add_flags(ComputedValueFlags::HAS_AUTHOR_SPECIFIED_BORDER_BACKGROUND);
         }
 
-        if self.author_specified.contains(LonghandId::FontFamily) {
-            builder.add_flags(ComputedValueFlags::HAS_AUTHOR_SPECIFIED_FONT_FAMILY);
-        }
-
         if self.author_specified.contains(LonghandId::Color) {
             builder.add_flags(ComputedValueFlags::HAS_AUTHOR_SPECIFIED_TEXT_COLOR);
         }
@@ -1116,29 +1138,9 @@ impl<'b> Cascade<'b> {
             builder.add_flags(ComputedValueFlags::HAS_AUTHOR_SPECIFIED_TEXT_SHADOW);
         }
 
-        if self.author_specified.contains(LonghandId::LetterSpacing) {
-            builder.add_flags(ComputedValueFlags::HAS_AUTHOR_SPECIFIED_LETTER_SPACING);
+        if self.author_specified.contains(LonghandId::GridAutoFlow) {
+            builder.add_flags(ComputedValueFlags::HAS_AUTHOR_SPECIFIED_GRID_AUTO_FLOW);
         }
-
-        if self.author_specified.contains(LonghandId::WordSpacing) {
-            builder.add_flags(ComputedValueFlags::HAS_AUTHOR_SPECIFIED_WORD_SPACING);
-        }
-
-        if self
-            .author_specified
-            .contains(LonghandId::FontSynthesisWeight)
-        {
-            builder.add_flags(ComputedValueFlags::HAS_AUTHOR_SPECIFIED_FONT_SYNTHESIS_WEIGHT);
-        }
-
-        #[cfg(feature = "gecko")]
-        if self
-            .author_specified
-            .contains(LonghandId::FontSynthesisStyle)
-        {
-            builder.add_flags(ComputedValueFlags::HAS_AUTHOR_SPECIFIED_FONT_SYNTHESIS_STYLE);
-        }
-
         #[cfg(feature = "servo")]
         {
             if let Some(font) = builder.get_font_if_mutated() {
@@ -1149,7 +1151,7 @@ impl<'b> Cascade<'b> {
 
     fn try_to_use_cached_reset_properties(
         &self,
-        builder: &mut StyleBuilder<'b>,
+        context: &mut computed::Context<'b>,
         cache: Option<&'b RuleCache>,
         guards: &StylesheetGuards,
     ) -> bool {
@@ -1157,14 +1159,14 @@ impl<'b> Cascade<'b> {
             FirstLineReparenting::Yes { style_to_reparent } => style_to_reparent,
             FirstLineReparenting::No => {
                 let Some(cache) = cache else { return false };
-                let Some(style) = cache.find(guards, builder) else {
+                let Some(style) = cache.find(guards, &context) else {
                     return false;
                 };
                 style
             },
         };
 
-        builder.copy_reset_from(style);
+        context.builder.copy_reset_from(style);
 
         // We're using the same reset style as another element, and we'll skip
         // applying the relevant properties. So we need to do the relevant
@@ -1178,11 +1180,14 @@ impl<'b> Cascade<'b> {
         // would as well.  It matches the same rules, so it is the right thing
         // to do anyways, even if it's only used on inherited properties.
         let bits_to_copy = ComputedValueFlags::HAS_AUTHOR_SPECIFIED_BORDER_BACKGROUND
+            | ComputedValueFlags::HAS_AUTHOR_SPECIFIED_GRID_AUTO_FLOW
             | ComputedValueFlags::DEPENDS_ON_SELF_FONT_METRICS
             | ComputedValueFlags::DEPENDS_ON_INHERITED_FONT_METRICS
+            | ComputedValueFlags::IS_IN_APPEARANCE_BASE_SUBTREE
             | ComputedValueFlags::USES_CONTAINER_UNITS
-            | ComputedValueFlags::USES_VIEWPORT_UNITS;
-        builder.add_flags(style.flags & bits_to_copy);
+            | ComputedValueFlags::USES_VIEWPORT_UNITS
+            | ComputedValueFlags::DEPENDS_ON_CONTAINER_STYLE_QUERY;
+        context.builder.add_flags(style.flags & bits_to_copy);
 
         true
     }

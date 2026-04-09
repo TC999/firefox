@@ -893,6 +893,8 @@ class XPCShellTestThread(Thread):
             self.keep_going = True
             return
 
+        self.log.test_start(name, group=group)
+
         # Check for known-fail tests
         expect_pass = self.test_object["expected"] == "pass"
 
@@ -989,7 +991,6 @@ class XPCShellTestThread(Thread):
         process_output = None
 
         try:
-            self.log.test_start(name, group=group)
             if self.verbose:
                 self.logCommand(name, self.command, test_dir)
 
@@ -1699,9 +1700,7 @@ class XPCShellTests:
         self.mozInfo = fixedInfo
 
         self.mozInfo["fission"] = prefs.get("fission.autostart", True)
-        self.mozInfo["sessionHistoryInParent"] = self.mozInfo[
-            "fission"
-        ] or not prefs.get("fission.disableSessionHistoryInParent", False)
+        self.mozInfo["sessionHistoryInParent"] = True
 
         self.mozInfo["verify"] = options.get("verify", False)
 

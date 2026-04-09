@@ -170,7 +170,7 @@ static bool SerializeModule(JSContext* aCx,
   if (aModule->mResolvedDosName) {
     nsAutoString path;
     if (aModule->mResolvedDosName->GetPath(path) == NS_OK) {
-      SharedLibraryInfo info = SharedLibraryInfo::GetInfoFromPath(path.Data());
+      SharedLibraryInfo info = SharedLibraryInfo::GetInfoFromPath(path.get());
       if (info.GetSize() > 0) {
         nsString breakpadId =
             NS_ConvertUTF8toUTF16(info.GetEntry(0).GetBreakpadId());

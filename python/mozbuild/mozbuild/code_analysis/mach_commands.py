@@ -11,6 +11,7 @@ import posixpath
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 
@@ -22,6 +23,12 @@ from mozversioncontrol import get_repository_object
 from mozbuild import build_commands
 from mozbuild.controller.clobber import Clobberer
 from mozbuild.util import cpu_count
+
+
+# FIXME: use itertools.batched when moving to python 3.12
+def batched(iterable, n):
+    for ndx in range(0, len(iterable), n):
+        yield iterable[ndx : ndx + n]
 
 
 def build_repo_relative_path(abs_path, repo_path):
@@ -137,7 +144,9 @@ class StaticAnalysisMonitor:
                     if matcher is not None and matcher.group(0) == checker_name:
                         return item
 
-            check_config = get_check_config(warning["flag"])
+            check_config = get_check_config(
+                warning["flag"].removesuffix(",-warnings-as-errors")
+            )
             if check_config is not None:
                 warning["reliability"] = check_config.get("reliability", "low")
                 warning["reason"] = check_config.get("reason")
@@ -146,7 +155,6 @@ class StaticAnalysisMonitor:
                 # For a "warning" that is flagged as "clang-diagnostic-error"
                 # set it as "publish"
                 warning["publish"] = True
-
         return (warning, True)
 
 
@@ -341,16 +349,6 @@ def check(
     # Filter source to remove excluded files
     source = _generate_path_list(command_context, sources, verbose=verbose)
 
-    if not sources or not source:
-        command_context.log(
-            logging.WARNING,
-            "static-analysis",
-            {},
-            "There are no files eligible for analysis. Please note that 'header' files "
-            "cannot be used for analysis since they do not consist compilation units.",
-        )
-        return 0
-
     cwd = command_context.topobjdir
 
     monitor = StaticAnalysisMonitor(
@@ -365,22 +363,22 @@ def check(
     with StaticAnalysisOutputManager(
         command_context.log_manager, monitor, footer
     ) as output_manager:
-        import math
-
-        batch_size = int(math.ceil(float(len(source)) / cpu_count()))
-        for i in range(0, len(source), batch_size):
+        rc = 0
+        arg_max = 512  # The actual shell limit is way above
+        for batch in batched(source, arg_max):
             args = _get_clang_tidy_command(
                 command_context,
                 clang_paths,
                 compilation_commands_path,
                 checks=checks,
                 header_filter=header_filter,
-                sources=source[i : (i + batch_size)],
+                sources=batch,
                 jobs=jobs,
                 fix=fix,
+                warnings_as_errors=True,
                 verbose=verbose,
             )
-            rc = command_context.run_process(
+            rc |= command_context.run_process(
                 args=args,
                 ensure_exit_code=False,
                 line_handler=output_manager.on_line,
@@ -397,6 +395,16 @@ def check(
         # Write output file
         if output is not None:
             output_manager.write(output, format)
+
+    if not sources or not source:
+        command_context.log(
+            logging.WARNING,
+            "static-analysis",
+            {},
+            "There are no files eligible for analysis. Please note that 'header' files "
+            "cannot be used for analysis since they do not consist compilation units.",
+        )
+        return 0
 
     return rc
 
@@ -450,11 +458,7 @@ def _get_required_version(command_context):
 
 
 def _get_current_version(command_context, clang_paths):
-    # Because the fact that we ship together clang-tidy and clang-format
-    # we are sure that these two will always share the same version.
-    # Thus in order to determine that the version is compatible we only
-    # need to check one of them, going with clang-format
-    cmd = [clang_paths._clang_format_path, "--version"]
+    cmd = [clang_paths._clang_tidy_path, "--version"]
     version_info = None
     try:
         version_info = (
@@ -469,7 +473,7 @@ def _get_current_version(command_context, clang_paths):
                 logging.INFO,
                 "static-analysis",
                 {},
-                f"{clang_paths._clang_format_path} Version = {version_info} ",
+                f"{clang_paths._clang_tidy_path} Version = {version_info} ",
             )
 
     except subprocess.CalledProcessError as e:
@@ -477,7 +481,7 @@ def _get_current_version(command_context, clang_paths):
             logging.ERROR,
             "static-analysis",
             {},
-            "Error determining the version clang-tidy/format binary, please see the "
+            "Error determining the version clang-tidy binary, please see the "
             f"attached exception: \n{e.output}",
         )
     return version_info
@@ -491,7 +495,7 @@ def _is_version_eligible(command_context, clang_paths, log_error=True):
     current_version = _get_current_version(command_context, clang_paths)
     if current_version is None:
         return False
-    version = "clang-format version " + version
+    version = "version " + version
     if version in current_version:
         return True
 
@@ -500,7 +504,7 @@ def _is_version_eligible(command_context, clang_paths, log_error=True):
             logging.ERROR,
             "static-analysis",
             {},
-            f"ERROR: You're using an old or incorrect version ({_get_current_version(command_context, clang_paths)}) of clang-format binary. "
+            f"ERROR: You're using an old or incorrect version ({_get_current_version(command_context, clang_paths)}) of clang-tidy binary. "
             f"Please update to a more recent one (at least > {_get_required_version(command_context)}) "
             "by running: './mach bootstrap' ",
         )
@@ -517,6 +521,7 @@ def _get_clang_tidy_command(
     sources,
     jobs,
     fix,
+    warnings_as_errors=False,
     verbose=True,
 ):
     if checks == "-*":
@@ -530,6 +535,8 @@ def _get_clang_tidy_command(
         "-checks=%s" % checks,
         "-extra-arg=-DMOZ_CLANG_PLUGIN",
     ]
+    if warnings_as_errors:
+        common_args.append("-warnings-as-errors=*")
 
     # Flag header-filter is passed in order to limit the diagnostic messages only
     # to the specified header files. When no value is specified the default value
@@ -1170,7 +1177,7 @@ def _parse_issues(command_context, clang_output):
     re_strip_colors = re.compile(r"\x1b\[[\d;]+m", re.MULTILINE)
     filtered = re_strip_colors.sub("", clang_output)
     # Starting with clang 8, for the diagnostic messages we have multiple `LF CR`
-    # in order to be compatiable with msvc compiler format, and for this
+    # in order to be compatible with msvc compiler format, and for this
     # we are not interested to match the end of line.
     regex_string = r"(.+):(\d+):(\d+): (warning|error): ([^\[\]\n]+)(?: \[([\.\w-]+)\])"
 
@@ -1305,12 +1312,6 @@ def _set_clang_tools_paths(command_context):
         "bin",
         "clang-tidy" + config.substs.get("HOST_BIN_SUFFIX", ""),
     )
-    clang_paths._clang_format_path = mozpath.join(
-        clang_paths._clang_tools_path,
-        "clang-tidy",
-        "bin",
-        "clang-format" + config.substs.get("HOST_BIN_SUFFIX", ""),
-    )
     clang_paths._clang_apply_replacements = mozpath.join(
         clang_paths._clang_tools_path,
         "clang-tidy",
@@ -1323,20 +1324,12 @@ def _set_clang_tools_paths(command_context):
         "bin",
         "run-clang-tidy",
     )
-    clang_paths._clang_format_diff = mozpath.join(
-        clang_paths._clang_tools_path,
-        "clang-tidy",
-        "share",
-        "clang",
-        "clang-format-diff.py",
-    )
     return 0, clang_paths
 
 
 def _do_clang_tools_exist(clang_paths):
     return (
         os.path.exists(clang_paths._clang_tidy_path)
-        and os.path.exists(clang_paths._clang_format_path)
         and os.path.exists(clang_paths._clang_apply_replacements)
         and os.path.exists(clang_paths._run_clang_tidy_path)
     )
@@ -1414,7 +1407,6 @@ def _get_clang_tools_from_source(command_context, clang_paths, filename):
         raise Exception("Extracted the archive but didn't find the expected output")
 
     assert os.path.exists(clang_paths._clang_tidy_path)
-    assert os.path.exists(clang_paths._clang_format_path)
     assert os.path.exists(clang_paths._clang_apply_replacements)
     assert os.path.exists(clang_paths._run_clang_tidy_path)
     return 0, clang_paths
@@ -1468,3 +1460,66 @@ def _generate_path_list(command_context, paths, verbose=True):
             path_list.append(f)
 
     return path_list
+
+
+@StaticAnalysisSubCommand("static-analysis", "unittest", "Run unittest")
+def unittest(command_context, verbose=True):
+    moz_objdir = tempfile.mkdtemp(prefix="obj-code_analysis-unittest")
+    env = os.environ.copy()
+    env["MOZ_OBJDIR"] = moz_objdir
+
+    try:
+        # Check when everything is fine
+        result = subprocess.run(
+            [
+                sys.executable,
+                "mach",
+                "static-analysis",
+                "check",
+                "js/src/builtin/RegExp.cpp",
+            ],
+            check=False,
+            env=env,
+            cwd=command_context.topsrcdir,
+        )
+        assert result.returncode == 0, "in-tree files should pass the linter"
+
+        # And when errors are emitted
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as fd:
+            try:
+                fd.close()
+
+                # modernize-use-auto is an unsupported check, and it generates
+                # plenty of warnings on js/src/builtin/TestingFunctions.cpp
+                failing_flag = "modernize-use-auto"
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "mach",
+                        "static-analysis",
+                        "check",
+                        f"--checks=-*,{failing_flag}",
+                        f"--output={fd.name}",
+                        "--format=json",
+                        "js/src/builtin/TestingFunctions.cpp",
+                    ],
+                    check=False,
+                    env=env,
+                    cwd=command_context.topsrcdir,
+                )
+                with open(fd.name) as fd:
+                    errors = json.load(fd)
+            finally:
+                # FIXME: use delete_on_close=False once we move to 3.12
+                os.remove(fd.name)
+
+        assert result.returncode != 0, f"{failing_flag} check should find warnings"
+        assert len(errors["files"]) > 0, "warnings should be present in the log file"
+
+        file_with_warning = next(iter(errors["files"].values()))
+        assert (
+            file_with_warning["warnings"][0]["flag"]
+            == f"{failing_flag},-warnings-as-errors"
+        ), f"warnings should mention {failing_flag}"
+    finally:
+        shutil.rmtree(moz_objdir)

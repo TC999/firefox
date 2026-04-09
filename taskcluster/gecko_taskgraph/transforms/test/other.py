@@ -5,17 +5,18 @@
 import copy
 import hashlib
 import re
+from typing import Literal, Optional
 
+import msgspec
 from mozbuild.schedules import INCLUSIVE_COMPONENTS
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util import json
 from taskgraph.util.attributes import keymatch
 from taskgraph.util.keyed_by import evaluate_keyed_by
 from taskgraph.util.readonlydict import ReadOnlyDict
-from taskgraph.util.schema import LegacySchema, resolve_keyed_by
+from taskgraph.util.schema import Schema, resolve_keyed_by
 from taskgraph.util.taskcluster import get_artifact_path
 from taskgraph.util.templates import merge
-from voluptuous import Any, Optional, Required
 
 from gecko_taskgraph.transforms.test.variant import TEST_VARIANTS
 from gecko_taskgraph.util.perftest import is_external_browser
@@ -768,40 +769,53 @@ def ensure_spi_disabled_on_all_but_spi(config, tasks):
         yield task
 
 
-test_setting_description_schema = LegacySchema(
-    {
-        Required("_hash"): str,
-        "platform": {
-            Required("arch"): Any("32", "64", "aarch64", "arm7", "x86", "x86_64"),
-            Required("os"): {
-                Required("name"): Any("android", "linux", "macosx", "windows"),
-                Required("version"): str,
-                Optional("build"): str,
-            },
-            Optional("device"): str,
-            Optional("display"): "wayland",
-            Optional("machine"): "hw-ref",
-        },
-        "build": {
-            Required("type"): Any("opt", "debug", "debug-isolated-process"),
-            Any(
-                "asan",
-                "ccov",
-                "clang-trunk",
-                "devedition",
-                "lite",
-                "mingwclang",
-                "nightlyasrelease",
-                "shippable",
-                "tsan",
-            ): bool,
-        },
-        "runtime": {Any(*list(TEST_VARIANTS.keys()) + ["1proc"]): bool},
-    },
-    check=False,
-)
-"""Schema test settings must conform to. Validated by
-:py:func:`~test.test_mozilla_central.test_test_setting`"""
+class PlatformOSSchema(Schema, kw_only=True):
+    """Platform OS configuration schema."""
+
+    name: Literal["android", "linux", "macosx", "windows"]
+    version: str
+    build: Optional[str] = None
+
+
+class PlatformSchema(Schema, kw_only=True):
+    """Platform configuration schema."""
+
+    arch: Literal["32", "64", "aarch64", "arm7", "x86", "x86_64"]
+    os: PlatformOSSchema
+    device: Optional[str] = None
+    display: Optional[Literal["wayland"]] = None
+    machine: Optional[Literal["hw-ref"]] = None
+
+
+class BuildSchema(Schema, kw_only=True, forbid_unknown_fields=False):
+    """Build configuration schema."""
+
+    type: Literal["opt", "debug", "debug-isolated-process"]
+    asan: Optional[bool] = None
+    ccov: Optional[bool] = None
+    clang_trunk: Optional[bool] = None
+    devedition: Optional[bool] = None
+    lite: Optional[bool] = None
+    mingwclang: Optional[bool] = None
+    nightlyasrelease: Optional[bool] = None
+    shippable: Optional[bool] = None
+    tsan: Optional[bool] = None
+
+
+class TestSettingDescriptionSchema(Schema, kw_only=True, forbid_unknown_fields=False):
+    """Schema test settings must conform to. Validated by
+    :py:func:`~test.test_mozilla_central.test_test_setting`"""
+
+    _hash: str = msgspec.field(name="_hash")
+    platform: PlatformSchema
+    build: BuildSchema
+    runtime: dict[str, bool]
+
+    def __post_init__(self):
+        valid_keys = set(TEST_VARIANTS.keys()) | {"1proc"}
+        invalid = set(self.runtime.keys()) - valid_keys
+        if invalid:
+            raise ValueError(f"Invalid runtime keys: {invalid}")
 
 
 @transforms.add

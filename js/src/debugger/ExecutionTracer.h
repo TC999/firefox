@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -136,8 +134,7 @@ class TracingBuffer {
     MOZ_RELEASE_ASSERT(uncommittedWriteHead_ - writeHead_ <=
                        std::numeric_limits<uint16_t>::max());
     uint16_t entryHeader = uint16_t(uncommittedWriteHead_ - writeHead_);
-    writeBytesAtOffset(reinterpret_cast<const uint8_t*>(&entryHeader),
-                       sizeof(entryHeader), writeHead_);
+    writeAtOffset(entryHeader, writeHead_);
     writeHead_ = uncommittedWriteHead_;
   }
 
@@ -150,8 +147,7 @@ class TracingBuffer {
 
   void finishReadingEntry() {
     uint16_t entryHeader;
-    readBytesAtOffset(reinterpret_cast<uint8_t*>(&entryHeader),
-                      sizeof(entryHeader), readHead_);
+    readAtOffset(&entryHeader, readHead_);
     size_t read = uncommittedReadHead_ - readHead_;
 
     MOZ_RELEASE_ASSERT(entryHeader == uint16_t(read));
@@ -161,8 +157,7 @@ class TracingBuffer {
 
   void skipEntry() {
     uint16_t entryHeader;
-    readBytesAtOffset(reinterpret_cast<uint8_t*>(&entryHeader),
-                      sizeof(entryHeader), readHead_);
+    readAtOffset(&entryHeader, readHead_);
     readHead_ += entryHeader;
     uncommittedReadHead_ = readHead_;
   }
@@ -333,6 +328,16 @@ class TracingBuffer {
     static_assert(std::is_arithmetic_v<T>);
 
     readBytes(reinterpret_cast<uint8_t*>(val), sizeof(T));
+    if constexpr (sizeof(T) > 1) {
+      *val = mozilla::NativeEndian::swapFromLittleEndian(*val);
+    }
+  }
+
+  template <typename T>
+  void readAtOffset(T* val, uint64_t offset) {
+    static_assert(std::is_arithmetic_v<T>);
+
+    readBytesAtOffset(reinterpret_cast<uint8_t*>(val), sizeof(T), offset);
     if constexpr (sizeof(T) > 1) {
       *val = mozilla::NativeEndian::swapFromLittleEndian(*val);
     }

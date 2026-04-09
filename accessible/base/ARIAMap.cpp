@@ -1,6 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:expandtab:shiftwidth=2:tabstop=2:
- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1601,9 +1598,9 @@ uint64_t aria::UniversalStatesFor(mozilla::dom::Element* aElement) {
 }
 
 uint8_t aria::AttrCharacteristicsFor(nsAtom* aAtom) {
-  for (uint32_t i = 0; i < std::size(gWAIUnivAttrMap); i++) {
-    if (gWAIUnivAttrMap[i].attributeName == aAtom) {
-      return gWAIUnivAttrMap[i].characteristics;
+  for (auto entry : gWAIUnivAttrMap) {
+    if (entry.attributeName == aAtom) {
+      return entry.characteristics;
     }
   }
 

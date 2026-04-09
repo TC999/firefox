@@ -1,5 +1,4 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -572,7 +571,7 @@ nsresult MediaEngineRemoteVideoSource::Reconfigure(
       GetErrorName(rv, name);
       LOG("Video source %p for video device %d Reconfigure() failed "
           "unexpectedly in Start(). rv=%s",
-          this, mCaptureId, name.Data());
+          this, mCaptureId, name.get());
       return NS_ERROR_UNEXPECTED;
     }
   }

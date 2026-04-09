@@ -19,6 +19,10 @@ const PREF_SMARTWINDOW_ENABLED = "browser.smartwindow.enabled";
 const PREF_SMARTWINDOW_CONSENT_TIME = "browser.smartwindow.tos.consentTime";
 const PREF_AI_CONTROL_SMARTWINDOW = "browser.ai.control.smartWindow";
 const PREF_AI_CONTROL_DEFAULT = "browser.ai.control.default";
+const PREF_MEMORIES_CONVERSATION =
+  "browser.smartwindow.memories.generateFromConversation";
+const PREF_MEMORIES_HISTORY =
+  "browser.smartwindow.memories.generateFromHistory";
 
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
@@ -34,6 +38,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/aiwindow/ui/modules/AIWindowUI.sys.mjs",
   ChatStore:
     "moz-src:///browser/components/aiwindow/ui/modules/ChatStore.sys.mjs",
+  MemoryStore:
+    "moz-src:///browser/components/aiwindow/services/MemoryStore.sys.mjs",
   NewTabPagePreloading:
     "moz-src:///browser/components/tabbrowser/NewTabPagePreloading.sys.mjs",
   ONLOGOUT_NOTIFICATION: "resource://gre/modules/FxAccountsCommon.sys.mjs",
@@ -45,6 +51,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
   SearchUIUtils: "moz-src:///browser/components/search/SearchUIUtils.sys.mjs",
   MemoriesSchedulers:
     "moz-src:///browser/components/aiwindow/models/memories/MemoriesSchedulers.sys.mjs",
+  SmartWindowTelemetry:
+    "moz-src:///browser/components/aiwindow/ui/modules/SmartWindowTelemetry.sys.mjs",
 });
 
 XPCOMUtils.defineLazyPreferenceGetter(
@@ -78,6 +86,15 @@ export const AIWindow = {
       this.initializeAITabsToolbar(win);
       this._updateToolbarButtonPositions(win);
       this._initializeAskButtonOnToolbox(win);
+      const windowArgs = win?.arguments?.[1];
+      if (
+        windowArgs instanceof Ci.nsIPropertyBag2 &&
+        windowArgs.hasKey("aiwindow-trigger")
+      ) {
+        this.recordOpenWindowTelemetry(
+          windowArgs.getPropertyAsAString("aiwindow-trigger")
+        );
+      }
     }
 
     if (
@@ -102,6 +119,7 @@ export const AIWindow = {
     ChromeUtils.defineLazyGetter(AIWindow, "chatStore", () => lazy.ChatStore);
     Services.obs.addObserver(this, lazy.ONLOGOUT_NOTIFICATION);
     Services.obs.addObserver(this, "tabstrip-orientation-change");
+    lazy.SmartWindowTelemetry.init();
     this._initialized = true;
 
     // On startup/restart, if the first window initialized is an
@@ -210,7 +228,7 @@ export const AIWindow = {
         currentURI.equalsExceptRef(aboutHomeURI) ||
         homePagePrefURIs.some(uri => currentURI.equalsExceptRef(uri))
       ) {
-        if (this._hasActiveChatInBrowser(browser)) {
+        if (this.hasActiveChatInBrowser(browser)) {
           continue;
         }
         browser.loadURI(newTabURI, { triggeringPrincipal });
@@ -218,8 +236,9 @@ export const AIWindow = {
     }
   },
 
-  _hasActiveChatInBrowser(browser) {
-    const aiWindowElement = browser.contentDocument?.querySelector("ai-window");
+  hasActiveChatInBrowser(browser) {
+    const aiWindowElement =
+      browser?.contentDocument?.querySelector("ai-window");
     if (!aiWindowElement) {
       return false;
     }
@@ -356,6 +375,9 @@ export const AIWindow = {
     }
 
     propBag.setPropertyAsBool("ai-window", true);
+    if (canInheritAIWindow) {
+      propBag.setPropertyAsAString("aiwindow-trigger", "new_window");
+    }
     const willOpenImmersive = this.immersiveViewURIs.some(
       uri => uri.spec == (initialURL || restoreSessionURL)
     );
@@ -378,10 +400,15 @@ export const AIWindow = {
     );
 
     const isPrivateWindow = lazy.PrivateBrowsingUtils.isWindowPrivate(win);
+    const isAIActive = this.isAIWindowActive(win);
 
     if (!isPrivateWindow) {
-      view.querySelector("#ai-window-switch-classic").hidden = false;
-      view.querySelector("#ai-window-switch-ai").hidden = false;
+      let classicSwitchButton = view.querySelector("#ai-window-switch-classic");
+      let smartSwitchButton = view.querySelector("#ai-window-switch-ai");
+      classicSwitchButton.hidden = false;
+      smartSwitchButton.hidden = false;
+      classicSwitchButton.toggleAttribute("checked", !isAIActive);
+      smartSwitchButton.toggleAttribute("checked", isAIActive);
     }
 
     let windowState = this._windowStates.get(win);
@@ -400,7 +427,7 @@ export const AIWindow = {
           this.toggleAIWindow(win, false);
           break;
         case "ai-window-switch-ai":
-          this.launchWindow(win.gBrowser.selectedBrowser);
+          this.launchWindow(win.gBrowser.selectedBrowser, false, "switch");
           break;
       }
     });
@@ -581,7 +608,32 @@ export const AIWindow = {
     }
   },
 
-  toggleAIWindow(win, isTogglingToAIWindow) {
+  recordOpenWindowTelemetry(trigger) {
+    let signedIn = false;
+    lazy.AIWindowAccountAuth.isSignedIn()
+      .then(result => {
+        signedIn = result;
+      })
+      .finally(() => {
+        Glean.smartWindow.openWindow.record({
+          trigger,
+          fxa: signedIn,
+          onboarding: !lazy.hasFirstrunCompleted,
+        });
+      });
+  },
+
+  /**
+   * Toggles a window between Smart Window and classic browser mode.
+   * Records an open_window telemetry event when activating if a trigger
+   * is provided.
+   *
+   * @param {ChromeWindow} win
+   * @param {boolean} isTogglingToAIWindow - true to activate, false to deactivate
+   * @param {string} [trigger] - The open reason (e.g. "menu", "switch",
+   *   "undo_close", "open_browser").
+   */
+  toggleAIWindow(win, isTogglingToAIWindow, trigger) {
     let isActive = this.isAIWindowActive(win);
     if (isActive != isTogglingToAIWindow) {
       lazy.NewTabPagePreloading.removePreloadedBrowser(win);
@@ -611,11 +663,20 @@ export const AIWindow = {
           );
         }
 
+        if (lazy.hasFirstrunCompleted) {
+          this._aiWindowTabStateManagers
+            .get(win)
+            ?.openSidebarForReturningUser();
+        }
+
         lazy.MemoriesSchedulers.maybeRunAndSchedule();
+
+        this.recordOpenWindowTelemetry(trigger);
       } else {
-        // Close sidebar when switching back to classic window if it is open
-        lazy.AIWindowUI.closeSidebar(win);
+        // Uninit the manager first so #onSidebarToggle doesn't clear the
+        // SessionStore entry before closeSidebar fires.
         this._uninitTabStateManager(win);
+        lazy.AIWindowUI.closeSidebar(win);
       }
     }
   },
@@ -629,12 +690,18 @@ export const AIWindow = {
     this._aiWindowTabStateManagers.delete(win);
   },
 
+  getActiveConversation(win) {
+    return (
+      this._aiWindowTabStateManagers.get(win)?.getActiveConversation() ?? null
+    );
+  },
+
   unloadWindow(win) {
     this._uninitTabStateManager(win);
     this._windowStates.delete(win);
   },
 
-  async _authorizeAndToggleWindow(win) {
+  async _authorizeAndToggleWindow(win, trigger) {
     const authorized = await lazy.AIWindowAccountAuth.ensureAIWindowAccess(
       win.gBrowser.selectedBrowser
     );
@@ -643,7 +710,7 @@ export const AIWindow = {
       return false;
     }
 
-    this.toggleAIWindow(win, true);
+    this.toggleAIWindow(win, true, trigger);
 
     if (!lazy.hasFirstrunCompleted) {
       win.gBrowser.loadURI(FIRSTRUN_URI, {
@@ -655,7 +722,7 @@ export const AIWindow = {
     return true;
   },
 
-  async launchWindow(browser, openNewWindow = false) {
+  async launchWindow(browser, openNewWindow = false, trigger = "other") {
     try {
       // Early return when Smart Window is blocked from AI Control
       if (this.isBlocked) {
@@ -673,7 +740,7 @@ export const AIWindow = {
       }
 
       if (!openNewWindow) {
-        return this._authorizeAndToggleWindow(browser.ownerGlobal);
+        return this._authorizeAndToggleWindow(browser.ownerGlobal, trigger);
       }
 
       const isAuthorized = await lazy.AIWindowAccountAuth.canAccessAIWindow();
@@ -682,7 +749,16 @@ export const AIWindow = {
         openerWindow: browser?.ownerGlobal,
       });
 
-      return this._authorizeAndToggleWindow(await windowPromise);
+      const newWin = await windowPromise;
+
+      if (!isAuthorized) {
+        return this._authorizeAndToggleWindow(newWin, trigger);
+      }
+
+      // The new window already has the ai-window attribute; toggleAIWindow
+      // would skip the state change and therefore skip recording telemetry.
+      this.recordOpenWindowTelemetry(trigger);
+      return true;
     } catch (e) {
       console.error("Error launching AI window:", e);
       return false;
@@ -845,17 +921,22 @@ export const AIWindow = {
    * @returns {boolean}
    */
   get isManagedByPolicy() {
-    return Services.prefs.prefIsLocked(PREF_SMARTWINDOW_ENABLED);
+    return (
+      Services.prefs.prefIsLocked(PREF_AI_CONTROL_SMARTWINDOW) ||
+      Services.prefs.prefIsLocked(PREF_SMARTWINDOW_ENABLED)
+    );
   },
 
   /**
-   * Reset the feature to available state and clear consent
+   * Reset the feature to available state - deleted all memories and clear consent
    *
    * @returns {Promise<void>}
    */
-  async reset() {
-    // TODO: Bug 2019981 - Remove memories
+  async makeAvailable() {
     Services.prefs.clearUserPref(PREF_SMARTWINDOW_CONSENT_TIME);
+    // Set memory generation pref to default
+    Services.prefs.setBoolPref(PREF_MEMORIES_CONVERSATION, true);
+    Services.prefs.setBoolPref(PREF_MEMORIES_HISTORY, true);
   },
 
   /**
@@ -873,10 +954,32 @@ export const AIWindow = {
    *
    * @returns {Promise<void>}
    */
-  async disable() {
+  async block() {
     // Leave PREF_SMARTWINDOW_ENABLED alone, since PREF_AI_CONTROL_SMARTWINDOW
     // will block the feature anyways.
     Services.prefs.setStringPref(PREF_AI_CONTROL_SMARTWINDOW, "blocked");
+    await lazy.ChatStore.deleteAllConversations();
+    await this._removeMemories();
+  },
+
+  /**
+   * Delete all memories generated by Smart Window
+   * Called when the feature is disabled via AI control
+   *
+   * @returns {Promise<void>}
+   */
+  async _removeMemories() {
+    const memories = await lazy.MemoryStore.getMemories();
+    for (const memory of memories) {
+      try {
+        await lazy.MemoryStore.hardDeleteMemory(memory.id);
+      } catch (err) {
+        console.error("Failed to delete memory:", memory.id, err);
+      }
+    }
+    // Turn off the memory generation
+    Services.prefs.setBoolPref(PREF_MEMORIES_CONVERSATION, false);
+    Services.prefs.setBoolPref(PREF_MEMORIES_HISTORY, false);
   },
 };
 

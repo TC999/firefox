@@ -19,7 +19,7 @@ Bug 1654112 - Replace custom upstream code for remote received audio stats with 
  6 files changed, 15 insertions(+), 7 deletions(-)
 
 diff --git a/call/video_receive_stream.h b/call/video_receive_stream.h
-index c2f27ec5f3..ae9951e6f9 100644
+index 9e32cc25df..2f895ec2d8 100644
 --- a/call/video_receive_stream.h
 +++ b/call/video_receive_stream.h
 @@ -172,6 +172,7 @@ class VideoReceiveStreamInterface : public MediaReceiveStreamInterface {
@@ -80,10 +80,10 @@ index 77b38cb463..72e5645d03 100644
  
  std::vector<ReportBlockData> ModuleRtpRtcpImpl2::GetLatestReportBlockData()
 diff --git a/modules/rtp_rtcp/source/rtp_rtcp_impl2.h b/modules/rtp_rtcp/source/rtp_rtcp_impl2.h
-index d36280b29f..fa9d16c48e 100644
+index 89c6f88a26..8ecfc14938 100644
 --- a/modules/rtp_rtcp/source/rtp_rtcp_impl2.h
 +++ b/modules/rtp_rtcp/source/rtp_rtcp_impl2.h
-@@ -198,7 +198,8 @@ class ModuleRtpRtcpImpl2 final : public RtpRtcpInterface,
+@@ -210,7 +210,8 @@ class ModuleRtpRtcpImpl2 final : public RtpRtcpInterface,
        StreamDataCounters* rtx_counters) const override;
  
    void RemoteRTCPSenderInfo(uint32_t* packet_count,

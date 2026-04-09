@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -480,17 +478,17 @@ inline void SetCompartmentHasMarkedCells(JSScript* thing) {
  */
 struct WrapperValue {
   /*
-   * We use unsafeGet() in the constructors to avoid invoking a read barrier
-   * on the wrapper, which may be dead (see the comment about bug 803376 in
-   * gc/GC.cpp regarding this). If there is an incremental GC while the
-   * wrapper is in use, the AutoWrapper rooter will ensure the wrapper gets
+   * We use unbarrieredGet() in the constructors to avoid invoking a read
+   * barrier on the wrapper, which may be dead (see the comment about bug
+   * 803376 in gc/GC.cpp regarding this). If there is an incremental GC while
+   * the wrapper is in use, the AutoWrapper rooter will ensure the wrapper gets
    * marked.
    */
   explicit WrapperValue(const ObjectWrapperMap::Ptr& ptr)
-      : value(*ptr->value().unsafeGet()) {}
+      : value(ptr->value().unbarrieredGet()) {}
 
   explicit WrapperValue(const ObjectWrapperMap::ModIterator& e)
-      : value(*e.get().value().unsafeGet()) {}
+      : value(e.get().value().unbarrieredGet()) {}
 
   JSObject*& get() { return value; }
   JSObject* get() const { return value; }

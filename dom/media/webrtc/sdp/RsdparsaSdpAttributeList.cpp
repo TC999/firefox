@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -17,11 +15,11 @@
 
 namespace mozilla {
 
-MOZ_RUNINIT const std::string RsdparsaSdpAttributeList::kEmptyString = "";
+MOZ_GLIBCXX_CONSTINIT const std::string RsdparsaSdpAttributeList::kEmptyString;
 
 RsdparsaSdpAttributeList::~RsdparsaSdpAttributeList() {
-  for (size_t i = 0; i < kNumAttributeTypes; ++i) {
-    delete mAttributes[i];
+  for (auto& mAttribute : mAttributes) {
+    delete mAttribute;
   }
 }
 
@@ -56,8 +54,8 @@ void RsdparsaSdpAttributeList::Clear() {
 
 uint32_t RsdparsaSdpAttributeList::Count() const {
   uint32_t count = 0;
-  for (size_t i = 0; i < kNumAttributeTypes; ++i) {
-    if (mAttributes[i]) {
+  for (auto mAttribute : mAttributes) {
+    if (mAttribute) {
       count++;
     }
   }
@@ -1311,9 +1309,9 @@ bool RsdparsaSdpAttributeList::IsAllowedHere(SdpAttribute::AttributeType type) {
 }
 
 void RsdparsaSdpAttributeList::Serialize(std::ostream& os) const {
-  for (size_t i = 0; i < kNumAttributeTypes; ++i) {
-    if (mAttributes[i]) {
-      os << *mAttributes[i];
+  for (auto mAttribute : mAttributes) {
+    if (mAttribute) {
+      os << *mAttribute;
     }
   }
 }

@@ -56,7 +56,7 @@ class AssistIntentProcessorTest {
             navController.navigate(
                 NavGraphDirections.actionGlobalSearchDialog(
                     sessionId = null,
-                    searchAccessPoint = MetricsUtils.Source.NONE,
+                    searchAccessPoint = MetricsUtils.Source.DIGITAL_ASSISTANT,
                 ),
                 options,
             )
@@ -80,7 +80,8 @@ class AssistIntentProcessorTest {
                     sessionToDelete = null,
                     sessionToStartSearchFor = null,
                     focusOnAddressBar = true,
-                    searchAccessPoint = MetricsUtils.Source.NONE,
+                    startVoiceSearch = true,
+                    searchAccessPoint = MetricsUtils.Source.DIGITAL_ASSISTANT,
                 ),
                 null,
             )

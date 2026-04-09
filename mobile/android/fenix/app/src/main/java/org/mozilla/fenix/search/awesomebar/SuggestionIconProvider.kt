@@ -98,13 +98,6 @@ interface SuggestionIconProvider {
         @DrawableRes drawableRes: Int,
         tintWithPrimaryColor: Boolean = false,
     ): Bitmap?
-
-    /**
-     * Provides a standard settings icon.
-     *
-     * @return A [Bitmap] of the settings icon, or null if it cannot be loaded/created.
-     */
-    fun getSettingsIconBitmap(): Bitmap?
 }
 
 /**
@@ -121,7 +114,7 @@ class DefaultSuggestionIconProvider(private val context: Context) : SuggestionIc
     }
 
     private val searchIconBitmapInstance: Bitmap? by lazy {
-        AppCompatResources.getDrawable(context, R.drawable.ic_search)?.apply {
+        AppCompatResources.getDrawable(context, iconsR.drawable.mozac_ic_search_24)?.apply {
             colorFilter = createBlendModeColorFilterCompat(
                 primaryTextColor,
                 SRC_IN,
@@ -134,7 +127,7 @@ class DefaultSuggestionIconProvider(private val context: Context) : SuggestionIc
     }
 
     private val historyIconBitmapInstance: Bitmap? by lazy {
-        AppCompatResources.getDrawable(context, R.drawable.ic_history)?.toBitmap()
+        AppCompatResources.getDrawable(context, iconsR.drawable.mozac_ic_history_24)?.toBitmap()
     }
 
     override fun getSearchIconBitmap(): Bitmap? {
@@ -182,12 +175,4 @@ class DefaultSuggestionIconProvider(private val context: Context) : SuggestionIc
             }
         }?.toBitmap()
     }
-
-    override fun getSettingsIconBitmap(): Bitmap? =
-        AppCompatResources.getDrawable(context, iconsR.drawable.mozac_ic_settings_24)?.apply {
-            colorFilter = createBlendModeColorFilterCompat(
-                context.getColorFromAttr(R.attr.textPrimary),
-                SRC_IN,
-            )
-        }?.toBitmap()
 }

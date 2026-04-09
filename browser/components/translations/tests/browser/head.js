@@ -49,6 +49,8 @@ function median(numbers) {
  * Opens a new tab in the foreground.
  *
  * @param {string} url
+ * @param {string} message
+ * @param {Window} [win=window]
  */
 async function addTab(url, message, win = window) {
   logAction(url);
@@ -134,9 +136,25 @@ function focusElementAndSynthesizeKey(element, key) {
  * @param {Window} win
  */
 async function focusWindow(win) {
-  const windowFocusPromise = BrowserTestUtils.waitForEvent(win, "focus");
-  win.focus();
-  await windowFocusPromise;
+  await SimpleTest.promiseFocus(win);
+}
+
+/**
+ * Opens a new browser window and returns it as the currently focused window.
+ *
+ * @returns {Promise<Window>}
+ */
+async function openNewFocusedBrowserWindow() {
+  // Avoid BrowserTestUtils.openNewBrowserWindow() here because it has been flaky
+  // and has caused timeouts in multi-window translations tests in CI, particularly
+  // when address sanitizer (asan) is enabled.
+  const win = OpenBrowserWindow();
+
+  await win.delayedStartupPromise;
+  await BrowserTestUtils.firstBrowserLoaded(win);
+  await SimpleTest.promiseFocus(win);
+
+  return win;
 }
 
 /**
@@ -3380,7 +3398,7 @@ class SelectTranslationsTestUtils {
     );
     SharedTranslationsTestUtils._assertL10nId(
       unsupportedLanguageMessageBar,
-      "select-translations-panel-unsupported-language-message-known"
+      "select-translations-panel-unsupported-language-message-known-2"
     );
     SharedTranslationsTestUtils._assertHasFocus(tryAnotherSourceMenuList);
     SharedTranslationsTestUtils._assertTabIndexOrder([

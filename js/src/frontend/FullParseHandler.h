@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -259,6 +257,10 @@ class FullParseHandler {
       return newUnary(ParseNodeKind::DeletePropExpr, begin, expr);
     }
 
+    if (expr->isKind(ParseNodeKind::ArgumentsLength)) {
+      return newUnary(ParseNodeKind::DeletePropExpr, begin, expr);
+    }
+
     if (expr->isKind(ParseNodeKind::ElemExpr)) {
       return newUnary(ParseNodeKind::DeleteElemExpr, begin, expr);
     }
@@ -273,6 +275,9 @@ class FullParseHandler {
           kid->isKind(ParseNodeKind::OptionalElemExpr)) {
         return newUnary(ParseNodeKind::DeleteOptionalChainExpr, begin, kid);
       }
+
+      // ArgumentsLength shouldn't be used for optional chain.
+      MOZ_ASSERT(!kid->isKind(ParseNodeKind::ArgumentsLength));
     }
 
     return newUnary(ParseNodeKind::DeleteExpr, begin, expr);

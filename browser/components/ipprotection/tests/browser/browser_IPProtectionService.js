@@ -9,7 +9,7 @@ const { ASRouter } = ChromeUtils.importESModule(
 );
 
 const { ERRORS } = ChromeUtils.importESModule(
-  "chrome://browser/content/ipprotection/ipprotection-constants.mjs"
+  "moz-src:///toolkit/components/ipprotection/IPPProxyManager.sys.mjs"
 );
 
 const { AddonTestUtils } = ChromeUtils.importESModule(
@@ -209,6 +209,77 @@ add_task(async function test_IPProtectionService_updateEntitlement() {
 
   cleanupService();
   await SpecialPowers.popPrefEnv();
+});
+
+/**
+ * Tests the usage is refreshed and the panel shows
+ * the used amount after sign-in.
+ */
+add_task(async function test_IPProtectionService_update_usage_on_sign_in() {
+  Services.prefs.clearUserPref("browser.ipProtection.enabled");
+  IPPEnrollAndEntitleManager.resetEntitlement();
+  // Remove the no-op stub so that we can call the real updateEntitlement
+  STUBS.updateEntitlement.restore();
+
+  let usageChangedPromise = BrowserTestUtils.waitForEvent(
+    IPPProxyManager,
+    "IPPProxyManager:UsageChanged"
+  );
+  let usage = makeUsage("5368709120", "4294967296");
+  setupService({
+    isSignedIn: false,
+  });
+
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.ipProtection.enabled", true]],
+  });
+
+  await waitForWidgetAdded();
+
+  setupService({
+    isSignedIn: true,
+    isEnrolledAndEntitled: true,
+    isLinkedToGuardian: true,
+    usageInfo: usage,
+  });
+  // Dispatch a sign-in event to trigger the usage refresh.
+  IPPSignInWatcher.dispatchEvent(
+    new CustomEvent("IPPSignInWatcher:StateChanged", {
+      bubbles: true,
+      composed: true,
+    })
+  );
+
+  await usageChangedPromise;
+
+  let content = await openPanel();
+
+  let statusCard = content.statusCardEl;
+  let statusBoxEl = statusCard.statusBoxEl;
+  let bandwidthEl = statusBoxEl.shadowRoot
+    .querySelector(`slot[name="bandwidth"]`)
+    .assignedElements()[0];
+
+  await bandwidthEl.updateComplete;
+
+  Assert.ok(
+    BrowserTestUtils.isVisible(bandwidthEl),
+    "Bandwidth usage should be visible after entitlement refreshes usage"
+  );
+
+  Assert.equal(
+    bandwidthEl.max,
+    5368709120,
+    "Bandwidth max should match mocked usage"
+  );
+
+  await closePanel();
+  cleanupService();
+  await SpecialPowers.popPrefEnv();
+  // Restore the stubbed updateEntitlement for other tests
+  STUBS.updateEntitlement = setupSandbox
+    .stub(IPPEnrollAndEntitleManager, "updateEntitlement")
+    .resolves();
 });
 
 add_task(async function test_ipprotection_ready() {

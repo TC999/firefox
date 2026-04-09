@@ -1,12 +1,9 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "jit/MIR.h"
 
-#include "mozilla/EndianUtils.h"
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/Maybe.h"
@@ -899,22 +896,6 @@ MDefinition* MTest::foldsTo(TempAllocator& alloc) {
   return this;
 }
 
-AliasSet MThrow::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ExceptionState);
-}
-
-AliasSet MThrowWithStack::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ExceptionState);
-}
-
-AliasSet MNewArrayDynamicLength::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ExceptionState);
-}
-
-AliasSet MNewTypedArrayDynamicLength::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ExceptionState);
-}
-
 #ifdef JS_JITSPEW
 void MDefinition::printOpcode(GenericPrinter& out) const {
   PrintOpcodeName(out, op());
@@ -1325,18 +1306,18 @@ void MConstant::assertInitializedPayload() const {
   switch (type()) {
     case MIRType::Int32:
     case MIRType::Float32:
-#  if MOZ_LITTLE_ENDIAN()
-      MOZ_ASSERT((payload_.asBits >> 32) == 0);
-#  else
-      MOZ_ASSERT((payload_.asBits << 32) == 0);
-#  endif
+      if constexpr (std::endian::native == std::endian::little) {
+        MOZ_ASSERT((payload_.asBits >> 32) == 0);
+      } else {
+        MOZ_ASSERT((payload_.asBits << 32) == 0);
+      }
       break;
     case MIRType::Boolean:
-#  if MOZ_LITTLE_ENDIAN()
-      MOZ_ASSERT((payload_.asBits >> 1) == 0);
-#  else
-      MOZ_ASSERT((payload_.asBits & ~(1ULL << 56)) == 0);
-#  endif
+      if constexpr (std::endian::native == std::endian::little) {
+        MOZ_ASSERT((payload_.asBits >> 1) == 0);
+      } else {
+        MOZ_ASSERT((payload_.asBits & ~(1ULL << 56)) == 0);
+      }
       break;
     case MIRType::Double:
     case MIRType::Int64:
@@ -1347,11 +1328,11 @@ void MConstant::assertInitializedPayload() const {
     case MIRType::BigInt:
     case MIRType::IntPtr:
     case MIRType::Shape:
-#  if MOZ_LITTLE_ENDIAN()
-      MOZ_ASSERT_IF(JS_BITS_PER_WORD == 32, (payload_.asBits >> 32) == 0);
-#  else
-      MOZ_ASSERT_IF(JS_BITS_PER_WORD == 32, (payload_.asBits << 32) == 0);
-#  endif
+      if constexpr (std::endian::native == std::endian::little) {
+        MOZ_ASSERT_IF(JS_BITS_PER_WORD == 32, (payload_.asBits >> 32) == 0);
+      } else {
+        MOZ_ASSERT_IF(JS_BITS_PER_WORD == 32, (payload_.asBits << 32) == 0);
+      }
       break;
     default:
       MOZ_ASSERT(IsNullOrUndefined(type()) || IsMagicType(type()));
@@ -1659,8 +1640,6 @@ void MNearbyInt::printOpcode(GenericPrinter& out) const {
 }
 #endif
 
-AliasSet MRandom::getAliasSet() const { return AliasSet::Store(AliasSet::RNG); }
-
 MDefinition* MSign::foldsTo(TempAllocator& alloc) {
   MDefinition* input = getOperand(0);
   if (!input->isConstant() ||
@@ -1955,9 +1934,7 @@ MDefinition* MStringConvertCase::foldsTo(TempAllocator& alloc) {
   // |CharCodeConvertCase(CharCodeAt(str, idx))|.
   if (string->isFromCharCode()) {
     auto* charCode = string->toFromCharCode()->code();
-    auto mode = mode_ == Mode::LowerCase ? MCharCodeConvertCase::LowerCase
-                                         : MCharCodeConvertCase::UpperCase;
-    return MCharCodeConvertCase::New(alloc, charCode, mode);
+    return MCharCodeConvertCase::New(alloc, charCode, stringCase_);
   }
 
   // Handle the pattern |num.toString(base).toUpperCase()| and simplify it to
@@ -1965,12 +1942,11 @@ MDefinition* MStringConvertCase::foldsTo(TempAllocator& alloc) {
   if (string->isInt32ToStringWithBase()) {
     auto* toString = string->toInt32ToStringWithBase();
 
-    bool lowerCase = mode_ == Mode::LowerCase;
-    if (toString->lowerCase() == lowerCase) {
+    if (toString->stringCase() == stringCase_) {
       return toString;
     }
     return MInt32ToStringWithBase::New(alloc, toString->input(),
-                                       toString->base(), lowerCase);
+                                       toString->base(), stringCase_);
   }
 
   return this;
@@ -4308,31 +4284,6 @@ MDefinition* MBoxNonStrictThis::foldsTo(TempAllocator& alloc) {
   return this;
 }
 
-AliasSet MLoadArgumentsObjectArg::getAliasSet() const {
-  return AliasSet::Load(AliasSet::Any);
-}
-
-AliasSet MLoadArgumentsObjectArgHole::getAliasSet() const {
-  return AliasSet::Load(AliasSet::Any);
-}
-
-AliasSet MInArgumentsObjectArg::getAliasSet() const {
-  // Loads |arguments.length|, but not the actual element, so we can use the
-  // same alias-set as MArgumentsObjectLength.
-  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::FixedSlot |
-                        AliasSet::DynamicSlot);
-}
-
-AliasSet MArgumentsObjectLength::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::FixedSlot |
-                        AliasSet::DynamicSlot);
-}
-
-AliasSet MGuardArgumentsObjectFlags::getAliasSet() const {
-  // The flags are packed with the length in a fixed private slot.
-  return AliasSet::Load(AliasSet::FixedSlot);
-}
-
 MDefinition* MIdToStringOrSymbol::foldsTo(TempAllocator& alloc) {
   if (idVal()->isBox()) {
     auto* input = idVal()->toBox()->input();
@@ -6277,18 +6228,6 @@ void MBeta::printOpcode(GenericPrinter& out) const {
 }
 #endif
 
-AliasSet MCreateThis::getAliasSet() const {
-  return AliasSet::Load(AliasSet::Any);
-}
-
-AliasSet MGetArgumentsObjectArg::getAliasSet() const {
-  return AliasSet::Load(AliasSet::Any);
-}
-
-AliasSet MSetArgumentsObjectArg::getAliasSet() const {
-  return AliasSet::Store(AliasSet::Any);
-}
-
 MObjectState::MObjectState(MObjectState* state)
     : MVariadicInstruction(classOpcode),
       numSlots_(state->numSlots_),
@@ -6836,74 +6775,12 @@ MDefinition* MGetFirstDollarIndex::foldsTo(TempAllocator& alloc) {
   return MConstant::NewInt32(alloc, index);
 }
 
-AliasSet MThrowRuntimeLexicalError::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ExceptionState);
-}
-
-AliasSet MSlots::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
 MDefinition::AliasType MSlots::mightAlias(const MDefinition* store) const {
   // ArrayPush only modifies object elements, but not object slots.
   if (store->isArrayPush()) {
     return AliasType::NoAlias;
   }
   return MInstruction::mightAlias(store);
-}
-
-AliasSet MElements::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MInitializedLength::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MSetInitializedLength::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ObjectFields);
-}
-
-AliasSet MObjectKeysLength::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MArrayLength::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MSetArrayLength::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ObjectFields);
-}
-
-AliasSet MFunctionLength::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::FixedSlot |
-                        AliasSet::DynamicSlot);
-}
-
-AliasSet MFunctionName::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::FixedSlot |
-                        AliasSet::DynamicSlot);
-}
-
-AliasSet MArrayBufferByteLength::getAliasSet() const {
-  return AliasSet::Load(AliasSet::FixedSlot);
-}
-
-AliasSet MArrayBufferViewLength::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ArrayBufferViewLengthOrOffset);
-}
-
-AliasSet MArrayBufferViewByteOffset::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ArrayBufferViewLengthOrOffset);
-}
-
-AliasSet MArrayBufferViewElements::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MGuardHasAttachedArrayBuffer::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::FixedSlot);
 }
 
 AliasSet MResizableTypedArrayLength::getAliasSet() const {
@@ -6950,56 +6827,6 @@ bool MResizableDataViewByteLength::congruentTo(const MDefinition* ins) const {
     return false;
   }
   return congruentIfOperandsEqual(ins);
-}
-
-AliasSet MGrowableSharedArrayBufferByteLength::getAliasSet() const {
-  // Requires a barrier, so make the instruction effectful by giving it a
-  // "store" effect. Also prevent reordering LoadUnboxedScalar before this
-  // instruction by including |UnboxedElement| in the alias set.
-  return AliasSet::Store(AliasSet::FixedSlot |
-                         AliasSet::SharedArrayRawBufferLength |
-                         AliasSet::UnboxedElement);
-}
-
-AliasSet MGuardResizableArrayBufferViewInBounds::getAliasSet() const {
-  // Additionally reads the |initialLength| and |initialByteOffset| slots, but
-  // since these can't change after construction, we don't need to track them.
-  return AliasSet::Load(AliasSet::ArrayBufferViewLengthOrOffset);
-}
-
-AliasSet MGuardResizableArrayBufferViewInBoundsOrDetached::getAliasSet() const {
-  // Loads the byteOffset and additionally checks for detached buffers, so the
-  // alias set also has to include |ObjectFields| and |FixedSlot|.
-  return AliasSet::Load(AliasSet::ArrayBufferViewLengthOrOffset |
-                        AliasSet::ObjectFields | AliasSet::FixedSlot);
-}
-
-AliasSet MTypedArraySet::getAliasSet() const {
-  // Loads typed array length and elements.
-  constexpr auto load =
-      AliasSet::Load(AliasSet::ArrayBufferViewLengthOrOffset |
-                     AliasSet::ObjectFields | AliasSet::UnboxedElement);
-
-  // Stores into typed array elements.
-  constexpr auto store = AliasSet::Store(AliasSet::UnboxedElement);
-
-  return load | store;
-}
-
-AliasSet MTypedArraySetFromSubarray::getAliasSet() const {
-  // Loads typed array length and elements.
-  constexpr auto load =
-      AliasSet::Load(AliasSet::ArrayBufferViewLengthOrOffset |
-                     AliasSet::ObjectFields | AliasSet::UnboxedElement);
-
-  // Stores into typed array elements.
-  constexpr auto store = AliasSet::Store(AliasSet::UnboxedElement);
-
-  return load | store;
-}
-
-AliasSet MArrayPush::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ObjectFields | AliasSet::Element);
 }
 
 MDefinition* MGuardNumberToIntPtrIndex::foldsTo(TempAllocator& alloc) {
@@ -7054,10 +6881,6 @@ MDefinition* MIsNullOrUndefined::foldsTo(TempAllocator& alloc) {
   }
 
   return MConstant::NewBoolean(alloc, IsNullOrUndefined(unboxed->type()));
-}
-
-AliasSet MHomeObjectSuperBase::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
 }
 
 MDefinition* MGuardValue::foldsTo(TempAllocator& alloc) {
@@ -7182,10 +7005,6 @@ MDefinition* MGuardShape::foldsTo(TempAllocator& alloc) {
   return this;
 }
 
-AliasSet MGuardShape::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
 bool MGuardShapeList::congruentTo(const MDefinition* ins) const {
   if (!congruentIfOperandsEqual(ins)) {
     return false;
@@ -7212,10 +7031,6 @@ bool MGuardShapeList::congruentTo(const MDefinition* ins) const {
   return hasAllShapes(shapesA, shapesB) && hasAllShapes(shapesB, shapesA);
 }
 
-AliasSet MGuardShapeList::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
 bool MGuardShapeListToOffset::congruentTo(const MDefinition* ins) const {
   if (!congruentIfOperandsEqual(ins)) {
     return false;
@@ -7232,14 +7047,6 @@ bool MGuardShapeListToOffset::congruentTo(const MDefinition* ins) const {
       ins->toGuardShapeListToOffset()->shapeList()->offsets();
   return std::equal(offsetsA.begin(), offsetsA.end(), offsetsB.begin(),
                     offsetsB.end());
-}
-
-AliasSet MGuardShapeListToOffset::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MHasShape::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
 }
 
 MDefinition::AliasType MGuardShape::mightAlias(const MDefinition* store) const {
@@ -7285,38 +7092,6 @@ MDefinition::AliasType MGuardShape::mightAlias(const MDefinition* store) const {
   return MInstruction::mightAlias(store);
 }
 
-AliasSet MGuardFuse::getAliasSet() const {
-  // The alias set below reflects the set of operations which could cause a fuse
-  // to be popped, and therefore MGuardFuse aliases with.
-  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::DynamicSlot |
-                        AliasSet::FixedSlot |
-                        AliasSet::GlobalGenerationCounter);
-}
-
-AliasSet MGuardMultipleShapes::getAliasSet() const {
-  // Note: This instruction loads the elements of the ListObject used to
-  // store the list of shapes, but that object is internal and not exposed
-  // to script, so it doesn't have to be in the alias set.
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MGuardMultipleShapesToOffset::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MLoadFixedSlotFromOffset::getAliasSet() const {
-  return AliasSet::Load(AliasSet::FixedSlot);
-}
-
-AliasSet MLoadDynamicSlotFromOffset::getAliasSet() const {
-  MOZ_ASSERT(slots()->type() == MIRType::Slots);
-  return AliasSet::Load(AliasSet::DynamicSlot);
-}
-
-AliasSet MGuardGlobalGeneration::getAliasSet() const {
-  return AliasSet::Load(AliasSet::GlobalGenerationCounter);
-}
-
 MDefinition* MGuardIsNotProxy::foldsTo(TempAllocator& alloc) {
   KnownClass known = GetObjectKnownClass(object());
   if (known == KnownClass::None) {
@@ -7326,11 +7101,6 @@ MDefinition* MGuardIsNotProxy::foldsTo(TempAllocator& alloc) {
   MOZ_ASSERT(!GetObjectKnownJSClass(object())->isProxyObject());
   AssertKnownClass(alloc, this, object());
   return object();
-}
-
-AliasSet MMegamorphicLoadSlotByValue::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::FixedSlot |
-                        AliasSet::DynamicSlot);
 }
 
 static PropertyKey ToNonIntPropertyKey(MDefinition* idval) {
@@ -7374,33 +7144,10 @@ MDefinition* MMegamorphicLoadSlotByValuePermissive::foldsTo(
   return result;
 }
 
-AliasSet MMegamorphicLoadSlot::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::FixedSlot |
-                        AliasSet::DynamicSlot);
-}
-
-AliasSet MSmallObjectVariableKeyHasProp::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::FixedSlot |
-                        AliasSet::DynamicSlot);
-}
-
-AliasSet MMegamorphicHasProp::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::FixedSlot |
-                        AliasSet::DynamicSlot);
-}
-
 HashNumber MNurseryObject::valueHash() const {
   HashNumber hash = MNullaryInstruction::valueHash();
   hash = addU32ToHash(hash, nurseryObjectIndex());
   return hash;
-}
-
-AliasSet MGuardFunctionIsNonBuiltinCtor::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MGuardFunctionKind::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
 }
 
 bool MGuardFunctionScript::congruentTo(const MDefinition* ins) const {
@@ -7463,34 +7210,6 @@ MDefinition* MGuardStringToDouble::foldsTo(TempAllocator& alloc) {
   return MConstant::NewDouble(alloc, number);
 }
 
-AliasSet MGuardNoDenseElements::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MIteratorHasIndices::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MIteratorsMatchAndHaveIndices::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MAllocateAndStoreSlot::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ObjectFields | AliasSet::DynamicSlot);
-}
-
-AliasSet MLoadDOMExpandoValue::getAliasSet() const {
-  return AliasSet::Load(AliasSet::DOMProxyExpando);
-}
-
-AliasSet MLoadDOMExpandoValueIgnoreGeneration::getAliasSet() const {
-  return AliasSet::Load(AliasSet::DOMProxyExpando);
-}
-
-AliasSet MGuardDOMExpandoMissingOrGuardShape::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
 MDefinition* MGuardToClass::foldsTo(TempAllocator& alloc) {
   const JSClass* clasp = GetObjectKnownJSClass(object());
   if (!clasp || getClass() != clasp) {
@@ -7548,11 +7267,6 @@ MDefinition* MIsArray::foldsTo(TempAllocator& alloc) {
   return MConstant::NewBoolean(alloc, known == KnownClass::Array);
 }
 
-AliasSet MObjectClassToString::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::FixedSlot |
-                        AliasSet::DynamicSlot);
-}
-
 MDefinition* MGuardIsNotArrayBufferMaybeShared::foldsTo(TempAllocator& alloc) {
   switch (GetObjectKnownClass(object())) {
     case KnownClass::PlainObject:
@@ -7584,16 +7298,6 @@ MDefinition* MCheckIsObj::foldsTo(TempAllocator& alloc) {
 
   return this;
 }
-
-AliasSet MCheckIsObj::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ExceptionState);
-}
-
-#ifdef JS_PUNBOX64
-AliasSet MCheckScriptedProxyGetResult::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ExceptionState);
-}
-#endif
 
 static bool IsBoxedObject(MDefinition* def) {
   MOZ_ASSERT(def->type() == MIRType::Value);
@@ -7684,91 +7388,6 @@ MDefinition* MCheckObjCoercible::foldsTo(TempAllocator& alloc) {
   return input;
 }
 
-AliasSet MCheckObjCoercible::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ExceptionState);
-}
-
-AliasSet MCheckReturn::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ExceptionState);
-}
-
-AliasSet MCheckThis::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ExceptionState);
-}
-
-AliasSet MCheckThisReinit::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ExceptionState);
-}
-
-AliasSet MIsPackedArray::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MGuardArrayIsPacked::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MGuardElementsArePacked::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MSuperFunction::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MSuperFunctionAndUnbox::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MInitHomeObject::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ObjectFields);
-}
-
-AliasSet MLoadWrapperTarget::getAliasSet() const {
-  return AliasSet::Load(AliasSet::Any);
-}
-
-AliasSet MGuardHasGetterSetter::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MGuardIsExtensible::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MGuardIndexIsNotDenseElement::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::Element);
-}
-
-AliasSet MGuardIndexIsValidUpdateOrAdd::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
-AliasSet MCallObjectHasSparseElement::getAliasSet() const {
-  return AliasSet::Load(AliasSet::Element | AliasSet::ObjectFields |
-                        AliasSet::FixedSlot | AliasSet::DynamicSlot);
-}
-
-AliasSet MLoadSlotByIteratorIndex::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::FixedSlot |
-                        AliasSet::DynamicSlot | AliasSet::Element);
-}
-
-AliasSet MStoreSlotByIteratorIndex::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ObjectFields | AliasSet::FixedSlot |
-                         AliasSet::DynamicSlot | AliasSet::Element);
-}
-
-AliasSet MLoadSlotByIteratorIndexIndexed::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::FixedSlot |
-                        AliasSet::DynamicSlot | AliasSet::Element);
-}
-
-AliasSet MStoreSlotByIteratorIndexIndexed::getAliasSet() const {
-  return AliasSet::Store(AliasSet::ObjectFields | AliasSet::FixedSlot |
-                         AliasSet::DynamicSlot | AliasSet::Element);
-}
-
 MDefinition* MGuardInt32IsNonNegative::foldsTo(TempAllocator& alloc) {
   MOZ_ASSERT(index()->type() == MIRType::Int32);
 
@@ -7814,80 +7433,6 @@ MDefinition* MGuardNonGCThing::foldsTo(TempAllocator& alloc) {
     return this;
   }
   return input();
-}
-
-AliasSet MSetObjectHasNonBigInt::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MSetObjectHasBigInt::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MSetObjectHasValue::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MSetObjectHasValueVMCall::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MSetObjectSize::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MMapObjectHasNonBigInt::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MMapObjectHasBigInt::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MMapObjectHasValue::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MMapObjectHasValueVMCall::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MMapObjectGetNonBigInt::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MMapObjectGetBigInt::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MMapObjectGetValue::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MMapObjectGetValueVMCall::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MMapObjectSize::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MWeakMapGetObject::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MWeakMapHasObject::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MWeakSetHasObject::getAliasSet() const {
-  return AliasSet::Load(AliasSet::MapOrSetHashTable);
-}
-
-AliasSet MDateFillLocalTimeSlots::getAliasSet() const {
-  // Reads and stores fixed slots. Additional reads from DateTimeInfo don't need
-  // to be tracked, because they don't interact with other alias set states.
-  return AliasSet::Store(AliasSet::FixedSlot);
 }
 
 MBindFunction* MBindFunction::New(TempAllocator& alloc, MDefinition* target,

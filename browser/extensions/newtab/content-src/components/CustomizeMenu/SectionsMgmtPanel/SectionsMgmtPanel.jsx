@@ -16,6 +16,7 @@ function SectionsMgmtPanel({
   showPanel,
 }) {
   const arrowButtonRef = useRef(null);
+  const panelRef = useRef(null);
   const { sectionPersonalization } = useSelector(
     state => state.DiscoveryStream
   );
@@ -204,7 +205,12 @@ function SectionsMgmtPanel({
 
       return (
         <li key={sectionKey}>
-          <label htmlFor={`follow-topic-${sectionKey}`}>{title}</label>
+          <label
+            id={`follow-topic-label-${sectionKey}`}
+            htmlFor={`follow-topic-${sectionKey}`}
+          >
+            {title}
+          </label>
           <div
             className={
               following ? "section-follow following" : "section-follow"
@@ -220,12 +226,15 @@ function SectionsMgmtPanel({
               index={receivedRank}
               section={sectionKey}
               id={`follow-topic-${sectionKey}`}
+              // Compose accessible label from the localized "Following" span and the topic title label.
+              aria-labelledby={`follow-state-${sectionKey} follow-topic-label-${sectionKey}`}
             >
               <span
                 className="section-button-follow-text"
                 data-l10n-id="newtab-section-follow-button"
               />
               <span
+                id={`follow-state-${sectionKey}`}
                 className="section-button-following-text"
                 data-l10n-id="newtab-section-following-button"
               />
@@ -246,7 +255,12 @@ function SectionsMgmtPanel({
 
       return (
         <li key={sectionKey}>
-          <label htmlFor={`blocked-topic-${sectionKey}`}>{title}</label>
+          <label
+            id={`blocked-topic-label-${sectionKey}`}
+            htmlFor={`blocked-topic-${sectionKey}`}
+          >
+            {title}
+          </label>
           <div className={blocked ? "section-block blocked" : "section-block"}>
             <moz-button
               onClick={() =>
@@ -258,12 +272,15 @@ function SectionsMgmtPanel({
               index={receivedRank}
               section={sectionKey}
               id={`blocked-topic-${sectionKey}`}
+              // Compose accessible label from the localized "Blocked" span and the topic title label.
+              aria-labelledby={`blocked-state-${sectionKey} blocked-topic-label-${sectionKey}`}
             >
               <span
                 className="section-button-block-text"
                 data-l10n-id="newtab-section-block-button"
               />
               <span
+                id={`blocked-state-${sectionKey}`}
                 className="section-button-blocked-text"
                 data-l10n-id="newtab-section-blocked-button"
               />
@@ -286,13 +303,14 @@ function SectionsMgmtPanel({
         {...(!pocketEnabled ? { disabled: true } : {})}
       ></moz-box-button>
       <CSSTransition
+        nodeRef={panelRef}
         in={showPanel}
         timeout={300}
         classNames="sections-mgmt-panel"
         unmountOnExit={true}
         onEntered={handlePanelEntered}
       >
-        <div className="sections-mgmt-panel">
+        <div ref={panelRef} className="sections-mgmt-panel">
           <button
             ref={arrowButtonRef}
             className="arrow-button"

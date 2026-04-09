@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:set ts=2 sw=2 sts=2 et cindent: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -20,7 +18,7 @@
 #include "PDMFactory.h"
 #include "mozilla/CDMProxy.h"
 #include "mozilla/EMEUtils.h"
-#include "mozilla/RemoteCDMChild.h"
+#include "mozilla/RemoteCDMProxy.h"
 #include "mozilla/StaticPrefs_media.h"
 #include "mozilla/UniquePtr.h"
 #include "nsClassHashtable.h"
@@ -399,7 +397,7 @@ EMEDecoderModule::AsyncCreateDecoder(const CreateDecoderParams& aParams) {
 
   // If the CDMProxy is a RemoteCDMChild actor, then we know that the CDM
   // functionality will be exercised by the decoder in the remote process.
-  if (auto* cdm = static_cast<PRemoteCDMActor*>(mProxy->AsRemoteCDMChild())) {
+  if (auto* cdm = static_cast<PRemoteCDMActor*>(mProxy->AsRemoteCDMProxy())) {
     return mPDM->CreateDecoder(CreateDecoderParams{aParams, cdm});
   }
 

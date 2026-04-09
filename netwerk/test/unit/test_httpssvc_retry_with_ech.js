@@ -31,6 +31,9 @@ function checkSecurityInfo(chan, expectPrivateDNS, expectAcceptedECH) {
 }
 
 add_setup(async function setup() {
+  // Happy Eyeballs does not support in-band ECHConfig updates for now.
+  Services.prefs.setBoolPref("network.http.happy_eyeballs_enabled", false);
+
   // Allow telemetry probes which may otherwise be disabled for some
   // applications (e.g. Thunderbird).
   Services.prefs.setBoolPref(
@@ -77,6 +80,7 @@ add_setup(async function setup() {
     Services.prefs.clearUserPref("network.dns.port_prefixed_qname_https_rr");
     Services.prefs.clearUserPref("security.tls.ech.grease_http3");
     Services.prefs.clearUserPref("security.tls.ech.grease_probability");
+    Services.prefs.clearUserPref("network.http.happy_eyeballs_enabled");
     if (trrServer) {
       await trrServer.stop();
     }
@@ -308,10 +312,9 @@ add_task(async function testEchRetry() {
   checkSecurityInfo(chan, true, true);
   // Only check telemetry if network process is disabled.
   if (!mozinfo.socketprocess_networking) {
-    for (let hName of ["SSL_HANDSHAKE_RESULT", "SSL_HANDSHAKE_RESULT_ECH"]) {
-      let h = Services.telemetry.getHistogramById(hName);
+    for (let f of ["", "_ECH"]) {
       HandshakeTelemetryHelpers.assertHistogramMap(
-        h.snapshot(),
+        HandshakeTelemetryHelpers.resultDelta(f),
         new Map([
           ["0", 1],
           ["188", 1],

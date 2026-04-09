@@ -51,7 +51,6 @@ class HomeActivityTestRule(
         initialTouchMode: Boolean = false,
         launchActivity: Boolean = true,
         skipOnboarding: Boolean = false,
-        isHomepageHeaderEnabled: Boolean = true,
         isPocketEnabled: Boolean = settings.showPocketRecommendationsFeature,
         isRecentTabsFeatureEnabled: Boolean = settings.showRecentTabsFeature,
         isRecentlyVisitedFeatureEnabled: Boolean = settings.historyMetadataUIFeature,
@@ -62,7 +61,6 @@ class HomeActivityTestRule(
         isUnifiedTrustPanelEnabled: Boolean = false,
         etpPolicy: ETPPolicy = getETPPolicy(settings),
         isLocationPermissionEnabled: SitePermissionsRules.Action = getFeaturePermission(PhoneFeature.LOCATION, settings),
-        isComposableToolbarEnabled: Boolean = true,
         isMenuRedesignCFREnabled: Boolean = false,
         isPageLoadTranslationsPromptEnabled: Boolean = false,
         isMicrosurveyEnabled: Boolean = settings.microsurveyFeatureEnabled,
@@ -72,8 +70,8 @@ class HomeActivityTestRule(
         isTermsOfServiceAccepted: Boolean = true,
         openLinksInExternalApp: OpenLinksInApp = getOpenLinksInApp(settings),
         hasSeenBrowserToolbarCFR: Boolean = true,
+        isPrivateModeAndStoriesEntryPointEnabled: Boolean = false,
     ) : this(initialTouchMode, launchActivity, skipOnboarding) {
-        this.isHomepageHeaderEnabled = isHomepageHeaderEnabled
         this.isPocketEnabled = isPocketEnabled
         this.isRecentTabsFeatureEnabled = isRecentTabsFeatureEnabled
         this.isRecentlyVisitedFeatureEnabled = isRecentlyVisitedFeatureEnabled
@@ -84,7 +82,6 @@ class HomeActivityTestRule(
         this.isUnifiedTrustPanelEnabled = isUnifiedTrustPanelEnabled
         this.etpPolicy = etpPolicy
         this.isLocationPermissionEnabled = isLocationPermissionEnabled
-        this.isComposableToolbarEnabled = isComposableToolbarEnabled
         this.isMenuRedesignCFREnabled = isMenuRedesignCFREnabled
         this.enableOrDisablePageLoadTranslationsPrompt(isPageLoadTranslationsPromptEnabled)
         this.isMicrosurveyEnabled = isMicrosurveyEnabled
@@ -94,6 +91,7 @@ class HomeActivityTestRule(
         this.isTermsOfServiceAccepted = isTermsOfServiceAccepted
         this.openLinksInExternalApp = openLinksInExternalApp
         this.hasSeenBrowserToolbarCFR = hasSeenBrowserToolbarCFR
+        this.isPrivateModeAndStoriesEntryPointEnabled = isPrivateModeAndStoriesEntryPointEnabled
     }
 
     /**
@@ -145,7 +143,6 @@ class HomeActivityTestRule(
             initialTouchMode = initialTouchMode,
             launchActivity = launchActivity,
             skipOnboarding = skipOnboarding,
-            isHomepageHeaderEnabled = true,
             isPWAsPromptEnabled = false,
             isWallpaperOnboardingEnabled = false,
             isOpenInAppBannerEnabled = false,
@@ -157,6 +154,7 @@ class HomeActivityTestRule(
             isUseNewCrashReporterFlow = useNewCrashReporterFlow,
             isTabSwipeCFREnabled = true,
             isTermsOfServiceAccepted = true,
+            isPrivateModeAndStoriesEntryPointEnabled = false,
         )
     }
 }
@@ -193,7 +191,6 @@ class HomeActivityIntentTestRule internal constructor(
         isUnifiedTrustPanelEnabled: Boolean = false,
         etpPolicy: ETPPolicy = getETPPolicy(settings),
         isLocationPermissionEnabled: SitePermissionsRules.Action = getFeaturePermission(PhoneFeature.LOCATION, settings),
-        isComposableToolbarEnabled: Boolean = true,
         isMenuRedesignCFREnabled: Boolean = false,
         isPageLoadTranslationsPromptEnabled: Boolean = false,
         isMicrosurveyEnabled: Boolean = settings.microsurveyFeatureEnabled,
@@ -204,8 +201,8 @@ class HomeActivityIntentTestRule internal constructor(
         openLinksInExternalApp: OpenLinksInApp = getOpenLinksInApp(settings),
         tabManagerOpeningAnimationEnabled: Boolean = false,
         hasSeenBrowserToolbarCFR: Boolean = true,
+        isPrivateModeAndStoriesEntryPointEnabled: Boolean = false,
     ) : this(initialTouchMode, launchActivity, skipOnboarding) {
-        this.isHomepageHeaderEnabled = isHomepageHeaderEnabled
         this.isPocketEnabled = isPocketEnabled
         this.isRecentTabsFeatureEnabled = isRecentTabsFeatureEnabled
         this.isRecentlyVisitedFeatureEnabled = isRecentlyVisitedFeatureEnabled
@@ -216,7 +213,6 @@ class HomeActivityIntentTestRule internal constructor(
         this.isUnifiedTrustPanelEnabled = isUnifiedTrustPanelEnabled
         this.etpPolicy = etpPolicy
         this.isLocationPermissionEnabled = isLocationPermissionEnabled
-        this.isComposableToolbarEnabled = isComposableToolbarEnabled
         this.isMenuRedesignCFREnabled = isMenuRedesignCFREnabled
         this.enableOrDisablePageLoadTranslationsPrompt(isPageLoadTranslationsPromptEnabled)
         this.isMicrosurveyEnabled = isMicrosurveyEnabled
@@ -227,6 +223,7 @@ class HomeActivityIntentTestRule internal constructor(
         this.openLinksInExternalApp = openLinksInExternalApp
         this.tabManagerOpeningAnimationEnabled = tabManagerOpeningAnimationEnabled
         this.hasSeenBrowserToolbarCFR = hasSeenBrowserToolbarCFR
+        this.isPrivateModeAndStoriesEntryPointEnabled = isPrivateModeAndStoriesEntryPointEnabled
     }
 
     private val longTapUserPreference = getLongPressTimeout()
@@ -282,7 +279,6 @@ class HomeActivityIntentTestRule internal constructor(
      * settings and override any changes made in the meantime.
      */
     fun updateCachedSettings() {
-        isHomepageHeaderEnabled = settings.showHomepageHeader
         isPocketEnabled = settings.showPocketRecommendationsFeature
         isRecentTabsFeatureEnabled = settings.showRecentTabsFeature
         isRecentlyVisitedFeatureEnabled = settings.historyMetadataUIFeature
@@ -293,7 +289,6 @@ class HomeActivityIntentTestRule internal constructor(
         isUnifiedTrustPanelEnabled = settings.enableUnifiedTrustPanel
         etpPolicy = getETPPolicy(settings)
         isLocationPermissionEnabled = getFeaturePermission(PhoneFeature.LOCATION, settings)
-        isComposableToolbarEnabled = settings.shouldUseComposableToolbar
         isMenuRedesignCFREnabled = settings.shouldShowMenuCFR
         isMicrosurveyEnabled = settings.microsurveyFeatureEnabled
         shouldUseBottomToolbar = settings.shouldUseBottomToolbar
@@ -302,6 +297,7 @@ class HomeActivityIntentTestRule internal constructor(
         openLinksInExternalApp = getOpenLinksInApp(settings)
         tabManagerOpeningAnimationEnabled = settings.tabManagerOpeningAnimationEnabled
         hasSeenBrowserToolbarCFR = settings.hasSeenBrowserToolbarCFR
+        isPrivateModeAndStoriesEntryPointEnabled = settings.privateModeAndStoriesEntryPointEnabled
     }
 
     companion object {
@@ -332,6 +328,7 @@ class HomeActivityIntentTestRule internal constructor(
             isTabSwipeCFREnabled = true,
             isTermsOfServiceAccepted = true,
             tabManagerOpeningAnimationEnabled = false,
+            isPrivateModeAndStoriesEntryPointEnabled = false,
         )
     }
 }

@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -745,10 +743,11 @@ AsyncGeneratorRequest* AsyncGeneratorRequest::create(
 
   // Step 2. Let queue be generator.[[AsyncGeneratorQueue]].
   // Step 3. Repeat, while queue is not empty,
+  Rooted<AsyncGeneratorRequest*> next(cx);
+  RootedValue value(cx);
   while (!generator->isQueueEmpty()) {
     // Step 3.a. Let next be the first element of queue.
-    Rooted<AsyncGeneratorRequest*> next(
-        cx, AsyncGeneratorObject::peekRequest(generator));
+    next = AsyncGeneratorObject::peekRequest(generator);
     if (!next) {
       return false;
     }
@@ -758,7 +757,7 @@ AsyncGeneratorRequest* AsyncGeneratorRequest::create(
 
     // Step 3.c. If completion is a return completion, then
     if (completionKind == CompletionKind::Return) {
-      RootedValue value(cx, next->completionValue());
+      value = next->completionValue();
 
       // Step 3.c.i. Perform AsyncGeneratorAwaitReturn(generator).
       // Step 3.c.ii. Return unused.
@@ -767,7 +766,7 @@ AsyncGeneratorRequest* AsyncGeneratorRequest::create(
 
     // Step 3.d. Else,
     if (completionKind == CompletionKind::Throw) {
-      RootedValue value(cx, next->completionValue());
+      value = next->completionValue();
 
       // Step 3.d.ii. Perform AsyncGeneratorCompleteStep(generator, completion,
       //              true).

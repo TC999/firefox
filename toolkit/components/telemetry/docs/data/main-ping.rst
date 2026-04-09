@@ -131,7 +131,7 @@ This format was adopted in Firefox 51 via bug 1218576.
 
 scalars and keyedScalars
 ~~~~~~~~~~~~~~~~~~~~~~~~
-This section contains the :doc:`../collection/scalars` that are valid for the current platform. Scalars are only submitted if data was added to them, and are only reported with subsession pings. The recorded scalars are described in the `Scalars.yaml <https://searchfox.org/mozilla-central/source/toolkit/components/telemetry/Scalars.yaml>`_ file. The ``info.revision`` field indicates the revision of the file that describes the reported scalars.
+This section contains the Scalars that are valid for the current platform. Scalars are only submitted if data was added to them, and are only reported with subsession pings. The recorded scalars are described in the `Scalars.yaml <https://searchfox.org/mozilla-central/source/toolkit/components/telemetry/Scalars.yaml>`_ file. The ``info.revision`` field indicates the revision of the file that describes the reported scalars.
 
 simpleMeasurements
 ------------------
@@ -146,12 +146,6 @@ addonManager
 As of Firefox 150 this section is no longer present.
 
 Only available in the extended set of measures, it contains a set of counters related to Addons. See `here <https://searchfox.org/mozilla-central/search?q=AddonManagerPrivate.recordSimpleMeasure&redirect=false&case=true>`__ for a list of recorded measures.
-
-UITelemetry
-~~~~~~~~~~~
-As of Firefox 61 this section is no longer present.
-
-Only available in the extended set of measures. For more see :ref:`uitelemetry`.
 
 js
 ~~
@@ -332,7 +326,7 @@ Structure:
 
 log
 ---
-As of Firefox 61 this section is no longer present, use :ref:`eventtelemetry` or :doc:`../collection/scalars`.
+As of Firefox 61 this section is no longer present, use Events or Scalars.
 
 This section contains a log of important or unusual events reported through Telemetry.
 

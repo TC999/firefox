@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -194,7 +192,7 @@ class ShadowRoot final : public DocumentFragment, public DocumentOrShadowRoot {
    * It is important that this runs _before_ actually shuffling the flat tree
    * around, so that layout knows the actual tree that it needs to invalidate.
    */
-  void InvalidateStyleAndLayoutOnSubtree(Element*);
+  static void InvalidateStyleAndLayoutOnSubtree(Element*);
 
  private:
   void InsertSheetIntoAuthorData(size_t aIndex, StyleSheet&,

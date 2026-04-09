@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -28,9 +26,10 @@ using mozilla::waict::gWaictLog;
 NS_IMPL_ISUPPORTS(IntegrityPolicyWAICT, nsIStreamLoaderObserver)
 
 IntegrityPolicyWAICT::IntegrityPolicyWAICT(Document* aDocument)
+    // do_GetWeakReference internally guards against null aDocument.
     : mDocument(do_GetWeakReference(aDocument)),
-      mDocumentURI(aDocument->GetDocumentURI()),
-      mPrincipal(aDocument->NodePrincipal()) {}
+      mDocumentURI(aDocument ? aDocument->GetDocumentURI() : nullptr),
+      mPrincipal(aDocument ? aDocument->NodePrincipal() : nullptr) {}
 
 IntegrityPolicyWAICT::~IntegrityPolicyWAICT() {
   if (mPromise) {
@@ -192,7 +191,7 @@ nsresult IntegrityPolicyWAICT::ParseHeader(const nsACString& aHeader) {
     nsTArray<nsString> params = {NS_ConvertUTF8toUTF16(aHeader), u"max-age"_ns};
     ReportMessage(nsIScriptError::errorFlag, "WAICT"_ns,
                   "WAICTHeaderFieldParseError", params);
-    return rv;
+    return maxAgeResult.unwrapErr();
   }
   mMaxAge = maxAgeResult.unwrap();
 
@@ -202,7 +201,7 @@ nsresult IntegrityPolicyWAICT::ParseHeader(const nsACString& aHeader) {
     ReportMessage(nsIScriptError::errorFlag, "WAICT"_ns,
                   "WAICTHeaderFieldParseError", params);
 
-    return rv;
+    return modeResult.unwrapErr();
   }
   mEnforce = modeResult.unwrap() == waict::WaictMode::Enforce;
 
@@ -214,7 +213,7 @@ nsresult IntegrityPolicyWAICT::ParseHeader(const nsACString& aHeader) {
     ReportMessage(nsIScriptError::errorFlag, "WAICT"_ns,
                   "WAICTHeaderManifestParseError", params);
 
-    return rv;
+    return manifestURLResult.unwrapErr();
   }
   mManifestURL = manifestURLResult.unwrap();
 
@@ -409,7 +408,7 @@ void IntegrityPolicyWAICT::FlushConsoleMessages() {
 
   for (const auto& elem : mConsoleMsgQueue) {
     nsContentUtils::ReportToConsole(elem.mErrorFlags, elem.mCategory, doc,
-                                    nsContentUtils::eSECURITY_PROPERTIES,
+                                    PropertiesFile::SECURITY_PROPERTIES,
                                     elem.mMessageName.get(), elem.mParams);
   }
   mConsoleMsgQueue.Clear();
@@ -434,7 +433,7 @@ void IntegrityPolicyWAICT::ReportMessage(uint32_t aErrorFlags,
   }
 
   nsContentUtils::ReportToConsole(aErrorFlags, aCategory, doc,
-                                  nsContentUtils::eSECURITY_PROPERTIES,
+                                  PropertiesFile::SECURITY_PROPERTIES,
                                   aMessageName, aParams);
 }
 

@@ -4,28 +4,30 @@
 
 package org.mozilla.fenix.tabstray.redux.reducer
 
-import mozilla.components.browser.state.state.createTab
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.mozilla.fenix.tabstray.data.TabsTrayItem
+import org.mozilla.fenix.tabstray.data.TabStorageUpdate
+import org.mozilla.fenix.tabstray.data.createTab
+import org.mozilla.fenix.tabstray.data.createTabGroup
 import org.mozilla.fenix.tabstray.navigation.TabManagerNavDestination
 import org.mozilla.fenix.tabstray.redux.action.TabsTrayAction
 import org.mozilla.fenix.tabstray.redux.state.TabSearchState
 import org.mozilla.fenix.tabstray.redux.state.TabsTrayState
+import org.mozilla.fenix.tabstray.redux.state.TabsTrayState.Mode
 import org.mozilla.fenix.tabstray.syncedtabs.SyncedTabsListItem
 import org.mozilla.fenix.tabstray.syncedtabs.generateFakeTab
 import org.mozilla.fenix.tabstray.syncedtabs.getFakeSyncedTabList
-import kotlin.collections.listOf
 
 class TabsTrayStoreReducerTest {
 
     @Test
     fun `WHEN UpdateInactiveTabs THEN inactive tabs are added`() {
-        val inactiveTabs = listOf(TabsTrayItem.Tab(tab = createTab("https://mozilla.org")))
+        val inactiveTabs = listOf(createTab("https://mozilla.org"))
         val initialState = TabsTrayState()
-        val expectedState = initialState.copy(inactiveTabs = inactiveTabs)
+        val expectedState =
+            initialState.copy(inactiveTabs = TabsTrayState.InactiveTabsState(tabs = inactiveTabs))
 
         val resultState = TabsTrayReducer.reduce(
             initialState,
@@ -38,22 +40,23 @@ class TabsTrayStoreReducerTest {
     @Test
     fun `GIVEN a new value for inactiveTabsExpanded WHEN UpdateInactiveExpanded is called THEN update the current value`() {
         val initialState = TabsTrayState(
-            inactiveTabsExpanded = true,
+            inactiveTabs = TabsTrayState.InactiveTabsState(isExpanded = true),
         )
 
         var updatedState = TabsTrayReducer.reduce(
             initialState,
             TabsTrayAction.UpdateInactiveExpanded(false),
         )
-        assertFalse(updatedState.inactiveTabsExpanded)
+        assertFalse(updatedState.inactiveTabs.isExpanded)
 
-        updatedState = TabsTrayReducer.reduce(updatedState, TabsTrayAction.UpdateInactiveExpanded(true))
-        assertTrue(updatedState.inactiveTabsExpanded)
+        updatedState =
+            TabsTrayReducer.reduce(updatedState, TabsTrayAction.UpdateInactiveExpanded(true))
+        assertTrue(updatedState.inactiveTabs.isExpanded)
     }
 
     @Test
     fun `WHEN UpdateNormalTabs THEN normal tabs are added`() {
-        val normalTabs = listOf(TabsTrayItem.Tab(tab = createTab("https://mozilla.org")))
+        val normalTabs = listOf(createTab("https://mozilla.org"))
         val initialState = TabsTrayState()
         val expectedState = initialState.copy(normalTabs = normalTabs)
 
@@ -67,9 +70,13 @@ class TabsTrayStoreReducerTest {
 
     @Test
     fun `WHEN UpdatePrivateTabs THEN private tabs are added`() {
-        val privateTabs = listOf(TabsTrayItem.Tab(tab = createTab("https://mozilla.org", private = true)))
+        val privateTabs = listOf(createTab("https://mozilla.org", private = true))
         val initialState = TabsTrayState()
-        val expectedState = initialState.copy(privateTabs = privateTabs)
+        val expectedState = initialState.copy(
+            privateBrowsing = TabsTrayState.PrivateBrowsingState(
+                tabs = privateTabs,
+            ),
+        )
 
         val resultState = TabsTrayReducer.reduce(
             initialState,
@@ -83,7 +90,12 @@ class TabsTrayStoreReducerTest {
     fun `WHEN UpdateSyncedTabs THEN synced tabs are added`() {
         val syncedTabs = getFakeSyncedTabList()
         val initialState = TabsTrayState()
-        val expectedState = initialState.copy(syncedTabs = syncedTabs, expandedSyncedTabs = syncedTabs.map { true })
+        val expectedState = initialState.copy(
+            sync = TabsTrayState.SyncState(
+                syncedTabs = syncedTabs,
+                expandedSyncedTabs = syncedTabs.map { true },
+            ),
+        )
 
         val resultState = TabsTrayReducer.reduce(
             initialState,
@@ -103,7 +115,7 @@ class TabsTrayStoreReducerTest {
             TabsTrayAction.UpdateSyncedTabs(syncedTabs),
         )
 
-        assertTrue(resultState.expandedSyncedTabs.all { DEFAULT_SYNCED_TABS_EXPANDED_STATE })
+        assertTrue(resultState.sync.expandedSyncedTabs.all { DEFAULT_SYNCED_TABS_EXPANDED_STATE })
     }
 
     @Test
@@ -115,21 +127,26 @@ class TabsTrayStoreReducerTest {
             TabsTrayAction.UpdateSyncedTabs(emptyList()),
         )
 
-        assertTrue(resultState.expandedSyncedTabs.isEmpty())
+        assertTrue(resultState.sync.expandedSyncedTabs.isEmpty())
     }
 
     @Test
     fun `GIVEN synced tabs WHEN UpdateSyncedTabs is called with the same tabs THEN the expanded state is retained`() {
         val expectedExpansionList = listOf(true, true, false, false)
         val syncedTabs = getFakeSyncedTabList()
-        val initialState = TabsTrayState(syncedTabs = syncedTabs, expandedSyncedTabs = expectedExpansionList)
+        val initialState = TabsTrayState(
+            sync = TabsTrayState.SyncState(
+                syncedTabs = syncedTabs,
+                expandedSyncedTabs = expectedExpansionList,
+            ),
+        )
 
         val resultState = TabsTrayReducer.reduce(
             initialState,
             TabsTrayAction.UpdateSyncedTabs(syncedTabs),
         )
 
-        assertTrue(resultState.expandedSyncedTabs == expectedExpansionList)
+        assertEquals(expectedExpansionList, resultState.sync.expandedSyncedTabs)
     }
 
     @Test
@@ -137,14 +154,19 @@ class TabsTrayStoreReducerTest {
         val expectedExpansionList = listOf(true, true, false, false)
         val syncedTabs = getFakeSyncedTabList()
         val newSyncedTabs = syncedTabs.reversed()
-        val initialState = TabsTrayState(syncedTabs = syncedTabs, expandedSyncedTabs = expectedExpansionList)
+        val initialState = TabsTrayState(
+            sync = TabsTrayState.SyncState(
+                syncedTabs = syncedTabs,
+                expandedSyncedTabs = expectedExpansionList,
+            ),
+        )
 
         val resultState = TabsTrayReducer.reduce(
             initialState,
             TabsTrayAction.UpdateSyncedTabs(newSyncedTabs),
         )
 
-        assertTrue(resultState.expandedSyncedTabs.all { DEFAULT_SYNCED_TABS_EXPANDED_STATE })
+        assertTrue(resultState.sync.expandedSyncedTabs.all { DEFAULT_SYNCED_TABS_EXPANDED_STATE })
     }
 
     @Test
@@ -161,14 +183,19 @@ class TabsTrayStoreReducerTest {
                 ),
             ),
         )
-        val initialState = TabsTrayState(syncedTabs = syncedTabs, expandedSyncedTabs = expectedExpansionList)
+        val initialState = TabsTrayState(
+            sync = TabsTrayState.SyncState(
+                syncedTabs = syncedTabs,
+                expandedSyncedTabs = expectedExpansionList,
+            ),
+        )
 
         val resultState = TabsTrayReducer.reduce(
             initialState,
             TabsTrayAction.UpdateSyncedTabs(newSyncedTabs),
         )
 
-        assertTrue(resultState.expandedSyncedTabs.all { DEFAULT_SYNCED_TABS_EXPANDED_STATE })
+        assertTrue(resultState.sync.expandedSyncedTabs.all { DEFAULT_SYNCED_TABS_EXPANDED_STATE })
     }
 
     @Test
@@ -185,42 +212,68 @@ class TabsTrayStoreReducerTest {
             ),
         )
         val newSyncedTabs = getFakeSyncedTabList()
-        val initialState = TabsTrayState(syncedTabs = syncedTabs, expandedSyncedTabs = expectedExpansionList)
+        val initialState = TabsTrayState(
+            sync = TabsTrayState.SyncState(
+                syncedTabs = syncedTabs,
+                expandedSyncedTabs = expectedExpansionList,
+            ),
+        )
 
         val resultState = TabsTrayReducer.reduce(
             initialState,
             TabsTrayAction.UpdateSyncedTabs(newSyncedTabs),
         )
 
-        assertTrue(resultState.expandedSyncedTabs.all { DEFAULT_SYNCED_TABS_EXPANDED_STATE })
+        assertTrue(resultState.sync.expandedSyncedTabs.all { DEFAULT_SYNCED_TABS_EXPANDED_STATE })
     }
 
     @Test
     fun `GIVEN synced tabs state larger than expanded synced tabs WHEN UpdateSyncedTabs is called THEN it is handled gracefully`() {
         val syncedTabs = getFakeSyncedTabList()
         val newSyncedTabs = getFakeSyncedTabList().reversed()
-        val initialState = TabsTrayState(syncedTabs = syncedTabs, expandedSyncedTabs = emptyList())
+        val initialState = TabsTrayState(
+            sync = TabsTrayState.SyncState(
+                syncedTabs = syncedTabs,
+                expandedSyncedTabs = emptyList(),
+            ),
+        )
 
         val resultState = TabsTrayReducer.reduce(
             initialState,
             TabsTrayAction.UpdateSyncedTabs(newSyncedTabs),
         )
 
-        assertTrue(resultState.expandedSyncedTabs.all { DEFAULT_SYNCED_TABS_EXPANDED_STATE })
+        assertTrue(resultState.sync.expandedSyncedTabs.all { DEFAULT_SYNCED_TABS_EXPANDED_STATE })
     }
 
     @Test
     fun `GIVEN synced tabs state smaller than expanded synced tabs WHEN UpdateSyncedTabs is called THEN it is handled gracefully`() {
         val syncedTabs = getFakeSyncedTabList()
         val newSyncedTabs = getFakeSyncedTabList().reversed()
-        val initialState = TabsTrayState(syncedTabs = syncedTabs, expandedSyncedTabs = listOf(true, true, false, false, false, false, false, false, false, false))
+        val initialState = TabsTrayState(
+            sync = TabsTrayState.SyncState(
+                syncedTabs = syncedTabs,
+                expandedSyncedTabs = listOf(
+                    true,
+                    true,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                ),
+            ),
+        )
 
         val resultState = TabsTrayReducer.reduce(
             initialState,
             TabsTrayAction.UpdateSyncedTabs(newSyncedTabs),
         )
 
-        assertTrue(resultState.expandedSyncedTabs.all { DEFAULT_SYNCED_TABS_EXPANDED_STATE })
+        assertTrue(resultState.sync.expandedSyncedTabs.all { DEFAULT_SYNCED_TABS_EXPANDED_STATE })
     }
 
     @Test
@@ -238,27 +291,37 @@ class TabsTrayStoreReducerTest {
     @Test
     fun `GIVEN the synced tab header is expanded WHEN the synced tabs header is toggled THEN the synced tabs header is collapsed`() {
         val syncedTabs = getFakeSyncedTabList()
-        val initialState = TabsTrayState(syncedTabs = syncedTabs, expandedSyncedTabs = syncedTabs.map { true })
+        val initialState = TabsTrayState(
+            sync = TabsTrayState.SyncState(
+                syncedTabs = syncedTabs,
+                expandedSyncedTabs = syncedTabs.map { true },
+            ),
+        )
 
         val resultState = TabsTrayReducer.reduce(
             state = initialState,
             action = TabsTrayAction.SyncedTabsHeaderToggled(0),
         )
 
-        assertFalse(resultState.expandedSyncedTabs[0])
+        assertFalse(resultState.sync.expandedSyncedTabs[0])
     }
 
     @Test
     fun `GIVEN the synced tab header is collapsed WHEN the synced tabs header is toggled THEN the synced tabs header is expanded`() {
         val syncedTabs = getFakeSyncedTabList()
-        val initialState = TabsTrayState(syncedTabs = syncedTabs, expandedSyncedTabs = syncedTabs.map { false })
+        val initialState = TabsTrayState(
+            sync = TabsTrayState.SyncState(
+                syncedTabs = syncedTabs,
+                expandedSyncedTabs = syncedTabs.map { false },
+            ),
+        )
 
         val resultState = TabsTrayReducer.reduce(
             state = initialState,
             action = TabsTrayAction.SyncedTabsHeaderToggled(0),
         )
 
-        assertTrue(resultState.expandedSyncedTabs[0])
+        assertTrue(resultState.sync.expandedSyncedTabs[0])
     }
 
     @Test
@@ -266,7 +329,7 @@ class TabsTrayStoreReducerTest {
         val initialState = TabsTrayState(
             tabSearchState = TabSearchState(
                 query = "mozilla",
-                searchResults = listOf(TabsTrayItem.Tab(tab = createTab("https://mozilla.org"))),
+                searchResults = listOf(createTab("https://mozilla.org")),
             ),
         )
 
@@ -283,6 +346,239 @@ class TabsTrayStoreReducerTest {
         val expectedState = inSearchState.copy(
             tabSearchState = TabSearchState(),
             backStack = listOf(TabManagerNavDestination.Root),
+        )
+
+        assertEquals(expectedState, resultState)
+    }
+
+    @Test
+    fun `WHEN navigating back from create tab group in multiselect mode THEN only the sheet is dismissed`() {
+        val initialState = TabsTrayState(
+            mode = TabsTrayState.Mode.Select(selectedTabs = setOf(createTab("https://mozilla.org"))),
+            backStack = listOf(
+                TabManagerNavDestination.Root,
+                TabManagerNavDestination.AddToTabGroup,
+                TabManagerNavDestination.EditTabGroup,
+            ),
+        )
+
+        val resultState = TabsTrayReducer.reduce(
+            state = initialState,
+            action = TabsTrayAction.NavigateBackInvoked,
+        )
+
+        val expectedState = initialState.copy(
+            backStack = listOf(
+                TabManagerNavDestination.Root,
+                TabManagerNavDestination.AddToTabGroup,
+            ),
+        )
+
+        assertEquals(expectedState, resultState)
+    }
+
+    @Test
+    fun `WHEN navigating back from add to tab group in multiselect mode THEN only the sheet is dismissed`() {
+        val initialState = TabsTrayState(
+            mode = TabsTrayState.Mode.Select(selectedTabs = setOf(createTab("https://mozilla.org"))),
+            backStack = listOf(
+                TabManagerNavDestination.Root,
+                TabManagerNavDestination.AddToTabGroup,
+            ),
+        )
+
+        val resultState = TabsTrayReducer.reduce(
+            state = initialState,
+            action = TabsTrayAction.NavigateBackInvoked,
+        )
+
+        val expectedState = initialState.copy(
+            backStack = listOf(TabManagerNavDestination.Root),
+        )
+
+        assertEquals(expectedState, resultState)
+    }
+
+    @Test
+    fun `WHEN navigating back from expanded tab group THEN only the sheet is dismissed`() {
+        val group = createTabGroup()
+        val initialState = TabsTrayState(
+            mode = TabsTrayState.Mode.Normal,
+            backStack = listOf(
+                TabManagerNavDestination.Root,
+                TabManagerNavDestination.ExpandedTabGroup(group),
+                TabManagerNavDestination.EditTabGroup,
+            ),
+        )
+
+        val resultState = TabsTrayReducer.reduce(
+            state = initialState,
+            action = TabsTrayAction.NavigateBackInvoked,
+        )
+
+        val expectedState = initialState.copy(
+            backStack = listOf(
+                TabManagerNavDestination.Root,
+                TabManagerNavDestination.ExpandedTabGroup(group),
+            ),
+        )
+
+        assertEquals(expectedState, resultState)
+    }
+
+    @Test
+    fun `WHEN UpdatePbmLockStatus THEN isPbmLocked is updated`() {
+        val initialState = TabsTrayState(
+            privateBrowsing = TabsTrayState.PrivateBrowsingState(
+                isLocked = false,
+            ),
+        )
+
+        val lockedState = TabsTrayReducer.reduce(
+            initialState,
+            TabsTrayAction.UpdatePbmLockStatus(isLocked = true),
+        )
+        assertTrue(lockedState.privateBrowsing.isLocked)
+
+        val unlockedState = TabsTrayReducer.reduce(
+            lockedState,
+            TabsTrayAction.UpdatePbmLockStatus(isLocked = false),
+        )
+        assertFalse(unlockedState.privateBrowsing.isLocked)
+    }
+
+    @Test
+    fun `WHEN DismissInactiveTabsCFR THEN showInactiveTabsCFR is set to false`() {
+        val initialState =
+            TabsTrayState(inactiveTabs = TabsTrayState.InactiveTabsState(showCFR = true))
+
+        val resultState = TabsTrayReducer.reduce(
+            initialState,
+            TabsTrayAction.DismissInactiveTabsCFR,
+        )
+
+        assertFalse(resultState.inactiveTabs.showCFR)
+    }
+
+    @Test
+    fun `WHEN DismissInactiveTabsAutoCloseDialog THEN showInactiveTabsAutoCloseDialog is set to false`() {
+        val initialState =
+            TabsTrayState(inactiveTabs = TabsTrayState.InactiveTabsState(showAutoCloseDialog = true))
+
+        val resultState = TabsTrayReducer.reduce(
+            initialState,
+            TabsTrayAction.DismissInactiveTabsAutoCloseDialog,
+        )
+
+        assertFalse(resultState.inactiveTabs.showAutoCloseDialog)
+    }
+
+    @Test
+    fun `WHEN a tab data from storage has updated THEN the state is updated`() {
+        val initialState = TabsTrayState()
+        val expectedId = "12345"
+        val tabGroup = createTabGroup()
+        val expectedNormalTabs = listOf(createTab(url = "normal url"), tabGroup)
+        val expectedInactiveTabs = listOf(createTab(url = "inactive url"))
+        val expectedPrivateTabs = listOf(createTab(url = "private url"))
+        val expectedTabGroups = listOf(tabGroup)
+        val action = TabsTrayAction.TabDataUpdateReceived(
+            tabStorageUpdate = TabStorageUpdate(
+                selectedTabId = expectedId,
+                normalTabs = expectedNormalTabs,
+                inactiveTabs = expectedInactiveTabs,
+                tabGroups = expectedTabGroups,
+                privateTabs = expectedPrivateTabs,
+            ),
+        )
+        val expectedState = TabsTrayState(
+            selectedTabId = expectedId,
+            normalTabs = expectedNormalTabs,
+            inactiveTabs = TabsTrayState.InactiveTabsState(tabs = expectedInactiveTabs),
+            tabGroups = expectedTabGroups,
+            privateBrowsing = TabsTrayState.PrivateBrowsingState(tabs = expectedPrivateTabs),
+        )
+        val resultState = TabsTrayReducer.reduce(state = initialState, action = action)
+
+        assertEquals(expectedState, resultState)
+    }
+
+    @Test
+    fun `WHEN a user taps clicks on an unselected tab group during multiselection THEN the group and its tabs are added to the selection state`() {
+        val tabs = List(size = 20) { createTab(url = "") }
+        val tabGroup = createTabGroup(
+            tabs = MutableList(size = 20) { createTab(url = "") },
+        )
+        val initialState = TabsTrayState(
+            normalTabs = tabs + tabGroup,
+            mode = Mode.Select(
+                selectedTabs = emptySet(),
+                selectedTabGroups = emptySet(),
+            ),
+            tabGroups = listOf(tabGroup),
+        )
+        val resultState = TabsTrayReducer.reduce(
+            state = initialState,
+            action = TabsTrayAction.AddSelectTabItem(item = tabGroup),
+        )
+        val expectedState = initialState.copy(
+            mode = Mode.Select(
+                selectedTabs = tabGroup.tabs.toSet(),
+                selectedTabGroups = setOf(tabGroup),
+            ),
+        )
+
+        assertEquals(expectedState, resultState)
+    }
+
+    @Test
+    fun `WHEN a user taps clicks on a selected tab group during multiselection THEN the group and its tabs are removed from the selection state`() {
+        val tabs = List(size = 20) { createTab(url = "") }
+        val tabGroup = createTabGroup(
+            tabs = MutableList(size = 20) { createTab(url = "") },
+        )
+        val initialState = TabsTrayState(
+            normalTabs = tabs + tabGroup,
+            mode = Mode.Select(
+                selectedTabs = tabGroup.tabs.toSet(),
+                selectedTabGroups = setOf(tabGroup),
+            ),
+            tabGroups = listOf(tabGroup),
+        )
+        val resultState = TabsTrayReducer.reduce(
+            state = initialState,
+            action = TabsTrayAction.RemoveSelectTabItem(item = tabGroup),
+        )
+        val expectedState = initialState.copy(
+            mode = Mode.Normal,
+        )
+
+        assertEquals(expectedState, resultState)
+    }
+
+    @Test
+    fun `GIVEN there is a tab and a tab group selected WHEN a user taps clicks on the selected tab group during multiselection THEN the group and its tabs are removed from the selection state`() {
+        val tabs = List(size = 20) { createTab(url = "") }
+        val tabGroup = createTabGroup(
+            tabs = MutableList(size = 20) { createTab(url = "") },
+        )
+        val initialState = TabsTrayState(
+            normalTabs = tabs + tabGroup,
+            mode = Mode.Select(
+                selectedTabs = tabGroup.tabs.toSet() + tabs[0],
+                selectedTabGroups = setOf(tabGroup),
+            ),
+            tabGroups = listOf(tabGroup),
+        )
+        val resultState = TabsTrayReducer.reduce(
+            state = initialState,
+            action = TabsTrayAction.RemoveSelectTabItem(item = tabGroup),
+        )
+        val expectedState = initialState.copy(
+            mode = Mode.Select(
+                selectedTabs = setOf(tabs[0]),
+                selectedTabGroups = emptySet(),
+            ),
         )
 
         assertEquals(expectedState, resultState)

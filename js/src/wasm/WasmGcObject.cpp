@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -484,12 +482,16 @@ void WasmStructObject::obj_trace(JSTracer* trc, JSObject* object) {
   }
   if (MOZ_UNLIKELY(structType.totalSizeOOL_ > 0)) {
     uint8_t** addressOfOOLPtr = structObj.addressOfOOLPointer();
-    TraceBufferEdge(trc, &structObj, addressOfOOLPtr,
-                    "WasmStructObject outline data");
-    uint8_t* oolBase = *addressOfOOLPtr;
-    for (uint32_t offset : structType.outlineTraceOffsets_) {
-      AnyRef* fieldPtr = reinterpret_cast<AnyRef*>(oolBase + offset);
-      TraceManuallyBarrieredEdge(trc, fieldPtr, "wasm-struct-field");
+    // *addressOfOOLPtr may be null if the struct was only partially initialized
+    // due to OOM during createStructOOL.
+    if (MOZ_LIKELY(*addressOfOOLPtr)) {
+      TraceBufferEdge(trc, &structObj, addressOfOOLPtr,
+                      "WasmStructObject outline data");
+      uint8_t* oolBase = *addressOfOOLPtr;
+      for (uint32_t offset : structType.outlineTraceOffsets_) {
+        AnyRef* fieldPtr = reinterpret_cast<AnyRef*>(oolBase + offset);
+        TraceManuallyBarrieredEdge(trc, fieldPtr, "wasm-struct-field");
+      }
     }
   }
 }

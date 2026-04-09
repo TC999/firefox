@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -47,7 +45,7 @@ namespace {
 void SendJSWarning(Document* aDocument, const char* aWarningName,
                    const nsTArray<nsString>& aWarningArgs) {
   nsContentUtils::ReportToConsole(nsIScriptError::warningFlag, "HTML"_ns,
-                                  aDocument, nsContentUtils::eFORMS_PROPERTIES,
+                                  aDocument, PropertiesFile::FORMS_PROPERTIES,
                                   aWarningName, aWarningArgs);
 }
 
@@ -217,12 +215,12 @@ void HandleMailtoSubject(nsCString& aPath) {
     // Get the default subject
     nsAutoString brandName;
     nsresult rv = nsContentUtils::GetLocalizedString(
-        nsContentUtils::eBRAND_PROPERTIES, "brandShortName", brandName);
+        PropertiesFile::BRAND_PROPERTIES, "brandShortName", brandName);
     if (NS_FAILED(rv)) return;
     nsAutoString subjectStr;
-    rv = nsContentUtils::FormatLocalizedString(
-        subjectStr, nsContentUtils::eFORMS_PROPERTIES, "DefaultFormSubject",
-        brandName);
+    rv = nsContentUtils::FormatLocalizedString(subjectStr,
+                                               PropertiesFile::FORMS_PROPERTIES,
+                                               "DefaultFormSubject", brandName);
     if (NS_FAILED(rv)) return;
     aPath.AppendLiteral("subject=");
     nsCString subjectStrEscaped;

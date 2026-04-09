@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:set ts=2 sw=2 sts=2 et cindent: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -42,8 +40,7 @@
 #  include "va/va.h"
 #endif
 
-#if defined(MOZ_AV1) && \
-    (defined(FFVPX_VERSION) || LIBAVCODEC_VERSION_MAJOR >= 59)
+#if defined(FFVPX_VERSION) || LIBAVCODEC_VERSION_MAJOR >= 59
 #  define FFMPEG_AV1_DECODE 1
 #  include "AOMDecoder.h"
 #endif
@@ -635,7 +632,8 @@ FFmpegVideoDecoder<LIBAV_VER>::FFmpegVideoDecoder(
 
 FFmpegVideoDecoder<LIBAV_VER>::~FFmpegVideoDecoder() {
 #ifdef CUSTOMIZED_BUFFER_ALLOCATION
-  MOZ_DIAGNOSTIC_ASSERT(mAllocatedImages.IsEmpty(),
+  auto lock = mAllocatedImages.Lock();
+  MOZ_DIAGNOSTIC_ASSERT(lock->IsEmpty(),
                         "Should release all shmem buffers before destroy!");
 #endif
 }
@@ -994,7 +992,10 @@ int FFmpegVideoDecoder<LIBAV_VER>::GetVideoBuffer(
   FFMPEG_LOG("Created av buffer, buf=%p, data=%p, image=%p, sz=%d",
              aFrame->buf[0], aFrame->data[0], imageWrapper.get(),
              dataSize.value());
-  mAllocatedImages.Insert(imageWrapper.get());
+  {
+    auto lock = mAllocatedImages.Lock();
+    lock->Insert(imageWrapper.get());
+  }
   mIsUsingShmemBufferForDecode = Some(true);
   return 0;
 }
@@ -1117,24 +1118,24 @@ bool FFmpegVideoDecoder<LIBAV_VER>::DecodeStats::IsDecodingSlow() const {
 void FFmpegVideoDecoder<LIBAV_VER>::DecodeStats::UpdateDecodeTimes(
     int64_t aDuration) {
   TimeStamp now = TimeStamp::Now();
-  float decodeTime = AssertedCast<float>((now - mDecodeStart).ToMilliseconds());
+  double decodeTime = (now - mDecodeStart).ToMilliseconds();
   mDecodeStart = now;
 
-  const float frameDuration = AssertedCast<float>(aDuration) / 1000.0f;
-  if (frameDuration <= 0.0f) {
+  const double frameDuration = AssertedCast<double>(aDuration) / 1000.0;
+  if (frameDuration <= 0.0) {
     FFMPEGV_LOG("Incorrect frame duration, skipping decode stats.");
     return;
   }
 
   mDecodedFrames++;
   mAverageFrameDuration =
-      (mAverageFrameDuration * AssertedCast<float>(mDecodedFrames - 1) +
+      (mAverageFrameDuration * AssertedCast<double>(mDecodedFrames - 1) +
        frameDuration) /
-      AssertedCast<float>(mDecodedFrames);
+      AssertedCast<double>(mDecodedFrames);
   mAverageFrameDecodeTime =
-      (mAverageFrameDecodeTime * AssertedCast<float>(mDecodedFrames - 1) +
+      (mAverageFrameDecodeTime * AssertedCast<double>(mDecodedFrames - 1) +
        decodeTime) /
-      AssertedCast<float>(mDecodedFrames);
+      AssertedCast<double>(mDecodedFrames);
 
   FFMPEGV_LOG(
       "Frame decode takes %.2f ms average decode time %.2f ms frame duration "
@@ -1159,10 +1160,10 @@ void FFmpegVideoDecoder<LIBAV_VER>::DecodeStats::UpdateDecodeTimes(
   } else if (mLastDelayedFrameNum) {
     // Reset mDecodedFramesLate in case of correct decode during
     // mDelayedFrameReset period.
-    float correctPlaybackTime =
-        AssertedCast<float>(mDecodedFrames - mLastDelayedFrameNum) *
+    double correctPlaybackTime =
+        AssertedCast<double>(mDecodedFrames - mLastDelayedFrameNum) *
         mAverageFrameDuration;
-    if (correctPlaybackTime > AssertedCast<float>(mDelayedFrameReset)) {
+    if (correctPlaybackTime > mDelayedFrameReset) {
       FFMPEGV_LOG("  mLastFramePts reset due to seamless decode period");
       mDecodedFramesLate = 0;
       mLastDelayedFrameNum = 0;

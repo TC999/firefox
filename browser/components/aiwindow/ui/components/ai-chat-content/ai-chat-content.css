@@ -16,7 +16,31 @@
 }
 
 .chat-content-wrapper {
-  align-items: flex-start;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  margin-block-start: var(--space-xsmall);
+  min-height: 0;
+  overflow-y: auto;
+  padding-block: var(--space-large);
+  width: 100%;
+
+  &[overflowing] {
+    mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      var(--color-black) var(--size-item-xlarge),
+      var(--color-black) calc(100% - var(--size-item-xlarge)),
+      transparent
+    );
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    scroll-behavior: smooth;
+  }
+}
+
+.chat-inner-wrapper {
   /*
    * Without this box-sizing, even a medium size chat-bubble-user flexes this
    * element horizontally, and since it has width: 100% and a lot of padding,
@@ -25,24 +49,12 @@
    */
   box-sizing: border-box;
   display: flex;
-  flex: 1;
   flex-direction: column;
   gap: var(--space-small);
-  margin-inline: auto;
-  min-height: 0;
-  overflow-y: auto;
-  padding-block: var(--space-large);
   padding-inline: max(var(--space-medium), calc((100% - var(--smartwindow-content-max-width)) / 2));
-  scroll-behavior: smooth;
+  --content-height: 100%;
+  min-height: var(--content-height);
   width: 100%;
-}
-
-/* Spacer that pushes chat content to the bottom when there's minimal content.
-   Collapses when content fills the available space, allowing proper scrolling. */
-.chat-content-wrapper::before {
-  content: "";
-  flex: 1;
-  min-height: 0;
 }
 
 /* Temporary chat bubble styling */
@@ -54,11 +66,17 @@
 }
 
 .chat-bubble-user {
+  --chat-bubble-inset-color: color-mix(in srgb, var(--color-violet-30) 12%, transparent);
+
   align-self: flex-end;
   background: light-dark(white, var(--color-violet-110));
   border-radius: var(--space-medium);
-  box-shadow: var(--smartwindow-shadow);
-  max-width: 100%;
+  box-shadow:
+    var(--smartwindow-shadow, var(--box-shadow-level-2)),
+    inset 0 0 5px var(--chat-bubble-inset-color, var(--box-shadow-color-lighter-layer-1));
+  gap: var(--space-medium);
+  max-width: 75%;
+  overflow-wrap: anywhere;
   padding-inline: var(--space-large);
   width: fit-content;
 }

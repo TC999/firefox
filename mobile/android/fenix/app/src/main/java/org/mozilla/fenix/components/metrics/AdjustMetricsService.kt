@@ -9,6 +9,7 @@ import androidx.annotation.VisibleForTesting
 import com.adjust.sdk.Adjust
 import com.adjust.sdk.AdjustConfig
 import com.adjust.sdk.AdjustEvent
+import com.adjust.sdk.AdjustThirdPartySharing
 import com.adjust.sdk.Constants.ADJUST_PREINSTALL_SYSTEM_PROPERTY_PATH
 import com.adjust.sdk.LogLevel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -106,6 +107,12 @@ class AdjustMetricsService(
             config.setLogLevel(LogLevel.SUPPRESS)
 
             Adjust.initSdk(config)
+            if (settings.isUserMetaAttributed) {
+                enableOnlyMetaThirdPartySharing()
+            } else {
+                disableMetaThirdPartySharing()
+            }
+
             Adjust.enable()
             logger.info("Adjust SDK enabled")
         }
@@ -129,15 +136,13 @@ class AdjustMetricsService(
                     is Event.FirstWeekPostInstall -> event.tokenName
                 }
 
-                if (event is Event.GrowthData || event is Event.FirstWeekPostInstall) {
-                    if (storage.shouldTrack(event)) {
-                        Adjust.trackEvent(AdjustEvent(tokenName))
-                        storage.updateSentState(event)
-                        logger.info("Update sent state $event")
-                    } else {
-                        storage.updatePersistentState(event)
-                        logger.info("Update persistent state $event")
-                    }
+                if (
+                    (event is Event.GrowthData || event is Event.FirstWeekPostInstall) &&
+                    storage.shouldTrack(event)
+                ) {
+                    Adjust.trackEvent(AdjustEvent(tokenName))
+                    storage.updateSentState(event)
+                    logger.info("Update sent state $event")
                 }
             } catch (e: Exception) {
                 crashReporter.submitCaughtException(e)
@@ -150,6 +155,25 @@ class AdjustMetricsService(
         event is Event.GrowthData || event is Event.FirstWeekPostInstall
 
     companion object {
+        const val META_PARTNER_ID = "34"
+
+        private fun enableOnlyMetaThirdPartySharing() {
+            Adjust.trackThirdPartySharing(
+                AdjustThirdPartySharing(true).apply {
+                    addPartnerSharingSetting("all", "all", false)
+                    addPartnerSharingSetting(META_PARTNER_ID, "all", true)
+                },
+            )
+        }
+
+        private fun disableMetaThirdPartySharing() {
+            Adjust.trackThirdPartySharing(
+                AdjustThirdPartySharing(true).apply {
+                    addPartnerSharingSetting(META_PARTNER_ID, "all", false)
+                },
+            )
+        }
+
         @VisibleForTesting
         internal fun alreadyKnown(settings: Settings): Boolean {
             return settings.adjustCampaignId.isNotEmpty() || settings.adjustNetwork.isNotEmpty() ||

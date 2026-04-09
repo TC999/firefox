@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -43,6 +41,7 @@
 #include "mozilla/URLExtraData.h"
 #include "mozilla/css/ImageLoader.h"
 #include "mozilla/dom/CSSMozDocumentRule.h"
+#include "mozilla/dom/CSSTransition.h"
 #include "mozilla/dom/DocumentInlines.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/ElementInlines.h"
@@ -190,10 +189,8 @@ void Gecko_GetQueryContainerSize(const Element* aElement, nscoord* aOutWidth,
 }
 
 void Gecko_ComputedStyle_Init(ComputedStyle* aStyle,
-                              const ServoComputedData* aValues,
-                              PseudoStyleType aPseudoType) {
-  new (KnownNotNull, aStyle)
-      ComputedStyle(aPseudoType, ServoComputedDataForgotten(aValues));
+                              const ServoComputedData* aValues) {
+  new (KnownNotNull, aStyle) ComputedStyle(ServoComputedDataForgotten(aValues));
 }
 
 ServoComputedData::ServoComputedData(const ServoComputedDataForgotten aValue) {
@@ -338,12 +335,13 @@ PseudoStyleType Gecko_GetImplementedPseudoType(const Element* aElement) {
 }
 
 nsAtom* Gecko_GetImplementedPseudoIdentifier(const Element* aElement) {
-  if (!PseudoStyle::IsNamedViewTransitionPseudoElement(
-          aElement->GetPseudoElementType())) {
+  if (!aElement->HasName()) {
     return nullptr;
   }
 
-  if (!aElement->HasName()) {
+  PseudoStyleType type = aElement->GetPseudoElementType();
+  if (!PseudoStyle::IsNamedViewTransitionPseudoElement(type) &&
+      type != PseudoStyleType::Picker) {
     return nullptr;
   }
 

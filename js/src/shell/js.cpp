@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -907,7 +905,7 @@ enum class ShellGlobalKind {
   WindowProxy,
 };
 
-static void SetStandardRealmOptions(JS::RealmOptions& options);
+static void SetStandardRealmOptions(JSContext* cx, JS::RealmOptions& options);
 static JSObject* NewGlobalObject(JSContext* cx, JS::RealmOptions& options,
                                  JSPrincipals* principals, ShellGlobalKind kind,
                                  bool immutablePrototype);
@@ -1196,6 +1194,19 @@ static bool ShellInterruptCallback(JSContext* cx) {
       result = JS_CallFunctionValue(cx, nullptr, sc->interruptFunc,
                                     JS::HandleValueArray::empty(), &rval);
     } else {
+      // A recurring problem when fuzzing the shell is that setInterruptCallback
+      // gives power that our actual interrupt handlers in the browser don't
+      // use. In particular, we insert interrupt checks in potentially
+      // long-running code (eg ArrayJoinKernel) with the expectation that the
+      // interrupt handler will not reach into the interrupted realm and modify
+      // the contents of the array. As a compromise, when fuzzing, we instead
+      // require a string argument, and evaluate that string in a fresh global.
+      // This prevents the interrupt handler from directly mutating the
+      // interrupted code, but still allows it to do interesting things (get a
+      // backtrace, trigger a GC, etc). Clever ways of circumventing this
+      // sandbox are only interesting to the extent that they correspond with
+      // things that happen in real interrupt handlers in the browser.
+
       RootedString str(cx, sc->interruptFunc.toString());
 
       Maybe<AutoReportException> are;
@@ -1203,8 +1214,17 @@ static bool ShellInterruptCallback(JSContext* cx) {
         are.emplace(cx);
       }
 
+      // Disable the Debugger API in the new global and hide this global from
+      // onNewGlobal hooks, to prevent interrupt callbacks from accessing other
+      // globals with --fuzzing-safe.
+      bool wasDebuggerDisabled = sc->disableDebuggerForNewGlobal;
+      sc->disableDebuggerForNewGlobal = true;
+      auto restore = MakeScopeExit(
+          [&]() { sc->disableDebuggerForNewGlobal = wasDebuggerDisabled; });
+
       JS::RealmOptions options;
-      SetStandardRealmOptions(options);
+      SetStandardRealmOptions(cx, options);
+
       RootedObject glob(cx, NewGlobalObject(cx, options, nullptr,
                                             ShellGlobalKind::WindowProxy,
                                             /* immutablePrototype = */ true));
@@ -4465,11 +4485,15 @@ static const JSClass sandbox_class = {
     &sandbox_classOps,
 };
 
-static void SetStandardRealmOptions(JS::RealmOptions& options) {
+static void SetStandardRealmOptions(JSContext* cx, JS::RealmOptions& options) {
   options.creationOptions()
       .setSharedMemoryAndAtomicsEnabled(enableSharedMemory)
       .setCoopAndCoepEnabled(false)
       .setToSourceEnabled(enableToSource);
+
+  if (GetShellContext(cx)->disableDebuggerForNewGlobal) {
+    options.creationOptions().setInvisibleToDebugger(true);
+  }
 }
 
 [[nodiscard]] static bool CheckRealmOptions(JSContext* cx,
@@ -4507,7 +4531,7 @@ static void SetStandardRealmOptions(JS::RealmOptions& options) {
 
 static JSObject* NewSandbox(JSContext* cx, bool lazy) {
   JS::RealmOptions options;
-  SetStandardRealmOptions(options);
+  SetStandardRealmOptions(cx, options);
 
   if (defaultToSameCompartment) {
     options.creationOptions().setExistingCompartment(cx->global());
@@ -4692,7 +4716,7 @@ static void WorkerMain(UniquePtr<WorkerInput> input) {
 
   do {
     JS::RealmOptions realmOptions;
-    SetStandardRealmOptions(realmOptions);
+    SetStandardRealmOptions(cx, realmOptions);
 
     RootedObject global(cx, NewGlobalObject(cx, realmOptions, nullptr,
                                             ShellGlobalKind::WindowProxy,
@@ -5694,9 +5718,12 @@ static bool ParseModule(JSContext* cx, unsigned argc, Value* vp) {
         moduleType = JS::ModuleType::JSON;
       } else if (JS_LinearStringEqualsLiteral(linearStr, "bytes")) {
         moduleType = JS::ModuleType::Bytes;
+      } else if (JS_LinearStringEqualsLiteral(linearStr, "text")) {
+        moduleType = JS::ModuleType::Text;
       } else if (!JS_LinearStringEqualsLiteral(linearStr, "js")) {
         JS_ReportErrorASCII(
-            cx, "moduleType string ('js' or 'json' or 'bytes') expected");
+            cx,
+            "moduleType string ('js' or 'json' or 'bytes' or 'text') expected");
         return false;
       }
     }
@@ -5737,19 +5764,27 @@ static bool ParseModule(JSContext* cx, unsigned argc, Value* vp) {
     }
 
     case JS::ModuleType::Bytes: {
-      if (!args[0].isObject() ||
-          !JS::IsArrayBufferObject(&args[0].toObject())) {
+      JSObject* obj = args[0].isObject() ? &args[0].toObject() : nullptr;
+      auto typedArray = JS::TypedArray<JS::Scalar::Uint8>::unwrap(obj);
+      if (!typedArray || !typedArray.isImmutable()) {
         const char* typeName = InformalValueTypeName(args[0]);
-        JS_ReportErrorASCII(cx, "expected ArrayBuffer for bytes module, got %s",
-                            typeName);
+        JS_ReportErrorASCII(
+            cx, "expected immutable Uint8Array for bytes module, got %s",
+            typeName);
         return false;
       }
 
-      /*
-       * NOTE: The spec requires checking that the ArrayBuffer is immutable.
-       * Immutable ArrayBuffers (see bug 1952253) are still only a Stage 2.7
-       * proposal. This check will be added in a future update.
-       */
+      module = JS::CreateDefaultExportSyntheticModule(cx, args[0]);
+      break;
+    }
+
+    case JS::ModuleType::Text: {
+      if (!args[0].isString()) {
+        const char* typeName = InformalValueTypeName(args[0]);
+        JS_ReportErrorASCII(cx, "expected text string, got %s", typeName);
+        return false;
+      }
+
       module = JS::CreateDefaultExportSyntheticModule(cx, args[0]);
       break;
     }
@@ -7339,7 +7374,7 @@ static bool NewGlobal(JSContext* cx, unsigned argc, Value* vp) {
   ShellGlobalKind kind = ShellGlobalKind::WindowProxy;
   bool immutablePrototype = true;
 
-  SetStandardRealmOptions(options);
+  SetStandardRealmOptions(cx, options);
 
   // Default to creating the global in the current compartment unless
   // --more-compartments is used.
@@ -7362,7 +7397,7 @@ static bool NewGlobal(JSContext* cx, unsigned argc, Value* vp) {
     if (!JS_GetProperty(cx, opts, "invisibleToDebugger", &v)) {
       return false;
     }
-    if (v.isBoolean()) {
+    if (v.isBoolean() && !GetShellContext(cx)->disableDebuggerForNewGlobal) {
       creationOptions.setInvisibleToDebugger(v.toBoolean());
     }
 
@@ -7609,6 +7644,23 @@ static bool GetMaxArgs(JSContext* cx, unsigned argc, Value* vp) {
   args.rval().setInt32(ARGS_LENGTH_MAX);
   return true;
 }
+
+#ifdef ENABLE_SOURCE_PHASE_IMPORTS
+static bool GetAbstractModuleSource(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  if (JS::Prefs::experimental_source_phase_imports()) {
+    JSObject* obj =
+        GlobalObject::getOrCreateConstructor(cx, JSProto_AbstractModuleSource);
+    if (!obj) {
+      return false;
+    }
+    args.rval().setObject(*obj);
+  } else {
+    args.rval().setUndefined();
+  }
+  return true;
+}
+#endif
 
 static bool IsHTMLDDA_Call(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
@@ -10186,9 +10238,10 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
 "  Sleep for dt seconds."),
 
     JS_FN_HELP("parseModule", ParseModule, 3, 0,
-"parseModule(code, 'filename', 'js' | 'json' | 'bytes')",
-"  Parses source text as a JS module ('js', this is the default) or a JSON"
-" module ('json') or bytes module ('bytes') and returns a ModuleObject wrapper object."),
+"parseModule(code, 'filename', 'js' | 'json' | 'bytes' | 'text')",
+"  Parses source text as a JS module ('js', this is the default),\n"
+"  a JSON module ('json'), a bytes module ('bytes'), or a text module ('text'),\n"
+"  and returns a ModuleObject wrapper object."),
 
     JS_FN_HELP("instantiateModuleStencil", InstantiateModuleStencil, 1, 0,
 "instantiateModuleStencil(stencil, [options])",
@@ -10443,6 +10496,12 @@ JS_FN_HELP("createUserArrayBuffer", CreateUserArrayBuffer, 1, 0,
     JS_FN_HELP("getMaxArgs", GetMaxArgs, 0, 0,
 "getMaxArgs()",
 "  Return the maximum number of supported args for a call."),
+
+#ifdef ENABLE_SOURCE_PHASE_IMPORTS
+    JS_FN_HELP("getAbstractModuleSource", GetAbstractModuleSource, 0, 0,
+"getAbstractModuleSource()",
+"  Return the %AbstractModuleSource% intrinsic constructor."),
+#endif
 
     JS_FN_HELP("createIsHTMLDDA", CreateIsHTMLDDA, 0, 0,
 "createIsHTMLDDA()",
@@ -11794,8 +11853,10 @@ static JSObject* NewGlobalObject(JSContext* cx, JS::RealmOptions& options,
     if (!JS_InitReflectParse(cx, glob)) {
       return nullptr;
     }
-    if (!JS_DefineDebuggerObject(cx, glob)) {
-      return nullptr;
+    if (!GetShellContext(cx)->disableDebuggerForNewGlobal) {
+      if (!JS_DefineDebuggerObject(cx, glob)) {
+        return nullptr;
+      }
     }
     if (!JS_DefineFunctionsWithHelp(cx, glob, shell_functions) ||
         !JS_DefineProfilingFunctions(cx, glob)) {
@@ -12320,7 +12381,7 @@ static int Shell(JSContext* cx, OptionParser* op) {
   int result = EXIT_SUCCESS;
   do {
     JS::RealmOptions options;
-    SetStandardRealmOptions(options);
+    SetStandardRealmOptions(cx, options);
     RootedObject glob(
         cx, NewGlobalObject(cx, options, nullptr, ShellGlobalKind::WindowProxy,
                             /* immutablePrototype = */ true));
@@ -13255,6 +13316,7 @@ bool InitOptionParser(OptionParser& op) {
                         "Disable Explicit Resource Management") ||
       !op.addBoolOption('\0', "enable-temporal", "Enable Temporal") ||
       !op.addBoolOption('\0', "enable-import-bytes", "Enable import bytes") ||
+      !op.addBoolOption('\0', "enable-import-text", "Enable import text") ||
       !op.addBoolOption('\0', "enable-promise-allkeyed",
                         "Enable Promise.allKeyed") ||
       !op.addBoolOption('\0', "enable-arraybuffer-immutable",
@@ -13264,6 +13326,9 @@ bool InitOptionParser(OptionParser& op) {
       !op.addBoolOption('\0', "enable-iterator-join", "Enable Iterator.join") ||
       !op.addBoolOption('\0', "enable-source-phase-imports",
                         "Enable source phase imports") ||
+      !op.addBoolOption(
+          '\0', "enable-source-phase-imports-test262-module-source",
+          "Support <module source> specifier for test262 tests") ||
       !op.addBoolOption('\0', "enable-legacy-regexp",
                         "Enable Legacy RegExp features")) {
     return false;
@@ -13335,6 +13400,9 @@ bool SetGlobalOptionsPreJSInit(const OptionParser& op) {
   if (op.getBoolOption("enable-import-bytes")) {
     JS::Prefs::setAtStartup_experimental_import_bytes(true);
   }
+  if (op.getBoolOption("enable-import-text")) {
+    JS::Prefs::setAtStartup_experimental_import_text(true);
+  }
   if (op.getBoolOption("enable-promise-allkeyed")) {
     JS::Prefs::setAtStartup_experimental_promise_allkeyed(true);
   }
@@ -13348,6 +13416,11 @@ bool SetGlobalOptionsPreJSInit(const OptionParser& op) {
 #ifdef ENABLE_SOURCE_PHASE_IMPORTS
   if (op.getBoolOption("enable-source-phase-imports")) {
     JS::Prefs::setAtStartup_experimental_source_phase_imports(true);
+  }
+  if (op.getBoolOption("enable-source-phase-imports-test262-module-source")) {
+    JS::Prefs::
+        setAtStartup_experimental_source_phase_imports_test262_module_source(
+            true);
   }
 #endif
 #ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT

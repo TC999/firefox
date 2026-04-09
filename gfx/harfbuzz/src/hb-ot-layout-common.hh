@@ -2480,7 +2480,7 @@ struct VarRegionAxis
     /* TODO Move these to sanitize(). */
     if (unlikely (start > peak || peak > end))
       return 1.f;
-    if (unlikely (start < 0 && end > 0 && peak != 0))
+    if (unlikely (start < 0 && end > 0))
       return 1.f;
 
     if (coord <= start || end <= coord)
@@ -2971,7 +2971,9 @@ struct VarData
     }
 
     if (unlikely (!c->extend_min (this))) return_trace (false);
-    itemCount = row_count;
+    if (unlikely (!c->check_assign (itemCount, row_count,
+                                    HB_SERIALIZE_ERROR_INT_OVERFLOW)))
+      return_trace (false);
 
     int min_threshold = has_long ? -65536 : -128;
     int max_threshold = has_long ? +65535 : +127;

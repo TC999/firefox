@@ -1,5 +1,3 @@
-# -*- Mode: python; indent-tabs-mode: nil; tab-width: 40 -*-
-# vim: set filetype=python:
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -785,7 +783,7 @@ def nsis_flags(host):
 
 set_config("MAKENSISU_FLAGS", nsis_flags)
 
-check_prog("7Z", ("7z", "7za"), allow_missing=True, when=target_is_windows)
+check_prog("7Z", ("7zz",), allow_missing=True, bootstrap="7zz", when=target_is_windows)
 
 
 # UPX is used for compressing the Windows installer SFX stub.
@@ -949,7 +947,7 @@ set_config("MOZ_SYSTEM_ZLIB", True, when="--with-system-zlib")
 
 option(
     env="USE_LIBZ_RS",
-    default=milestone.is_early_beta_or_earlier,
+    default=True,
     help="Use libz-rs-sys instead of zlib",
     when=toolkit & ~with_system_zlib_option,
 )

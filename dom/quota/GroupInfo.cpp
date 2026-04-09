@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -30,11 +28,11 @@ void GroupInfo::LockedAddOriginInfo(NotNull<RefPtr<OriginInfo>>&& aOriginInfo) {
 
   NS_ASSERTION(!mOriginInfos.Contains(aOriginInfo),
                "Replacing an existing entry!");
-  mOriginInfos.AppendElement(std::move(aOriginInfo));
+  const auto& back = *mOriginInfos.AppendElement(std::move(aOriginInfo));
 
-  uint64_t usage = aOriginInfo->LockedUsage();
+  uint64_t usage = back->LockedUsage();
 
-  if (!aOriginInfo->LockedPersisted()) {
+  if (!back->LockedPersisted()) {
     AssertNoOverflow(mUsage, usage);
     mUsage += usage;
   }

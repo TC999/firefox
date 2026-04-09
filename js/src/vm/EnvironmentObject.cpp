@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -199,13 +197,16 @@ CallObject* CallObject::createHollowForDebug(JSContext* cx,
                                              HandleFunction callee) {
   MOZ_ASSERT(!callee->needsCallObject());
 
-  RootedScript script(cx, callee->nonLazyScript());
-  Rooted<FunctionScope*> scope(cx, &script->bodyScope()->as<FunctionScope>());
-  Rooted<SharedShape*> shape(cx, EmptyEnvironmentShape<CallObject>(cx));
+  RootedTuple<JSScript*, FunctionScope*, SharedShape*, CallObject*, Value, jsid>
+      roots(cx);
+  RootedField<JSScript*> script(roots, callee->nonLazyScript());
+  RootedField<FunctionScope*> scope(roots,
+                                    &script->bodyScope()->as<FunctionScope>());
+  RootedField<SharedShape*> shape(roots, EmptyEnvironmentShape<CallObject>(cx));
   if (!shape) {
     return nullptr;
   }
-  Rooted<CallObject*> callobj(cx, createWithShape(cx, shape));
+  RootedField<CallObject*> callobj(roots, createWithShape(cx, shape));
   if (!callobj) {
     return nullptr;
   }
@@ -217,8 +218,8 @@ CallObject* CallObject::createHollowForDebug(JSContext* cx,
   callobj->initEnclosingEnvironment(&cx->global()->lexicalEnvironment());
   callobj->initFixedSlot(CALLEE_SLOT, ObjectValue(*callee));
 
-  RootedValue optimizedOut(cx, MagicValue(JS_OPTIMIZED_OUT));
-  RootedId id(cx);
+  RootedField<Value> optimizedOut(roots, MagicValue(JS_OPTIMIZED_OUT));
+  RootedField<jsid> id(roots);
   for (Rooted<BindingIter> bi(cx, BindingIter(script)); bi; bi++) {
     id = NameToId(bi.name()->asPropertyName());
     if (!SetProperty(cx, callobj, id, optimizedOut)) {
@@ -1065,8 +1066,10 @@ BlockLexicalEnvironmentObject::createHollowForDebug(
     JSContext* cx, Handle<LexicalScope*> scope) {
   MOZ_ASSERT(!scope->hasEnvironment());
 
-  Rooted<SharedShape*> shape(
-      cx, LexicalScope::getEmptyExtensibleEnvironmentShape(cx));
+  RootedTuple<SharedShape*, JSObject*, LexicalEnvironmentObject*, Value, jsid>
+      roots(cx);
+  RootedField<SharedShape*> shape(
+      roots, LexicalScope::getEmptyExtensibleEnvironmentShape(cx));
   if (!shape) {
     return nullptr;
   }
@@ -1075,16 +1078,17 @@ BlockLexicalEnvironmentObject::createHollowForDebug(
   // DebugEnvironmentProxy that refers to this scope carries its own
   // enclosing link, which is what Debugger uses to construct the tree of
   // Debugger.Environment objects.
-  RootedObject enclosingEnv(cx, &cx->global()->lexicalEnvironment());
-  Rooted<LexicalEnvironmentObject*> env(
-      cx, LexicalEnvironmentObject::create(cx, shape, enclosingEnv,
-                                           gc::Heap::Tenured));
+  RootedField<JSObject*> enclosingEnv(roots,
+                                      &cx->global()->lexicalEnvironment());
+  RootedField<LexicalEnvironmentObject*> env(
+      roots, LexicalEnvironmentObject::create(cx, shape, enclosingEnv,
+                                              gc::Heap::Tenured));
   if (!env) {
     return nullptr;
   }
 
-  RootedValue optimizedOut(cx, MagicValue(JS_OPTIMIZED_OUT));
-  RootedId id(cx);
+  RootedField<Value> optimizedOut(roots, MagicValue(JS_OPTIMIZED_OUT));
+  RootedField<jsid> id(roots);
   for (Rooted<BindingIter> bi(cx, BindingIter(scope)); bi; bi++) {
     id = NameToId(bi.name()->asPropertyName());
     if (!SetProperty(cx, env, id, optimizedOut)) {
@@ -3193,6 +3197,8 @@ bool DebugEnvironments::updateLiveEnvironments(JSContext* cx) {
    * fp, simply popping fp effectively clears the flag for us, at exactly
    * the time when execution resumes fp->prev().
    */
+  RootedObject env(cx);
+  Rooted<Scope*> scope(cx);
   for (AllFramesIter i(cx); !i.done(); ++i) {
     if (!i.hasUsableAbstractFramePtr()) {
       continue;
@@ -3207,8 +3213,6 @@ bool DebugEnvironments::updateLiveEnvironments(JSContext* cx) {
       continue;
     }
 
-    RootedObject env(cx);
-    Rooted<Scope*> scope(cx);
     if (!GetFrameEnvironmentAndScope(cx, frame, i.pc(), &env, &scope)) {
       return false;
     }
@@ -3621,6 +3625,10 @@ ModuleObject* js::GetModuleObjectForScript(JSScript* script) {
 static bool GetThisValueForDebuggerEnvironmentIterMaybeOptimizedOut(
     JSContext* cx, const EnvironmentIter& originalIter, HandleObject envChain,
     const jsbytecode* pc, MutableHandleValue res) {
+  RootedTuple<JSScript*, JSObject*, JSObject*> thisRoots(cx);
+  RootedField<JSScript*> script(thisRoots);
+  RootedField<JSObject*, 1> callObj(thisRoots);
+  RootedField<JSObject*, 2> env(thisRoots);
   for (EnvironmentIter ei(cx, originalIter); ei; ei++) {
     if (ei.scope().kind() == ScopeKind::Module) {
       res.setUndefined();
@@ -3632,7 +3640,7 @@ static bool GetThisValueForDebuggerEnvironmentIterMaybeOptimizedOut(
       continue;
     }
 
-    RootedScript script(cx, ei.scope().as<FunctionScope>().script());
+    script = ei.scope().as<FunctionScope>().script();
 
     if (ei.withinInitialFrame()) {
       MOZ_ASSERT(pc, "must have PC if there is an initial frame");
@@ -3686,7 +3694,7 @@ static bool GetThisValueForDebuggerEnvironmentIterMaybeOptimizedOut(
 
       BindingLocation loc = bi.location();
       if (loc.kind() == BindingLocation::Kind::Environment) {
-        RootedObject callObj(cx, &ei.environment().as<CallObject>());
+        callObj = &ei.environment().as<CallObject>();
         return GetProperty(cx, callObj, callObj, bi.name()->asPropertyName(),
                            res);
       }
@@ -3698,7 +3706,7 @@ static bool GetThisValueForDebuggerEnvironmentIterMaybeOptimizedOut(
         }
 
         if (ei.hasAnyEnvironmentObject()) {
-          RootedObject env(cx, &ei.environment());
+          env = &ei.environment();
           AbstractGeneratorObject* genObj =
               GetGeneratorObjectForEnvironment(cx, env);
           if (genObj && genObj->isSuspended() && genObj->hasStackStorage()) {
@@ -3892,19 +3900,23 @@ static bool InitGlobalOrEvalDeclarations(
     Handle<ExtensibleLexicalEnvironmentObject*> lexicalEnv,
     HandleObject varObj) {
   Rooted<BindingIter> bi(cx, BindingIter(script));
+  RootedTuple<PropertyName*, JSObject*, jsid, Value> declRoots(cx);
+  RootedField<PropertyName*> name(declRoots);
+  RootedField<JSObject*> obj2(declRoots);
+  RootedField<jsid> id(declRoots);
+  RootedField<Value> uninitialized(declRoots);
   for (; bi; bi++) {
     if (bi.isTopLevelFunction()) {
       continue;
     }
 
-    Rooted<PropertyName*> name(cx, bi.name()->asPropertyName());
+    name = bi.name()->asPropertyName();
     unsigned attrs = script->isForEval() ? JSPROP_ENUMERATE
                                          : JSPROP_ENUMERATE | JSPROP_PERMANENT;
 
     switch (bi.kind()) {
       case BindingKind::Var: {
         PropertyResult prop;
-        RootedObject obj2(cx);
         if (!LookupProperty(cx, varObj, name, &obj2, &prop)) {
           return false;
         }
@@ -3925,8 +3937,8 @@ static bool InitGlobalOrEvalDeclarations(
         [[fallthrough]];
 
       case BindingKind::Let: {
-        RootedId id(cx, NameToId(name));
-        RootedValue uninitialized(cx, MagicValue(JS_UNINITIALIZED_LEXICAL));
+        id = NameToId(name);
+        uninitialized = MagicValue(JS_UNINITIALIZED_LEXICAL);
         if (!NativeDefineDataProperty(cx, lexicalEnv, id, uninitialized,
                                       attrs)) {
           return false;
@@ -3953,6 +3965,12 @@ static bool InitHoistedFunctionDeclarations(JSContext* cx, HandleScript script,
                                             GCThingIndex lastFun) {
   // The inner-functions up to `lastFun` are the hoisted function declarations
   // of the script. We must clone and bind them now.
+  RootedTuple<JSFunction*, PropertyName*, Value, JSObject*, jsid> funRoots(cx);
+  RootedField<JSFunction*> fun(funRoots);
+  RootedField<PropertyName*> name(funRoots);
+  RootedField<Value> rval(funRoots);
+  RootedField<JSObject*> pobj(funRoots);
+  RootedField<jsid> id(funRoots);
   for (size_t i = 0; i <= lastFun; ++i) {
     JS::GCCellPtr thing = script->gcthings()[i];
 
@@ -3963,18 +3981,17 @@ static bool InitHoistedFunctionDeclarations(JSContext* cx, HandleScript script,
       continue;
     }
 
-    RootedFunction fun(cx, &thing.as<JSObject>().as<JSFunction>());
-    Rooted<PropertyName*> name(cx, fun->fullExplicitName()->asPropertyName());
+    fun = &thing.as<JSObject>().as<JSFunction>();
+    name = fun->fullExplicitName()->asPropertyName();
 
     // Clone the function before exposing to script as a binding.
     JSObject* clone = Lambda(cx, fun, envChain);
     if (!clone) {
       return false;
     }
-    RootedValue rval(cx, ObjectValue(*clone));
+    rval = ObjectValue(*clone);
 
     PropertyResult prop;
-    RootedObject pobj(cx);
     if (!LookupProperty(cx, varObj, name, &pobj, &prop)) {
       return false;
     }
@@ -4022,7 +4039,7 @@ static bool InitHoistedFunctionDeclarations(JSContext* cx, HandleScript script,
      * specified Call object property is not writable (const).
      */
 
-    RootedId id(cx, NameToId(name));
+    id = NameToId(name);
     if (!PutProperty(cx, varObj, id, rval, script->strict())) {
       return false;
     }

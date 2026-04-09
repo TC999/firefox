@@ -60,7 +60,7 @@ fi
 # Logic for macosx64
 if [[ $(uname -s) == "Darwin" ]]; then
   # Modify the config with fetched sdk path
-  export MACOS_SYSROOT="$MOZ_FETCHES_DIR/MacOSX26.2.sdk"
+  export MACOS_SYSROOT="$MOZ_FETCHES_DIR/MacOSX26.4.sdk"
   # Bug 1990712 & 1989676
   # HACK: Create a stub DarwinBasic.modulemap to satisfy Ninja’s dependency graph.
   # This file does not exist in Command Line Tools SDKs. It seems only the full
@@ -196,11 +196,7 @@ CONFIG=$(echo $CONFIG pgo_data_path='"'$PGO_FILE'"')
 
 # Set up then build chrome
 gn gen out/Default --args="$CONFIG"
-if [ "$IS_ANDROID" = false ]; then
-  autoninja -C out/Default code_cache_generator
-fi
-# Ninja is incremental, so add a second retry attempt to pick up where we left off.
-autoninja -C out/Default $FINAL_BIN || autoninja -C out/Default $FINAL_BIN
+autoninja -C out/Default $FINAL_BIN
 
 # Make artifact smaller for win/linux
 if [[ $(uname -s) == "Linux" ]] || [[ $(uname -o) == "Msys" ]]; then

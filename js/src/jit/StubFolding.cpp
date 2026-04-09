@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -25,7 +23,8 @@ using namespace js;
 using namespace js::jit;
 
 static bool TryFoldingGuardShapes(JSContext* cx, ICFallbackStub* fallback,
-                                  JSScript* script, ICScript* icScript) {
+                                  JSScript* script, ICScript* icScript,
+                                  gc::AutoMarkingLock& lock) {
   // Try folding similar stubs with GuardShapes
   // into GuardMultipleShapes or GuardMultipleShapesToOffset
 
@@ -408,8 +407,8 @@ static bool TryFoldingGuardShapes(JSContext* cx, ICFallbackStub* fallback,
   // Replace the existing stubs with the new folded stub.
   fallback->discardStubs(cx->zone(), icEntry);
 
-  ICAttachResult result = AttachBaselineCacheIRStub(
-      cx, writer, cacheKind, script, icScript, fallback, "StubFold");
+  ICAttachResult result = AttachBaselineCacheIRStubLocked(
+      cx, writer, cacheKind, script, icScript, fallback, "StubFold", lock);
   if (result == ICAttachResult::OOM) {
     ReportOutOfMemory(cx);
     return false;
@@ -443,6 +442,13 @@ static bool TryFoldingGuardShapes(JSContext* cx, ICFallbackStub* fallback,
 
 bool js::jit::TryFoldingStubs(JSContext* cx, ICFallbackStub* fallback,
                               JSScript* script, ICScript* icScript) {
+  gc::AutoMarkingLock lock(cx->zone(), icScript->markingLock());
+  return TryFoldingStubsLocked(cx, fallback, script, icScript, lock);
+}
+
+bool js::jit::TryFoldingStubsLocked(JSContext* cx, ICFallbackStub* fallback,
+                                    JSScript* script, ICScript* icScript,
+                                    gc::AutoMarkingLock& lock) {
   ICEntry* icEntry = icScript->icEntryForStub(fallback);
   ICStub* entryStub = icEntry->firstStub();
 
@@ -460,7 +466,9 @@ bool js::jit::TryFoldingStubs(JSContext* cx, ICFallbackStub* fallback,
     return true;
   }
 
-  if (!TryFoldingGuardShapes(cx, fallback, script, icScript)) return false;
+  if (!TryFoldingGuardShapes(cx, fallback, script, icScript, lock)) {
+    return false;
+  }
 
   return true;
 }
@@ -703,7 +711,10 @@ bool js::jit::AddToFoldedStub(JSContext* cx, const CacheIRWriter& writer,
 
   // Limit the maximum number of shapes we will add before giving up.
   // If we give up, transition the stub.
-  if (numShapes == ShapeListObject::MaxLength) {
+  size_t maxLength = offsetFieldOffset.isSome()
+                         ? ShapeListWithOffsetsObject::MaxLength
+                         : ShapeListObject::MaxLength;
+  if (numShapes == maxLength) {
     MOZ_ASSERT(fallback->state().mode() != ICState::Mode::Generic);
     fallback->state().forceTransition();
     fallback->discardStubs(cx->zone(), icEntry);

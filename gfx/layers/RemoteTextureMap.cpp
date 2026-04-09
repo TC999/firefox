@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -199,7 +197,8 @@ void RemoteTextureOwnerClient::PushDummyTexture(
   auto flags = TextureFlags::DEALLOCATE_CLIENT | TextureFlags::REMOTE_TEXTURE |
                TextureFlags::DUMMY_TEXTURE;
   auto* rawData = BufferTextureData::Create(
-      gfx::IntSize(1, 1), gfx::SurfaceFormat::B8G8R8A8, gfx::BackendType::SKIA,
+      gfx::IntSize(1, 1), gfx::SurfaceFormat::B8G8R8A8, gfx::ColorSpace2::SRGB,
+      gfx::TransferFunction::SRGB, gfx::BackendType::SKIA,
       LayersBackend::LAYERS_WR, flags, ALLOC_DEFAULT, nullptr);
   if (!rawData) {
     MOZ_ASSERT_UNREACHABLE("unexpected to be called");
@@ -246,9 +245,10 @@ RemoteTextureOwnerClient::CreateOrRecycleBufferTextureData(
   }
 
   auto flags = TextureFlags::DEALLOCATE_CLIENT | TextureFlags::REMOTE_TEXTURE;
-  auto* data = BufferTextureData::Create(aSize, aFormat, gfx::BackendType::SKIA,
-                                         LayersBackend::LAYERS_WR, flags,
-                                         ALLOC_DEFAULT, nullptr);
+  auto* data = BufferTextureData::Create(
+      aSize, aFormat, gfx::ColorSpace2::SRGB, gfx::TransferFunction::SRGB,
+      gfx::BackendType::SKIA, LayersBackend::LAYERS_WR, flags, ALLOC_DEFAULT,
+      nullptr);
   return UniquePtr<TextureData>(data);
 }
 
@@ -557,16 +557,15 @@ void RemoteTextureMap::GetLatestBufferSnapshot(
     uint8_t* src = bufferTextureHost->GetBuffer();
     uint8_t* dst = aDestShmem.get<uint8_t>();
 
-    const size_t src_stride = ImageDataSerializer::GetRGBStride(
+    const Maybe<int32_t> src_stride = ImageDataSerializer::GetRGBStride(
         bufferTextureHost->GetBufferDescriptor());
-    // `GetRGBStride` returns 0 if it overflows
-    MOZ_RELEASE_ASSERT(src_stride != 0);
+    MOZ_RELEASE_ASSERT(src_stride.isSome());
     // note that this might still copy some padding bytes
-    const size_t min_stride = std::min(src_stride, aDestStride);
+    const size_t min_stride = std::min(size_t(src_stride.value()), aDestStride);
 
     for (int y = 0; y < src_size.height; y++) {
       memcpy(dst, src, min_stride);
-      src += src_stride;
+      src += src_stride.value();
       dst += aDestStride;
     }
   }
@@ -1323,7 +1322,7 @@ bool RemoteTextureMap::WaitRemoteTextureReady(const RemoteTextureInfo& aInfo) {
       return false;
     }
 
-    auto* owner = GetTextureOwner(lock, aInfo.mOwnerId, aInfo.mForPid);
+    owner = GetTextureOwner(lock, aInfo.mOwnerId, aInfo.mForPid);
     // When owner is alreay unregistered, remote texture will not be pushed.
     if (!owner || owner->mIsContextLost) {
       // This could happen with IPC abnormal shutdown

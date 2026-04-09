@@ -125,7 +125,7 @@ describe("<BaseContent>", () => {
     assert.lengthOf(wrapper.find(".only-search"), 1);
   });
 
-  it("should update firstVisibleTimestamp if it is visible immediately with no event listener", () => {
+  it("should not attach an event listener for visibility change if it is visible immediately", () => {
     const props = Object.assign({}, DEFAULT_PROPS, {
       document: {
         visibilityState: "visible",
@@ -134,9 +134,8 @@ describe("<BaseContent>", () => {
       },
     });
 
-    const wrapper = shallow(<BaseContent {...props} />);
+    shallow(<BaseContent {...props} />);
     assert.notCalled(props.document.addEventListener);
-    assert.isDefined(wrapper.state("firstVisibleTimestamp"));
   });
   it("should attach an event listener for visibility change if it is not visible", () => {
     const props = Object.assign({}, DEFAULT_PROPS, {
@@ -147,9 +146,8 @@ describe("<BaseContent>", () => {
       },
     });
 
-    const wrapper = shallow(<BaseContent {...props} />);
+    shallow(<BaseContent {...props} />);
     assert.calledWith(props.document.addEventListener, "visibilitychange");
-    assert.notExists(wrapper.state("firstVisibleTimestamp"));
   });
   it("should remove the event listener for visibility change when unmounted", () => {
     const props = Object.assign({}, DEFAULT_PROPS, {
@@ -180,16 +178,14 @@ describe("<BaseContent>", () => {
       },
     });
 
-    const wrapper = shallow(<BaseContent {...props} />);
+    shallow(<BaseContent {...props} />);
     assert.equal(listeners.size, 1);
-    assert.notExists(wrapper.state("firstVisibleTimestamp"));
 
     // Simulate listeners getting called
     props.document.visibilityState = "visible";
     listeners.forEach(l => l());
 
     assert.equal(listeners.size, 0);
-    assert.isDefined(wrapper.state("firstVisibleTimestamp"));
   });
 });
 

@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -5548,7 +5546,7 @@ static bool PromiseAllSettledKeyedResolveElementFunction(JSContext* cx,
         // Step 6.b.vi.4. Else,
         // Step 6.b.vi.4.a. Assert: variant is all-settled.
         // Step 6.b.vi.4.b. Let obj be OrdinaryObjectCreate(%Object.prototype%).
-        JS::Rooted<JSObject*> obj(cx, NewPlainObjectWithProto(cx, nullptr));
+        JS::Rooted<JSObject*> obj(cx, NewPlainObject(cx));
         if (!obj) {
           return false;
         }
@@ -5595,7 +5593,7 @@ static bool PromiseAllSettledKeyedRejectElementFunction(JSContext* cx,
       [](JSContext* cx, JS::Handle<JS::Value> xVal, uint32_t index,
          JS::MutableHandle<JS::Value> outVal) {
         // Step 6.b.ix.2.c. Let obj be OrdinaryObjectCreate(%Object.prototype%).
-        JS::Rooted<JSObject*> obj(cx, NewPlainObjectWithProto(cx, nullptr));
+        JS::Rooted<JSObject*> obj(cx, NewPlainObject(cx));
         if (!obj) {
           return false;
         }
@@ -8002,8 +8000,9 @@ void PromiseObject::dumpOwnStringContent(js::GenericPrinter& out) const {}
 
   if (!iter.isFunctionFrame() && iter.isModuleFrame()) {
     // The iterator is not a function frame, it is a module frame.
-    // Ignore this optimization for now.
-    return true;
+    // The await cannot be skipped for modules. During InnerModuleEvaluation, it
+    // must yield execution so other modules in the same module graph can run.
+    return false;
   }
 
   MOZ_ASSERT(iter.calleeTemplate()->isAsync());

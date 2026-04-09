@@ -27,6 +27,7 @@ use firefox_on_glean::{
 #[cfg(not(windows))]
 use libc::{c_int, AF_INET, AF_INET6};
 use libc::{c_uchar, size_t};
+use log::debug;
 use neqo_common::{
     datagram, event::Provider as _, qdebug, qerror, qlog::Qlog, qwarn, Datagram, Decoder, Encoder,
     Header, Role, Tos,
@@ -37,8 +38,9 @@ use neqo_http3::{
     Http3ClientEvent, Http3Parameters, Http3State, Priority, WebTransportEvent,
 };
 use neqo_transport::{
-    stream_id::StreamType, CongestionControlAlgorithm, Connection, ConnectionParameters,
-    Error as TransportError, Output, OutputBatch, RandomConnectionIdGenerator, StreamId, Version,
+    stream_id::StreamType, CongestionControl, Connection, ConnectionParameters,
+    Error as TransportError, Output, OutputBatch, RandomConnectionIdGenerator, SlowStart, StreamId,
+    Version,
 };
 use nserror::{
     nsresult, NS_BASE_STREAM_WOULD_BLOCK, NS_ERROR_CONNECTION_REFUSED,
@@ -55,9 +57,8 @@ use winapi::{
     ctypes::c_int,
     shared::ws2def::{AF_INET, AF_INET6},
 };
-use xpcom::{interfaces::nsISocketProvider, AtomicRefcnt, RefCounted, RefPtr};
-use zlib_rs::inflate::{uncompress_slice, InflateConfig};
-use zlib_rs::ReturnCode;
+use xpcom::{AtomicRefcnt, RefCounted, RefPtr};
+use zlib_rs::{decompress_slice, InflateConfig, ReturnCode};
 
 std::thread_local! {
     static RECV_BUF: RefCell<neqo_udp::RecvBuf> = RefCell::new(neqo_udp::RecvBuf::default());
@@ -179,7 +180,7 @@ fn enable_zlib_decoder(c: &mut Connection) -> neqo_transport::Res<()> {
         const NAME: &std::ffi::CStr = c"zlib";
 
         fn decode(input: &[u8], output: &mut [u8]) -> neqo_crypto::Res<()> {
-            let (output_slice, error) = uncompress_slice(output, &input, InflateConfig::default());
+            let (output_slice, error) = decompress_slice(output, &input, InflateConfig::default());
             if error != ReturnCode::Ok {
                 return Err(neqo_crypto::Error::CertificateDecoding);
             }
@@ -349,7 +350,6 @@ impl NeqoHttp3Conn {
         version_negotiation: bool,
         webtransport: bool,
         qlog_dir: &nsACString,
-        provider_flags: u32,
         idle_timeout: u32,
         fast_pto: u32,
         pmtud_enabled: bool,
@@ -413,11 +413,21 @@ impl NeqoHttp3Conn {
         };
 
         let cc_algorithm = match static_prefs::pref!("network.http.http3.cc_algorithm") {
-            0 => CongestionControlAlgorithm::NewReno,
-            1 => CongestionControlAlgorithm::Cubic,
+            0 => CongestionControl::NewReno,
+            1 => CongestionControl::Cubic,
             _ => {
                 // Unknown preferences; default to Cubic
-                CongestionControlAlgorithm::Cubic
+                CongestionControl::Cubic
+            }
+        };
+
+        let slow_start = match static_prefs::pref!("network.http.http3.slow_start_algorithm") {
+            0 => SlowStart::Classic,
+            1 => SlowStart::HyStart,
+            _ => {
+                // Unknown preferences; default to Classic
+                debug!("Unknown http3.slow_start_algorithm pref, defaulting to SlowStart::Classic");
+                SlowStart::Classic
             }
         };
 
@@ -432,7 +442,8 @@ impl NeqoHttp3Conn {
 
         let mut params = ConnectionParameters::default()
             .versions(quic_version, version_list)
-            .cc_algorithm(cc_algorithm)
+            .congestion_control(cc_algorithm)
+            .slow_start(slow_start)
             .max_data(max_data)
             .max_stream_data(StreamType::BiDi, false, max_stream_data)
             .grease(static_prefs::pref!("security.tls.grease_http3_enable"))
@@ -486,8 +497,6 @@ impl NeqoHttp3Conn {
         ));
         if static_prefs::pref!("security.tls.enable_kyber")
             && static_prefs::pref!("network.http.http3.enable_kyber")
-            && (provider_flags & nsISocketProvider::IS_RETRY) == 0
-            && (provider_flags & nsISocketProvider::BE_CONSERVATIVE) == 0
         {
             // These operations are infallible when conn.state == State::Init.
             conn.set_groups(&[
@@ -570,9 +579,11 @@ impl NeqoHttp3Conn {
     fn record_stats_in_glean(&self) {
         use firefox_on_glean::metrics::networking as glean;
         use neqo_common::Ecn;
-        use neqo_transport::{ecn, CongestionEvent};
+        use neqo_transport::{ecn, CongestionEvent, SlowStartExitReason};
         use std::cmp::Ordering;
 
+        /// The biggest initial congestion window that can be set in neqo. Needs to be kept in sync with neqo.
+        const MAX_INITIAL_CWND: usize = 12520;
         // Metric values must be recorded as integers. Glean does not support
         // floating point distributions. In order to represent values <1, they
         // are multiplied by `PRECISION_FACTOR`. A `PRECISION_FACTOR` of
@@ -685,50 +696,120 @@ impl NeqoHttp3Conn {
 
         // Ignore connections into the void for metrics where it makes sense.
         if stats.packets_rx != 0 {
-            // Calculate and collect packet loss ratio.
-            if let Ok(loss) =
-                i64::try_from((stats.lost * PRECISION_FACTOR_USIZE) / stats.packets_tx)
-            {
-                glean::http_3_loss_ratio.accumulate_single_sample_signed(loss);
-            } else {
-                let msg = "Failed to convert ratio to i64 for use with glean";
-                qwarn!("{msg}");
-                debug_assert!(false, "{msg}");
-            }
-
-            // Record Slow Start Exit metrics
-            if let Some(exit_cwnd) = stats.cc.slow_start_exit_cwnd {
+            // Calculate and collect packet loss ratio. The value is used later to also record the filtered loss ratio for connections that used the congestion controller.
+            let loss_ratio =
+                match i64::try_from((stats.lost * PRECISION_FACTOR_USIZE) / stats.packets_tx) {
+                    Ok(v) => {
+                        glean::http_3_loss_ratio.accumulate_single_sample_signed(v);
+                        Some(v)
+                    }
+                    Err(e) => {
+                        qwarn!("Failed to convert ratio to i64 for use with glean: {e}");
+                        debug_assert!(
+                            false,
+                            "Failed to convert ratio to i64 for use with glean: {e}"
+                        );
+                        None
+                    }
+                };
+            // Records the unfiltered (old) slow start exit ratio
+            if stats.cc.slow_start_exit_cwnd.is_some() {
                 glean::http_3_slow_start_exited.get("exited").add(1);
-                glean::http_3_slow_start_exit_cwnd.accumulate(exit_cwnd as u64);
-
-                // http_3_slow_start_exit_direction_loss
-                match exit_cwnd.cmp(&stats.cc.cwnd) {
-                    Ordering::Greater => glean::http_3_slow_start_exit_direction_loss
-                        .get("overshoot")
-                        .add(1),
-                    Ordering::Less => glean::http_3_slow_start_exit_direction_loss
-                        .get("undershoot")
-                        .add(1),
-                    Ordering::Equal => glean::http_3_slow_start_exit_direction_loss
-                        .get("exact")
-                        .add(1),
-                }
-
-                // http_3_slow_start_exit_accuracy: Have to cast to f64 and back to i64 here to avoid truncating the ratio in the percentage calculation before multiplying with 100
-                debug_assert!(
-                    stats.cc.cwnd > 0,
-                    "If `slow_start_exit_cwnd.is_some()` then `cwnd > 0` should also be true"
-                );
-                let accuracy =
-                    ((exit_cwnd.abs_diff(stats.cc.cwnd) as f64) / stats.cc.cwnd as f64) * 100.0;
-                glean::http_3_slow_start_exit_accuracy
-                    .get("ce_exit")
-                    .accumulate_single_sample_signed(accuracy as i64);
             } else {
                 glean::http_3_slow_start_exited.get("not_exited").add(1);
             }
 
-            glean::http_3_final_cwnd.accumulate(stats.cc.cwnd as u64);
+            let cwnd_that_grew = stats.cc.cwnd.filter(|&c| c > MAX_INITIAL_CWND);
+            let growth_label = match (cwnd_that_grew, stats.cc.slow_start_exit_cwnd) {
+                (Some(_), Some(exit_cwnd)) if exit_cwnd < MAX_INITIAL_CWND => {
+                    "no_growth_then_exit_then_growth"
+                }
+                (Some(_), _) => "had_growth",
+                (None, Some(_)) => "no_growth_but_exit",
+                (None, None) => "no_growth",
+            };
+            glean::http_3_congestion_window_growth
+                .get(growth_label)
+                .add(1);
+            // Filtered: only record CC metrics for connections that grew past the initial window.
+            if let Some(final_cwnd) = cwnd_that_grew {
+                glean::http_3_final_cwnd.accumulate(final_cwnd as u64);
+                if let Some(loss) = loss_ratio {
+                    glean::http_3_loss_ratio_filtered.accumulate_single_sample_signed(loss);
+                }
+                // Record metrics concerning the slow start exit point below this filter.
+                debug_assert_eq!(
+                    stats.cc.slow_start_exit_cwnd.is_some(),
+                    stats.cc.slow_start_exit_reason.is_some(),
+                    "slow_start_exit_cwnd and slow_start_exit_reason must always be set together"
+                );
+                let mut hystart_label = "not_exited";
+                if let (Some(exit_cwnd), Some(reason)) = (
+                    stats.cc.slow_start_exit_cwnd,
+                    stats.cc.slow_start_exit_reason,
+                ) {
+                    glean::http_3_slow_start_exit_cwnd.accumulate(exit_cwnd as u64);
+                    glean::http_3_slow_start_exited_filtered
+                        .get("exited")
+                        .add(1);
+                    let accuracy_cwnd =
+                        ((exit_cwnd.abs_diff(final_cwnd) as f64) / final_cwnd as f64) * 100.0;
+                    let accuracy_w_max = if let Some(final_w_max) = stats.cc.w_max {
+                        assert!(final_w_max > 0.0, "w_max can never be non-positive");
+                        glean::http_3_final_w_max.accumulate(final_w_max as u64);
+                        Some(((exit_cwnd as f64 - final_w_max).abs() / final_w_max) * 100.0)
+                    } else {
+                        None
+                    };
+                    let direction_label = match exit_cwnd.cmp(&final_cwnd) {
+                        Ordering::Greater => "overshoot",
+                        Ordering::Less => "undershoot",
+                        Ordering::Equal => "exact",
+                    };
+                    let (reason_label, accuracy_label) = match reason {
+                        SlowStartExitReason::CongestionEvent => {
+                            glean::http_3_slow_start_exit_direction_loss
+                                .get(direction_label)
+                                .add(1);
+                            hystart_label = "exited_ce";
+                            ("ce", "ce_exit")
+                        }
+                        SlowStartExitReason::Heuristic => {
+                            glean::http_3_slow_start_exit_direction_heuristic
+                                .get(direction_label)
+                                .add(1);
+                            hystart_label = "exited_hystart";
+                            ("heuristic", "heuristic_exit")
+                        }
+                    };
+                    glean::http_3_slow_start_exit_reason
+                        .get(reason_label)
+                        .add(1);
+                    glean::http_3_slow_start_exit_accuracy
+                        .get(accuracy_label)
+                        .accumulate_single_sample_signed(accuracy_cwnd as i64);
+                    if let Some(accuracy_w_max) = accuracy_w_max {
+                        glean::http_3_slow_start_exit_accuracy_w_max
+                            .get(accuracy_label)
+                            .accumulate_single_sample_signed(accuracy_w_max as i64);
+                    }
+                } else {
+                    glean::http_3_slow_start_exited_filtered
+                        .get("not_exited")
+                        .add(1);
+                }
+                // Only record HyStart metrics when HyStart is enabled (1 == HyStart, see constructor).
+                if static_prefs::pref!("network.http.http3.slow_start_algorithm") == 1 {
+                    glean::http_3_hystart_css_rounds_finished
+                        .get(hystart_label)
+                        .accumulate_single_sample_signed(
+                            stats.cc.hystart_css_rounds_finished as i64,
+                        );
+                    glean::http_3_hystart_css_entries
+                        .get(hystart_label)
+                        .accumulate_single_sample_signed(stats.cc.hystart_css_entries as i64);
+                }
+            }
 
             glean::http_3_congestion_event_count.accumulate_single_sample_signed(
                 (stats.cc.congestion_events[CongestionEvent::Ecn]
@@ -842,7 +923,6 @@ pub extern "C" fn neqo_http3conn_new(
     version_negotiation: bool,
     webtransport: bool,
     qlog_dir: &nsACString,
-    provider_flags: u32,
     idle_timeout: u32,
     fast_pto: u32,
     socket: i64,
@@ -863,7 +943,6 @@ pub extern "C" fn neqo_http3conn_new(
         version_negotiation,
         webtransport,
         qlog_dir,
-        provider_flags,
         idle_timeout,
         fast_pto,
         pmtud_enabled,
@@ -891,7 +970,6 @@ pub extern "C" fn neqo_http3conn_new_use_nspr_for_io(
     version_negotiation: bool,
     webtransport: bool,
     qlog_dir: &nsACString,
-    provider_flags: u32,
     idle_timeout: u32,
     fast_pto: u32,
     result: &mut *const NeqoHttp3Conn,
@@ -910,7 +988,6 @@ pub extern "C" fn neqo_http3conn_new_use_nspr_for_io(
         version_negotiation,
         webtransport,
         qlog_dir,
-        provider_flags,
         idle_timeout,
         fast_pto,
         false,

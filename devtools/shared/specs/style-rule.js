@@ -64,6 +64,7 @@ const styleRuleSpec = generateActorSpec({
       request: {
         ancestorRuleIndex: Arg(0, "number"),
         node: Arg(1, "domnode"),
+        conditionIndex: Arg(2, "number"),
       },
       response: RetVal("domstylerule.queryContainerForNodeReturn"),
     },

@@ -182,6 +182,12 @@ urlbar-split-view-button =
     .tooltiptext = Split view
     .aria-label = Split view
 
+## Searchbar context menu
+
+clear-search-history =
+    .label = Clear Search History
+    .accesskey = H
+
 ## Page Action Context Menu
 
 page-action-manage-extension2 =
@@ -296,6 +302,10 @@ quickactions-cmd-help = help, support
 # Opens the devtools web inspector
 quickactions-inspector2 = Open Developer Tools
 quickactions-cmd-inspector2 = inspector, devtools, dev tools
+
+# Opens Firefox Library
+quickactions-cmd-library = library
+quickactions-library = Open Library
 
 # Opens about:logins
 quickactions-logins2 = Manage passwords
@@ -809,11 +819,11 @@ urlbar-searchmode-default =
 
 # Label shown on the top of Searchmode Switcher popup. After this label, the
 # available search engines will be listed.
-urlbar-searchmode-popup-description-menucaption =
+urlbar-searchmode-popup-one-off-description-menucaption =
     .label = This time search with:
 # Label shown on the top of Searchmode Switcher popup when the search engine won't automatically
 # reset after submitting.
-urlbar-searchmode-popup-sticky-description-menucaption =
+urlbar-searchmode-popup-header-menucaption =
     .label = Search with:
 urlbar-searchmode-popup-search-settings-menuitem =
     .label = Search Settings
@@ -1102,8 +1112,14 @@ panel-save-update-password = Password
 # "More" item in macOS share menu
 menu-share-more =
     .label = More…
-menu-share-copy-link =
-    .label = Copy Link
+# Variables:
+#   $count (Number) - The number of links that will be copied.
+menu-share-copy-links =
+    .label =
+        { $count ->
+            [one] Copy Link
+           *[other] Copy { $count } Links
+        }
     .accesskey = L
 ui-tour-info-panel-close =
     .tooltiptext = Close

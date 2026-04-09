@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -9,7 +7,7 @@
 #include "ChannelClassifierService.h"
 #include "mozilla/AntiTrackingUtils.h"
 #include "mozilla/net/UrlClassifierCommon.h"
-#include "mozilla/StaticPrefs_privacy.h"
+#include "mozilla/ScopedPrefs.h"
 #include "mozilla/StaticPtr.h"
 #include "nsIChannel.h"
 #include "nsILoadContext.h"
@@ -92,10 +90,9 @@ UrlClassifierFeatureEmailTrackingProtection::MaybeCreate(nsIChannel* aChannel) {
        aChannel));
 
   // Check if the email tracking protection is enabled.
-  if (!StaticPrefs::privacy_trackingprotection_emailtracking_enabled() &&
-      !(NS_UsePrivateBrowsing(aChannel) &&
-        StaticPrefs::
-            privacy_trackingprotection_emailtracking_pbmode_enabled())) {
+  if (!ScopedPrefs::BoolPrefScoped(
+          ScopedPrefs::PRIVACY_TRACKINGPROTECTION_EMAILTRACKING_ENABLED,
+          aChannel)) {
     return nullptr;
   }
 

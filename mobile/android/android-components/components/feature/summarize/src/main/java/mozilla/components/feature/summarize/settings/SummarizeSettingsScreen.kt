@@ -12,13 +12,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +43,10 @@ fun SummarizeSettingsContent(
     store: SummarizeSettingsStore,
     modifier: Modifier = Modifier,
 ) {
+    LaunchedEffect(Unit) {
+        store.dispatch(ViewAppeared)
+    }
+
     val state by store.stateFlow.collectAsStateWithLifecycle()
 
     SummarizeSettingsContent(
@@ -76,7 +82,7 @@ fun SummarizeSettingsContent(
             description = stringResource(
                 id = R.string.mozac_summarize_settings_summarize_pages_cloud,
             ),
-            checked = state.summarizePagesEnabled,
+            checked = state.isFeatureEnabled,
             onToggle = onSummarizePagesToggled,
         )
 
@@ -90,17 +96,14 @@ fun SummarizeSettingsContent(
                 .clickable(onClick = onLearnMoreClicked),
         )
 
-        Spacer(modifier = Modifier.height(AcornTheme.layout.space.static100))
-
-        HorizontalDivider()
-
-        Spacer(modifier = Modifier.height(AcornTheme.layout.space.static200))
+        Spacer(modifier = Modifier.height(AcornTheme.layout.space.static300))
 
         Text(
             text = stringResource(id = R.string.mozac_summarize_settings_gestures),
             style = MaterialTheme.typography.titleSmall.copy(
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.tertiary,
             ),
+            modifier = Modifier.padding(vertical = AcornTheme.layout.space.static100),
         )
 
         Spacer(modifier = Modifier.height(AcornTheme.layout.space.static100))
@@ -110,8 +113,8 @@ fun SummarizeSettingsContent(
             description = stringResource(
                 id = R.string.mozac_summarize_settings_shake_to_summarize_description,
             ),
-            checked = state.shakeToSummarizeEnabled,
-            enabled = state.summarizePagesEnabled,
+            checked = state.isGestureEnabled,
+            enabled = state.isFeatureEnabled,
             onToggle = onShakeToSummarizeToggled,
         )
     }
@@ -129,8 +132,8 @@ private fun SwitchRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = enabled, onClick = onToggle)
-            .padding(vertical = AcornTheme.layout.space.static200),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(vertical = AcornTheme.layout.space.static150),
+        verticalAlignment = Alignment.Top,
     ) {
         Column(
             modifier = Modifier.weight(1f),
@@ -157,11 +160,16 @@ private fun SwitchRow(
             )
         }
 
-        Switch(
-            checked = checked,
-            onCheckedChange = { onToggle() },
-            enabled = enabled,
-        )
+        CompositionLocalProvider(
+            LocalMinimumInteractiveComponentSize provides 0.dp,
+        ) {
+            Switch(
+                checked = checked,
+                onCheckedChange = { onToggle() },
+                enabled = enabled,
+                modifier = Modifier.padding(start = AcornTheme.layout.space.static200),
+            )
+        }
     }
 }
 

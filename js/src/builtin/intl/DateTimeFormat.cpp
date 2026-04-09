@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -3265,13 +3263,13 @@ static constexpr uint32_t DateTimeFormatFunction_DateTimeFormat = 0;
 /**
  * DateTime Format Functions
  */
-static bool DateTimeCompareFunction(JSContext* cx, unsigned argc, Value* vp) {
+static bool DateTimeFormatFunction(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
   // Steps 1-2.
-  auto* compare = &args.callee().as<JSFunction>();
+  auto* format = &args.callee().as<JSFunction>();
   auto dtfValue =
-      compare->getExtendedSlot(DateTimeFormatFunction_DateTimeFormat);
+      format->getExtendedSlot(DateTimeFormatFunction_DateTimeFormat);
   Rooted<DateTimeFormatObject*> dateTimeFormat(
       cx, &dtfValue.toObject().as<DateTimeFormatObject>());
 
@@ -3297,7 +3295,7 @@ static bool dateTimeFormat_format(JSContext* cx, const CallArgs& args) {
   if (!boundFormat) {
     Handle<PropertyName*> funName = cx->names().empty_;
     auto* fn =
-        NewNativeFunction(cx, DateTimeCompareFunction, 1, funName,
+        NewNativeFunction(cx, DateTimeFormatFunction, 1, funName,
                           gc::AllocKind::FUNCTION_EXTENDED, GenericObject);
     if (!fn) {
       return false;

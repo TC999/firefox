@@ -612,11 +612,8 @@ async function getAutofillRecords(data) {
     // JSActors, but that would import a lot of code for a targeting attribute.
     return 0;
   }
-  let records = await actor?.receiveMessage({
-    name: "FormAutofill:GetRecords",
-    data,
-  });
-  return records?.records?.length ?? 0;
+  let records = await actor?.getRecords(data);
+  return records?.length ?? 0;
 }
 
 // Attribution data can be encoded multiple times so we need this function to
@@ -776,12 +773,17 @@ const TargetingGetters = {
       lazy.SearchService.getAppProvidedEngines()
         .then(engines => {
           let { defaultEngine } = lazy.SearchService;
+          let hasEnteredSearchMode = Object.fromEntries(
+            engines.map(e => [e.id, e.hasBeenUsed])
+          );
+
           resolve({
             // Skip reporting the id for third party engines.
             current: defaultEngine.isAppProvided ? defaultEngine.id : null,
             // We don't need to filter the id here, as getAppProvidedEngines has
             // already done that for us.
             installed: engines.map(engine => engine.id),
+            hasEnteredSearchMode,
           });
         })
         .catch(() => resolve(NONE));

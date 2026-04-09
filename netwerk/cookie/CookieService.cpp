@@ -1,10 +1,9 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set sw=2 ts=8 et tw=80 : */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "CookieCommons.h"
+#include "CookieDummyStorage.h"
 #include "CookieLogging.h"
 #include "CookieParser.h"
 #include "CookieService.h"
@@ -1665,6 +1664,11 @@ bool CookieService::IsInitialized() const {
 CookieStorage* CookieService::PickStorage(const OriginAttributes& aAttrs) {
   MOZ_ASSERT(IsInitialized());
 
+  // We just want to avoid hanging in EnsureInitialized during shutdown.
+  if (AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdown)) {
+    return MaybeCreateDummyStorage();
+  }
+
   if (aAttrs.IsPrivateBrowsing()) {
     return mPrivateStorage;
   }
@@ -1673,9 +1677,21 @@ CookieStorage* CookieService::PickStorage(const OriginAttributes& aAttrs) {
   return mPersistentStorage;
 }
 
+CookieStorage* CookieService::MaybeCreateDummyStorage() {
+  if (!mDummyStorage) {
+    mDummyStorage = new CookieDummyStorage();
+  }
+  return mDummyStorage;
+}
+
 CookieStorage* CookieService::PickStorage(
     const OriginAttributesPattern& aAttrs) {
   MOZ_ASSERT(IsInitialized());
+
+  // We just want to avoid hanging in EnsureInitialized during shutdown.
+  if (AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdown)) {
+    return MaybeCreateDummyStorage();
+  }
 
   if (aAttrs.mPrivateBrowsingId.WasPassed() &&
       aAttrs.mPrivateBrowsingId.Value() > 0) {
@@ -1688,7 +1704,7 @@ CookieStorage* CookieService::PickStorage(
 
 nsICookieValidation::ValidationError CookieService::SetCookiesFromIPC(
     const nsACString& aBaseDomain, const OriginAttributes& aAttrs,
-    nsIURI* aHostURI, bool aFromHttp, bool aIsThirdParty,
+    nsIURI* aHostURI, bool aIsThirdParty,
     const nsTArray<CookieStruct>& aCookies, BrowsingContext* aBrowsingContext) {
   if (!IsInitialized()) {
     // If we are probably shutting down, we can ignore this cookie.
@@ -1700,7 +1716,7 @@ nsICookieValidation::ValidationError CookieService::SetCookiesFromIPC(
 
   for (const CookieStruct& cookieData : aCookies) {
     RefPtr<CookieValidation> validation = CookieValidation::ValidateForHost(
-        cookieData, aHostURI, aBaseDomain, false, aFromHttp);
+        cookieData, aHostURI, aBaseDomain, false, false);
     MOZ_ASSERT(validation);
 
     if (validation->Result() != nsICookieValidation::eOK) {
@@ -1719,8 +1735,7 @@ nsICookieValidation::ValidationError CookieService::SetCookiesFromIPC(
     cookie->SetUpdateTimeInUSec(cookie->CreationTimeInUSec());
 
     storage->AddCookie(nullptr, aBaseDomain, aAttrs, cookie, currentTimeInUsec,
-                       aHostURI, ""_ns, aFromHttp, aIsThirdParty,
-                       aBrowsingContext);
+                       aHostURI, ""_ns, false, aIsThirdParty, aBrowsingContext);
   }
 
   return nsICookieValidation::eOK;

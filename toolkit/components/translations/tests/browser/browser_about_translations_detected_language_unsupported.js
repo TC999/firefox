@@ -6,20 +6,13 @@
 /**
  * Ensures unsupported detected languages show an info message and the textarea remains visible.
  */
-const UNSUPPORTED_LANGUAGE_PAIRS = [
-  { fromLang: "en", toLang: "fr" },
-  { fromLang: "fr", toLang: "en" },
-  { fromLang: "en", toLang: "de" },
-  { fromLang: "de", toLang: "en" },
-];
-
 const SPANISH_TEXT = "Hola, ¿cómo estás?";
 
 add_task(
   async function test_about_translations_detected_language_unsupported_message_clear_button() {
     const { aboutTranslationsTestUtils, cleanup } = await openAboutTranslations(
       {
-        languagePairs: UNSUPPORTED_LANGUAGE_PAIRS,
+        languagePairs: LANGUAGE_PAIRS_WITHOUT_SPANISH,
         autoDownloadFromRemoteSettings: false,
       }
     );
@@ -62,6 +55,10 @@ add_task(
     await aboutTranslationsTestUtils.assertSourceLanguageSelector({
       detectedLanguage,
     });
+    await aboutTranslationsTestUtils.assertSourceTextArea({
+      languageTag: detectedLanguage,
+      value: SPANISH_TEXT,
+    });
     await aboutTranslationsTestUtils.assertSourceClearButton({
       visible: true,
     });
@@ -83,7 +80,7 @@ add_task(
         ],
       },
       async () => {
-        await aboutTranslationsTestUtils.clickClearButton();
+        await aboutTranslationsTestUtils.invokeClearButton();
       }
     );
 
@@ -91,9 +88,11 @@ add_task(
       visible: false,
     });
     await aboutTranslationsTestUtils.assertSourceTextArea({
+      languageTag: null,
       showsPlaceholder: true,
     });
     await aboutTranslationsTestUtils.assertTargetTextArea({
+      languageTag: null,
       showsPlaceholder: true,
     });
 
@@ -105,7 +104,7 @@ add_task(
   async function test_about_translations_detected_language_unsupported_message_manual_clear() {
     const { aboutTranslationsTestUtils, cleanup } = await openAboutTranslations(
       {
-        languagePairs: UNSUPPORTED_LANGUAGE_PAIRS,
+        languagePairs: LANGUAGE_PAIRS_WITHOUT_SPANISH,
         autoDownloadFromRemoteSettings: false,
       }
     );
@@ -145,6 +144,10 @@ add_task(
       targetTextAreaVisible: true,
       learnMoreSupportPage: "website-translation",
     });
+    await aboutTranslationsTestUtils.assertSourceTextArea({
+      languageTag: detectedLanguage,
+      value: SPANISH_TEXT,
+    });
 
     await aboutTranslationsTestUtils.assertEvents(
       {
@@ -170,9 +173,11 @@ add_task(
       visible: false,
     });
     await aboutTranslationsTestUtils.assertSourceTextArea({
+      languageTag: null,
       showsPlaceholder: true,
     });
     await aboutTranslationsTestUtils.assertTargetTextArea({
+      languageTag: null,
       showsPlaceholder: true,
     });
 
@@ -184,7 +189,7 @@ add_task(
   async function test_about_translations_detected_language_unsupported_message_toggle_source_language() {
     const { aboutTranslationsTestUtils, cleanup } = await openAboutTranslations(
       {
-        languagePairs: UNSUPPORTED_LANGUAGE_PAIRS,
+        languagePairs: LANGUAGE_PAIRS_WITHOUT_SPANISH,
         autoDownloadFromRemoteSettings: false,
       }
     );
@@ -223,6 +228,10 @@ add_task(
       sourceTextAreaVisible: true,
       targetTextAreaVisible: true,
       learnMoreSupportPage: "website-translation",
+    });
+    await aboutTranslationsTestUtils.assertSourceTextArea({
+      languageTag: detectedLanguage,
+      value: SPANISH_TEXT,
     });
 
     await aboutTranslationsTestUtils.setTargetLanguageSelectorValue("en");
@@ -302,6 +311,7 @@ add_task(
       detectedLanguage,
     });
     await aboutTranslationsTestUtils.assertTargetTextArea({
+      languageTag: null,
       showsPlaceholder: true,
     });
 

@@ -45,7 +45,11 @@ if CONFIG["MOZ_NO_PIE_COMPAT"]:
 else:
     GeckoProgram(CONFIG["MOZ_APP_NAME"], linkage=browser_linkage)
 
+# Compile the application data (which changes every build due to the build ID)
+# in a separate tiny file so that nsBrowserApp.cpp doesn't need to be
+# recompiled on every no-op build.
 SOURCES += [
+    "ApplicationData.cpp",
     "nsBrowserApp.cpp",
 ]
 

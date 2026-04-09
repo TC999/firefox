@@ -10,21 +10,11 @@ export const LINKS = Object.freeze({
         "browser.ipProtection.productVpn.endpoint",
         "https://www.mozilla.org"
       ) +
-      "/products/vpn/?utm_medium=firefox-desktop&utm_source=freevpnpilot&utm_campaign=evergreen&utm_content=vpnpanel"
+      "/products/vpn/?utm_medium=firefox-desktop&utm_source=vpn-panel&utm_campaign=fx-vpn&utm_content=upgrade-button"
     );
   },
 
   SUPPORT_SLUG: "built-in-vpn",
-});
-
-export const ERRORS = Object.freeze({
-  GENERIC: "generic-error",
-  NETWORK: "network-error",
-  TIMEOUT: "timeout-error", // Activation took too long and was aborted
-  MISSING_PROMISE: "missing-activation-promise", // Expected promise was not returned
-  MISSING_ABORT: "missing-abort-controller", // Expected abort controller was not returned
-  PASS_UNAVAILABLE: "pass-unavailable", // No pass was returned from the server
-  SERVER_NOT_FOUND: "server-not-found", // No server was found for the location
 });
 
 export const SIGNIN_DATA = Object.freeze({

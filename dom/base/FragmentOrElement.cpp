@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -233,18 +231,23 @@ dom::Element* nsIContent::GetEditingHost() const {
     return nullptr;
   }
 
-  // If this is in designMode, we should return <body>
-  if (IsInDesignMode() && !IsInShadowTree()) {
-    // FIXME: There may be no <body>.  In such case and aLimitInBodyElement is
-    // "No", we should use root element instead.
-    return doc->GetBodyElement();
-  }
-
   dom::Element* editableParentElement = nullptr;
   for (dom::Element* parent = GetParentElement();
        parent && parent->HasFlag(NODE_IS_EDITABLE);
        parent = editableParentElement->GetParentElement()) {
     editableParentElement = parent;
+  }
+  // If this is in designMode, and we have reached the root <html> element (i.e.
+  // no contenteditable=false along the way), we should return the <body>
+  // instead. Otherwise, we return the outermost editable element.
+  if (IsInDesignMode() && editableParentElement &&
+      editableParentElement->IsHTMLElement(nsGkAtoms::html) &&
+      !IsInShadowTree()) {
+    // FIXME: There may be no <body> or it may not be editable.
+    // In such cases we should use root element instead.
+    auto* body = doc->GetBodyElement();
+    // return null if body has contenteditable=false
+    return body && body->IsEditable() ? body : nullptr;
   }
   return editableParentElement
              ? editableParentElement
@@ -1870,14 +1873,14 @@ static inline bool IsVoidTag(const nsAtom* aTag) {
   static bool sInitialized = false;
   if (!sInitialized) {
     sInitialized = true;
-    for (uint32_t i = 0; i < std::size(voidElements); ++i) {
-      sFilter.add(voidElements[i]);
+    for (auto& voidElement : voidElements) {
+      sFilter.add(voidElement);
     }
   }
 
   if (sFilter.mightContain(aTag)) {
-    for (uint32_t i = 0; i < std::size(voidElements); ++i) {
-      if (aTag == voidElements[i]) {
+    for (auto& voidElement : voidElements) {
+      if (aTag == voidElement) {
         return true;
       }
     }

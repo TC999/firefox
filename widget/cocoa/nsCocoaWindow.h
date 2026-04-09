@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -122,13 +121,13 @@ class TextInputHandler;
 @interface NSWindow (Undocumented)
 - (NSDictionary*)shadowParameters;
 
-// Present in the same form on OS X since at least OS X 10.5.
+// Present in the same form on macOS since at least macOS 10.5.
 - (NSRect)contentRectForFrameRect:(NSRect)windowFrame
                         styleMask:(NSUInteger)windowStyle;
 - (NSRect)frameRectForContentRect:(NSRect)windowContentRect
                         styleMask:(NSUInteger)windowStyle;
 
-// Present since at least OS X 10.5.  The OS calls this method on NSWindow
+// Present since at least macOS 10.5.  The OS calls this method on NSWindow
 // (and its subclasses) to find out which NSFrameView subclass to instantiate
 // to create its "frame view".
 + (Class)frameViewClassForStyleMask:(NSUInteger)styleMask;
@@ -384,7 +383,7 @@ class nsCocoaWindow final : public nsIWidget {
   void HandleMainThreadCATransaction();
 
 #ifdef ACCESSIBILITY
-  already_AddRefed<mozilla::a11y::LocalAccessible> GetDocumentAccessible();
+  already_AddRefed<mozilla::a11y::LocalAccessible> GetWindowAccessible();
 #endif
 
   bool WidgetPaintsBackground() override { return true; }

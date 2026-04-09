@@ -30,6 +30,9 @@ global-privacy-control-search = Global Privacy Control (GPC)
 
 settings-page-title = Settings
 
+category-nav-heading =
+    .heading = Settings
+
 # This is used to determine the width of the search field in about:preferences,
 # in order to make the entire placeholder string visible
 #
@@ -45,6 +48,9 @@ search-input-box2 =
 managed-notice = Your browser is being managed by your organization.
 managed-notice-info-icon =
     .alt = Information
+
+managed-notice-nav =
+    .label = Your browser is being managed by your organization.
 
 category-list =
     .aria-label = Categories
@@ -585,6 +591,10 @@ download-private-browsing-delete =
     .label = Delete files downloaded in private browsing when all private windows are closed
     .accesskey = D
 
+applications-header = Applications
+
+applications-description = Choose how { -brand-short-name } handles the files you download from the web or the applications you use while browsing.
+
 applications-setting =
     .label = Applications
     .description = Choose how { -brand-short-name } handles the files you download from the web or the applications you use while browsing.
@@ -676,6 +686,8 @@ applications-use-os-default-label =
     .value = { applications-use-os-default.label }
 
 ##
+
+applications-handle-new-file-types-description = What should { -brand-short-name } do with other files?
 
 applications-setting-new-file-types =
      .label = What should { -brand-short-name } do with other files?
@@ -1252,15 +1264,18 @@ containers-remove-button =
 
 ## Account and sync
 
+account-sync-section =
+    .heading = Account and sync
+
 sync-group-label =
     .label = Sync
 
-account-group-label =
-    .label = { -vendor-short-name } account
+account-group-label2 =
+    .label = Account
 
-account-placeholder =
+account-placeholder2 =
     .label = You’re not signed in
-    .description = Sign in to keep your data private, encrypted, and synced across devices.
+    .description = Sign in and keep your data private, encrypted, and instantly accessible everywhere you use { -brand-short-name }.
 
 ## Firefox account - Signed out. Note that "Sync" and "Firefox account" are now
 ## more discrete ("signed in" no longer means "and sync is connected").
@@ -1398,9 +1413,9 @@ sync-syncing-across-devices-heading = You are syncing these items across all you
 
 sync-syncing-across-devices-heading-2 = Data synced across devices
 
-sync-syncing-across-devices-empty-state =
-    .label = You aren’t syncing anything… yet.
-    .description = Start syncing to get all of your data on all your devices.
+sync-syncing-across-devices-empty-state2 =
+    .label = Manage synced data
+    .description = You aren’t syncing anything… yet. Start syncing to get all of your data on all your devices.
 
 sync-currently-syncing-bookmarks = Bookmarks
 sync-currently-syncing-history = History
@@ -1418,6 +1433,9 @@ sync-manage-options =
 sync-manage-options-2 =
     .label = Manage synced data
     .accesskey = M
+
+settings-sync-disconnect-button =
+    .label = Disconnect
 
 ## The "Choose what to sync" dialog.
 
@@ -1472,7 +1490,7 @@ sync-engine-settings =
 sync-device-name-header = Device Name
 
 sync-device-name-header-2 =
-    .label = Device Name
+    .label = Device name
 
 # Variables:
 #   $placeholder (string) - The placeholder text of the input
@@ -2008,10 +2026,11 @@ permissions-block-popups2 =
 
 # "popup" is a misspelling that is more popular than the correct spelling of
 # "pop-up" so it's included as a search keyword, not displayed in the UI.
-permissions-block-popups-exceptions-button3 =
-    .label = Manage redirects
+permissions-block-popups-exceptions-button4 =
+    .label = Manage exceptions
+    .description = Add websites that can open pop-ups and use third-party redirects.
     .accesskey = E
-    .searchkeywords = popups,pop-ups
+    .searchkeywords = popups
 
 permissions-addon-install-warning3 =
     .label = Show warning when websites try to install extensions
@@ -2023,43 +2042,48 @@ permissions-addon-exceptions2 =
 
 ## Privacy Section - Data Collection
 
-collection-header2 = { -brand-short-name } Data Collection and Use
+# The search keyword isn't shown to users but is used to find relevant settings in about:preferences.
+data-collection =
+    .label = { -brand-short-name } data collection and use
+    .description = We strive to provide you with choices and collect only the minimal data necessary to improve { -brand-product-name } for everyone.
     .searchkeywords = telemetry
-
-preferences-collection-description = We strive to provide you with choices and collect only the minimal data necessary to improve { -brand-product-name } for everyone.
-preferences-collection-privacy-notice = View Privacy Notice
-preferences-across-profiles = These settings apply to every { -brand-product-name } profile on this device.
-preferences-view-profiles = View all profiles
-
-collection-health-report-telemetry-disabled = You’re no longer allowing { -vendor-short-name } to capture technical and interaction data. All past data will be deleted within 30 days.
-collection-health-report-telemetry-disabled-link = Learn more
+data-collection-link = View Privacy Notice
+data-collection-preferences-across-profiles =
+    .message = These settings apply to every { -brand-product-name } profile on this device.
+data-collection-profiles-link = View all profiles
+data-collection-health-report-telemetry-disabled =
+    .message = You’re no longer allowing { -vendor-short-name } to capture technical and interaction data. All past data will be deleted within 30 days.
+data-collection-health-report =
+    .label = Send technical and interaction data to { -vendor-short-name }
+    .accesskey = r
+    .description = This helps us improve { -brand-product-name } features, performance, and stability.
+data-collection-health-report-disabled =
+    .label = Send technical and interaction data to { -vendor-short-name }
+    .accesskey = r
+    .description = Data reporting is disabled for this build configuration.
+data-collection-run-studies =
+    .label = Allow { -brand-short-name } to run feature studies
+    .description = { -brand-short-name } randomly selects users to test features, which helps improve quality for everyone.
+data-collection-studies-link =
+    .label = View { -brand-short-name } studies
+data-collection-backlogged-crash-reports =
+    .label = Automatically send crash reports
+    .description = This helps { -vendor-short-name } diagnose and fix issues with the browser. Reports may include personal or sensitive data.
+    .accesskey = c
+data-collection-usage-ping =
+    .label = Send daily usage ping to { -vendor-short-name }
+    .description = This helps { -vendor-short-name } to estimate active users.
+    .accesskey = u
 
 backup-multi-profile-warning-message =
     .message = To make sure this change is included in your backups, open each profile and choose “Backup now” in Settings.
 
-collection-usage-ping =
-    .label = Send daily usage ping to { -vendor-short-name }
-    .accesskey = u
-collection-usage-ping-description = This helps { -vendor-short-name } to estimate active users.
-
-collection-health-report2 =
-    .label = Send technical and interaction data to { -vendor-short-name }
-    .accesskey = r
-collection-health-report-link = Learn more
-collection-health-report-description = This helps us improve { -brand-product-name } features, performance, and stability.
-
-collection-studies2 =
-    .label = Install and run studies
-collection-studies-description = Try out features and ideas before they’re released to everyone.
-collection-studies-link = View { -brand-short-name } studies
-
-nimbus-rollouts-enabled =
+nimbus-rollouts =
     .label = Allow { -brand-short-name } to improve features, performance, and stability between updates
-nimbus-rollouts-enabled-description = Changes will be applied remotely.
-
-addon-recommendations2 =
+    .description = Changes will be rolled out remotely.
+addon-recommendations3 =
     .label = Allow personalized extension recommendations
-addon-recommendations-description = Get extension recommendations to improve your browsing experience.
+    .description = Get extension recommendations to improve your browsing experience.
 
 # This message is displayed above disabled data sharing options in developer builds
 # or builds with no Telemetry support available.

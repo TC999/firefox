@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1145,7 +1143,7 @@ bool nsTreeSanitizer::SanitizeInlineStyle(
 
   nsAutoString sanitizedStyle;
   SanitizeStyleSheet(styleText, sanitizedStyle, aElement->OwnerDoc(),
-                     aElement->GetBaseURI(), StyleSanitizationKind::Standard);
+                     aElement->GetBaseURI(), aSanitizationKind);
   RemoveAllAttributesFromDescendants(aElement);
   nsContentUtils::SetNodeTextContent(aElement, sanitizedStyle, true);
 
@@ -1390,7 +1388,7 @@ void nsTreeSanitizer::SanitizeChildren(nsINode* aRoot) {
           }
         }
         nsIContent* next = node->GetNextNonChildNode(aRoot);
-        node->RemoveFromParent();
+        node->Remove();
         node = next;
         continue;
       }
@@ -1446,7 +1444,7 @@ void nsTreeSanitizer::SanitizeChildren(nsINode* aRoot) {
             break;
           }
         }
-        node->RemoveFromParent();
+        node->Remove();
         node = next;
         continue;
       }
@@ -1478,7 +1476,7 @@ void nsTreeSanitizer::SanitizeChildren(nsINode* aRoot) {
     NS_ASSERTION(!node->GetFirstChild(), "How come non-element node had kids?");
     nsIContent* next = node->GetNextNonChildNode(aRoot);
     if (!mAllowComments && node->IsComment()) {
-      node->RemoveFromParent();
+      node->Remove();
     }
     node = next;
   }

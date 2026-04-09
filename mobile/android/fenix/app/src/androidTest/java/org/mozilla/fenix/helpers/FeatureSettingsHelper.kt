@@ -23,11 +23,6 @@ interface FeatureSettingsHelper {
     var isWallpaperOnboardingEnabled: Boolean
 
     /**
-     * Whether the homepage header should be shown or not.
-     */
-    var isHomepageHeaderEnabled: Boolean
-
-    /**
      * Whether the "Jump back in" homescreen section is enabled or not.
      * It shows the last visited tab on this device and on other synced devices.
      */
@@ -72,11 +67,6 @@ interface FeatureSettingsHelper {
     var isLocationPermissionEnabled: SitePermissionsRules.Action
 
     /**
-     * Enable or disable the composable toolbar.
-     */
-    var isComposableToolbarEnabled: Boolean
-
-    /**
      * Enable or disable the new main menu CFR.
      */
     var isMenuRedesignCFREnabled: Boolean
@@ -110,6 +100,11 @@ interface FeatureSettingsHelper {
      * Accept or not the terms of service.
      */
     var isTermsOfServiceAccepted: Boolean
+
+    /**
+     * Enable or disable the private mode and stories entry point.
+     */
+    var isPrivateModeAndStoriesEntryPointEnabled: Boolean
 
     /**
      * The Open links in External apps settings, between the following options:

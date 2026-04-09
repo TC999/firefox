@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -528,6 +526,9 @@ class ScrollContainerFrame : public nsContainerFrame,
    */
   void ScrollbarCurPosChanged(bool aDoScroll = true);
 
+  void DisableOverlayScrollbars();
+  void EnableOverlayScrollbars();
+
   /**
    * Allows the docshell to request that the scroll frame post an event
    * after being restored from history.
@@ -1005,6 +1006,12 @@ class ScrollContainerFrame : public nsContainerFrame,
   nsExpirationState* GetExpirationState() { return &mActivityExpirationState; }
 
   bool UseOverlayScrollbars() const;
+
+  // NOTE: |aStyle| needs to be the computed styles for this scroll container,
+  // not for the scrollbars.
+  StyleScrollbarWidth ScrollbarWidth(
+      const ComputedStyle* aStyle = nullptr) const;
+
   bool IsLastSnappedTarget(const nsIFrame* aFrame) const;
 
   // If aBuilder is non-null, returns the value cached on aBuilder. Pass null
@@ -1430,6 +1437,10 @@ class ScrollContainerFrame : public nsContainerFrame,
   // encountered.
   Maybe<uint32_t> mIsFirstScrollableFrameSequenceNumber;
 
+  // Computed style of ::webkit-scrollbar pseudo element for this scroll
+  // container.
+  RefPtr<ComputedStyle> mWebKitScrollbarStyle;
+
   // Representing whether the APZC corresponding to this frame is now in the
   // middle of handling a gesture (e.g. a pan gesture).
   InScrollingGesture mInScrollingGesture : 1;
@@ -1545,6 +1556,9 @@ class ScrollContainerFrame : public nsContainerFrame,
   // Whether we need to ensure a scrollend is fired at the end of a scrollbar
   // click and hold gesture.
   bool mScrollbarClickAndHoldScrollendPending : 1;
+
+  // Whether the overlay scrollbars are disabled on this container.
+  bool mForceDisableOverlayScrollbars : 1;
 
 #ifdef MOZ_WIDGET_ANDROID
   // True if this scrollable frame was vertically overflowed on the last reflow.

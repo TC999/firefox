@@ -56,9 +56,10 @@ add_task(async function test_engine_searchmode_after_result_nav() {
   await UrlbarTestUtils.assertSearchMode(window, {
     engineName: "Example",
     entry: "searchbutton",
+    source: 3,
   });
 
-  Assert.equal(gURLBar.value, "https://example.com/search?q=testing");
+  Assert.equal(gURLBar.value, "https://example.com/search?q=test");
 
   info("Press the close button and escape search mode");
   gURLBar.querySelector(".searchmode-switcher-close").click();
@@ -93,7 +94,7 @@ add_task(async function test_local_searchmode_after_result_nav() {
     entry: "searchbutton",
   });
 
-  Assert.equal(gURLBar.value, "https://example.com/search?q=testing");
+  Assert.equal(gURLBar.value, "test");
 
   info("Press the close button and escape search mode");
   gURLBar.querySelector(".searchmode-switcher-close").click();

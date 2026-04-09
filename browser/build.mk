@@ -14,9 +14,6 @@ stage-package:
 install::
 	@$(MAKE) -C browser/installer install
 
-source-package::
-	@$(MAKE) -C browser/installer source-package
-
 upload::
 	@$(MAKE) -C browser/installer upload
 

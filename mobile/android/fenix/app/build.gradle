@@ -4,6 +4,8 @@ import groovy.json.JsonOutput
 
 import java.time.format.DateTimeFormatter
 
+import static org.mozilla.conventions.BuildConfigKt.getBuildId
+
 import static org.gradle.api.tasks.testing.TestResult.ResultType
 
 buildscript {
@@ -46,17 +48,6 @@ ext.getAbi = { output ->
 }
 
 def isAppBundle = gradle.startParameter.taskNames.any { it.toLowerCase().contains("bundle") }
-
-// Mimic Python: open(os.path.join(buildconfig.topobjdir, 'buildid.h')).readline().split()[2]
-def getBuildId() {
-    if (System.env.MOZ_BUILD_DATE) {
-        if (System.env.MOZ_BUILD_DATE.length() == 14) {
-            return System.env.MOZ_BUILD_DATE
-        }
-        logger.warn("Ignoring invalid MOZ_BUILD_DATE: ${System.env.MOZ_BUILD_DATE}")
-    }
-    return file("${gradle.mozconfig.topobjdir}/buildid.h").getText('utf-8').split()[2]
-}
 
 android {
     project.maybeConfigForJetpackBenchmark(it)
@@ -373,7 +364,7 @@ android.applicationVariants.configureEach { variant ->
     if (isDebug) {
         buildConfigField 'String', 'BUILD_DATE', '"debug build"'
     } else {
-        def buildDate = LocalDateTime.parse(getBuildId(), DateTimeFormatter.ofPattern("yyyyMMddHHmmss")).toString()
+        def buildDate = LocalDateTime.parse(getBuildId(gradle.mozconfig.topobjdir), DateTimeFormatter.ofPattern("yyyyMMddHHmmss")).toString()
         buildConfigField 'String', 'BUILD_DATE', '"' + buildDate + '"'
     }
 
@@ -581,6 +572,7 @@ dependencies {
     implementation project(':components:feature-media')
     implementation project(':components:feature-privatemode')
     implementation project(':components:feature-prompts')
+    implementation project(':components:feature-protection-dashboard')
     implementation project(':components:feature-push')
     implementation project(':components:feature-pwa')
     implementation project(':components:feature-qr')
@@ -606,6 +598,7 @@ dependencies {
     implementation project(':components:service-glean')
     implementation project(':components:service-location')
     implementation project(':components:service-mars')
+    implementation project(':components:service-merino-manifest')
     implementation project(':components:service-nimbus')
     implementation project(':components:service-pocket')
     implementation project(':components:service-sync-autofill')
@@ -614,6 +607,7 @@ dependencies {
     implementation project(':components:support-base')
     implementation project(':components:support-images')
     implementation project(':components:support-ktx')
+    implementation project(':components:support-license')
     implementation project(':components:support-locale')
     implementation project(':components:support-remotesettings')
     implementation project(':components:support-utils')
@@ -632,6 +626,7 @@ dependencies {
     implementation project(':components:lib-integrity-googleplay')
     implementation project(':components:lib-llm-mlpa')
     implementation project(':components:lib-shake')
+    implementation project(':components:lib-ai-controls')
 
     implementation ComponentsDependencies.mozilla_appservices_syncmanager
     implementation libs.accompanist.drawablepainter
@@ -693,6 +688,7 @@ dependencies {
     implementation libs.protobuf.javalite
     implementation libs.sentry
     implementation libs.androidx.documentfile
+    implementation libs.zxing
 
     implementation libs.androidx.room.runtime
     ksp libs.androidx.room.compiler
@@ -713,7 +709,9 @@ dependencies {
     testImplementation libs.androidx.compose.ui.test
     testImplementation libs.androidx.test.core
     testImplementation libs.androidx.test.junit
+    testImplementation libs.androidx.test.runner
     testImplementation libs.androidx.work.testing
+    testImplementation libs.kotlin.test
     testImplementation libs.kotlinx.coroutines.test
     testImplementation libs.mockk
     testImplementation libs.mozilla.glean.forUnitTests
@@ -951,7 +949,6 @@ tasks.withType(DependencyTask).configureEach { task ->
     // The OSS plugin creates a "LicensesCleanUp" task for every "DependencyTask"
     // e.g., nightlyOssDependencyTask -> nightlyOssLicensesCleanUp
     def cleanUpTaskName = task.name.replace("DependencyTask", "LicensesCleanUp")
-
     // make the dependency task depend on its cleanup task.
     task.dependsOn(tasks.named(cleanUpTaskName))
 }

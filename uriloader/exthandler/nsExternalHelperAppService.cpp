@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim:expandtab:shiftwidth=2:tabstop=2:cin:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -666,7 +664,7 @@ NS_IMPL_ISUPPORTS(nsExternalHelperAppService, nsIExternalHelperAppService,
                   nsPIExternalAppLauncher, nsIExternalProtocolService,
                   nsIMIMEService, nsIObserver, nsISupportsWeakReference)
 
-nsExternalHelperAppService::nsExternalHelperAppService() {}
+nsExternalHelperAppService::nsExternalHelperAppService() = default;
 nsresult nsExternalHelperAppService::Init() {
   // Add an observer for profile change
   nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
@@ -677,7 +675,7 @@ nsresult nsExternalHelperAppService::Init() {
   return obs->AddObserver(this, "last-pb-context-exited", true);
 }
 
-nsExternalHelperAppService::~nsExternalHelperAppService() {}
+nsExternalHelperAppService::~nsExternalHelperAppService() = default;
 
 nsresult nsExternalHelperAppService::DoContentContentProcessHelper(
     const nsACString& aMimeContentType, nsIChannel* aChannel,
@@ -734,7 +732,8 @@ nsresult nsExternalHelperAppService::DoContentContentProcessHelper(
 
   NS_ADDREF(*aStreamListener = childListener);
 
-  uint32_t reason = nsIHelperAppLauncherDialog::REASON_CANTHANDLE;
+  nsIHelperAppLauncherDialog::reason reason =
+      nsIHelperAppLauncherDialog::REASON_CANTHANDLE;
 
   SanitizeFileName(fileName, 0);
 
@@ -759,7 +758,8 @@ NS_IMETHODIMP nsExternalHelperAppService::CreateListener(
 
   nsAutoString fileName;
   nsAutoCString fileExtension;
-  uint32_t reason = nsIHelperAppLauncherDialog::REASON_CANTHANDLE;
+  nsIHelperAppLauncherDialog::reason reason =
+      nsIHelperAppLauncherDialog::REASON_CANTHANDLE;
 
   uint32_t contentDisposition = -1;
   aChannel->GetContentDisposition(&contentDisposition);
@@ -1032,7 +1032,7 @@ nsExternalHelperAppService::LoadURI(nsIURI* aURI,
 
     AutoTArray<nsString, 1> params = {NS_ConvertUTF8toUTF16(spec)};
     nsresult rv = nsContentUtils::FormatLocalizedString(
-        nsContentUtils::eSECURITY_PROPERTIES, "SandboxBlockedCustomProtocols",
+        PropertiesFile::SECURITY_PROPERTIES, "SandboxBlockedCustomProtocols",
         params, localizedMsg);
     NS_ENSURE_SUCCESS(rv, rv);
 
@@ -1323,7 +1323,8 @@ nsExternalAppHandler::nsExternalAppHandler(
     nsIMIMEInfo* aMIMEInfo, const nsAString& aFileExtension,
     BrowsingContext* aBrowsingContext, nsIInterfaceRequestor* aWindowContext,
     nsExternalHelperAppService* aExtProtSvc,
-    const nsAString& aSuggestedFileName, uint32_t aReason, bool aForceSave)
+    const nsAString& aSuggestedFileName,
+    nsIHelperAppLauncherDialog::reason aReason, bool aForceSave)
     : mMimeInfo(aMIMEInfo),
       mBrowsingContext(aBrowsingContext),
       mWindowContext(aWindowContext),

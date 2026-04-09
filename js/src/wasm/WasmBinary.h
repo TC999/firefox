@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- *
+/*
  * Copyright 2021 Mozilla Foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -70,8 +68,8 @@ class Opcode {
   }
   MOZ_IMPLICIT Opcode(GcOp op)
       : bits_((uint32_t(op) << 8) | uint32_t(Op::GcPrefix)) {
-    static_assert(size_t(SimdOp::Limit) <= 0xFFFFFF, "fits");
-    MOZ_ASSERT(size_t(op) < size_t(SimdOp::Limit));
+    static_assert(size_t(GcOp::Limit) <= 0xFFFFFF, "fits");
+    MOZ_ASSERT(size_t(op) < size_t(GcOp::Limit));
   }
 
   bool isOp() const { return bits_ < uint32_t(Op::FirstPrefix); }

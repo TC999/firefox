@@ -14,7 +14,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,6 +65,8 @@ private val EmptyPageWidth = 170.dp
  * @param onInactiveTabsCFRClick Invoked when the inactive tabs CFR is clicked.
  * @param onInactiveTabsCFRDismiss Invoked when the inactive tabs CFR is dismissed.
  * @param onTabDragStart Invoked when a tab drag has been started.
+ * @param onDeleteTabGroup Invoked when the user clicks on delete tab group.
+ * @param editTabGroupClick Invoked when the user clicks to edit a tab group.
  */
 @Composable
 @Suppress("LongParameterList")
@@ -79,7 +80,7 @@ internal fun NormalTabsPage(
     onTabClose: (TabsTrayItem.Tab) -> Unit,
     onItemClick: (TabsTrayItem) -> Unit,
     onItemLongClick: (TabsTrayItem) -> Unit,
-    shouldShowInactiveTabsAutoCloseDialog: (Int) -> Boolean,
+    shouldShowInactiveTabsAutoCloseDialog: Boolean,
     onInactiveTabsHeaderClick: (Boolean) -> Unit,
     onDeleteAllInactiveTabsClick: () -> Unit,
     onInactiveTabsAutoCloseDialogShown: () -> Unit,
@@ -88,20 +89,16 @@ internal fun NormalTabsPage(
     onInactiveTabClick: (TabsTrayItem.Tab) -> Unit,
     onInactiveTabClose: (TabsTrayItem.Tab) -> Unit,
     onMove: (String, String?, Boolean) -> Unit,
-    shouldShowInactiveTabsCFR: () -> Boolean,
+    shouldShowInactiveTabsCFR: Boolean,
     onInactiveTabsCFRShown: () -> Unit,
     onInactiveTabsCFRClick: () -> Unit,
     onInactiveTabsCFRDismiss: () -> Unit,
     onTabDragStart: () -> Unit,
+    onDeleteTabGroup: (TabsTrayItem.TabGroup) -> Unit,
+    editTabGroupClick: (TabsTrayItem.TabGroup) -> Unit,
 ) {
     if (normalTabs.isNotEmpty() || inactiveTabs.isNotEmpty()) {
-        val showInactiveTabsAutoCloseDialog by remember(inactiveTabs) {
-            derivedStateOf {
-                shouldShowInactiveTabsAutoCloseDialog(inactiveTabs.size)
-            }
-        }
-
-        var showAutoCloseDialog by remember { mutableStateOf(showInactiveTabsAutoCloseDialog) }
+        var showAutoCloseDialog by remember { mutableStateOf(shouldShowInactiveTabsAutoCloseDialog) }
 
         val optionalInactiveTabsHeader: (@Composable () -> Unit)? = if (inactiveTabs.isEmpty()) {
             null
@@ -111,7 +108,7 @@ internal fun NormalTabsPage(
                     inactiveTabs = inactiveTabs,
                     expanded = inactiveTabsExpanded,
                     showAutoCloseDialog = showAutoCloseDialog,
-                    showCFR = shouldShowInactiveTabsCFR(),
+                    showCFR = shouldShowInactiveTabsCFR,
                     onHeaderClick = onInactiveTabsHeaderClick,
                     onDeleteAllButtonClick = onDeleteAllInactiveTabsClick,
                     onAutoCloseDismissClick = {
@@ -131,7 +128,7 @@ internal fun NormalTabsPage(
             }
         }
 
-        if (showInactiveTabsAutoCloseDialog) {
+        if (shouldShowInactiveTabsAutoCloseDialog) {
             onInactiveTabsAutoCloseDialogShown()
         }
 
@@ -146,7 +143,9 @@ internal fun NormalTabsPage(
             onItemLongClick = onItemLongClick,
             header = optionalInactiveTabsHeader,
             onTabDragStart = onTabDragStart,
+            onDeleteTabGroup = onDeleteTabGroup,
             onMove = onMove,
+            editTabGroupClick = editTabGroupClick,
         )
     } else {
         EmptyNormalTabsPage()

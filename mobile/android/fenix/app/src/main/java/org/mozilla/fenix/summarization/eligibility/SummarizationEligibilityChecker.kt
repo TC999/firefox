@@ -4,22 +4,32 @@
 
 package org.mozilla.fenix.summarization.eligibility
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import mozilla.components.concept.engine.EngineSession
+import mozilla.components.concept.engine.pageextraction.PageMetadata
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
  * Checks if a session is eligible for summarization
  */
-fun interface SummarizationEligibilityChecker {
+interface SummarizationEligibilityChecker {
 
     /**
-     * Checks if a session is eligible for summarization
+     * Checks if a session is eligible for summarization based on multiple criteria.
      *
      * @param session The session to check
      */
-    suspend fun check(session: EngineSession): Result<Unit>
+    suspend fun check(session: EngineSession): Result<Boolean>
+
+    /**
+     * Checks if a session is eligible for summarization based on language only.
+     *
+     * @param session The session to check
+     */
+    suspend fun checkLanguage(session: EngineSession): Result<Boolean>
 }
 
 /**
@@ -27,33 +37,43 @@ fun interface SummarizationEligibilityChecker {
  */
 internal class DefaultSummarizationEligibilityChecker : SummarizationEligibilityChecker {
 
-    override suspend fun check(session: EngineSession): Result<Unit> {
+    override suspend fun check(session: EngineSession): Result<Boolean> {
         // Remove in https://bugzilla.mozilla.org/show_bug.cgi?id=2020509 has landed
         // we will no longer need to get the entire page content just to check for eligibility
-        return session.getPageContent()
-            .map { content ->
-                content.checkWordCount()
+        return session.getPageMetadata()
+            .map { metadata ->
+                metadata.verifyEligibility()
             }
     }
 
-    private suspend fun EngineSession.getPageContent() = runCatching {
-        suspendCancellableCoroutine { continuation ->
-            getPageContent(
-                onResult = { content ->
-                    continuation.resume(content)
-                },
-                onException = { error ->
-                    continuation.resumeWithException(error)
-                },
-            )
+    override suspend fun checkLanguage(session: EngineSession): Result<Boolean> {
+        return session.getPageMetadata()
+            .map { metadata ->
+                metadata.language.inAcceptedLanguages()
+            }
+    }
+
+    private suspend fun EngineSession.getPageMetadata() = runCatching {
+        withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { continuation ->
+                getPageMetadata(
+                    onResult = { metadata ->
+                        continuation.resume(metadata)
+                    },
+                    onException = { error ->
+                        continuation.resumeWithException(error)
+                    },
+                )
+            }
         }
     }
 
-    private fun String?.checkWordCount(range: IntRange = WORD_COUNT_RANGE): Boolean {
-        val wordCount = this?.split("\\s+".toRegex())
-            ?.count { it.trim().isNotEmpty() } ?: return false
+    private fun PageMetadata.verifyEligibility(): Boolean {
+        return wordCount in WORD_COUNT_RANGE && language.inAcceptedLanguages()
+    }
 
-        return range.contains(wordCount)
+    private fun String.inAcceptedLanguages() = listOf("en").any { acceptedLang ->
+        this.contains(acceptedLang)
     }
 
     companion object {

@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -181,7 +179,8 @@ mozilla::ipc::IPCResult GPUChild::RecvGraphicsError(const nsCString& aError) {
 mozilla::ipc::IPCResult GPUChild::RecvCreateVRProcess() {
   // Make sure create VR process at the main process
   MOZ_ASSERT(XRE_IsParentProcess());
-  if (StaticPrefs::dom_vr_process_enabled_AtStartup()) {
+  if (StaticPrefs::dom_vr_process_enabled_AtStartup() &&
+      StaticPrefs::dom_vr_enabled()) {
     VRProcessManager::Initialize();
     VRProcessManager* vr = VRProcessManager::Get();
     MOZ_ASSERT(vr, "VRProcessManager must be initialized first.");
@@ -197,19 +196,20 @@ mozilla::ipc::IPCResult GPUChild::RecvCreateVRProcess() {
 mozilla::ipc::IPCResult GPUChild::RecvShutdownVRProcess() {
   // Make sure stopping VR process at the main process
   MOZ_ASSERT(XRE_IsParentProcess());
-  if (StaticPrefs::dom_vr_process_enabled_AtStartup()) {
+  if (StaticPrefs::dom_vr_process_enabled_AtStartup() &&
+      StaticPrefs::dom_vr_enabled()) {
     VRProcessManager::Shutdown();
   }
 
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult GPUChild::RecvNotifyUiObservers(
-    const nsCString& aTopic) {
+mozilla::ipc::IPCResult GPUChild::RecvFlushActiveCheckerboardReportsDone() {
   nsCOMPtr<nsIObserverService> obsSvc = mozilla::services::GetObserverService();
   MOZ_ASSERT(obsSvc);
   if (obsSvc) {
-    obsSvc->NotifyObservers(nullptr, aTopic.get(), nullptr);
+    obsSvc->NotifyObservers(nullptr, "APZ:FlushActiveCheckerboard:Done",
+                            nullptr);
   }
   return IPC_OK();
 }

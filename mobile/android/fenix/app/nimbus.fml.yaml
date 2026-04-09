@@ -43,7 +43,6 @@ features:
         type: Map<HomeScreenSection, Boolean>
         default:
           {
-            "header": true,
             "top-sites": true,
             "jump-back-in": true,
             "bookmarks": true,
@@ -58,7 +57,6 @@ features:
       - channel: nightly
         value: {
           "sections-enabled": {
-            "header": true,
             "top-sites": true,
             "jump-back-in": true,
             "bookmarks": true,
@@ -90,11 +88,70 @@ features:
     variables:
       test-preference:
         description: "A test gecko preference"
-        type: String
-        default: ""
+        type: Option<String>
         gecko-pref:
           pref: "gecko.nimbus.test"
           branch: "default"
+      test-preference-2:
+        description: "A second test gecko preference"
+        type: Option<Int>
+        gecko-pref:
+          pref: "gecko.nimbus.test.two"
+          branch: "user"
+  nimbus-qa-string-default:
+    description: "A feature for testing string pref-setting on the default branch."
+    variables:
+      value:
+        description: "The value to set for the pref."
+        type: Option<String>
+        gecko-pref:
+          pref: "nimbus.qa.pref-string-default"
+          branch: "default"
+  nimbus-qa-string-user:
+    description: "A feature for testing string pref-setting on the user branch."
+    variables:
+      value:
+        description: "The value to set for the pref."
+        type: Option<String>
+        gecko-pref:
+          pref: "nimbus.qa.pref-string-user"
+          branch: "user"
+  nimbus-qa-int-default:
+    description: "A feature for testing int pref-setting on the default branch."
+    variables:
+      value:
+        description: "The value to set for the pref."
+        type: Option<Int>
+        gecko-pref:
+          pref: "nimbus.qa.pref-int-default"
+          branch: "default"
+  nimbus-qa-int-user:
+    description: "A feature for testing int pref-setting on the user branch."
+    variables:
+      value:
+        description: "The value to set for the pref."
+        type: Option<Int>
+        gecko-pref:
+          pref: "nimbus.qa.pref-int-user"
+          branch: "user"
+  nimbus-qa-bool-default:
+    description: "A feature for testing boolean pref-setting on the default branch."
+    variables:
+      value:
+        description: "The value to set for the pref."
+        type: Option<Boolean>
+        gecko-pref:
+          pref: "nimbus.qa.pref-bool-default"
+          branch: "default"
+  nimbus-qa-bool-user:
+    description: "A feature for testing boolean pref-setting on the user branch."
+    variables:
+      value:
+        description: "The value to set for the pref."
+        type: Option<Boolean>
+        gecko-pref:
+          pref: "nimbus.qa.pref-bool-user"
+          branch: "user"
   cookie-banners:
     description: Features for cookie banner handling.
     variables:
@@ -393,21 +450,21 @@ features:
         value:
           enabled: true
 
-  composable-toolbar:
-    description: Use a composable toolbar instead of the View based one.
-    variables:
-      enabled:
-        description: >
-          When the feature is enabled the user will see a new composable toolbar instead the previous View based one.
-        type: Boolean
-        default: true
-
   minimal-addressbar:
     description: Show a smaller height bottom addressbar with just the URL.
     variables:
       at-bottom-while-entering-text:
         description: >
           Whether to show the smaller height bottom addressbar with just the URL when entering text in a website.
+        type: Boolean
+        default: false
+
+  default-bottom-toolbar:
+    description: Default toolbar position for new users.
+    variables:
+      enabled:
+        description: >
+          Whether to default the toolbar position to bottom.
         type: Boolean
         default: false
 
@@ -427,6 +484,9 @@ features:
       - channel: nightly
         value:
           enabled: true
+      - channel: beta
+        value:
+          enabled: true
 
   remote-tab-management:
     description: >
@@ -439,16 +499,6 @@ features:
           this device will allow other devices to close tabs that are open on this device, and
           show a "close" button for tabs that are currently open on other supported devices
           in the synced tabs tray.
-        type: Boolean
-        default: true
-
-  ship:
-    description: The feature that controls Session History in Parent (SHIP) in Gecko.
-    variables:
-      disabled:
-        description: >
-          Whether or not to disable SHIP. SHIP is enabled when set to false. SHIP is disabled when
-          set to true.
         type: Boolean
         default: true
 
@@ -585,6 +635,51 @@ features:
           Enables / disables the SafeBrowsing V5 protocol.
         type: Boolean
         default: false
+
+  safe-browsing-real-time:
+    description: Control Safe Browsing real-time lookup and simulation.
+    variables:
+      feature-enabled:
+        description: >-
+          If true, this feature is enabled and the below settings override
+          the Gecko defaults. Otherwise, the Gecko defaults are used.
+        type: Boolean
+        default: false
+      global-cache-enabled:
+        description: >-
+          Enables / disables the Safe Browsing Global Cache.
+        type: Boolean
+        default: false
+      real-time-enabled:
+        description: >-
+          Enables / disables Safe Browsing real-time lookup.
+        type: Boolean
+        default: false
+      simulation-enabled:
+        description: >-
+          Enables / disables the real-time request simulator.
+        type: Boolean
+        default: false
+      simulation-hit-probability:
+        description: >-
+          Hit probability for the real-time request simulator.
+        type: Int
+        default: 5
+      simulation-cache-ttl-sec:
+        description: >-
+          Cache TTL in seconds for the real-time request simulator.
+        type: Int
+        default: 300
+      simulation-negative-cache-enabled:
+        description: >-
+          Enables / disables the negative cache for the real-time request simulator.
+        type: Boolean
+        default: false
+      simulation-negative-cache-ttl-sec:
+        description: >-
+          Negative cache TTL in seconds for the real-time request simulator.
+        type: Int
+        default: 300
 
   menu-redesign:
     description: Control the new menu redesign.
@@ -768,6 +863,19 @@ features:
         description: The text to show in the CFR
         type: Text
         default: ""
+
+  enable-popups:
+    description: A feature that enables or disables in app popups
+    variables:
+      cfr-popups-enabled:
+        description: When true, CFR popups will show
+        type: Boolean
+        default: true
+      in-app-messages-enabled:
+        description: When true, non CFR popups will show
+        type: Boolean
+        default: true
+
   remote-search-configuration:
     description: Feature to use search configurations from remote servers.
     variables:
@@ -811,6 +919,18 @@ features:
           Whether or not to enable private browsing mode lock.
         type: Boolean
         default: true
+
+  app-links:
+    description: Control behavior of app links handling in the browser.
+    variables:
+      show-new-prompt:
+        description: Whether to show the new AppLinksPromptFragment dialog when an app link is detected. If false, the old dialog is used.
+        type: Boolean
+        default: true
+    defaults:
+      - channel: release
+        value:
+          show-new-prompt: false
 
   app-icon-selection:
     description: Allows the user to set an alternative app launcher icon.
@@ -870,6 +990,15 @@ features:
         description: >
           Whether or not to enable the tab search feature.
         type: Boolean
+        default: true
+
+  tab-groups:
+    description: Control the visibility of the tab groups feature.
+    variables:
+      enabled:
+        description: >
+          Whether or not to enable the tab groups feature.
+        type: Boolean
         default: false
     defaults:
       - channel: release
@@ -880,14 +1009,13 @@ features:
           enabled: false
       - channel: nightly
         value:
-          enabled: true
-
-  tab-groups:
-    description: Control the visibility of the tab groups feature.
+          enabled: false
+  tab-groups-drag-and-drop:
+    description: Control the visibility of drag and drop for tab groups.
     variables:
       enabled:
         description: >
-          Whether or not to enable the tab groups feature.
+          Whether or not to enable drag and drop for tab groups.
         type: Boolean
         default: false
     defaults:
@@ -994,12 +1122,23 @@ features:
       - channel: nightly
         value:
           enabled: true
+      - channel: beta
+        value:
+          enabled: true
 
   native-share-sheet:
     description: Feature to enable the Native Share Sheet for users on Firefox on Android.
     variables:
       enabled:
         description: If true, Native Share Sheet is enabled.
+        type: Boolean
+        default: false
+
+  add-shortcuts-improvement:
+    description: Feature to enable Add Shortcuts improvement for users on Firefox on Android.
+    variables:
+      enabled:
+        description: If true, Add Shortcuts improvement is enabled.
         type: Boolean
         default: false
 
@@ -1011,11 +1150,34 @@ features:
         type: Boolean
         default: false
 
+  merino-manifest:
+    description: Feature to enable the Merino Manifest for users on Firefox on Android.
+    variables:
+      enabled:
+        description: If true, Merino Manifest is enabled.
+        type: Boolean
+        default: false
+
   mozilla-ads-client:
     description: Feature to enable the Mozilla Ads Client for users on Firefox on Android.
     variables:
       enabled:
         description: If true, Mozilla Ads Client is enabled.
+        type: Boolean
+        default: false
+    defaults:
+      - channel: developer
+        value:
+          enabled: true
+      - channel: nightly
+        value:
+          enabled: true
+
+  private-mode-and-stories-entry-point:
+    description: Feature to enable the Private Mode and Stories Entry Point Experiment.
+    variables:
+      enabled:
+        description: If true, Private Mode and Stories Entry Point Experiment is enabled.
         type: Boolean
         default: false
     defaults:
@@ -1090,8 +1252,6 @@ types:
     HomeScreenSection:
       description: The identifiers for the sections of the homescreen.
       variants:
-        header:
-          description: The header of the homescreen.
         top-sites:
           description: The frecency and pinned sites.
         bookmarks:

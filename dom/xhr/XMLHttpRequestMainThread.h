@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -16,6 +14,7 @@
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/NotNull.h"
+#include "mozilla/WeakPtr.h"
 #include "mozilla/dom/BodyExtractor.h"
 #include "mozilla/dom/ClientInfo.h"
 #include "mozilla/dom/Document.h"
@@ -184,6 +183,7 @@ class XMLHttpRequestDoneNotifier;
 // Make sure that any non-DOM interfaces added here are also added to
 // nsXMLHttpRequestXPCOMifier.
 class XMLHttpRequestMainThread final : public XMLHttpRequest,
+                                       public SupportsWeakPtr,
                                        public nsIStreamListener,
                                        public nsIChannelEventSink,
                                        public nsIProgressEventSink,
@@ -848,21 +848,18 @@ class nsXHRParseEndListener : public nsIDOMEventListener {
  public:
   NS_DECL_ISUPPORTS
   NS_IMETHOD HandleEvent(Event* event) override {
-    if (mXHR) {
-      mXHR->OnBodyParseEnd();
+    if (RefPtr<XMLHttpRequestMainThread> xhr = mXHR.get()) {
+      xhr->OnBodyParseEnd();
     }
-    mXHR = nullptr;
     return NS_OK;
   }
 
   explicit nsXHRParseEndListener(XMLHttpRequestMainThread* aXHR) : mXHR(aXHR) {}
 
-  void SetIsStale() { mXHR = nullptr; }
-
  private:
   virtual ~nsXHRParseEndListener() = default;
 
-  XMLHttpRequestMainThread* mXHR;
+  WeakPtr<XMLHttpRequestMainThread> mXHR;
 };
 
 }  // namespace dom

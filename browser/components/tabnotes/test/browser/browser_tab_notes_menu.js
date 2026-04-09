@@ -284,8 +284,11 @@ add_task(async function test_editTabNote() {
   const [editedMetric] = Glean.tabNotes.edited.testGetValue();
   Assert.deepEqual(
     editedMetric.extra,
-    { source: "context_menu" },
-    "edited event extra data should show that the tab note was edited from the context menu"
+    {
+      source: "context_menu",
+      note_length: initialNoteValue.length + updatedNoteValue.length,
+    },
+    "edited event extra data should include length and show that the tab note was edited from the context menu"
   );
 
   await TabNotes.delete(tab);
@@ -392,6 +395,74 @@ add_task(async function test_tabNoteOverflow() {
   await closeTabNoteMenu();
   BrowserTestUtils.removeTab(tab);
 
+  await SpecialPowers.popPrefEnv();
+});
+
+add_task(async function test_whitespaceOnlyNoteNotSaved() {
+  let tab = BrowserTestUtils.addTab(gBrowser, "https://www.example.com");
+  await BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+  let tabNoteMenu = await openTabNoteMenuByAddNote(tab);
+  let noteField = tabNoteMenu.querySelector("textarea");
+  let saveButton = tabNoteMenu.querySelector("#tab-note-editor-button-save");
+
+  noteField.focus();
+  // Set whitespace-only input (spaces, newline, tab)
+  noteField.value = "   \n\t   ";
+  noteField.dispatchEvent(new Event("input", { bubbles: true }));
+
+  await TestUtils.waitForCondition(() => saveButton.disabled);
+  Assert.ok(
+    saveButton.disabled,
+    "Save button is disabled for whitespace-only input"
+  );
+
+  // Try to save via Enter key (simulate user action)
+  let enterEvent = new KeyboardEvent("keydown", {
+    key: "Enter",
+    bubbles: true,
+  });
+  noteField.dispatchEvent(enterEvent);
+  await TestUtils.waitForTick();
+
+  let savedNote = await TabNotes.get(tab);
+  Assert.strictEqual(
+    savedNote,
+    undefined,
+    "No note should be saved for whitespace-only input"
+  );
+
+  await closeTabNoteMenu();
+  BrowserTestUtils.removeTab(tab);
+});
+
+add_task(async function test_enterKeyDoesNotSaveOverflowNote() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.tabs.notes.enabled", true]],
+  });
+  let tab = BrowserTestUtils.addTab(gBrowser, "https://www.example.com");
+  await BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+  let tabNoteMenu = await openTabNoteMenuByAddNote(tab);
+  let saveButton = tabNoteMenu.querySelector("#tab-note-editor-button-save");
+
+  let textarea = tabNoteMenu.querySelector("textarea");
+  textarea.focus();
+  EventUtils.sendString("x".repeat(1003));
+
+  Assert.ok(
+    saveButton.disabled,
+    "Save button is disabled when text exceeds max character limit"
+  );
+
+  EventUtils.synthesizeKey("KEY_Enter");
+
+  let result = await TabNotes.has(tab);
+  Assert.ok(
+    !result,
+    "Note was not saved by pressing Enter when text exceeds max character limit"
+  );
+
+  await closeTabNoteMenu();
+  BrowserTestUtils.removeTab(tab);
   await SpecialPowers.popPrefEnv();
 });
 

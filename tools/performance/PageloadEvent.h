@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -57,7 +55,7 @@ struct PageLoadDomainExtra;
   _(networkType, uint32_t)                     \
   _(androidAppLinkLaunchType, uint32_t)        \
   _(androidAppLinkToNavigationStart, uint32_t) \
-  _(androidIsolationCategory, nsCString)
+  _(androidIsolationCategory, uint32_t)
 
 namespace mozilla::performance::pageload_event {
 /*
@@ -67,6 +65,13 @@ namespace mozilla::performance::pageload_event {
 enum UserFeature : uint32_t { USING_A11Y = 1 << 0 };
 
 enum DocumentFeature : uint32_t { FETCH_PRIORITY_IMAGES = 1 << 0 };
+
+enum AndroidIsolationCategory : uint32_t {
+  OTHER = 0,
+  SHARED_WEB = 1,
+  SITE_ISOLATED = 2,
+  COOP_ISOLATED = 3,
+};
 
 // Type of pageload event that will fire after loading has finished.
 // - kNormal:  Default pageload event type which contains non-sensitive

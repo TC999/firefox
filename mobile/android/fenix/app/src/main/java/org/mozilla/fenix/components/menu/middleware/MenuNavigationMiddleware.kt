@@ -209,8 +209,9 @@ class MenuNavigationMiddleware(
                         url?.let {
                             shareSheetLauncher.showNativeShareSheet(
                                 id = session?.id,
-                                url = it,
+                                longUrl = it,
                                 title = title,
+                                isPrivate = session?.content?.private ?: false,
                                 isCustomTab = customTab != null,
                             )
                         }

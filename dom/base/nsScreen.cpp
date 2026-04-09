@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -24,8 +22,14 @@ using namespace mozilla;
 using namespace mozilla::dom;
 
 nsScreen::nsScreen(nsPIDOMWindowInner* aWindow)
-    : DOMEventTargetHelper(aWindow),
-      mScreenOrientation(new ScreenOrientation(aWindow, this)) {}
+    : DOMEventTargetHelper(aWindow) {}
+
+/* static */ already_AddRefed<nsScreen> nsScreen::Create(
+    nsPIDOMWindowInner* aWindow) {
+  RefPtr screen = new nsScreen(aWindow);
+  screen->mScreenOrientation = ScreenOrientation::Create(aWindow, screen);
+  return screen.forget();
+}
 
 nsScreen::~nsScreen() = default;
 

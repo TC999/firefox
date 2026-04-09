@@ -35,14 +35,6 @@ notes = "This is the upstream code plus a few local fixes, see bug 1685697."
 audit-as-crates-io = true
 notes = "This is the upstream code not yet released"
 
-[policy.chardetng]
-audit-as-crates-io = true
-notes = "This is a crate Henri wrote which is also published. We should probably update Firefox to tip and certify that."
-
-[policy.chardetng_c]
-audit-as-crates-io = true
-notes = "This is a crate Henri wrote which is also published. We should probably update Firefox to tip and certify that."
-
 [policy.cose]
 audit-as-crates-io = true
 notes = "This is upstream plus a warning fix from bug 1823866."
@@ -146,6 +138,10 @@ audit-as-crates-io = true
 [policy.midir]
 audit-as-crates-io = true
 notes = "This is a pinned version of the upstream code, presumably to get a fix that hadn't been released yet. We should consider switching to the latest official release."
+
+[policy."mio:1.1.1@git:5e8b202db39facecc343170f50a07916640a607c"]
+audit-as-crates-io = false
+notes = "Fork of mio 1.1.1 with windows-sys downgraded to 0.52."
 
 [policy.mls-rs]
 audit-as-crates-io = true
@@ -259,10 +255,6 @@ notes = "This is a first-party crate which is also published to crates.io, but w
 audit-as-crates-io = true
 notes = "This is a first-party crate which is also published to crates.io, but we should publish audits for it for the benefit of the ecosystem."
 
-[policy.spirv]
-audit-as-crates-io = true
-notes = "Contains only upstream mainline history pending release."
-
 [policy.storage]
 audit-as-crates-io = false
 notes = "This is a first-party crate which is entirely unrelated to the crates.io package of the same name."
@@ -332,6 +324,10 @@ notes = "Upstream project which we pin."
 audit-as-crates-io = true
 notes = "Upstream project which we pin."
 
+[policy.wgpu-naga-bridge]
+audit-as-crates-io = true
+notes = "Upstream project which we pin."
+
 [policy.wgpu-types]
 audit-as-crates-io = true
 notes = "Upstream project which we pin."
@@ -346,9 +342,6 @@ notes = "This is an in-tree first-party crate that is published to crates.io by 
 
 [policy.wr_malloc_size_of]
 audit-as-crates-io = false
-
-[policy.zip]
-audit-as-crates-io = true
 
 [[exemptions.alsa]]
 version = "0.4.3"
@@ -550,10 +543,6 @@ criteria = "safe-to-deploy"
 version = "0.7.0"
 criteria = "safe-to-deploy"
 
-[[exemptions.hexf-parse]]
-version = "0.2.1"
-criteria = "safe-to-deploy"
-
 [[exemptions.ioctl-sys]]
 version = "0.7.1"
 criteria = "safe-to-deploy"
@@ -602,10 +591,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.minimal-lexical]]
 version = "0.2.1"
-criteria = "safe-to-deploy"
-
-[[exemptions.mio]]
-version = "0.8.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.murmurhash3]]

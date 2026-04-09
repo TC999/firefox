@@ -1,3 +1,7 @@
+const { PlacesTestUtils } = ChromeUtils.importESModule(
+  "resource://testing-common/PlacesTestUtils.sys.mjs"
+);
+
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
@@ -212,7 +216,7 @@ add_task(async function test_context_menu_new_window_telemetry() {
     let panelItems = Array.from(panelList.children).filter(
       panelItem => panelItem.nodeName === "PANEL-ITEM"
     );
-    let openInNewWindowOption = panelItems[1];
+    let openInNewWindowOption = panelItems[2];
     let contextMenuEvent = [
       [
         "firefoxview_next",
@@ -282,7 +286,7 @@ add_task(async function test_context_menu_private_window_telemetry() {
     await BrowserTestUtils.waitForEvent(panelList, "shown");
     info("Context menu shown.");
     await clearAllParentTelemetryEvents();
-    let openInPrivateWindowOption = panelItems[2];
+    let openInPrivateWindowOption = panelItems[3];
     let contextMenuEvent = [
       [
         "firefoxview_next",
@@ -384,6 +388,78 @@ add_task(async function test_context_menu_delete_from_history_telemetry() {
     );
     await telemetryEvent(contextMenuEvent);
 
+    // clean up extra tabs
+    while (gBrowser.tabs.length > 1) {
+      BrowserTestUtils.removeTab(gBrowser.tabs.at(-1));
+    }
+  });
+});
+
+add_task(async function test_context_menu_forget_about_this_site_telemetry() {
+  await PlacesUtils.history.clear();
+  await PlacesUtils.history.insert({
+    url: URLs[0],
+    title: "Example Domain 1",
+    visits: [{ date: new Date() }],
+  });
+  await withFirefoxView({}, async browser => {
+    const { document } = browser.contentWindow;
+    is(
+      document.location.href,
+      "about:firefoxview",
+      "The Recent browsing page is showing."
+    );
+    await navigateToViewAndWait(document, "history");
+    let historyComponent = document.querySelector("view-history");
+    await TestUtils.waitForCondition(() => historyComponent.fullyUpdated);
+    await TestUtils.waitForCondition(
+      () => historyComponent.lists[0].rowEls.length
+    );
+    let firstTabList = historyComponent.lists[0];
+    let firstItem = firstTabList.rowEls[0];
+    let panelList = historyComponent.panelList;
+    EventUtils.synthesizeMouseAtCenter(
+      firstItem.secondaryButtonEl,
+      {},
+      content
+    );
+    info("Context menu button clicked.");
+    await BrowserTestUtils.waitForEvent(panelList, "shown");
+    info("Context menu shown.");
+    await clearAllParentTelemetryEvents();
+    let panelItems = Array.from(panelList.children).filter(
+      panelItem => panelItem.nodeName === "PANEL-ITEM"
+    );
+    let forgetAboutThisSiteOption = panelItems[1];
+    ok(
+      forgetAboutThisSiteOption.textContent.includes("Forget"),
+      "Forget About This Site button is present in the context menu."
+    );
+    let contextMenuEvent = [
+      [
+        "firefoxview_next",
+        "context_menu",
+        "tabs",
+        undefined,
+        { menu_action: "forget-about-this-site", data_type: "history" },
+      ],
+    ];
+    let dialogOpened = BrowserTestUtils.promiseAlertDialogOpen(
+      null,
+      "chrome://browser/content/places/clearDataForSite.xhtml",
+      { isSubDialog: true }
+    );
+    EventUtils.synthesizeMouseAtCenter(forgetAboutThisSiteOption, {}, content);
+    info("Forget About This Site context menu option clicked.");
+    let dialog = await dialogOpened;
+    info("Dialog opened.");
+    let removeButton = dialog.document
+      .querySelector("dialog")
+      .getButton("accept");
+    removeButton.click();
+    info("Clear Data button clicked.");
+    await BrowserTestUtils.waitForEvent(dialog, "unload");
+    await telemetryEvent(contextMenuEvent);
     // clean up extra tabs
     while (gBrowser.tabs.length > 1) {
       BrowserTestUtils.removeTab(gBrowser.tabs.at(-1));

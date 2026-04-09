@@ -15,6 +15,7 @@
         <item name="preferenceTheme">@style/PreferenceTheme</item>
         <item name="materialTimePickerTheme">@style/Normal.MaterialTimePicker</item>
         <item name="materialCalendarTheme">@style/MaterialCalendar</item>
+        <item name="materialSwitchStyle">@style/MaterialSwitchStyle</item>
         <!-- Android system styling -->
         <item name="searchViewStyle">@style/SearchViewStyle</item>
         <item name="autoCompleteTextViewStyle">@style/AutoCompleteTextViewStyle</item>
@@ -206,7 +207,14 @@
     <style name="BaseDialogStyle.Private" parent="BaseDialogStyle">
         <item name="android:background">?attr/layer2</item>
         <item name="materialAlertDialogTitleTextStyle">@style/MaterialAlertDialog.App.Title.Text.Private</item>
+        <item name="buttonBarPositiveButtonStyle">@style/PrivateDialogButtonStyle</item>
+        <item name="buttonBarNegativeButtonStyle">@style/PrivateDialogButtonStyle</item>
         <item name="materialAlertDialogBodyTextStyle">@style/MaterialAlertDialog.App.Body.Text.Private</item>
+    </style>
+
+    <style name="PrivateDialogButtonStyle" parent="Widget.Material3.Button.TextButton.Dialog">
+        <item name="android:textColor">?textAccent</item>
+        <item name="android:titleTextStyle">@style/Button14TextStyle</item>
     </style>
 
     <style name="Normal.MaterialTimePicker" parent="ThemeOverlay.Material3.MaterialTimePicker">
@@ -294,6 +302,7 @@
         <!-- Android system styling -->
         <item name="materialTimePickerTheme">@style/Private.MaterialTimePicker</item>
         <item name="materialCalendarTheme">@style/MaterialCalendar</item>
+        <item name="materialSwitchStyle">@style/MaterialSwitchStyle</item>
         <item name="searchViewStyle">@style/SearchViewStyle</item>
         <item name="android:textColorLink">@color/fx_mobile_private_text_color_accent</item>
         <item name="preferenceTheme">@style/PreferenceTheme</item>
@@ -526,6 +535,7 @@
     <style name="PreferenceTheme" parent="PreferenceThemeOverlay.v14.Material">
         <item name="android:textFontWeight" tools:ignore="NewApi">@integer/font_weight_light</item>
         <item name="android:fontWeight">@integer/font_weight_light</item>
+        <item name="switchPreferenceCompatStyle">@style/SwitchCompatPreferenceMaterialStyle</item>
     </style>
 
     <style name="HeaderTextStyle" parent="TextAppearance.MaterialComponents.Subtitle1">
@@ -674,6 +684,10 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowTranslucentNavigation">false</item>
     </style>
+    <style name="QRCodeDialogStyle" parent="NormalThemeBase">
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowTranslucentNavigation">false</item>
+    </style>
     <style name="WallpaperOnboardingDialogStyle" parent="DialogStyleBase">
         <item name="android:windowIsFloating">true</item>
         <item name="android:backgroundDimAmount">0.06</item>
@@ -812,4 +826,14 @@
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowIsFloating">false</item>
     </style>
+
+    <style name="SwitchCompatPreferenceMaterialStyle" parent="@style/Preference.SwitchPreferenceCompat.Material">
+        <item name="widgetLayout">@layout/preference_material_switch</item>
+        <item name="singleLineTitle">false</item>
+    </style>
+
+    <style name="MaterialSwitchStyle" parent="Widget.Material3.CompoundButton.MaterialSwitch">
+        <item name="trackTint">@color/material_switch_track_tint</item>
+    </style>
+
 </resources>

@@ -48,7 +48,11 @@ class BookmarksRobot(private val composeTestRule: ComposeTestRule) {
         Log.i(TAG, "verifyBookmarksMenuView: Verified the empty bookmarks list is displayed.")
     }
 
+    @OptIn(ExperimentalTestApi::class)
     fun verifyBookmarkedURL(url: String) {
+        Log.i(TAG, "verifyBookmarkedURL: Waiting for $waitingTime ms for bookmarked url: $url to exist")
+        composeTestRule.waitUntilAtLeastOneExists(hasText(url), waitingTime)
+        Log.i(TAG, "verifyBookmarkedURL: Waited for $waitingTime ms for bookmarked url: $url to exist")
         Log.i(TAG, "verifyBookmarkedURL: Trying to verify bookmarks url: $url is displayed")
         composeTestRule.onNodeWithText(url).assertIsDisplayed()
         Log.i(TAG, "verifyBookmarkedURL: Verified bookmarks url: $url is displayed")
@@ -203,10 +207,14 @@ class BookmarksRobot(private val composeTestRule: ComposeTestRule) {
         Log.i(TAG, "saveEditBookmark: Clicked navigate up toolbar button")
     }
 
+    @OptIn(ExperimentalTestApi::class)
     fun clickParentFolderSelector() {
         Log.i(TAG, "clickParentFolderSelector: Trying to click folder selector")
         composeTestRule.bookmarkFolderSelector().performClick()
         Log.i(TAG, "clickParentFolderSelector: Clicked folder selector")
+        Log.i(TAG, "clickParentFolderSelector: Waiting for the Bookmarks folder to exist")
+        composeTestRule.waitUntilAtLeastOneExists(hasText("Bookmarks"), waitingTime)
+        Log.i(TAG, "clickParentFolderSelector: Waited for the Bookmarks folder to exist")
     }
 
     fun expandSelectableFolder(title: String) {
@@ -336,7 +344,10 @@ private fun ComposeTestRule.bookmarkFolderSelector() =
     onNodeWithText("Bookmarks")
 
 private fun ComposeTestRule.expandBookmarkFolderSelector(title: String) =
-    onNodeWithContentDescription(getStringResource(R.string.bookmark_select_folder_expand_folder_content_description, title))
+    onNodeWithContentDescription(
+        getStringResource(R.string.bookmark_select_folder_expand_folder_content_description, title),
+        useUnmergedTree = true,
+    )
 
 private fun ComposeTestRule.closeBookmarkFolderSelector(title: String) =
     onNodeWithContentDescription(getStringResource(R.string.bookmark_select_folder_close_folder_content_description, title))

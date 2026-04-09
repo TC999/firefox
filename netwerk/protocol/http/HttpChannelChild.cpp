@@ -1,6 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set sw=2 ts=8 et tw=80 : */
-
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -93,7 +90,7 @@ HttpChannelChild::HttpChannelChild()
       mIsLastPartOfMultiPart(false),
       mSuspendForWaitCompleteRedirectSetup(false),
       mRecvOnStartRequestSentCalled(false),
-      mSuspendedByWaitingForPermissionCookie(false),
+      mSuspendedByWaitingForCookies(false),
       mAlreadyReleased(false) {
   LOG(("Creating HttpChannelChild @%p\n", this));
 
@@ -173,15 +170,25 @@ void HttpChannelChild::ReleaseMainThreadOnlyReferences() {
 NS_IMPL_ADDREF(HttpChannelChild)
 
 NS_IMETHODIMP_(MozExternalRefCountType) HttpChannelChild::Release() {
+  // Fast path for off-main-thread releases: decrement atomically when count >
+  // 2, staying clear of the mKeptAlive (count==1) and revival (count==0) paths
+  // which access non-atomic state and must run on the main thread.
   if (!NS_IsMainThread()) {
-    nsrefcnt count = mRefCnt;
+    auto [ok, count] = mRefCnt.DecrementWithLimit<2>();
+    if (ok) {
+      NS_LOG_RELEASE(this, count, "HttpChannelChild");
+      return count;
+    }
+    // count <= 2: proxy to main thread for mKeptAlive/revival handling.
     nsresult rv = NS_DispatchToMainThread(NewNonOwningRunnableMethod(
         "HttpChannelChild::Release", this, &HttpChannelChild::Release));
-
-    // Continue Release procedure if failed to dispatch to main thread.
-    if (!NS_WARN_IF(NS_FAILED(rv))) {
-      return count - 1;
+    if (NS_SUCCEEDED(rv)) {
+      return count;
     }
+    // Dispatch failed (event loop is shutting down). Crash rather than
+    // run main-thread-only logic off-thread.
+    MOZ_CRASH("Failed to dispatch Release to main thread");
+    return count;
   }
 
   nsrefcnt count = --mRefCnt;
@@ -332,8 +339,8 @@ mozilla::ipc::IPCResult HttpChannelChild::RecvOnStartRequestSent() {
 
   mRecvOnStartRequestSentCalled = true;
 
-  if (mSuspendedByWaitingForPermissionCookie) {
-    mSuspendedByWaitingForPermissionCookie = false;
+  if (mSuspendedByWaitingForCookies) {
+    mSuspendedByWaitingForCookies = false;
     mEventQ->Resume();
   }
   return IPC_OK();
@@ -407,7 +414,6 @@ void HttpChannelChild::OnStartRequest(
   ipc::MergeParentLoadInfoForwarder(aArgs.loadInfoForwarder(), mLoadInfo);
 
   mIsFromCache = aArgs.isFromCache();
-  mIsRacing = aArgs.isRacing();
   mCacheEntryAvailable = aArgs.cacheEntryAvailable();
   mCacheEntryId = aArgs.cacheEntryId();
   mCacheDisposition = aArgs.cacheDisposition();
@@ -499,7 +505,7 @@ void HttpChannelChild::OnStartRequest(
     MOZ_ASSERT(NS_IsMainThread());
 
     mEventQ->Suspend();
-    mSuspendedByWaitingForPermissionCookie = true;
+    mSuspendedByWaitingForCookies = true;
     mEventQ->PrependEvent(MakeUnique<NeckoTargetChannelFunctionEvent>(
         this, [self = UnsafePtr<HttpChannelChild>(this)]() {
           self->DoOnStartRequest(self);
@@ -922,14 +928,10 @@ void HttpChannelChild::DoOnConsoleReport(
   }
 
   for (ConsoleReportCollected& report : aConsoleReports) {
-    if (report.propertiesFile() <
-        nsContentUtils::PropertiesFile::PropertiesFile_COUNT) {
-      AddConsoleReport(report.errorFlags(), report.category(),
-                       nsContentUtils::PropertiesFile(report.propertiesFile()),
-                       report.sourceFileURI(), report.lineNumber(),
-                       report.columnNumber(), report.messageName(),
-                       report.stringParams());
-    }
+    AddConsoleReport(report.errorFlags(), report.category(),
+                     report.propertiesFile(), report.sourceFileURI(),
+                     report.lineNumber(), report.columnNumber(),
+                     report.messageName(), report.stringParams());
   }
   MaybeFlushConsoleReports();
 }
@@ -1556,7 +1558,7 @@ mozilla::ipc::IPCResult HttpChannelChild::RecvReportLNAToConsole(
 
   // Build the formatted message with stack trace
   nsAutoString formattedMsg;
-  nsContentUtils::FormatLocalizedString(nsContentUtils::eNECKO_PROPERTIES,
+  nsContentUtils::FormatLocalizedString(PropertiesFile::NECKO_PROPERTIES,
                                         PromiseFlatCString(aMessageType).get(),
                                         consoleParams, formattedMsg);
 
@@ -2776,15 +2778,6 @@ HttpChannelChild::GetCacheEntryId(uint64_t* aCacheEntryId) {
 }
 
 NS_IMETHODIMP
-HttpChannelChild::IsRacing(bool* aIsRacing) {
-  if (!LoadAfterOnStartRequestBegun()) {
-    return NS_ERROR_NOT_AVAILABLE;
-  }
-  *aIsRacing = mIsRacing;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
 HttpChannelChild::GetCacheKey(uint32_t* cacheKey) {
   MOZ_ASSERT(NS_IsMainThread());
 
@@ -2891,6 +2884,7 @@ CacheEntryWriteHandleChild::OpenAlternativeOutputStream(
   }
 
   RefPtr<AltDataOutputStreamChild> stream = new AltDataOutputStreamChild();
+  stream->AddIPDLReference();
 
   if (!gNeckoChild->SendPAltDataOutputStreamConstructor(
           stream, nsCString(aType), aPredictedSize, Nothing(),
@@ -2898,7 +2892,6 @@ CacheEntryWriteHandleChild::OpenAlternativeOutputStream(
     return NS_ERROR_FAILURE;
   }
 
-  stream->AddIPDLReference();
   stream.forget(_retval);
   return NS_OK;
 }
@@ -2918,13 +2911,13 @@ HttpChannelChild::GetCacheEntryWriteHandle(nsICacheEntryWriteHandle** _retval) {
   MOZ_ASSERT(neckoTarget);
 
   RefPtr<CacheEntryWriteHandleChild> handle = new CacheEntryWriteHandleChild();
+  handle->AddIPDLReference();
 
   if (!gNeckoChild->SendPCacheEntryWriteHandleConstructor(handle,
                                                           WrapNotNull(this))) {
     return NS_ERROR_FAILURE;
   }
 
-  handle->AddIPDLReference();
   handle.forget(_retval);
   return NS_OK;
 }
@@ -3475,7 +3468,7 @@ HttpChannelChild::LogMimeTypeMismatch(const nsACString& aMessageName,
   params.AppendElement(aContentType);
   nsContentUtils::ReportToConsole(
       aWarning ? nsIScriptError::warningFlag : nsIScriptError::errorFlag,
-      "MIMEMISMATCH"_ns, doc, nsContentUtils::eSECURITY_PROPERTIES,
+      "MIMEMISMATCH"_ns, doc, PropertiesFile::SECURITY_PROPERTIES,
       nsCString(aMessageName).get(), params);
   return NS_OK;
 }
@@ -3495,7 +3488,7 @@ nsresult HttpChannelChild::MaybeLogCOEPError(nsresult aStatus) {
     params.AppendElement(
         u"https://developer.mozilla.org/docs/Web/HTTP/Cross-Origin_Resource_Policy_(CORP)#"_ns);
     nsContentUtils::ReportToConsole(nsIScriptError::errorFlag, "COEP"_ns, doc,
-                                    nsContentUtils::eNECKO_PROPERTIES,
+                                    PropertiesFile::NECKO_PROPERTIES,
                                     "CORPBlocked", params);
   }
 

@@ -9,7 +9,7 @@ use crate::clip::{rounded_rectangle_contains_point, ClipNodeId, ClipTreeBuilder}
 use crate::clip::{polygon_contains_point, ClipItemKey, ClipItemKeyKind};
 use crate::prim_store::PolygonKey;
 use crate::scene_builder_thread::Interners;
-use crate::spatial_tree::{SpatialNodeIndex, SpatialTree, get_external_scroll_offset};
+use crate::spatial_tree::{SpatialNodeIndex, SpatialTree};
 use crate::internal_types::{FastHashMap, LayoutPrimitiveInfo};
 use std::sync::{Arc, Mutex};
 use crate::util::LayoutToWorldFastTransform;
@@ -62,8 +62,6 @@ struct HitTestSpatialNode {
     /// World viewport transform for content transformed by this node.
     world_viewport_transform: LayoutToWorldFastTransform,
 
-    /// The accumulated external scroll offset for this spatial node.
-    external_scroll_offset: LayoutVector2D,
 }
 
 #[derive(MallocSizeOf)]
@@ -80,24 +78,28 @@ struct HitTestClipNode {
 impl HitTestClipNode {
     fn new(
         item: &ClipItemKey,
+        clip_rect_origin: LayoutPoint,
         interners: &Interners,
         parent: ClipNodeId,
         spatial_node_index: SpatialNodeIndex,
     ) -> Self {
         let region = match item.kind {
-            ClipItemKeyKind::Rectangle(rect, mode) => {
-                HitTestRegion::Rectangle(rect.into(), mode)
+            ClipItemKeyKind::Rectangle(size, mode) => {
+                let rect = LayoutRect::from_origin_and_size(clip_rect_origin, size.into());
+                HitTestRegion::Rectangle(rect, mode)
             }
-            ClipItemKeyKind::RoundedRectangle(rect, radius, mode) => {
-                HitTestRegion::RoundedRectangle(rect.into(), radius.into(), mode)
+            ClipItemKeyKind::RoundedRectangle(size, radius, mode) => {
+                let rect = LayoutRect::from_origin_and_size(clip_rect_origin, size.into());
+                HitTestRegion::RoundedRectangle(rect, radius.into(), mode)
             }
-            ClipItemKeyKind::ImageMask(rect, _, polygon_handle) => {
+            ClipItemKeyKind::ImageMask(size, _, polygon_handle) => {
+                let rect = LayoutRect::from_origin_and_size(clip_rect_origin, size.into());
                 if let Some(handle) = polygon_handle {
                     // Retrieve the polygon data from the interner.
                     let polygon = &interners.polygon[handle];
-                    HitTestRegion::Polygon(rect.into(), *polygon)
+                    HitTestRegion::Polygon(rect, *polygon)
                 } else {
-                    HitTestRegion::Rectangle(rect.into(), ClipMode::Clip)
+                    HitTestRegion::Rectangle(rect, ClipMode::Clip)
                 }
             }
             ClipItemKeyKind::BoxShadow(..) => HitTestRegion::Invalid,
@@ -209,6 +211,7 @@ impl HitTestingScene {
 
             let clip_node = HitTestClipNode::new(
                 &clip_item.key,
+                src_clip_node.clip_rect_origin,
                 interners,
                 src_clip_node.parent,
                 src_clip_node.spatial_node_index,
@@ -326,7 +329,6 @@ impl HitTester {
                 world_viewport_transform: spatial_tree
                     .get_world_viewport_transform(index)
                     .into_fast_transform(),
-                external_scroll_offset: get_external_scroll_offset(spatial_tree, index),
             });
         });
     }

@@ -810,6 +810,10 @@ skip-if = [
   "os == 'android'", # Android: downloads.download goes through the embedder app instead of Gecko.
 ]
 
+["test_ext_webRequest_error_after_redirect.js"]
+
+["test_ext_webRequest_error_no_response.js"]
+
 ["test_ext_webRequest_filterTypes.js"]
 
 ["test_ext_webRequest_filter_urls.js"]
@@ -921,3 +925,5 @@ prefs = ["extensions.wpt.enabled=true"]
 skip-if = [
   "!nightly_build",
 ]
+
+["text_ext_webRequest_js_cache.js"]

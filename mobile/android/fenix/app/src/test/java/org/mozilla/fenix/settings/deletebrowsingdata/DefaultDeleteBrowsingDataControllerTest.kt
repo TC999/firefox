@@ -4,9 +4,13 @@
 
 package org.mozilla.fenix.settings.deletebrowsingdata
 
+import io.mockk.Ordering
+import io.mockk.Runs
 import io.mockk.coEvery
+import io.mockk.coJustRun
 import io.mockk.coVerify
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.spyk
@@ -15,8 +19,10 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import mozilla.components.browser.state.action.CustomTabListAction
 import mozilla.components.browser.state.action.EngineAction
 import mozilla.components.browser.state.action.RecentlyClosedAction
+import mozilla.components.browser.state.action.TabListAction
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.engine.Engine
 import mozilla.components.concept.engine.translate.ModelManagementOptions
@@ -85,8 +91,12 @@ class DefaultDeleteBrowsingDataControllerTest {
     fun deleteBrowsingHistory() = runTest(testDispatcher) {
         controller.deleteBrowsingHistory()
 
-        coVerify {
+        coVerify(ordering = Ordering.ORDERED) {
             historyStorage.deleteEverything()
+
+            store.dispatch(TabListAction.RemoveAllNormalTabsAction)
+            store.dispatch(TabListAction.RemoveAllPrivateTabsAction)
+            store.dispatch(CustomTabListAction.RemoveAllCustomTabsAction)
             store.dispatch(EngineAction.PurgeHistoryAction)
             store.dispatch(RecentlyClosedAction.RemoveAllClosedTabAction)
         }
@@ -118,7 +128,7 @@ class DefaultDeleteBrowsingDataControllerTest {
                 onSuccess = capture(onSuccessSlot),
                 onError = capture(onErrorSlot),
             )
-        } returns Unit
+        } just Runs
 
         controller.deleteCachedFiles()
 
@@ -232,7 +242,7 @@ class DefaultDeleteBrowsingDataControllerTest {
         every { settings.getDeleteDataOnQuit(succeedingType) } returns true
 
         coEvery { controller.deleteType(failingType) } throws RuntimeException("Deletion failed!")
-        coEvery { controller.deleteType(succeedingType) } returns Unit
+        coJustRun { controller.deleteType(succeedingType) }
 
         withContext(coroutineContext + exceptionHandler) {
             controller.clearBrowsingDataOnQuit(onDeletionComplete)

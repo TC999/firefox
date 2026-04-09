@@ -673,6 +673,9 @@ interface nsIApplicationUpdateService : nsISupports
   // `nsIUpdateManager.readyUpdate` before moving to the next state.
   const long STATE_SWAP                                                   = 6;
 
+  // An update download was attempted but failed
+  const long STATE_DOWNLOAD_FAILED                                        = 7;
+
   /**
    * Gets a string describing the state (mostly intended to be make console
    * logs easier to read).

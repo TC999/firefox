@@ -13,7 +13,7 @@ Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/7017edc7cfc880bb1
  4 files changed, 5 insertions(+), 5 deletions(-)
 
 diff --git a/.gn b/.gn
-index 3d233ff19c..f771394703 100644
+index 1e5613d230..750ba408af 100644
 --- a/.gn
 +++ b/.gn
 @@ -18,7 +18,7 @@ script_executable = "python3"
@@ -26,7 +26,7 @@ index 3d233ff19c..f771394703 100644
  # These are the targets to skip header checking by default. The files in targets
  # matching these patterns (see "gn help label_pattern" for format) will not have
 diff --git a/media/BUILD.gn b/media/BUILD.gn
-index a296c6cc34..30a3b3f881 100644
+index 0308944e07..6c6bc9c109 100644
 --- a/media/BUILD.gn
 +++ b/media/BUILD.gn
 @@ -7,7 +7,7 @@
@@ -39,7 +39,7 @@ index a296c6cc34..30a3b3f881 100644
  
  group("media") {
 diff --git a/modules/video_coding/BUILD.gn b/modules/video_coding/BUILD.gn
-index 95d8f1f1b0..d6a69eb1dc 100644
+index 34ff20e3f5..0cd19e98f1 100644
 --- a/modules/video_coding/BUILD.gn
 +++ b/modules/video_coding/BUILD.gn
 @@ -7,7 +7,7 @@
@@ -52,10 +52,10 @@ index 95d8f1f1b0..d6a69eb1dc 100644
  
  rtc_library("encoded_frame") {
 diff --git a/webrtc.gni b/webrtc.gni
-index 08fe47273e..f3a7788999 100644
+index ff1c50163c..59e4083b17 100644
 --- a/webrtc.gni
 +++ b/webrtc.gni
-@@ -489,8 +489,8 @@ all_poison_types = [
+@@ -486,8 +486,8 @@ all_poison_types = [
    "default_neural_residual_echo_estimator",
  ]
  

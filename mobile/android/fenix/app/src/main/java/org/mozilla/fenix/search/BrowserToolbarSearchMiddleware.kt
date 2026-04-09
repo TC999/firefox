@@ -27,6 +27,7 @@ import mozilla.components.browser.state.action.AwesomeBarAction.EngagementFinish
 import mozilla.components.browser.state.search.SearchEngine
 import mozilla.components.browser.state.search.SearchEngine.Type.APPLICATION
 import mozilla.components.browser.state.search.SearchEngine.Type.CUSTOM
+import mozilla.components.browser.state.selector.findTab
 import mozilla.components.browser.state.state.selectedOrDefaultSearchEngine
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.compose.browser.toolbar.BrowserToolbar
@@ -312,11 +313,17 @@ class BrowserToolbarSearchMiddleware(
 
     private fun openSearchOrUrl(text: String, navController: NavController) {
         val searchEngine = reconcileSelectedEngine()
-        val isDefaultEngine = searchEngine?.id == browserStore.state.search.selectedOrDefaultSearchEngine?.id
+        val isDefaultEngine = (
+            searchEngine?.id == browserStore.state.search
+                .selectedOrDefaultSearchEngine(private = browsingModeManager.mode.isPrivate)?.id
+        )
         val newTab = if (settings.enableHomepageAsNewTab) {
             false
         } else {
-            appStore.state.searchState.sourceTabId == null
+            // Create a new tab if the source for where the search originated is not available.
+            appStore.state.searchState.sourceTabId?.run {
+                browserStore.state.findTab(this) == null
+            } ?: true
         }
 
         navController.navigate(
@@ -363,7 +370,9 @@ class BrowserToolbarSearchMiddleware(
         store: Store<BrowserToolbarState, BrowserToolbarAction>,
         engine: SearchEngine?,
     ) {
-        val defaultEngine = browserStore.state.search.selectedOrDefaultSearchEngine
+        val defaultEngine = browserStore.state.search.selectedOrDefaultSearchEngine(
+            private = browsingModeManager.mode.isPrivate,
+        )
         val hintRes = engine.toolbarHintRes(defaultEngine)
         store.dispatch(HintUpdated(hintRes))
     }
@@ -391,33 +400,38 @@ class BrowserToolbarSearchMiddleware(
         )
     }
 
-    private fun buildAutocompleteProvidersList(selectedSearchEngine: SearchEngine?) = when (selectedSearchEngine?.id) {
-        browserStore.state.search.selectedOrDefaultSearchEngine?.id -> listOfNotNull(
-            when (settings.shouldShowHistorySuggestions) {
-                true -> components.core.historyStorage
-                false -> null
-            },
-            when (settings.shouldShowBookmarkSuggestions) {
-                true -> components.core.bookmarksStorage
-                false -> null
-            },
-            components.core.domainsAutocompleteProvider,
-        )
+    private fun buildAutocompleteProvidersList(selectedSearchEngine: SearchEngine?): List<AutocompleteProvider> {
+        val defaultEngineId = browserStore.state.search.selectedOrDefaultSearchEngine(
+            private = browsingModeManager.mode.isPrivate,
+        )?.id
+        return when (selectedSearchEngine?.id) {
+            defaultEngineId -> listOfNotNull(
+                when (settings.shouldShowHistorySuggestions) {
+                    true -> components.core.historyStorage
+                    false -> null
+                },
+                when (settings.shouldShowBookmarkSuggestions) {
+                    true -> components.core.bookmarksStorage
+                    false -> null
+                },
+                components.core.domainsAutocompleteProvider,
+            )
 
-        TABS_SEARCH_ENGINE_ID -> listOf(
-            components.core.sessionAutocompleteProvider,
-            components.backgroundServices.syncedTabsAutocompleteProvider,
-        )
+            TABS_SEARCH_ENGINE_ID -> listOf(
+                components.core.sessionAutocompleteProvider,
+                components.backgroundServices.syncedTabsAutocompleteProvider,
+            )
 
-        BOOKMARKS_SEARCH_ENGINE_ID -> listOf(
-            components.core.bookmarksStorage,
-        )
+            BOOKMARKS_SEARCH_ENGINE_ID -> listOf(
+                components.core.bookmarksStorage,
+            )
 
-        HISTORY_SEARCH_ENGINE_ID -> listOf(
-            components.core.historyStorage,
-        )
+            HISTORY_SEARCH_ENGINE_ID -> listOf(
+                components.core.historyStorage,
+            )
 
-        else -> emptyList()
+            else -> emptyList()
+        }
     }
 
     private fun maybeUpdateAutocompletions(
@@ -489,7 +503,9 @@ class BrowserToolbarSearchMiddleware(
 
     private fun reconcileSelectedEngine(): SearchEngine? =
         appStore.state.searchState.selectedSearchEngine?.searchEngine
-            ?: browserStore.state.search.selectedOrDefaultSearchEngine
+            ?: browserStore.state.search.selectedOrDefaultSearchEngine(
+                private = browsingModeManager.mode.isPrivate,
+            )
 
     private fun updateSearchEndPageActions(
         store: Store<BrowserToolbarState, BrowserToolbarAction>,
@@ -551,7 +567,8 @@ class BrowserToolbarSearchMiddleware(
                         appStore.dispatch(AppAction.QrScannerAction.QrScannerInputConsumed)
                         store.dispatch(
                             SearchQueryUpdated(
-                                BrowserToolbarQuery(it.qrScannerState.lastScanData),
+                                query = BrowserToolbarQuery(it.qrScannerState.lastScanData),
+                                isQueryPrefilled = true,
                             ),
                         )
                         components.useCases.fenixBrowserUseCases.loadUrlOrSearch(

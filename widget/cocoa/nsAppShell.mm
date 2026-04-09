@@ -1,5 +1,3 @@
-/* -*- tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -371,7 +369,11 @@ nsresult nsAppShell::Init() {
   mAutoreleasePools = ::CFArrayCreateMutable(nullptr, 0, nullptr);
   NS_ENSURE_STATE(mAutoreleasePools);
 
+  // Don't call -[NSBundle loadNibNamed:owner:options:] for child process types
+  // that don't need graphics. The loadNibNamed call triggers some graphics-
+  // related initialization that is not needed for these process types.
   bool isNSApplicationProcessType =
+      (XRE_GetProcessType() != GeckoProcessType_Content) &&
       (XRE_GetProcessType() != GeckoProcessType_RDD) &&
       (XRE_GetProcessType() != GeckoProcessType_Socket);
 
@@ -648,7 +650,7 @@ void nsAppShell::ScheduleNativeEventCallback() {
 }
 
 // Undocumented Cocoa Event Manager function, present in the same form since
-// at least OS X 10.6.
+// at least macOS 10.6.
 extern "C" EventAttributes GetEventAttributes(EventRef inEvent);
 
 // ProcessNextNativeEvent

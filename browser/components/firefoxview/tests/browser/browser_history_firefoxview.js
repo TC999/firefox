@@ -446,6 +446,8 @@ add_task(async function test_search_history() {
     );
 
     info("Input a search query.");
+    // Clear any popovers that might obscure content.
+    EventUtils.synthesizeKey("VK_ESCAPE", {}, window);
     EventUtils.synthesizeMouseAtCenter(searchTextbox, {}, content);
     EventUtils.sendString("Example Domain 1", content);
     await BrowserTestUtils.waitForMutationCondition(

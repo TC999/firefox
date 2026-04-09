@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -2491,8 +2489,7 @@ void UpdateReflectorGlobal(JSContext* aCx, JS::Handle<JSObject*> aObjArg,
   }
 
   // We've set up |newobj|, so we make it own the native by setting its reserved
-  // slot and nulling out the reserved slot of |obj|. Update the wrapper cache
-  // to keep everything consistent in case GC moves newobj.
+  // slot and nulling out the reserved slot of |obj|.
   //
   // NB: It's important to do this _after_ copying the properties to
   // propertyHolder. Otherwise, an object with |foo.x === foo| will
@@ -2502,18 +2499,37 @@ void UpdateReflectorGlobal(JSContext* aCx, JS::Handle<JSObject*> aObjArg,
   JS::SetReservedSlot(newobj, DOM_OBJECT_SLOT,
                       JS::GetReservedSlot(aObj, DOM_OBJECT_SLOT));
   JS::SetReservedSlot(aObj, DOM_OBJECT_SLOT, JS::PrivateValue(nullptr));
+  size_t nslots = JSCLASS_RESERVED_SLOTS(JS::GetClass(aObj));
+  for (size_t slot = DOM_INSTANCE_RESERVED_SLOTS; slot < nslots; ++slot) {
+    const JS::Value& slotValue = JS::GetReservedSlot(aObj, slot);
+    if (slotValue.isObject()) {
+      JSObject* slotObj = &slotValue.toObject();
+      if (IsObservableArrayProxy(slotObj)) {
+        JS::SetReservedSlot(newobj, slot, slotValue);
+        JS::SetReservedSlot(aObj, slot, JS::UndefinedValue());
+      }
+    }
+  }
+
   nsWrapperCache* cache = nullptr;
   CallQueryInterface(native, &cache);
-  cache->UpdateWrapperForNewGlobal(native, newobj);
+
+  // For preserved wrappers the store buffer keeps mWrapper consistent across
+  // the transplant. For non-preserved wrappers clear mWrapper so that
+  // JSObjectsTenured doesn't follow a stale pointer if nursery GC fires.
+  bool preserving = cache->PreservingWrapper();
+  if (preserving) {
+    cache->UpdateWrapperForNewGlobal(native, newobj);
+  } else {
+    cache->ClearWrapper();
+  }
 
   aObj = xpc::TransplantObjectRetainingXrayExpandos(aCx, aObj, newobj);
   if (!aObj) {
     MOZ_CRASH();
   }
 
-  // Update the wrapper cache again if transplanting didn't use newobj but
-  // returned some other object.
-  if (aObj != newobj) {
+  if (!preserving || aObj != newobj) {
     MOZ_ASSERT(UnwrapDOMObjectToISupports(aObj) == native);
     cache->UpdateWrapperForNewGlobal(native, aObj);
   }
@@ -3582,6 +3598,7 @@ static bool GetBackingObject(JSContext* aCx, JS::Handle<JSObject*> aObj,
                   ? aObj
                   : js::UncheckedUnwrap(aObj,
                                         /* stopAtWindowProxy = */ false);
+  MOZ_ASSERT(aSlotIndex < JSCLASS_RESERVED_SLOTS(JS::GetClass(reflector)));
 
   // Retrieve the backing object from the reserved slot on the maplike/setlike
   // object. If it doesn't exist yet, create it.
@@ -4199,7 +4216,7 @@ void ReportDeprecation(nsIGlobalObject* aGlobal, Document* aDoc, nsIURI* aURI,
   key.AppendASCII("Warning");
 
   nsAutoString msg;
-  rv = nsContentUtils::GetMaybeLocalizedString(nsContentUtils::eDOM_PROPERTIES,
+  rv = nsContentUtils::GetMaybeLocalizedString(PropertiesFile::DOM_PROPERTIES,
                                                key.get(), aDoc, msg);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return;

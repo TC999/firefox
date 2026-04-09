@@ -226,6 +226,16 @@ NS_IMETHODIMP nsWindowsSystemProxySettings::GetSystemWPADSetting(
   return rv;
 }
 
+NS_IMETHODIMP nsWindowsSystemProxySettings::GetSystemProxyDirect(
+    bool* aResult) {
+  uint32_t flags = mFunctions->GetCachedFlags();
+  *aResult = flags != UINT32_MAX &&
+             !(flags & (PROXY_TYPE_PROXY | PROXY_TYPE_AUTO_PROXY_URL |
+                        PROXY_TYPE_AUTO_DETECT)) &&
+             !mozilla::toolkit::system::HasProxyEnvVars();
+  return NS_OK;
+}
+
 NS_IMPL_COMPONENT_FACTORY(nsWindowsSystemProxySettings) {
   return mozilla::MakeAndAddRef<nsWindowsSystemProxySettings>()
       .downcast<nsISupports>();

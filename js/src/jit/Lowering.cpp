@@ -1,13 +1,10 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "jit/Lowering.h"
 
 #include "mozilla/DebugOnly.h"
-#include "mozilla/EndianUtils.h"
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/MathAlgorithms.h"
 
@@ -66,13 +63,13 @@ void LIRGenerator::visitParameter(MParameter* param) {
 
   offset *= sizeof(Value);
 #if defined(JS_NUNBOX32)
-#  if MOZ_BIG_ENDIAN()
-  ins->getDef(0)->setOutput(LArgument(offset));
-  ins->getDef(1)->setOutput(LArgument(offset + 4));
-#  else
-  ins->getDef(0)->setOutput(LArgument(offset + 4));
-  ins->getDef(1)->setOutput(LArgument(offset));
-#  endif
+  if constexpr (std::endian::native == std::endian::big) {
+    ins->getDef(0)->setOutput(LArgument(offset));
+    ins->getDef(1)->setOutput(LArgument(offset + 4));
+  } else {
+    ins->getDef(0)->setOutput(LArgument(offset + 4));
+    ins->getDef(1)->setOutput(LArgument(offset));
+  }
 #elif defined(JS_PUNBOX64)
   ins->getDef(0)->setOutput(LArgument(offset));
 #endif
@@ -333,7 +330,7 @@ void LIRGenerator::visitCreateThis(MCreateThis* ins) {
 }
 
 void LIRGenerator::visitCreateArgumentsObject(MCreateArgumentsObject* ins) {
-  LAllocation callObj = useRegisterAtStart(ins->getCallObject());
+  LAllocation callObj = useRegisterAtStart(ins->callObject());
   LCreateArgumentsObject* lir = new (alloc())
       LCreateArgumentsObject(callObj, tempFixed(CallTempReg0),
                              tempFixed(CallTempReg1), tempFixed(CallTempReg2));
@@ -3215,7 +3212,7 @@ void LIRGenerator::visitStringEndsWith(MStringEndsWith* ins) {
 void LIRGenerator::visitStringConvertCase(MStringConvertCase* ins) {
   MOZ_ASSERT(ins->string()->type() == MIRType::String);
 
-  if (ins->mode() == MStringConvertCase::LowerCase) {
+  if (ins->stringCase() == StringCase::Lower) {
 #ifdef JS_CODEGEN_X86
     // Due to lack of registers on x86, we reuse the string register as
     // temporary. As a result we only need four temporary registers and take a
@@ -3240,7 +3237,7 @@ void LIRGenerator::visitStringConvertCase(MStringConvertCase* ins) {
 void LIRGenerator::visitCharCodeConvertCase(MCharCodeConvertCase* ins) {
   MOZ_ASSERT(ins->code()->type() == MIRType::Int32);
 
-  if (ins->mode() == MCharCodeConvertCase::LowerCase) {
+  if (ins->stringCase() == StringCase::Lower) {
     auto* lir = new (alloc())
         LCharCodeToLowerCase(useRegister(ins->code()), tempByteOpRegister());
     define(lir, ins);
@@ -8982,16 +8979,6 @@ void LIRGenerator::visitTakeDisposeCapability(MTakeDisposeCapability* ins) {
   LTakeDisposeCapability* lir =
       new (alloc()) LTakeDisposeCapability(useRegister(env));
   defineBox(lir, ins);
-  assignSafepoint(lir, ins);
-}
-
-void LIRGenerator::visitCreateSuppressedError(MCreateSuppressedError* ins) {
-  MDefinition* error = ins->error();
-  MDefinition* suppressed = ins->suppressed();
-
-  LCreateSuppressedError* lir = new (alloc())
-      LCreateSuppressedError(useBoxAtStart(error), useBoxAtStart(suppressed));
-  define(lir, ins);
   assignSafepoint(lir, ins);
 }
 #endif

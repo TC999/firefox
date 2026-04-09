@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -9,6 +7,7 @@
 #include <limits>
 
 #include "js/Array.h"  // JS::GetArrayLength, JS::IsArrayObject
+#include "js/GCAPI.h"
 #include "js/JSON.h"
 #include "js/PropertyAndElement.h"  // JS_GetElement
 #include "mozilla/OriginAttributes.h"
@@ -237,9 +236,7 @@ EndpointsList ReportingHeader::ProcessReportingEndpointsListFromResponse(
     return {};
   }
 
-  // No other browsers seem to do this, even though it's defined in
-  // specification
-  if (NS_WARN_IF(!IsSecureURI(uri))) {
+  if (!IsSecureURI(uri)) {
     return {};
   }
 
@@ -387,12 +384,18 @@ ReportingHeader::ParseReportToHeader(nsIHttpChannel* aChannel, nsIURI* aURI,
   JS::Rooted<JS::Value> jsonValue(cx);
   bool ok = JS_ParseJSON(cx, json.BeginReading(), json.Length(), &jsonValue);
   if (!ok) {
+    // Drop error in favor of logging a generic message, because the error
+    // message's column numbers are confusing due to the prepended characters
+    // above, and a user cannot do much about it anyway (bug 2020662).
+    JS_ClearPendingException(cx);
     LogToConsoleInvalidJSON(aChannel, aURI);
     return nullptr;
   }
 
-  dom::ReportingHeaderValue data;
+  RootedDictionary<dom::ReportingHeaderValue> data(cx);
   if (!data.Init(cx, jsonValue)) {
+    // Ignore error in favor of generic message to avoid logspam (bug 2020662).
+    JS_ClearPendingException(cx);
     LogToConsoleInvalidJSON(aChannel, aURI);
     return nullptr;
   }
@@ -618,7 +621,7 @@ void ReportingHeader::LogToConsoleInternal(nsIHttpChannel* aChannel,
 
   nsAutoString localizedMsg;
   rv = nsContentUtils::FormatLocalizedString(
-      nsContentUtils::eSECURITY_PROPERTIES, aMsg, aParams, localizedMsg);
+      PropertiesFile::SECURITY_PROPERTIES, aMsg, aParams, localizedMsg);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return;
   }

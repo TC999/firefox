@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -5797,6 +5795,37 @@ static void ToHex(TypedArrayObject* tarray, size_t length,
     chars[1] = HexDigits[byte & 0xf];
 
     appendN(chars);
+  }
+
+  MOZ_ASSERT(outPtr == out.end(), "all characters were written");
+}
+
+template <>
+void ToHex<UnsharedOps>(TypedArrayObject* tarray, size_t length,
+                        mozilla::Range<Latin1Char> out) {
+  // Convert to lower case hex digit.
+  //
+  // Doesn't use a lookup table to make it optimizable for the auto-vectorizer.
+  // The auto-vectorizer can't inline through SharedOps, so this code path is
+  // only used for UnsharedOps.
+  //
+  // https://lemire.me/blog/2026/02/02/converting-data-to-hexadecimal-outputs-quickly/
+  auto toLowerHex = [](uint8_t x) -> char {
+    static_assert('a' - '9' == 40);
+    return x + '0' + ((x > 9) * 39);
+  };
+
+  auto outPtr = out.begin();
+
+  // Steps 3 and 5.
+  //
+  // Our implementation directly converts the bytes to their string
+  // representation instead of first collecting them into an intermediate list.
+  auto data = UnsharedOps::extract(tarray).template cast<uint8_t*>();
+  for (size_t index = 0; index < length;) {
+    auto byte = UnsharedOps::load(data + index++);
+    *outPtr++ = toLowerHex(byte >> 4);
+    *outPtr++ = toLowerHex(byte & 0xf);
   }
 
   MOZ_ASSERT(outPtr == out.end(), "all characters were written");

@@ -28,6 +28,7 @@ import mozilla.components.service.nimbus.messaging.use
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
 import mozilla.components.support.base.log.logger.Logger
 import mozilla.components.support.utils.Browsers
+import mozilla.components.support.utils.BuildManufacturerChecker
 import org.mozilla.fenix.GleanMetrics.Pings
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
@@ -491,6 +492,7 @@ class OnboardingFragment : Fragment() {
         requireComponents.fenixOnboarding.finish()
 
         val settings = requireContext().settings()
+        settings.onboardingCompletedTimestamp = System.currentTimeMillis()
 
         // Telemetry and daily usage ping get enabled after ToU acceptance.
         startMetricsIfEnabled(
@@ -551,6 +553,7 @@ class OnboardingFragment : Fragment() {
                 showAddWidgetPage,
                 requireContext().settings().isTabStripEnabled.not(),
                 jexlConditions,
+                BuildManufacturerChecker(),
             ) { condition -> jexlHelper.evalJexlSafe(condition) }
         }
     }

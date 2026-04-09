@@ -1,4 +1,3 @@
-/* -*- Mode: c++; tab-width: 2; indent-tabs-mode: nil; -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -32,9 +31,9 @@ class NativeMenuGtk : public NativeMenu {
   explicit NativeMenuGtk(dom::Element* aElement);
 
   // NativeMenu
-  MOZ_CAN_RUN_SCRIPT_BOUNDARY void ShowMenuAnchored(
-      nsIFrame* aClickedFrame, const CSSIntRect& aRect,
-      const nsAString& aPosition) override;
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY void ShowMenuAnchored(nsIFrame* aClickedFrame,
+                                                    const CSSIntRect& aRect,
+                                                    int8_t aPosition) override;
   MOZ_CAN_RUN_SCRIPT_BOUNDARY void ShowMenuAtPosition(
       nsIFrame* aClickedFrame, const CSSIntPoint& aPosition,
       bool aIsContextMenu) override;

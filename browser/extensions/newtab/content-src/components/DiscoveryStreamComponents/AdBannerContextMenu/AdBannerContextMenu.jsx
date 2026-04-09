@@ -115,7 +115,6 @@ export function AdBannerContextMenu({
             site={{
               // Props we want to pass on for new ad types that come from Unified Ads API
               block_key: spoc.block_key,
-              fetchTimestamp: spoc.fetchTimestamp,
               flight_id: spoc.flight_id,
               format: spoc.format,
               id: spoc.id,

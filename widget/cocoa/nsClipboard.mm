@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -240,6 +239,30 @@ nsClipboard::GetDataFromPasteboard(const nsACString& aFlavor,
 
     return nsCOMPtr<nsISupports>(
         nsCocoaUtils::GetDataFromPasteboardItem(aFlavor, item));
+  }
+
+  if (aFlavor.EqualsLiteral(kURLDataMime)) {
+    NSString* publicUrl = [UTIHelper stringFromPboardType:kPublicUrlPboardType];
+    NSString* pString = [aPasteboard stringForType:publicUrl];
+    if (!pString) {
+      return nsCOMPtr<nsISupports>{};
+    }
+
+    NSData* stringData = [pString dataUsingEncoding:NSUnicodeStringEncoding
+                               allowLossyConversion:YES];
+    unsigned int dataLength = [stringData length];
+    void* clipboardDataPtr = malloc(dataLength);
+    if (!clipboardDataPtr) {
+      return mozilla::Err(NS_ERROR_OUT_OF_MEMORY);
+    }
+    [stringData getBytes:clipboardDataPtr length:dataLength];
+
+    nsCOMPtr<nsISupports> genericDataWrapper;
+    nsPrimitiveHelpers::CreatePrimitiveForData(
+        aFlavor, clipboardDataPtr, dataLength,
+        getter_AddRefs(genericDataWrapper));
+    free(clipboardDataPtr);
+    return std::move(genericDataWrapper);
   }
 
   if (aFlavor.EqualsLiteral(kCustomTypesMime)) {
@@ -507,6 +530,14 @@ nsClipboard::HasNativeClipboardDataMatchingFlavors(
             return true;
           }
         }
+      }
+    } else if (mimeType.EqualsLiteral(kURLDataMime)) {
+      NSString* availableType = [cocoaPasteboard availableTypeFromArray:@[
+        [UTIHelper stringFromPboardType:kPublicUrlPboardType]
+      ]];
+      if (availableType) {
+        MOZ_CLIPBOARD_LOG("    has %s\n", mimeType.get());
+        return true;
       }
     }
   }
@@ -817,6 +848,9 @@ bool nsClipboard::IsStringType(const nsACString& aMIMEType,
     return true;
   } else if (aMIMEType.EqualsLiteral(kHTMLMime)) {
     *aPboardType = [UTIHelper stringFromPboardType:NSPasteboardTypeHTML];
+    return true;
+  } else if (aMIMEType.EqualsLiteral(kURLDataMime)) {
+    *aPboardType = [UTIHelper stringFromPboardType:kPublicUrlPboardType];
     return true;
   } else {
     return false;

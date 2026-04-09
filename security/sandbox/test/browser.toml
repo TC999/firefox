@@ -33,6 +33,10 @@ skip-if = [
 ["browser_content_sandbox_syscalls.js"]
 
 ["browser_sandbox_test.js"]
+skip-if = [
+  "os == 'win' && os_version == '11.26200' && arch == 'x86' && debug", # bug 2028636
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && debug", # bug 2028636
+]
 run-if = [
   "debug",
 ]

@@ -1,11 +1,10 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "IDBKeyRange.h"
 
+#include "IDBTransaction.h"
 #include "Key.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/HoldDropJSObjects.h"
@@ -20,8 +19,8 @@ using namespace mozilla::dom::indexedDB;
 namespace {
 
 void GetKeyFromJSVal(JSContext* aCx, JS::Handle<JS::Value> aVal, Key& aKey,
-                     ErrorResult& aRv) {
-  auto result = aKey.SetFromJSVal(aCx, aVal);
+                     ErrorResult& aRv, IDBTransaction* aTransaction = nullptr) {
+  auto result = aKey.SetFromJSVal(aCx, aVal, aTransaction);
   if (result.isErr()) {
     aRv = result.unwrapErr().ExtractErrorResult(
         InvalidMapsTo<NS_ERROR_DOM_INDEXEDDB_DATA_ERR>);
@@ -51,7 +50,8 @@ IDBKeyRange::~IDBKeyRange() { DropJSObjects(); }
 
 // static
 void IDBKeyRange::FromJSVal(JSContext* aCx, JS::Handle<JS::Value> aVal,
-                            RefPtr<IDBKeyRange>* aKeyRange, ErrorResult& aRv) {
+                            RefPtr<IDBKeyRange>* aKeyRange, ErrorResult& aRv,
+                            IDBTransaction* aTransaction) {
   MOZ_ASSERT_IF(!aCx, aVal.isUndefined());
   MOZ_ASSERT(aKeyRange);
 
@@ -74,7 +74,7 @@ void IDBKeyRange::FromJSVal(JSContext* aCx, JS::Handle<JS::Value> aVal,
 
   // A valid key returns an 'only' IDBKeyRange.
   keyRange = new IDBKeyRange(false, false, true);
-  GetKeyFromJSVal(aCx, aVal, keyRange->Lower(), aRv);
+  GetKeyFromJSVal(aCx, aVal, keyRange->Lower(), aRv, aTransaction);
   if (!aRv.Failed()) {
     *aKeyRange = std::move(keyRange);
   }

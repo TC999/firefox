@@ -108,8 +108,8 @@ use.counter:
     send_in_pings:
       - use-counters
 
-# Total of 2503 use counter metrics (excludes denominators).
-# Total of 388 'page' use counters.
+# Total of 2511 use counter metrics (excludes denominators).
+# Total of 389 'page' use counters.
 use.counter.page:
   svgsvgelement_getelementbyid:
     type: counter
@@ -4956,6 +4956,23 @@ use.counter.page:
     send_in_pings:
       - use-counters
 
+  grid_auto_flow_initial_value_change:
+    type: counter
+    description: >
+      Whether a page rendering change for proposed grid-auto-flow initial value.
+      Compare against `use.counter.top_level_content_documents_destroyed`
+      to calculate the rate.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    notification_emails:
+      - dom-core@mozilla.com
+      - emilio@mozilla.com
+    expires: never
+    send_in_pings:
+      - use-counters
+
   fe_blend:
     type: counter
     description: >
@@ -6707,7 +6724,7 @@ use.counter.page:
     send_in_pings:
       - use-counters
 
-# Total of 388 'document' use counters.
+# Total of 389 'document' use counters.
 use.counter.doc:
   svgsvgelement_getelementbyid:
     type: counter
@@ -11541,6 +11558,23 @@ use.counter.doc:
     type: counter
     description: >
       Whether a document calls queryCommandSupported or queryCommandEnabled with insertBrOnReturn.
+      Compare against `use.counter.content_documents_destroyed`
+      to calculate the rate.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    notification_emails:
+      - dom-core@mozilla.com
+      - emilio@mozilla.com
+    expires: never
+    send_in_pings:
+      - use-counters
+
+  grid_auto_flow_initial_value_change:
+    type: counter
+    description: >
+      Whether a document rendering change for proposed grid-auto-flow initial value.
       Compare against `use.counter.content_documents_destroyed`
       to calculate the rate.
     bugs:
@@ -16626,12 +16660,29 @@ use.counter.worker.service:
     send_in_pings:
       - use-counters
 
-# Total of 55 'deprecated operations (page)' use counters.
+# Total of 58 'deprecated operations (page)' use counters.
 use.counter.deprecated_ops.page:
   components:
     type: counter
     description: >
       Whether a page used Components.
+      Compare against `use.counter.top_level_content_documents_destroyed`
+      to calculate the rate.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    notification_emails:
+      - dom-core@mozilla.com
+      - emilio@mozilla.com
+    expires: never
+    send_in_pings:
+      - use-counters
+
+  csscontainer_rule_single_condition:
+    type: counter
+    description: >
+      Whether a page used CSSContainerRuleSingleCondition.
       Compare against `use.counter.top_level_content_documents_destroyed`
       to calculate the rate.
     bugs:
@@ -17308,6 +17359,23 @@ use.counter.deprecated_ops.page:
     send_in_pings:
       - use-counters
 
+  math_ml__deprecated_href_link_on_non_anchor_element:
+    type: counter
+    description: >
+      Whether a page used MathML_DeprecatedHrefLinkOnNonAnchorElement.
+      Compare against `use.counter.top_level_content_documents_destroyed`
+      to calculate the rate.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    notification_emails:
+      - dom-core@mozilla.com
+      - emilio@mozilla.com
+    expires: never
+    send_in_pings:
+      - use-counters
+
   form_submission_untrusted_event:
     type: counter
     description: >
@@ -17495,6 +17563,23 @@ use.counter.deprecated_ops.page:
     send_in_pings:
       - use-counters
 
+  old_zecompat_hack:
+    type: counter
+    description: >
+      Whether a page used OldZECompatHack.
+      Compare against `use.counter.top_level_content_documents_destroyed`
+      to calculate the rate.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    notification_emails:
+      - dom-core@mozilla.com
+      - emilio@mozilla.com
+    expires: never
+    send_in_pings:
+      - use-counters
+
   mozorientation_deprecated:
     type: counter
     description: >
@@ -17563,12 +17648,29 @@ use.counter.deprecated_ops.page:
     send_in_pings:
       - use-counters
 
-# Total of 55 'deprecated operations (document)' use counters.
+# Total of 58 'deprecated operations (document)' use counters.
 use.counter.deprecated_ops.doc:
   components:
     type: counter
     description: >
       Whether a document used Components.
+      Compare against `use.counter.content_documents_destroyed`
+      to calculate the rate.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    notification_emails:
+      - dom-core@mozilla.com
+      - emilio@mozilla.com
+    expires: never
+    send_in_pings:
+      - use-counters
+
+  csscontainer_rule_single_condition:
+    type: counter
+    description: >
+      Whether a document used CSSContainerRuleSingleCondition.
       Compare against `use.counter.content_documents_destroyed`
       to calculate the rate.
     bugs:
@@ -18245,6 +18347,23 @@ use.counter.deprecated_ops.doc:
     send_in_pings:
       - use-counters
 
+  math_ml__deprecated_href_link_on_non_anchor_element:
+    type: counter
+    description: >
+      Whether a document used MathML_DeprecatedHrefLinkOnNonAnchorElement.
+      Compare against `use.counter.content_documents_destroyed`
+      to calculate the rate.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    notification_emails:
+      - dom-core@mozilla.com
+      - emilio@mozilla.com
+    expires: never
+    send_in_pings:
+      - use-counters
+
   form_submission_untrusted_event:
     type: counter
     description: >
@@ -18419,6 +18538,23 @@ use.counter.deprecated_ops.doc:
     type: counter
     description: >
       Whether a document used GWTRichTextAreaCompatHack.
+      Compare against `use.counter.content_documents_destroyed`
+      to calculate the rate.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1852098
+    notification_emails:
+      - dom-core@mozilla.com
+      - emilio@mozilla.com
+    expires: never
+    send_in_pings:
+      - use-counters
+
+  old_zecompat_hack:
+    type: counter
+    description: >
+      Whether a document used OldZECompatHack.
       Compare against `use.counter.content_documents_destroyed`
       to calculate the rate.
     bugs:

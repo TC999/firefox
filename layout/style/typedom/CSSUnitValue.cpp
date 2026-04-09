@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:set ts=2 sw=2 sts=2 et cindent: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -86,10 +84,14 @@ void CSSUnitValue::ToCssTextWithProperty(const CSSPropertyId& aPropertyId,
       case eCSSProperty_flex_grow:
       case eCSSProperty_flex_shrink:
       case eCSSProperty_stroke_miterlimit:
+      case eCSSProperty_animation_duration:
+      case eCSSProperty_animation_iteration_count:
+      case eCSSProperty_background_size:
       case eCSSProperty_column_width:
       case eCSSProperty_flex_basis:
       case eCSSProperty_font_size:
       case eCSSProperty_perspective:
+      case eCSSProperty_transition_duration:
       case eCSSProperty_column_gap:
       case eCSSProperty_row_gap:
       case eCSSProperty_max_block_size:

@@ -1,6 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set sw=2 ts=8 et tw=80 : */
-
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -140,7 +137,15 @@ TRRServiceChannel::Cancel(nsresult status) {
         NS_DISPATCH_NORMAL);
   }
 
-  CancelNetworkRequest(status);
+  if (mCurrentEventTarget->IsOnCurrentThread()) {
+    CancelNetworkRequest(status);
+  } else {
+    mCurrentEventTarget->Dispatch(
+        NS_NewRunnableFunction("TRRServiceChannel::CancelNetworkRequest",
+                               [self = RefPtr(this), status]() {
+                                 self->CancelNetworkRequest(status);
+                               }));
+  }
   return NS_OK;
 }
 
@@ -459,6 +464,23 @@ nsresult TRRServiceChannel::BeginConnect() {
     StoreAllowSpdy(0);
     mCaps |= NS_HTTP_DISALLOW_SPDY;
     mConnectionInfo->SetNoSpdy(true);
+  }
+
+  auto canUseHappyEyeballs = [&]() {
+    if (!StaticPrefs::network_http_happy_eyeballs_enabled()) {
+      return false;
+    }
+    if (mProxyInfo || mConnectionInfo->ProxyInfo()) {
+      return false;
+    }
+    return true;
+  };
+
+  if (canUseHappyEyeballs()) {
+    LOG(("%p NS_HTTP_USE_HAPPY_EYEBALLS ", this));
+    mCaps |= NS_HTTP_USE_HAPPY_EYEBALLS;
+    mCaps &= ~NS_HTTP_FORCE_WAIT_HTTP_RR;
+    mConnectionInfo->SetHappyEyeballsEnabled(true);
   }
 
   // if this somehow fails we can go on without it

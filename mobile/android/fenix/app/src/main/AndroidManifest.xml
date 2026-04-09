@@ -803,6 +803,16 @@
         </provider>
 
         <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
             android:exported="false"
@@ -821,6 +831,20 @@
             tools:ignore="ExportedReceiver">
             <intent-filter>
                 <action android:name="com.attribution.SYSTEM_INSTALLER_REFERRER" />
+            </intent-filter>
+        </receiver>
+
+        <receiver android:name="org.mozilla.fenix.components.share.SaveToPdfReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.mozilla.fenix.ACTION_SAVE_TO_PDF" />
+            </intent-filter>
+        </receiver>
+
+        <receiver android:name="org.mozilla.fenix.components.share.PrintReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.mozilla.fenix.ACTION_PRINT" />
             </intent-filter>
         </receiver>
     </application>

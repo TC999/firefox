@@ -4,6 +4,7 @@
 
 //! Media-query device and expression representation.
 
+use crate::color::AbsoluteColor;
 use crate::custom_properties::CssEnvironment;
 #[cfg(feature = "servo")]
 use crate::derives::*;
@@ -47,30 +48,22 @@ pub struct Device {
     #[cfg_attr(feature = "servo", ignore_malloc_size_of = "Arc")]
     root_style: RwLock<Arc<ComputedValues>>,
     /// Font size of the root element, used for rem units in other elements.
-    #[cfg_attr(feature = "servo", ignore_malloc_size_of = "Pure stack type")]
     root_font_size: AtomicU32,
     /// Line height of the root element, used for rlh units in other elements.
-    #[cfg_attr(feature = "servo", ignore_malloc_size_of = "Pure stack type")]
     root_line_height: AtomicU32,
     /// X-height of the root element, used for rex units in other elements.
-    #[cfg_attr(feature = "servo", ignore_malloc_size_of = "Pure stack type")]
     root_font_metrics_ex: AtomicU32,
     /// Cap-height of the root element, used for rcap units in other elements.
-    #[cfg_attr(feature = "servo", ignore_malloc_size_of = "Pure stack type")]
     root_font_metrics_cap: AtomicU32,
     /// Advance measure (ch) of the root element, used for rch units in other elements.
-    #[cfg_attr(feature = "servo", ignore_malloc_size_of = "Pure stack type")]
     root_font_metrics_ch: AtomicU32,
     /// Ideographic advance measure of the root element, used for ric units in other elements.
-    #[cfg_attr(feature = "servo", ignore_malloc_size_of = "Pure stack type")]
     root_font_metrics_ic: AtomicU32,
     /// Whether any styles computed in the document relied on the root font-size
     /// by using rem units.
-    #[cfg_attr(feature = "servo", ignore_malloc_size_of = "Pure stack type")]
     used_root_font_size: AtomicBool,
     /// Whether any styles computed in the document relied on the root line-height
     /// by using rlh units.
-    #[cfg_attr(feature = "servo", ignore_malloc_size_of = "Pure stack type")]
     used_root_line_height: AtomicBool,
     /// Whether any styles computed in the document relied on the root font metrics
     /// by using rcap, rch, rex, or ric units. This is a lock instead of an atomic
@@ -88,6 +81,11 @@ pub struct Device {
     /// The CssEnvironment object responsible of getting CSS environment
     /// variables.
     environment: CssEnvironment,
+    /// The body text color, stored as an `nscolor`, used for the "tables
+    /// inherit from body" quirk.
+    ///
+    /// <https://quirks.spec.whatwg.org/#the-tables-inherit-color-from-body-quirk>
+    body_text_color: AtomicU32,
 
     /// Extra Gecko-specific or Servo-specific data.
     extra: ExtraDeviceData,
@@ -279,5 +277,18 @@ impl Device {
     /// Returns whether font metrics have been queried.
     pub fn used_font_metrics(&self) -> bool {
         self.used_font_metrics.load(Ordering::Relaxed)
+    }
+
+    /// Returns the body text color.
+    pub fn body_text_color(&self) -> AbsoluteColor {
+        AbsoluteColor::from_nscolor(self.body_text_color.load(Ordering::Relaxed))
+    }
+
+    /// Sets the body text color for the "inherit color from body" quirk.
+    ///
+    /// <https://quirks.spec.whatwg.org/#the-tables-inherit-color-from-body-quirk>
+    pub fn set_body_text_color(&self, color: AbsoluteColor) {
+        self.body_text_color
+            .store(color.to_nscolor(), Ordering::Relaxed)
     }
 }

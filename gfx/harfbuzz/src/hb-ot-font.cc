@@ -900,11 +900,13 @@ hb_ot_draw_glyph_or_fail (hb_font_t *font,
   bool ret = false;
 
   OT::hb_scalar_cache_t *gvar_cache = nullptr;
+#ifndef HB_NO_VAR
   if (font->num_coords)
   {
     ot_font->check_serial (font);
     gvar_cache = ot_font->draw.acquire_gvar_cache (*ot_font->ot_face->gvar);
   }
+#endif
 
 #ifndef HB_NO_VAR_COMPOSITES
   if (font->face->table.VARC->get_path (font, glyph, draw_session)) { ret = true; goto done; }
@@ -937,7 +939,9 @@ hb_ot_paint_glyph_or_fail (hb_font_t *font,
 {
 #ifndef HB_NO_COLOR
   if (font->face->table.COLR->paint_glyph (font, glyph, paint_funcs, paint_data, palette, foreground)) return true;
+#ifndef HB_NO_SVG
   if (font->face->table.SVG->paint_glyph (font, glyph, paint_funcs, paint_data)) return true;
+#endif
 #ifndef HB_NO_OT_FONT_BITMAP
   if (font->face->table.CBDT->paint_glyph (font, glyph, paint_funcs, paint_data)) return true;
   if (font->face->table.sbix->paint_glyph (font, glyph, paint_funcs, paint_data)) return true;

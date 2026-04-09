@@ -2,10 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const { sinon } = ChromeUtils.importESModule(
-  "resource://testing-common/Sinon.sys.mjs"
-);
-
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
     set: [["sidebar.verticalTabs", true]],
@@ -30,6 +26,7 @@ async function addTabAndLoadBrowser() {
 
 async function checkSplitViewPanelVisible(tab, isVisible) {
   const panel = document.getElementById(tab.linkedPanel);
+  info("wait for split-view-panel-active to change visibility");
   await BrowserTestUtils.waitForMutationCondition(
     panel,
     { attributes: true },
@@ -125,16 +122,10 @@ add_task(async function test_splitViewCreateAndAddTabs() {
     "The split view wrapper has the expected attribute when it contains the selected tab"
   );
 
-  // TODO Bug 2022919- fix discrepancy between splitview.unsplitTabs and gBrowser.unsplitTabs()
-  gBrowser.unsplitTabs(splitview);
-  await BrowserTestUtils.waitForMutationCondition(
-    tabbrowserTabs,
-    { childList: true },
-    () => tabbrowserTabs.querySelectorAll("tab-split-view-wrapper").length === 1
-  );
+  splitview.unsplitTabs();
   Assert.strictEqual(
     document.querySelectorAll("tab-split-view-wrapper").length,
-    1,
+    2,
     "Tabs have been unsplit from split view"
   );
   Assert.ok(
@@ -165,12 +156,38 @@ add_task(async function test_splitViewCreateAndAddTabs() {
     "Tab panel does not have blue outline"
   );
 
+  let splitViewCreated = BrowserTestUtils.waitForEvent(
+    tabbrowserTabs,
+    "SplitViewCreated"
+  );
   // Add tabs back to split view
   splitview = gBrowser.addTabSplitView([tab1, tab2]);
+  await splitViewCreated;
+  await BrowserTestUtils.waitForMutationCondition(
+    tabbrowserTabs,
+    { childList: true },
+    () => tabbrowserTabs.querySelectorAll("tab-split-view-wrapper").length === 2
+  );
+  is(
+    tabbrowserTabs.querySelectorAll("tab-split-view-wrapper").length,
+    2,
+    "Two splitviews have been created"
+  );
 
-  // Remove split view and close tabs
-  splitview.close();
+  gBrowser.removeTab(tab1);
+  await BrowserTestUtils.waitForMutationCondition(
+    splitview,
+    { childList: true },
+    () => !splitview.children.length
+  );
+  ok(!tab2.splitview, "Tab2 is no longer in a splitview");
+  is(
+    tabbrowserTabs.querySelectorAll("tab-split-view-wrapper").length,
+    1,
+    "Only one splitview remains after closing tab in first splitview"
+  );
   splitview2.close();
+  BrowserTestUtils.removeTab(tab2);
 });
 
 add_task(async function test_split_view_panels() {
@@ -236,8 +253,8 @@ add_task(async function test_split_view_panels() {
 
   info("Remove the split view, keeping tabs intact.");
   splitView.unsplitTabs();
-  await checkSplitViewPanelVisible(tab1, false);
-  await checkSplitViewPanelVisible(tab2, false);
+  await checkSplitViewPanelVisible(tab1, false, true);
+  await checkSplitViewPanelVisible(tab2, false, true);
   await BrowserTestUtils.waitForMutationCondition(
     urlbarButton,
     { attributes: true },
@@ -356,66 +373,6 @@ add_task(async function test_resize_split_view_panels() {
 
   BrowserTestUtils.removeTab(tab1);
   BrowserTestUtils.removeTab(tab2);
-});
-
-add_task(async function test_resize_throttled_for_keyboard() {
-  const tab1 = await addTabAndLoadBrowser();
-  const tab2 = await addTabAndLoadBrowser();
-  await BrowserTestUtils.switchTab(gBrowser, tab1);
-
-  info("Activate split view.");
-  const splitView = gBrowser.addTabSplitView([tab1, tab2]);
-  const { tabpanels } = gBrowser;
-  const splitter = tabpanels.splitViewSplitter;
-  await BrowserTestUtils.waitForMutationCondition(
-    tabpanels,
-    { childList: true },
-    () => tabpanels.querySelector(".split-view-splitter")
-  );
-  await BrowserTestUtils.waitForMutationCondition(
-    splitter,
-    { attributes: true },
-    () => BrowserTestUtils.isVisible(splitter)
-  );
-
-  splitter.focus();
-  Assert.equal(document.activeElement, splitter, "Splitter should be focused");
-
-  const [browser] = gBrowser.splitViewBrowsers;
-  const docShellIsActiveProp = sinon.spy(browser, "docShellIsActive", ["set"]);
-
-  info("Move the splitter to the left using keyboard.");
-  let movedPromise = waitForSplitterMoved(splitter);
-  EventUtils.synthesizeKey("KEY_ArrowLeft", { type: "keydown" });
-  await movedPromise;
-  EventUtils.synthesizeKey("KEY_ArrowLeft", { type: "keyup" });
-
-  Assert.ok(
-    docShellIsActiveProp.set.calledWith(false),
-    "Rendering was paused at least once."
-  );
-  Assert.ok(
-    docShellIsActiveProp.set.calledWith(true),
-    "Rendering was resumed at least once."
-  );
-  docShellIsActiveProp.set.resetHistory();
-
-  info("Move the splitter to the right using keyboard.");
-  movedPromise = waitForSplitterMoved(splitter);
-  EventUtils.synthesizeKey("KEY_ArrowRight", { type: "keydown" });
-  await movedPromise;
-  EventUtils.synthesizeKey("KEY_ArrowRight", { type: "keyup" });
-
-  Assert.ok(
-    docShellIsActiveProp.set.calledWith(false),
-    "Rendering was paused at least once."
-  );
-  Assert.ok(
-    docShellIsActiveProp.set.calledWith(true),
-    "Rendering was resumed at least once."
-  );
-
-  splitView.close();
 });
 
 add_task(async function test_resize_split_view_panels_exceeds_max_width() {

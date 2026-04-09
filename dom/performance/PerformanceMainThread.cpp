@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -32,6 +30,7 @@
 #include "nsIChannel.h"
 #include "nsIDocShell.h"
 #include "nsIHttpChannel.h"
+#include "nsRefreshDriver.h"
 
 namespace mozilla::dom {
 
@@ -71,7 +70,8 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(PerformanceMainThread,
   NS_IMPL_CYCLE_COLLECTION_UNLINK(
       mTiming, mNavigation, mDocEntry, mFCPTiming, mEventTimingEntries,
       mLargestContentfulPaintEntries, mFirstInputEvent, mPendingPointerDown,
-      mPendingEventTimingEntries, mEventCounts, mInteractionMetrics)
+      mPendingEventTimingEntries, mEventCounts, mInteractionMetrics,
+      mCurrentEventTimingEntry)
   tmp->mTextFrameUnions.Clear();
   mozilla::DropJSObjects(tmp);
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
@@ -82,7 +82,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(PerformanceMainThread,
       mTiming, mNavigation, mDocEntry, mFCPTiming, mEventTimingEntries,
       mLargestContentfulPaintEntries, mFirstInputEvent, mPendingPointerDown,
       mPendingEventTimingEntries, mEventCounts, mTextFrameUnions,
-      mInteractionMetrics)
+      mInteractionMetrics, mCurrentEventTimingEntry)
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
@@ -257,22 +257,31 @@ void PerformanceMainThread::InsertEventTimingEntry(
     return;
   }
 
-  // Using PostRefreshObserver is fine because we don't
-  // run any JS between the `mark paint timing` step and the
-  // `pending Event Timing entries` step. So mixing the order
-  // here is fine.
-  mHasQueuedRefreshdriverObserver = true;
-  presContext->RegisterManagedPostRefreshObserver(
-      new ManagedPostRefreshObserver(
-          presContext, [performance = RefPtr<PerformanceMainThread>(this)](
-                           bool aWasCanceled) {
-            if (!aWasCanceled) {
-              // XXX Should we do this even if canceled?
-              performance->DispatchPendingEventTimingEntries();
-            }
-            performance->mHasQueuedRefreshdriverObserver = false;
-            return ManagedPostRefreshObserver::Unregister::Yes;
-          }));
+  // If the refresh driver already has work to do (pending paint, animations,
+  // etc.), register a post-refresh observer so entries are dispatched after
+  // the paint with an accurate rendering time. Otherwise, avoid waking up
+  // vsync by posting a direct task — entries will be dispatched on the next
+  // event-loop iteration with the current time as rendering time.
+  if (presContext->RefreshDriver()->HasReasonsToTick()) {
+    // Using PostRefreshObserver is fine because we don't
+    // run any JS between the `mark paint timing` step and the
+    // `pending Event Timing entries` step. So mixing the order
+    // here is fine.
+    mHasQueuedRefreshdriverObserver = true;
+
+    presContext->RegisterManagedPostRefreshObserver(
+        new ManagedPostRefreshObserver(
+            presContext, [performance = RefPtr<PerformanceMainThread>(this)](
+                             bool aWasCanceled) {
+              if (!aWasCanceled) {
+                performance->DispatchPendingEventTimingEntries();
+              }
+              performance->mHasQueuedRefreshdriverObserver = false;
+              return ManagedPostRefreshObserver::Unregister::Yes;
+            }));
+  } else {
+    DispatchPendingEventTimingEntries();
+  }
 }
 
 void PerformanceMainThread::BufferEventTimingEntryIfNeeded(
@@ -291,6 +300,27 @@ void PerformanceMainThread::BufferLargestContentfulPaintEntryIfNeeded(
   }
 }
 
+void PerformanceMainThread::RecordModalFallbackTime() {
+  DOMHighResTimeStamp now = NowUnclamped();
+  mLastModalFallbackTime = now;
+  if (mCurrentEventTimingEntry) {
+    mCurrentEventTimingEntry->SetFallbackTimeIfNotSet(now);
+  }
+  for (auto* entry : mPendingEventTimingEntries) {
+    entry->SetFallbackTimeIfNotSet(now);
+  }
+}
+
+void PerformanceMainThread::SetCurrentEventTimingEntry(
+    PerformanceEventTiming* aEntry) {
+  mCurrentEventTimingEntry = aEntry;
+}
+
+PerformanceEventTiming* PerformanceMainThread::GetCurrentEventTimingEntry()
+    const {
+  return mCurrentEventTimingEntry;
+}
+
 void PerformanceMainThread::DispatchPendingEventTimingEntries() {
   DOMHighResTimeStamp renderingTime = NowUnclamped();
 
@@ -300,7 +330,13 @@ void PerformanceMainThread::DispatchPendingEventTimingEntries() {
     // Set its duration if it's not set already.
     PerformanceEventTiming* entry = *it;
     if (entry->RawDuration().isNothing()) {
-      entry->SetDuration(renderingTime - entry->RawStartTime());
+      // If a modal dialog appeared during event processing, its appearance
+      // time is used as the effective rendering time. The dialog provides
+      // visual feedback before the next paint, so we use that earlier time.
+      // https://github.com/w3c/event-timing/issues/154
+      DOMHighResTimeStamp effectiveRenderingTime =
+          entry->GetFallbackTime().valueOr(renderingTime);
+      entry->SetDuration(effectiveRenderingTime - entry->RawStartTime());
     }
 
     if (!(mPendingEventTimingEntries.end() != entriesToBeQueuedEnd) &&

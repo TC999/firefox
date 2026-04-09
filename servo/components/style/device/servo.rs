@@ -97,6 +97,7 @@ impl Device {
             used_dynamic_viewport_size: AtomicBool::new(false),
             environment: CssEnvironment,
             default_values,
+            body_text_color: AtomicU32::new(AbsoluteColor::BLACK.to_nscolor()),
             extra: ExtraDeviceData {
                 media_type,
                 viewport_size,
@@ -129,13 +130,6 @@ impl Device {
     /// Get the quirks mode of the current device.
     pub fn quirks_mode(&self) -> QuirksMode {
         self.extra.quirks_mode
-    }
-
-    /// Sets the body text color for the "inherit color from body" quirk.
-    ///
-    /// <https://quirks.spec.whatwg.org/#the-tables-inherit-color-from-body-quirk>
-    pub fn set_body_text_color(&self, _color: AbsoluteColor) {
-        // Servo doesn't implement this quirk (yet)
     }
 
     /// Gets the base size given a generic font family.
@@ -277,17 +271,16 @@ impl Device {
     pub(crate) fn system_color(
         &self,
         system_color: SystemColor,
-        color_scheme: ColorSchemeFlags,
+        color_scheme_flags: ColorSchemeFlags,
     ) -> AbsoluteColor {
         fn srgb(r: u8, g: u8, b: u8) -> AbsoluteColor {
             AbsoluteColor::srgb_legacy(r, g, b, 1f32)
         }
 
-        let dark = self.is_dark_color_scheme(color_scheme);
-
         // Refer to spec
         // <https://www.w3.org/TR/css-color-4/#css-system-colors>
-        if dark {
+        if self.is_dark_color_scheme(color_scheme_flags) {
+            // Note: is_dark_color_scheme always returns true, so this code is dead code.
             match system_color {
                 SystemColor::Accentcolor => srgb(10, 132, 255),
                 SystemColor::Accentcolortext => srgb(255, 255, 255),
@@ -350,14 +343,14 @@ impl Device {
                 | SystemColor::Inactiveborder
                 | SystemColor::Threeddarkshadow
                 | SystemColor::Threedshadow
-                | SystemColor::Windowframe => srgb(0, 0, 0),
+                | SystemColor::Windowframe => srgb(169, 169, 169),
                 SystemColor::Buttonface
                 // Deprecated system colors (CSS Color 4) mapped to Buttonface.
                 | SystemColor::Buttonhighlight
                 | SystemColor::Buttonshadow
                 | SystemColor::Threedface
                 | SystemColor::Threedhighlight
-                | SystemColor::Threedlightshadow => srgb(240, 240, 240),
+                | SystemColor::Threedlightshadow => srgb(220, 220, 220),
                 SystemColor::Buttontext => srgb(0, 0, 0),
                 SystemColor::Canvas
                 // Deprecated system colors (CSS Color 4) mapped to Canvas.

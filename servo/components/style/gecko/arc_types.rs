@@ -14,9 +14,10 @@ use crate::properties::{ComputedValues, PropertyDeclarationBlock};
 use crate::shared_lock::Locked;
 use crate::stylesheets::keyframes_rule::Keyframe;
 use crate::stylesheets::{
-    ContainerRule, CssRules, CustomMediaRule, DocumentRule, FontFeatureValuesRule,
-    FontPaletteValuesRule, LayerBlockRule, LayerStatementRule, MarginRule, MediaRule,
-    NamespaceRule, PropertyRule, ScopeRule, StartingStyleRule, StylesheetContents, SupportsRule,
+    AppearanceBaseRule, ContainerRule, CssRules, CustomMediaRule, DocumentRule,
+    FontFeatureValuesRule, FontPaletteValuesRule, LayerBlockRule, LayerStatementRule, MarginRule,
+    MediaRule, NamespaceRule, PropertyRule, ScopeRule, StartingStyleRule, StylesheetContents,
+    SupportsRule, ViewTransitionRule,
 };
 pub use crate::stylesheets::{
     LockedCounterStyleRule, LockedFontFaceRule, LockedImportRule, LockedKeyframesRule,
@@ -183,6 +184,11 @@ impl_simple_arc_ffi!(
     Servo_StartingStyleRule_AddRef,
     Servo_StartingStyleRule_Release
 );
+impl_simple_arc_ffi!(
+    AppearanceBaseRule,
+    Servo_AppearanceBaseRule_AddRef,
+    Servo_AppearanceBaseRule_Release
+);
 
 impl_simple_arc_ffi!(
     LockedPositionTryRule,
@@ -193,4 +199,9 @@ impl_simple_arc_ffi!(
     LockedNestedDeclarationsRule,
     Servo_NestedDeclarationsRule_AddRef,
     Servo_NestedDeclarationsRule_Release
+);
+impl_simple_arc_ffi!(
+    ViewTransitionRule,
+    Servo_ViewTransitionRule_AddRef,
+    Servo_ViewTransitionRule_Release
 );

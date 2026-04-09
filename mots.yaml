@@ -8,7 +8,7 @@
 # documentation and how to modify this file.
 repo: mozilla-central
 created_at: '2021-10-14T12:50:40.073465'
-updated_at: '2026-02-27T10:35:59.553368+00:00'
+updated_at: '2026-04-08T16:02:10.097081+00:00'
 export:
   path: ./docs/mots/index.rst
   format: rst
@@ -393,7 +393,7 @@ people:
     nick: florian
   - &fredwang
     bmo_id: 739410
-    name: Frédéric Wang
+    name: Frédéric Wang Nélar
     nick: fred.wang
   - &freddy
     bmo_id: 428608
@@ -1927,6 +1927,8 @@ modules:
     includes:
       - gfx/**/*
       - dom/canvas/**/*
+    excludes:
+      - gfx/wgpu_bindings/**/*
     meta:
       owners_emeritus:
         - Robert O'Callahan
@@ -2541,7 +2543,7 @@ modules:
       - toolkit/system/gnome/nsAlertsIconListener*
       - toolkit/system/gnome/nsSystemAlertsService*
       - widget/windows/ToastNotification*
-      - widget/cocoa/OSXNotificationCenter*
+      - widget/cocoa/MacOSNotificationCenter*
     meta:
       group: dev-platform
       components:
@@ -2749,8 +2751,8 @@ modules:
       - *gcp
     machine_name: core_sandboxing_linux
 
-  - name: 'Core: Sandboxing (OSX)'
-    description: Sandboxing for the OSX platform
+  - name: 'Core: Sandboxing (macOS)'
+    description: Sandboxing for the macOS platform
     includes:
       - security/sandbox/mac/**/*
     meta:
@@ -3328,6 +3330,7 @@ modules:
       group: dev-platform
       components:
         - 'Core::Widget: Win32'
+      review_group: win-reviewers
     owners:
       - *cmartin
     peers:
@@ -3748,10 +3751,11 @@ modules:
         description: Built-in IP Protection (VPN) in the browser.
         includes:
           - browser/components/ipprotection/**/*
+          - toolkit/components/ipprotection/**/*
         meta:
           components:
             - Firefox::IP Protection
-          url: https://firefox-source-docs.mozilla.org/browser/ipprotection/
+          url: https://firefox-source-docs.mozilla.org/toolkit/ipprotection/
           review_group: ip-protection-reviewers
         owners:
           - *fchasen
@@ -4753,5 +4757,5 @@ modules:
         - Ryan Tilder
       group: dev-platform
 hashes:
-  config: 03a255521a82a75b4c121a97131177254c1cb91f
-  export: d61834b341e554ce7160d6bcbf452b85817b6ada
+  config: 2fc593ca69b3cb45bcf81fad9fb225a807496d99
+  export: ab69ee83d67b6716ff2444f1a32b359b3b36bd50

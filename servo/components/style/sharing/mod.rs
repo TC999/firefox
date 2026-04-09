@@ -67,10 +67,9 @@
 use crate::applicable_declarations::ApplicableDeclarationBlock;
 use crate::bloom::StyleBloom;
 use crate::computed_value_flags::ComputedValueFlags;
-use crate::context::{SharedStyleContext, StyleContext};
+use crate::context::{CascadeInputs, SharedStyleContext, StyleContext};
 use crate::dom::{SendElement, TElement, TShadowRoot};
 use crate::properties::ComputedValues;
-use crate::rule_tree::StrongRuleNode;
 use crate::selector_map::RelevantAttributes;
 use crate::style_resolver::{PrimaryStyle, ResolvedElementStyles};
 use crate::stylist::Stylist;
@@ -901,8 +900,7 @@ impl<E: TElement> StyleSharingCache<E> {
         &mut self,
         shared_context: &SharedStyleContext,
         inherited: &ComputedValues,
-        rules: &StrongRuleNode,
-        visited_rules: Option<&StrongRuleNode>,
+        inputs: &CascadeInputs,
         target: E,
     ) -> Option<PrimaryStyle> {
         if shared_context.options.disable_style_sharing_cache {
@@ -919,10 +917,10 @@ impl<E: TElement> StyleSharingCache<E> {
             }
             let data = candidate.element.borrow_data().unwrap();
             let style = data.styles.primary();
-            if style.rules.as_ref() != Some(&rules) {
+            if style.rules.as_ref() != Some(&inputs.rules.as_ref().unwrap()) {
                 return None;
             }
-            if style.visited_rules() != visited_rules {
+            if style.visited_rules() != inputs.visited_rules.as_ref() {
                 return None;
             }
             // NOTE(emilio): We only need to check name / namespace because we
@@ -952,6 +950,35 @@ impl<E: TElement> StyleSharingCache<E> {
             // entirely, so that visitedness doesn't affect timing.
             if target.is_link() || candidate.element.is_link() {
                 return None;
+            }
+
+            let target_depends_on_style_queries = inputs
+                .flags
+                .contains(ComputedValueFlags::DEPENDS_ON_CONTAINER_STYLE_QUERY);
+            let candidate_depends_on_style_queries = style
+                .flags
+                .contains(ComputedValueFlags::DEPENDS_ON_CONTAINER_STYLE_QUERY);
+
+            if target_depends_on_style_queries != candidate_depends_on_style_queries {
+                // If we're considering sharing across two elements, target
+                // depends on style queries and candidate doesn't, right
+                // now we can share it, but by cloning the candidate style
+                // if we adjust the flags.
+                // If we're considering sharing across two elements, target
+                // does not depend on style queries and candidate does, we
+                // can share them with the same flags, but that would
+                // overinvalidate if we already know we don't need to keep
+                // `DEPENDS_ON_CONTAINER_STYLE_QUERY`.
+                let mut new_flags = inputs.flags | style.flags;
+                new_flags.set(
+                    ComputedValueFlags::DEPENDS_ON_CONTAINER_STYLE_QUERY,
+                    target_depends_on_style_queries,
+                );
+
+                return Some(PrimaryStyle {
+                    style: data.clone_style_with_flags(new_flags),
+                    reused_via_rule_node: true,
+                });
             }
 
             Some(data.share_primary_style())

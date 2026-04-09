@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
-
 import json
 import time
 
-import mozunit
 import pytest
 
 # flake8: noqa
@@ -384,4 +381,6 @@ def test_errorsummary(monkeypatch, get_logger, logs, expected):
 
 
 if __name__ == "__main__":
+    import mozunit
+
     mozunit.main()

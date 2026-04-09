@@ -1,5 +1,4 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- *
+/*
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -148,16 +147,17 @@ nsPK11Token::IsLoggedIn(bool* _retval) {
 
 NS_IMETHODIMP
 nsPK11Token::Login(bool force) {
-  nsresult rv;
   bool test;
-  rv = this->NeedsLogin(&test);
-  if (NS_FAILED(rv)) return rv;
+  nsresult rv = this->NeedsLogin(&test);
+  if (NS_FAILED(rv)) {
+    return rv;
+  }
   if (test && force) {
     rv = this->LogoutSimple();
-    if (NS_FAILED(rv)) return rv;
+    if (NS_FAILED(rv)) {
+      return rv;
+    }
   }
-  rv = setPassword(mSlot.get(), mUIContext);
-  if (NS_FAILED(rv)) return rv;
 
   return mozilla::MapSECStatus(
       PK11_Authenticate(mSlot.get(), true, mUIContext));

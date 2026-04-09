@@ -46,12 +46,12 @@ sealed interface TabsTrayAction : Action {
     /**
      * Added a new [TabsTrayItem] to the selection set.
      */
-    data class AddSelectTab(val tab: TabsTrayItem) : TabsTrayAction
+    data class AddSelectTabItem(val item: TabsTrayItem) : TabsTrayAction
 
     /**
      * Removed a [TabsTrayItem] from the selection set.
      */
-    data class RemoveSelectTab(val tab: TabsTrayItem) : TabsTrayAction
+    data class RemoveSelectTabItem(val item: TabsTrayItem) : TabsTrayAction
 
     /**
      * The active page in the tray that is now in focus.
@@ -154,4 +154,21 @@ sealed interface TabsTrayAction : Action {
      * [TabsTrayAction] fired when the user clicks on the back button or swipes to navigate back.
      */
     object NavigateBackInvoked : TabsTrayAction
+
+    /**
+     * Updates the private browsing lock status.
+     *
+     * @property isLocked Whether the private browsing mode is currently locked by biometrics/passcode.
+     */
+    data class UpdatePbmLockStatus(val isLocked: Boolean) : TabsTrayAction
+
+    /**
+     * [TabsTrayAction] fired when the user dismisses the Inactive Tabs CFR.
+     */
+    object DismissInactiveTabsCFR : TabsTrayAction
+
+    /**
+     * [TabsTrayAction] fired when the user dismisses the inactive tabs auto-close dialog.
+     */
+    object DismissInactiveTabsAutoCloseDialog : TabsTrayAction
 }

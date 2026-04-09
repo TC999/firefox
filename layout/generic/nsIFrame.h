@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -66,6 +64,7 @@
 #include "mozilla/SmallPointerArray.h"
 #include "mozilla/ToString.h"
 #include "mozilla/WritingModes.h"
+#include "mozilla/dom/RustTypes.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/gfx/CompositorHitTestInfo.h"
 #include "mozilla/gfx/MatrixFwd.h"
@@ -1992,7 +1991,7 @@ class nsIFrame : public nsQueryFrame {
   }
   bool IsThemed(const nsStyleDisplay* aDisp,
                 nsITheme::Transparency* aTransparencyState = nullptr) const {
-    if (!aDisp->HasAppearance()) {
+    if (!aDisp->HasNativeAppearance()) {
       return false;
     }
     nsIFrame* mutable_this = const_cast<nsIFrame*>(this);
@@ -2218,7 +2217,7 @@ class nsIFrame : public nsQueryFrame {
   void ComputePreserve3DChildrenOverflow(
       mozilla::OverflowAreas& aOverflowAreas);
 
-  void RecomputePerspectiveChildrenOverflow(const nsIFrame* aStartFrame);
+  bool RecomputePerspectiveChildrenOverflow(const nsIFrame* aStartFrame);
 
   /**
    * Returns whether z-index applies to this frame.
@@ -3957,14 +3956,14 @@ class nsIFrame : public nsQueryFrame {
    * the overflow areas changed.
    */
   bool FinishAndStoreOverflow(mozilla::OverflowAreas& aOverflowAreas,
-                              nsSize aNewSize, nsSize* aOldSize = nullptr,
+                              nsSize aNewSize,
                               const nsStyleDisplay* aStyleDisplay = nullptr);
 
   bool FinishAndStoreOverflow(ReflowOutput* aMetrics,
                               const nsStyleDisplay* aStyleDisplay = nullptr) {
     return FinishAndStoreOverflow(aMetrics->mOverflowAreas,
                                   nsSize(aMetrics->Width(), aMetrics->Height()),
-                                  nullptr, aStyleDisplay);
+                                  aStyleDisplay);
   }
 
   /**

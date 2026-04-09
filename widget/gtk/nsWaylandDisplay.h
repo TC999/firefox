@@ -1,6 +1,3 @@
-/* -*- Mode: C; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:expandtab:shiftwidth=2:tabstop=2:
- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -134,6 +131,9 @@ class nsWaylandDisplay {
   bool HasDMABufFeedback() const { return mDmabufIsFeedback; }
   void EnsureDMABufFormats();
 
+  void SetFixes(wl_fixes* aFixes);
+  wl_fixes* GetFixes() const { return mFixes; }
+
   static void AsyncRoundtripCallback(void* aData, wl_callback* aCallback,
                                      uint32_t aTime);
   void RequestAsyncRoundtrip();
@@ -161,6 +161,7 @@ class nsWaylandDisplay {
  private:
   PRThread* mThreadId = nullptr;
   wl_registry* mRegistry = nullptr;
+  wl_fixes* mFixes = nullptr;
   wl_display* mDisplay = nullptr;
   wl_compositor* mCompositor = nullptr;
   wl_subcompositor* mSubcompositor = nullptr;

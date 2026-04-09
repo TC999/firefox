@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -479,7 +477,7 @@ nsresult IMEStateManager::OnRemoveContent(nsPresContext& aPresContext,
         [presContext = OwningNonNull{aPresContext}]() {
           MOZ_ASSERT(sFocusedPresContext == presContext);
           MOZ_ASSERT(!sFocusedElement);
-          if (RefPtr<HTMLEditor> htmlEditor =
+          if (HTMLEditor* const htmlEditor =
                   nsContentUtils::GetHTMLEditor(presContext)) {
             CreateIMEContentObserver(*htmlEditor, nullptr);
           }
@@ -896,6 +894,9 @@ nsresult IMEStateManager::OnChangeFocusInternal(nsPresContext* aPresContext,
       // Even if focus isn't changing actually, we should commit current
       // composition here since the IME state is changing.
       if (sFocusedPresContext && oldWidget) {
+        // FIXME: During committing composition, focused element may be changed.
+        // In such case, we should not set sFocusedPresContext nor
+        // sFocusedElement below.
         NotifyIME(REQUEST_TO_COMMIT_COMPOSITION, oldWidget,
                   sFocusedIMEBrowserParent);
       }
@@ -907,6 +908,10 @@ nsresult IMEStateManager::OnChangeFocusInternal(nsPresContext* aPresContext,
                                       : InputContextAction::LOST_FOCUS;
     }
 
+    // FIXME: If we're in the parent process, the following calls may cause
+    // calling the OS API. Then, anything could happen. So, the focus may have
+    // been changed something other. If so, shouldn't set sFocusedPresContext
+    // nor sFocusedElement below anymore.
     if (remoteHasFocus && HasActiveChildSetInputContext() &&
         aAction.mFocusChange == InputContextAction::MENU_LOST_PSEUDO_FOCUS) {
       // Restore the input context in the active remote process when
@@ -923,8 +928,9 @@ nsresult IMEStateManager::OnChangeFocusInternal(nsPresContext* aPresContext,
   sFocusedPresContext = aPresContext;
   sFocusedElement = aElement;
 
-  // Don't call CreateIMEContentObserver() here  because it will be called from
-  // the focus event handler of focused editor.
+  // Don't call CreateIMEContentObserver() here, we'll call it in
+  // UpdateIMEState() after the focused editor is initialized and the focus is
+  // not changed during the initialization.
 
   MOZ_LOG(sISMLog, LogLevel::Debug,
           ("  OnChangeFocusInternal(), modified IME state for "
@@ -1562,11 +1568,9 @@ void IMEStateManager::UpdateIMEState(const IMEState& aNewIMEState,
     MOZ_LOG(sISMLog, LogLevel::Debug,
             ("  UpdateIMEState(), try to reinitialize the active "
              "IMEContentObserver"));
-    OwningNonNull<IMEContentObserver> contentObserver =
-        *sActiveIMEContentObserver;
-    OwningNonNull<nsPresContext> presContext = *sFocusedPresContext;
-    if (!contentObserver->MaybeReinitialize(
-            textInputHandlingWidget, presContext, aElement, aEditorBase)) {
+    if (!sActiveIMEContentObserver->MaybeReinitialize(
+            textInputHandlingWidget, *sFocusedPresContext, aElement,
+            aEditorBase)) [[unlikely]] {
       MOZ_LOG(sISMLog, LogLevel::Error,
               ("  UpdateIMEState(), failed to reinitialize the active "
                "IMEContentObserver"));
@@ -2622,26 +2626,17 @@ void IMEStateManager::CreateIMEContentObserver(EditorBase& aEditorBase,
     return;
   }
 
-  const OwningNonNull<nsIWidget> textInputHandlingWidget =
-      *sTextInputHandlingWidget;
   MOZ_ASSERT_IF(sFocusedPresContext->GetTextInputHandlingWidget(),
                 sFocusedPresContext->GetTextInputHandlingWidget() ==
-                    textInputHandlingWidget.get());
+                    sTextInputHandlingWidget);
 
   MOZ_LOG(sISMLog, LogLevel::Debug,
           ("  CreateIMEContentObserver() is creating an "
            "IMEContentObserver instance..."));
   sActiveIMEContentObserver = new IMEContentObserver();
-
-  // IMEContentObserver::Init() might create another IMEContentObserver
-  // instance.  So, sActiveIMEContentObserver would be replaced with new one.
-  // We should hold the current instance here.
-  OwningNonNull<IMEContentObserver> activeIMEContentObserver =
-      *sActiveIMEContentObserver;
-  OwningNonNull<nsPresContext> focusedPresContext = *sFocusedPresContext;
-  RefPtr<Element> focusedElement = aFocusedElement;
-  activeIMEContentObserver->Init(textInputHandlingWidget, focusedPresContext,
-                                 focusedElement, aEditorBase);
+  sActiveIMEContentObserver->Init(*sTextInputHandlingWidget,
+                                  *sFocusedPresContext, aFocusedElement,
+                                  aEditorBase);
 }
 
 // static

@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -22,7 +20,8 @@ namespace mozilla {
 
 struct CSSPropertyId;
 class ErrorResult;
-struct StylePropertyTypedValue;
+struct StylePropertyTypedValueList;
+struct URLExtraData;
 
 namespace dom {
 
@@ -46,9 +45,10 @@ class CSSStyleValue : public nsISupports, public nsWrapperCache {
 
   CSSStyleValue(nsCOMPtr<nsISupports> aParent, StyleValueType aStyleValueType);
 
-  static RefPtr<CSSStyleValue> Create(nsCOMPtr<nsISupports> aParent,
-                                      const CSSPropertyId& aPropertyId,
-                                      StylePropertyTypedValue&& aTypedValue);
+  static void Create(nsCOMPtr<nsISupports> aParent,
+                     const CSSPropertyId& aPropertyId,
+                     StylePropertyTypedValueList&& aTypedValueList,
+                     nsTArray<RefPtr<CSSStyleValue>>& aRetVal);
 
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
   NS_DECL_CYCLE_COLLECTION_WRAPPERCACHE_CLASS(CSSStyleValue)
@@ -59,11 +59,13 @@ class CSSStyleValue : public nsISupports, public nsWrapperCache {
 
   // start of CSSStyleValue Web IDL declarations
 
+  // https://drafts.css-houdini.org/css-typed-om-1/#dom-cssstylevalue-parse
   [[nodiscard]] static RefPtr<CSSStyleValue> Parse(const GlobalObject& aGlobal,
                                                    const nsACString& aProperty,
                                                    const nsACString& aCssText,
                                                    ErrorResult& aRv);
 
+  // https://drafts.css-houdini.org/css-typed-om-1/#dom-cssstylevalue-parseall
   static void ParseAll(const GlobalObject& aGlobal, const nsACString& aProperty,
                        const nsACString& aCssText,
                        nsTArray<RefPtr<CSSStyleValue>>& aRetVal,
@@ -72,6 +74,11 @@ class CSSStyleValue : public nsISupports, public nsWrapperCache {
   void Stringify(nsACString& aRetVal) const;
 
   // end of CSSStyleValue Web IDL declarations
+
+  static RefPtr<CSSStyleValue> ParseStyleValue(
+      nsCOMPtr<nsISupports>, const nsACString& aProperty,
+      const nsACString& aCssText, URLExtraData* aURLExtraData,
+      nsTArray<RefPtr<CSSStyleValue>>* aStyleValues, ErrorResult& aRv);
 
   StyleValueType GetStyleValueType() const { return mStyleValueType; }
 

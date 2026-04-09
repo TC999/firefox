@@ -30,13 +30,13 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.pressImeActionButton
-import androidx.test.espresso.assertion.PositionAssertions
 import androidx.test.espresso.intent.Intents
 import androidx.test.espresso.intent.matcher.IntentMatchers
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.uiautomator.By
-import androidx.test.uiautomator.UiScrollable
 import androidx.test.uiautomator.UiSelector
+import mozilla.components.compose.browser.toolbar.concept.BrowserToolbarTestTags.ADDRESSBAR_EDIT_MODE
+import mozilla.components.compose.browser.toolbar.concept.BrowserToolbarTestTags.ADDRESSBAR_EDIT_MODE_HORIZONTAL_DIVIDER
 import mozilla.components.compose.browser.toolbar.concept.BrowserToolbarTestTags.ADDRESSBAR_SEARCH_BOX
 import mozilla.components.compose.browser.toolbar.concept.BrowserToolbarTestTags.SEARCH_SELECTOR
 import org.junit.Assert.assertTrue
@@ -49,6 +49,7 @@ import org.mozilla.fenix.helpers.Constants.SPEECH_RECOGNITION
 import org.mozilla.fenix.helpers.Constants.TAG
 import org.mozilla.fenix.helpers.DataGenerationHelper.getStringResource
 import org.mozilla.fenix.helpers.MatcherHelper.assertUIObjectExists
+import org.mozilla.fenix.helpers.MatcherHelper.itemContainingText
 import org.mozilla.fenix.helpers.MatcherHelper.itemWithDescription
 import org.mozilla.fenix.helpers.MatcherHelper.itemWithResId
 import org.mozilla.fenix.helpers.MatcherHelper.itemWithResIdContainingText
@@ -59,7 +60,6 @@ import org.mozilla.fenix.helpers.TestHelper.appContext
 import org.mozilla.fenix.helpers.TestHelper.appName
 import org.mozilla.fenix.helpers.TestHelper.mDevice
 import org.mozilla.fenix.helpers.TestHelper.packageName
-import org.mozilla.fenix.helpers.TestHelper.waitForAppWindowToBeUpdated
 import mozilla.components.browser.toolbar.R as toolbarR
 import mozilla.components.feature.qr.R as qrR
 
@@ -433,15 +433,10 @@ class SearchRobot(private val composeTestRule: ComposeTestRule) {
         Log.i(TAG, "clickClearButton: Waited for compose test rule to be idle")
     }
 
-    fun tapOutsideToDismissSearchBar() {
-        Log.i(TAG, "tapOutsideToDismissSearchBar: Trying to perform a backward scroll action")
-        // After updating UIAutomator to 2.3.0 the click action doesn't seem to dismiss anymore the awesome bar
-        // On the other hand, the scroll action seems to be working properly and dismisses the awesome bar
-        UiScrollable(UiSelector().resourceId("$packageName:id/search_wrapper")).scrollBackward()
-        Log.i(TAG, "tapOutsideToDismissSearchBar: Performed a backward scroll action")
-        Log.i(TAG, "tapOutsideToDismissSearchBar: Waiting for $waitingTime ms for the edit mode toolbar to be gone")
-        browserToolbarEditView().waitUntilGone(waitingTime)
-        Log.i(TAG, "tapOutsideToDismissSearchBar: Waited for $waitingTime ms for the edit mode toolbar to be gone")
+    fun tapOutsideToDismissSearchBar(libraryItem: String) {
+        Log.i(TAG, "tapOutsideToDismissSearchBar: Trying to click outside the search bar")
+        itemContainingText(libraryItem).click()
+        Log.i(TAG, "tapOutsideToDismissSearchBar: Clicked outside the search bar")
     }
 
     fun longClickToolbar() {
@@ -498,17 +493,29 @@ class SearchRobot(private val composeTestRule: ComposeTestRule) {
         Log.i(TAG, "verifyTypedToolbarText: Verification successful.")
     }
 
-    fun verifySearchBarPosition(bottomPosition: Boolean) {
-        Log.i(TAG, "verifySearchBarPosition: Trying to verify that the search bar is set to bottom: $bottomPosition")
-        onView(withId(R.id.toolbar))
-            .check(
-                if (bottomPosition) {
-                    PositionAssertions.isCompletelyBelow(withId(R.id.keyboard_divider))
-                } else {
-                    PositionAssertions.isCompletelyAbove(withId(R.id.keyboard_divider))
-                },
-            )
-        Log.i(TAG, "verifySearchBarPosition: Verified that the search bar is set to bottom: $bottomPosition")
+    fun verifySearchBarPosition() {
+        Log.i(TAG, "verifySearchBarPosition: Waiting for compose test rule to be idle")
+        composeTestRule.waitForIdle()
+        Log.i(TAG, "verifySearchBarPosition: Waited for compose test rule to be idle")
+
+        val editModeToolbar = mDevice.findObject(By.res(ADDRESSBAR_EDIT_MODE))
+        val horizontalDivider = mDevice.findObject(By.res(ADDRESSBAR_EDIT_MODE_HORIZONTAL_DIVIDER))
+
+        val editModeToolbarBottom = editModeToolbar.visibleBounds.bottom
+        val horizontalDividerTop = horizontalDivider.visibleBounds.top
+        // Allow small pixel differences due to measurement rounding
+        val roundingTolerancePx = 5
+
+        Log.i(TAG, "verifySearchBarPosition: Trying to click the edit mode toolbar")
+        editModeToolbar.click()
+        Log.i(TAG, "verifySearchBarPosition: Clicked the edit mode toolbar")
+
+        Log.i(TAG, "verifySearchBarPosition: Trying to verify that the edit mode toolbar is above the horizontal divider")
+        assert(editModeToolbarBottom <= horizontalDividerTop + roundingTolerancePx) {
+            "($TAG, ADDRESSBAR_EDIT_MODE is not above ADDRESSBAR_HORIZONTAL_DIVIDER: " +
+                "editBottom=$editModeToolbarBottom, dividerTop=$horizontalDividerTop"
+        }
+        Log.i(TAG, "verifySearchBarPosition: Verified that the edit mode toolbar is above the horizontal divider")
     }
 
     fun deleteSearchKeywordCharacters(numberOfDeletionSteps: Int) {
@@ -536,16 +543,32 @@ class SearchRobot(private val composeTestRule: ComposeTestRule) {
         }
 
         fun submitQuery(query: String, interact: BrowserRobot.() -> Unit): BrowserRobot.Transition {
-            Log.i(TAG, "submitQuery: Trying to set toolbar text to: $query and pressing IME action")
-            composeTestRule.onNodeWithTag(ADDRESSBAR_SEARCH_BOX).apply {
-                performTextReplacement(query)
-                performImeAction()
-            }
-            Log.i(TAG, "submitQuery: Toolbar text was set to: $query and IME action performed")
-
-            Log.i(TAG, "submitQuery: Waiting for compose test rule to be idle")
+            Log.i(TAG, "submitQuery: Waiting for compose rule to be idle")
             composeTestRule.waitForIdle()
-            Log.i(TAG, "submitQuery: Waiting for compose test rule to be idle")
+            Log.i(TAG, "submitQuery: Waited for compose rule to be idle")
+
+            Log.i(TAG, "submitQuery: Trying to set toolbar text to: $query")
+            itemWithResId("ADDRESSBAR_SEARCH_BOX").setText(query)
+            Log.i(TAG, "submitQuery: Toolbar text was set to: $query")
+
+            Log.i(TAG, "submitQuery: Waiting for compose rule to be idle")
+            composeTestRule.waitForIdle()
+            Log.i(TAG, "submitQuery: Waited for compose rule to be idle")
+
+            runCatching {
+                Log.i(TAG, "submitQuery: Trying to perform Compose IME action perform on the toolbar")
+                composeTestRule.onNodeWithTag(ADDRESSBAR_SEARCH_BOX).performImeAction()
+                Log.i(TAG, "submitQuery: Compose IME action performed on the toolbar")
+            }.onFailure { throwable ->
+                Log.e(TAG, "submitQuery: Compose IME action failed with: ${throwable::class.java.simpleName} - ${throwable.message}")
+                Log.d(TAG, "submitQuery: Falling back to UiDevice pressEnter()")
+                mDevice.pressEnter()
+                Log.d(TAG, "submitQuery: Fallback UiDevice pressEnter() completed")
+            }
+
+            Log.i(TAG, "submitQuery: Waiting for compose rule to be idle")
+            composeTestRule.waitForIdle()
+            Log.i(TAG, "submitQuery: Waited for compose rule to be idle")
 
             BrowserRobot(composeTestRule).interact()
             return BrowserRobot.Transition(composeTestRule)

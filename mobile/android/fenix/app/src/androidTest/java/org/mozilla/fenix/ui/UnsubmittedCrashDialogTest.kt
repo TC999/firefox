@@ -23,18 +23,22 @@ import org.junit.Rule
 import org.junit.Test
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.appstate.AppAction
+import org.mozilla.fenix.crashes.CrashActionDispatcher
 import org.mozilla.fenix.crashes.UnsubmittedCrashDialog
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.helpers.DataGenerationHelper.getStringResource
+import org.mozilla.fenix.helpers.FenixTestRule
 import org.mozilla.fenix.helpers.HomeActivityTestRule
 import org.mozilla.fenix.helpers.MatcherHelper
 import org.mozilla.fenix.helpers.MatcherHelper.itemContainingText
 import org.mozilla.fenix.helpers.TestHelper
-import org.mozilla.fenix.helpers.TestSetup
 
-class UnsubmittedCrashDialogTest : TestSetup() {
+class UnsubmittedCrashDialogTest {
     private lateinit var fakeContext: Context
+
+    @get:Rule(order = 0)
+    val fenixTestRule: FenixTestRule = FenixTestRule()
 
     @Before
     fun setup() {
@@ -44,7 +48,7 @@ class UnsubmittedCrashDialogTest : TestSetup() {
         every { fakeContext.startActivity(any()) } returns mockk()
     }
 
-    @get:Rule(order = 0)
+    @get:Rule
     val composeTestRule =
         AndroidComposeTestRule(
             HomeActivityTestRule.withDefaultSettingsOverrides(useNewCrashReporterFlow = true),
@@ -108,11 +112,12 @@ class UnsubmittedCrashDialogTest : TestSetup() {
     @Test
     fun unsubmittedCrashDialog_ClickOnCancelDispatches_CrashActionCancelTapped() {
         var dispatchedAction: CrashAction? = null
-        UnsubmittedCrashDialog(
-            dispatcher = { action -> dispatchedAction = action },
-            crashIDs = null,
-            TestHelper.appContext,
-        ).show(composeTestRule.activityRule.activity.supportFragmentManager, UnsubmittedCrashDialog.TAG)
+        val dialog = UnsubmittedCrashDialog.create(crashIDs = null)
+        dialog.dispatcher = CrashActionDispatcher {
+            dispatchedAction = it
+        }
+        dialog.show(composeTestRule.activityRule.activity.supportFragmentManager, UnsubmittedCrashDialog.TAG)
+
         verifyDialogText(getUnsubmittedCrashNormal())
         clickButton(cancelUnsubmittedCrashNormal())
         verifyDialogTextGone(getUnsubmittedCrashNormal())
@@ -131,11 +136,11 @@ class UnsubmittedCrashDialogTest : TestSetup() {
     @Test
     fun unsubmittedCrashDialog_ClickOnSubmitDispatches_CrashActionReportTapped() {
         var dispatchedAction: CrashAction? = null
-        UnsubmittedCrashDialog(
-            dispatcher = { action -> dispatchedAction = action },
-            crashIDs = null,
-            TestHelper.appContext,
-        ).show(composeTestRule.activityRule.activity.supportFragmentManager, UnsubmittedCrashDialog.TAG)
+        val dialog = UnsubmittedCrashDialog.create(crashIDs = null)
+        dialog.dispatcher = CrashActionDispatcher {
+            dispatchedAction = it
+        }
+        dialog.show(composeTestRule.activityRule.activity.supportFragmentManager, UnsubmittedCrashDialog.TAG)
         verifyDialogText(getUnsubmittedCrashNormal())
         clickButton(submitUnsubmittedCrashNormal())
         verifyDialogTextGone(getUnsubmittedCrashNormal())
@@ -171,11 +176,13 @@ class UnsubmittedCrashDialogTest : TestSetup() {
     @Test
     fun unsubmittedCrashDialog_PullingOneCrash_ClickOnCancelDispatches_CrashActionCancelTapped() {
         var dispatchedAction: CrashAction? = null
-        UnsubmittedCrashDialog(
-            dispatcher = { action -> dispatchedAction = action },
+        val dialog = UnsubmittedCrashDialog.create(
             crashIDs = listOf("1"),
-            TestHelper.appContext,
-        ).show(composeTestRule.activityRule.activity.supportFragmentManager, UnsubmittedCrashDialog.TAG)
+        )
+        dialog.dispatcher = CrashActionDispatcher {
+            dispatchedAction = it
+        }
+        dialog.show(composeTestRule.activityRule.activity.supportFragmentManager, UnsubmittedCrashDialog.TAG)
         verifyDialogText(getUnsubmittedCrashPullOne())
         clickButton(cancelUnsubmittedCrashPull().uppercase())
         verifyDialogTextGone(getUnsubmittedCrashPullOne())
@@ -193,11 +200,14 @@ class UnsubmittedCrashDialogTest : TestSetup() {
     @Test
     fun unsubmittedCrashDialog_PullingOneCrash_ClickOnCancelForEverDispatches_CrashActionCancelForEverTapped() {
         var dispatchedAction: CrashAction? = null
-        UnsubmittedCrashDialog(
-            dispatcher = { action -> dispatchedAction = action },
+        val dialog = UnsubmittedCrashDialog.create(
             crashIDs = listOf("1"),
-            TestHelper.appContext,
-        ).show(composeTestRule.activityRule.activity.supportFragmentManager, UnsubmittedCrashDialog.TAG)
+        )
+        dialog.dispatcher = CrashActionDispatcher {
+            dispatchedAction = it
+        }
+        dialog.show(composeTestRule.activityRule.activity.supportFragmentManager, UnsubmittedCrashDialog.TAG)
+
         verifyDialogText(getUnsubmittedCrashPullOne())
         clickButton(cancelForEverUnsubmittedCrashPull().uppercase())
         verifyDialogTextGone(getUnsubmittedCrashPullOne())
@@ -207,11 +217,13 @@ class UnsubmittedCrashDialogTest : TestSetup() {
     @Test
     fun unsubmittedCrashDialog_PullingOneCrash_ClickOnSubmitDispatches_CrashActionReportTapped() {
         var dispatchedAction: CrashAction? = null
-        UnsubmittedCrashDialog(
-            dispatcher = { action -> dispatchedAction = action },
+        val dialog = UnsubmittedCrashDialog.create(
             crashIDs = listOf("1"),
-            TestHelper.appContext,
-        ).show(composeTestRule.activityRule.activity.supportFragmentManager, UnsubmittedCrashDialog.TAG)
+        )
+        dialog.dispatcher = CrashActionDispatcher {
+            dispatchedAction = it
+        }
+        dialog.show(composeTestRule.activityRule.activity.supportFragmentManager, UnsubmittedCrashDialog.TAG)
         verifyDialogText(getUnsubmittedCrashPullOne())
         clickButton(submitUnsubmittedCrashPull().uppercase())
         verifyDialogTextGone(getUnsubmittedCrashPullOne())

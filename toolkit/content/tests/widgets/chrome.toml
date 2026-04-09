@@ -10,6 +10,9 @@ support-files = [
 prefs = ["app.support.baseURL='https://support.mozilla.org/'"]
 
 ["test_contextmenu_menugroup.xhtml"]
+skip-if = [
+  "debug && standalone", # Bug 2026600
+]
 
 ["test_contextmenu_nested.xhtml"]
 
@@ -123,6 +126,9 @@ skip-if = [
 ["test_panel_list_popover.html"]
 
 ["test_popupanchor.xhtml"]
+skip-if = [
+  "os == 'win' && standalone", # Bug 2026600
+]
 
 ["test_popupreflows.xhtml"]
 

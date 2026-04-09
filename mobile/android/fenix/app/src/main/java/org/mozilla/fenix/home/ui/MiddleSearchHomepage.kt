@@ -128,7 +128,7 @@ internal fun MiddleSearchHomepage(
 
                             Spacer(modifier = Modifier.weight(1f))
 
-                            if (showPocketStories) {
+                            if (showPocketStoriesCarousel) {
                                 PocketSection(
                                     state = pocketState,
                                     cardBackgroundColor = cardBackgroundColor,
@@ -181,11 +181,11 @@ private fun MiddleSearchHomepagePreview() {
                 showRecentSyncedTab = false,
                 showBookmarks = false,
                 showRecentlyVisited = true,
-                showPocketStories = true,
+                showPocketStoriesCarousel = true,
                 showCollections = true,
                 showPrivacyReport = true,
-                headerState = HeaderState(
-                    showHeader = false,
+                trackersBlockedCount = 754,
+                headerState = HeaderState.Normal(
                     wordmarkTextColor = null,
                     privateBrowsingButtonColor = colorResource(
                         getAttr(
@@ -203,6 +203,7 @@ private fun MiddleSearchHomepagePreview() {
                 buttonBackgroundColor = WallpaperState.default.buttonBackgroundColor,
                 isSearchInProgress = false,
                 bottomPadding = 68,
+                showTopSitesHeader = true,
             ),
             interactor = FakeHomepagePreview.homepageInteractor,
             onTopSitesItemBound = {},

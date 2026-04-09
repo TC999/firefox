@@ -10,6 +10,7 @@
   align-items: center;
   justify-items: center;
   width: 100%;
+  --smartbar-width: 100%;
 }
 
 /* Fullpage: browser collapsed (0 height) until chat starts, showing prompts and smartbar */
@@ -28,12 +29,12 @@
 
 :host([mode="sidebar"]) {
   grid-template-areas:
-    "sidebar-header"
     "browser"
     "prompts"
     "smartbar"
     "disclaimer";
-  grid-template-rows: auto 1fr auto auto auto;
+  grid-template-rows: 1fr auto auto auto;
+  --smartbar-width: calc(100% - var(--space-large));
 }
 
 /* Expands browser to full height and removes prompts from grid when chat starts */
@@ -45,13 +46,25 @@
   grid-template-rows: 1fr auto auto;
 }
 
+:host([mode="fullpage"].chat-active) {
+  grid-template-areas:
+    "browser"
+    "prompts"
+    "smartbar"
+    "disclaimer";
+  grid-template-rows: 1fr auto auto auto;
+
+  & .fullpage-header {
+    display: flex;
+  }
+}
+
 :host([mode="sidebar"].chat-active) {
   grid-template-areas:
-    "sidebar-header"
     "browser"
     "smartbar"
     "disclaimer";
-  grid-template-rows: auto 1fr auto auto;
+  grid-template-rows: 1fr auto auto;
 }
 
 #browser-container {
@@ -72,7 +85,7 @@
   /* smartbar max width must be the same as the child context (ai-window-content.css) container */
   max-width: var(--smartwindow-content-max-width);
   position: relative;
-  width: calc(100% - var(--space-large));
+  width: var(--smartbar-width);
 }
 
 #ai-window-smartbar {
@@ -97,27 +110,42 @@
   bottom: 0;
 }
 
+#smartbar-slot {
+  display: contents;
+}
+
 smartwindow-prompts {
   grid-area: prompts;
   width: 100%;
 }
 
-#browser-container.chat-active #ai-window-smartbar {
-  grid-area: 2 / 1;
-}
-
 .sidebar-header {
   box-sizing: border-box;
+  display: flex;
   grid-area: sidebar-header;
+  justify-content: flex-end;
   padding: var(--space-small);
+  position: absolute;
+  top: 0;
+  width: 100%;
+}
+
+.fullpage-header {
+  box-sizing: border-box;
+  display: none;
+  grid-area: fullpage-header;
+  justify-content: flex-end;
+  padding: var(--space-small);
+  position: absolute;
+  top: 0;
   width: 100%;
 }
 
 moz-button.new-chat-icon-button {
   --button-border-radius: var(--border-radius-large);
   /* Updating background color for light only, persisting default dark background-color */
-  --button-background-color: light-dark(var(--color-white), rgba(0, 0, 0, 0.33));
-  --button-text-color: light-dark(var(--color-violet-80), var(--color-white));
+  --button-background-color: light-dark(var(--color-violet-0), rgba(0, 0, 0, 0.33));
+  --button-text-color: light-dark(var(--color-gray-70), var(--color-white));
   --button-background-color-hover: color-mix(in srgb, currentColor 11%, transparent);
 }
 

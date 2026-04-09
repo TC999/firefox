@@ -84,8 +84,8 @@ add_task(async function test_network_offline() {
       "Network offline message is shown"
     );
     syncedTabsComponent.emptyState
-      .querySelector("button[data-action='network-offline']")
-      .click();
+      .querySelector("moz-button[data-action='network-offline']")
+      .buttonEl.click();
 
     await BrowserTestUtils.waitForCondition(
       () => TabsSetupFlowManager.tryToClearError.calledOnce
@@ -254,13 +254,13 @@ add_task(async function test_sync_disconnected_error() {
 
     let preferencesTabPromise = BrowserTestUtils.waitForNewTab(
       browser.getTabBrowser(),
-      "about:preferences?action=choose-what-to-sync#sync",
+      "about:preferences#sync",
       true
     );
     let emptyStateButton = syncedTabsComponent.emptyState.querySelector(
-      "button[data-action='sync-disconnected']"
+      "moz-button[data-action='sync-disconnected']"
     );
-    EventUtils.synthesizeMouseAtCenter(emptyStateButton, {}, content);
+    EventUtils.synthesizeMouseAtCenter(emptyStateButton.buttonEl, {}, content);
     let preferencesTab = await preferencesTabPromise;
     await BrowserTestUtils.removeTab(preferencesTab);
   });

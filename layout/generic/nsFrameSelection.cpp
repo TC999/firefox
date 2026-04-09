@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1479,7 +1477,7 @@ nsresult nsFrameSelection::TakeFocus(nsIContent& aNewFocus,
     }
     case FocusMode::kExtendSelection: {
       // Now update the range list:
-      nsINode* inclusiveTableCellAncestor =
+      nsCOMPtr<nsINode> inclusiveTableCellAncestor =
           GetClosestInclusiveTableCellAncestor(&aNewFocus);
       if (mTableSelection.mClosestInclusiveTableCellAncestor &&
           inclusiveTableCellAncestor &&
@@ -1833,76 +1831,84 @@ nsresult nsFrameSelection::PageMove(bool aForward, bool aExtend,
                                     SelectionIntoView aSelectionIntoView) {
   MOZ_ASSERT(aFrame);
 
+  if (!IsAvailable()) [[unlikely]] {
+    return NS_OK;
+  }
+
   // expected behavior for PageMove is to scroll AND move the caret
   // and remain relative position of the caret in view. see Bug 4302.
+
+  // find out where the caret is.
+  // we should know mDesiredCaretPos.mValue value of nsFrameSelection, but I
+  // haven't seen that behavior in other windows applications yet.
+  MOZ_DIAGNOSTIC_ASSERT(GetSelection(mozilla::SelectionType::eNormal));
+  const OwningNonNull<Selection> selection = NormalSelection();
 
   // Get the scroll container frame.  If aFrame is not scrollable, this is
   // nullptr.
   ScrollContainerFrame* scrollContainerFrame = aFrame->GetScrollTargetFrame();
-  // Get the scrolled frame.  If aFrame is not scrollable, this is aFrame
-  // itself.
-  nsIFrame* scrolledFrame =
-      scrollContainerFrame ? scrollContainerFrame->GetScrolledFrame() : aFrame;
-  if (!scrolledFrame) {
-    return NS_OK;
-  }
+  const AutoWeakFrame scrollContainerFrameWeak(scrollContainerFrame);
 
-  // find out where the caret is.
-  // we should know mDesiredCaretPos.mValue value of nsFrameSelection, but I
-  // havent seen that behavior in other windows applications yet.
-  RefPtr<Selection> selection = &NormalSelection();
-  if (!selection) {
-    return NS_OK;
-  }
-
-  nsRect caretPos;
-  nsIFrame* caretFrame = nsCaret::GetGeometry(selection, &caretPos);
-  if (!caretFrame) {
-    return NS_OK;
-  }
-
-  // If the scrolled frame is outside of current selection limiter,
-  // we need to scroll the frame but keep moving selection in the limiter.
-  nsIFrame* frameToClick = scrolledFrame;
-  if (!NodeIsInLimiters(scrolledFrame->GetContent())) {
-    frameToClick = GetFrameToPageSelect();
-    if (NS_WARN_IF(!frameToClick)) {
-      return NS_OK;
+  bool scrolledFrameIsInLimiter = true;
+  const auto offsets = [&]()
+                           MOZ_NEVER_INLINE_DEBUG -> nsIFrame::ContentOffsets {
+    // Get the scrolled frame.  If aFrame is not scrollable, this is aFrame
+    // itself.
+    nsIFrame* scrolledFrame = scrollContainerFrame
+                                  ? scrollContainerFrame->GetScrolledFrame()
+                                  : aFrame;
+    if (!scrolledFrame) [[unlikely]] {
+      return {};
     }
-  }
 
-  if (scrollContainerFrame) {
-    // If there is a scrollable frame, adjust pseudo-click position with page
-    // scroll amount.
-    // XXX This may scroll more than one page if ScrollSelectionIntoView is
-    //     called later because caret may not fully visible.  E.g., if
-    //     clicking line will be visible only half height with scrolling
-    //     the frame, ScrollSelectionIntoView additionally scrolls to show
-    //     the caret entirely.
-    if (aForward) {
-      caretPos.y += scrollContainerFrame->GetPageScrollAmount().height;
+    nsRect caretPos;
+    nsIFrame* caretFrame = nsCaret::GetGeometry(selection, &caretPos);
+    if (!caretFrame) [[unlikely]] {
+      return {};
+    }
+
+    // If the scrolled frame is outside of current selection limiter,
+    // we need to scroll the frame but keep moving selection in the limiter.
+    nsIFrame* frameToClick = scrolledFrame;
+    if (!NodeIsInLimiters(scrolledFrame->GetContent())) {
+      frameToClick = GetFrameToPageSelect();
+      scrolledFrameIsInLimiter = scrolledFrame == frameToClick;
+      if (NS_WARN_IF(!frameToClick)) {
+        return {};
+      }
+    }
+
+    if (scrollContainerFrame) {
+      // If there is a scrollable frame, adjust pseudo-click position with page
+      // scroll amount.
+      // XXX This may scroll more than one page if ScrollSelectionIntoView is
+      //     called later because caret may not fully visible.  E.g., if
+      //     clicking line will be visible only half height with scrolling
+      //     the frame, ScrollSelectionIntoView additionally scrolls to show
+      //     the caret entirely.
+      if (aForward) {
+        caretPos.y += scrollContainerFrame->GetPageScrollAmount().height;
+      } else {
+        caretPos.y -= scrollContainerFrame->GetPageScrollAmount().height;
+      }
     } else {
-      caretPos.y -= scrollContainerFrame->GetPageScrollAmount().height;
+      // Otherwise, adjust pseudo-click position with the frame size.
+      if (aForward) {
+        caretPos.y += frameToClick->GetSize().height;
+      } else {
+        caretPos.y -= frameToClick->GetSize().height;
+      }
     }
-  } else {
-    // Otherwise, adjust pseudo-click position with the frame size.
-    if (aForward) {
-      caretPos.y += frameToClick->GetSize().height;
-    } else {
-      caretPos.y -= frameToClick->GetSize().height;
-    }
-  }
 
-  caretPos += caretFrame->GetOffsetTo(frameToClick);
+    caretPos += caretFrame->GetOffsetTo(frameToClick);
 
-  // get a content at desired location
-  nsPoint desiredPoint;
-  desiredPoint.x = caretPos.x;
-  desiredPoint.y = caretPos.y + caretPos.height / 2;
-  nsIFrame::ContentOffsets offsets =
-      frameToClick->GetContentOffsetsFromPoint(desiredPoint);
-
-  if (!offsets.content) {
+    // get a content at desired location
+    nsPoint desiredPoint;
+    desiredPoint.x = caretPos.x;
+    desiredPoint.y = caretPos.y + caretPos.height / 2;
+    return frameToClick->GetContentOffsetsFromPoint(desiredPoint);
+  }();
+  if (!offsets.content) [[unlikely]] {
     // XXX Do we need to handle ScrollSelectionIntoView in this case?
     return NS_OK;
   }
@@ -1912,7 +1918,7 @@ nsresult nsFrameSelection::PageMove(bool aForward, bool aExtend,
   {
     // We don't want any script to run until we check whether selection is
     // modified by HandleClick.
-    SelectionBatcher ensureNoSelectionChangeNotifications(selection,
+    SelectionBatcher ensureNoSelectionChangeNotifications(selection.ref(),
                                                           __FUNCTION__);
 
     RangeBoundary oldAnchor = selection->AnchorRef();
@@ -1932,7 +1938,7 @@ nsresult nsFrameSelection::PageMove(bool aForward, bool aExtend,
       aSelectionIntoView == SelectionIntoView::IfChanged && !selectionChanged);
 
   // Then, scroll the given frame one page.
-  if (scrollContainerFrame) {
+  if (scrollContainerFrameWeak.IsAlive()) {
     // If we'll call ScrollSelectionIntoView later and selection wasn't
     // changed and we scroll outside of selection limiter, we shouldn't use
     // smooth scroll here because ScrollContainerFrame uses normal runnable,
@@ -1941,9 +1947,10 @@ nsresult nsFrameSelection::PageMove(bool aForward, bool aExtend,
     // case, ScrollSelectionIntoView would scroll to show caret instead of
     // page scroll of an element outside selection limiter.
     ScrollMode scrollMode = doScrollSelectionIntoView && !selectionChanged &&
-                                    scrolledFrame != frameToClick
+                                    !scrolledFrameIsInLimiter
                                 ? ScrollMode::Instant
                                 : ScrollMode::Smooth;
+    MOZ_ASSERT(scrollContainerFrameWeak.GetFrame() == scrollContainerFrame);
     scrollContainerFrame->ScrollBy(nsIntPoint(0, aForward ? 1 : -1),
                                    ScrollUnit::PAGES, scrollMode);
   }

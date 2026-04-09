@@ -54,6 +54,9 @@ impl ColorMix {
                     .ok()
             };
 
+            let allow_multiple_items =
+                static_prefs::pref!("layout.css.color-mix-multi-color.enabled");
+
             let mut items = ColorMixItemList::default();
 
             loop {
@@ -71,14 +74,16 @@ impl ColorMix {
                     break;
                 }
 
-                if items.len() == 2
-                    && !static_prefs::pref!("layout.css.color-mix-multi-color.enabled")
-                {
+                // Early exit to avoid parsing more than 2 colors if the pref is not enabled.
+                if !allow_multiple_items && items.len() == 2 {
                     break;
                 }
             }
 
-            if items.len() < 2 {
+            // ...the color-mix() function takes a list of one or more <color> specifications...
+            // <https://drafts.csswg.org/css-color-5/#color-mix>
+            let min_item_count = if allow_multiple_items { 1 } else { 2 };
+            if items.len() < min_item_count {
                 return Err(input.new_custom_error(StyleParseErrorKind::UnspecifiedError));
             }
 
@@ -175,7 +180,6 @@ pub enum Color {
     /// The contrast-color function.
     ContrastColor(Box<Color>),
     /// Quirksmode-only rule for inheriting color from the body
-    #[cfg(feature = "gecko")]
     InheritFromBodyQuirk,
 }
 
@@ -422,7 +426,6 @@ pub enum SystemColor {
 impl SystemColor {
     #[inline]
     fn compute(&self, cx: &Context) -> ComputedColor {
-        use crate::gecko::values::convert_nscolor_to_absolute_color;
         use crate::gecko_bindings::bindings;
 
         let color = cx.device().system_nscolor(*self, cx.builder.color_scheme);
@@ -434,7 +437,7 @@ impl SystemColor {
         if color == bindings::NS_SAME_AS_FOREGROUND_COLOR {
             return ComputedColor::currentcolor();
         }
-        ComputedColor::Absolute(convert_nscolor_to_absolute_color(color))
+        ComputedColor::Absolute(AbsoluteColor::from_nscolor(color))
     }
 }
 
@@ -671,7 +674,6 @@ impl ToCss for Color {
                 dest.write_char(')')
             },
             Color::System(system) => system.to_css(dest),
-            #[cfg(feature = "gecko")]
             Color::InheritFromBodyQuirk => dest.write_str("-moz-inherit-from-body-quirk"),
         }
     }
@@ -681,7 +683,6 @@ impl Color {
     /// Returns whether this color is allowed in forced-colors mode.
     pub fn honored_in_forced_colors_mode(&self, allow_transparent: bool) -> bool {
         match *self {
-            #[cfg(feature = "gecko")]
             Self::InheritFromBodyQuirk => false,
             Self::CurrentColor => true,
             Self::System(..) => true,
@@ -915,7 +916,6 @@ impl Color {
                 ComputedColor::ContrastColor(Box::new(c.to_computed_color(context)?))
             },
             Color::System(system) => system.compute(context?),
-            #[cfg(feature = "gecko")]
             Color::InheritFromBodyQuirk => {
                 ComputedColor::Absolute(context?.device().body_text_color())
             },

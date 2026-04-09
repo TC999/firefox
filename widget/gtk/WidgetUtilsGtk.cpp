@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -140,6 +139,23 @@ GdkDevice* GdkGetPointer() {
   GdkDisplay* display = gdk_display_get_default();
   GdkDeviceManager* deviceManager = gdk_display_get_device_manager(display);
   return gdk_device_manager_get_client_pointer(deviceManager);
+}
+
+GdkSeat* GdkDeviceGetSeat(GdkDevice* device) {
+  static auto sGdkDeviceGetSeat =
+      (GdkSeat * (*)(GdkDevice*)) dlsym(RTLD_DEFAULT, "gdk_device_get_seat");
+  if (!sGdkDeviceGetSeat) {
+    return nullptr;
+  }
+  return sGdkDeviceGetSeat(device);
+}
+
+void GdkSeatUngrab(GdkSeat* seat) {
+  static auto sGdkSeatUngrab =
+      (void (*)(GdkSeat*))dlsym(RTLD_DEFAULT, "gdk_seat_ungrab");
+  if (sGdkSeatUngrab) {
+    sGdkSeatUngrab(seat);
+  }
 }
 
 static GdkEvent* sLastPointerDownEvent = nullptr;

@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -783,11 +781,12 @@ bool js::regexp_construct(JSContext* cx, unsigned argc, Value* vp) {
         shared = nullptr;
       }
 
-      if (!flags.unicode() && flagsArg.unicode()) {
-        // Have to check syntax again when adding 'u' flag.
+      if ((!flags.unicode() && flagsArg.unicode()) ||
+          (!flags.unicodeSets() && flagsArg.unicodeSets())) {
+        // Have to check syntax again when adding 'u' or 'v' flag.
 
-        // ES 2017 draft rev 9b49a888e9dfe2667008a01b2754c3662059ae56
-        // 21.2.3.2.2 step 7.
+        // https://tc39.es/ecma262/#sec-regexpinitialize
+        // 22.2.3.3 step 13.
         shared = CheckPatternSyntax(cx, sourceAtom, flagsArg);
         if (!shared) {
           return false;
@@ -1745,7 +1744,7 @@ bool js::RegExpSearcher(JSContext* cx, unsigned argc, Value* vp) {
 bool js::RegExpSearcherRaw(JSContext* cx, HandleObject regexp,
                            HandleString input, int32_t lastIndex,
                            MatchPairs* maybeMatches, int32_t* result) {
-  MOZ_ASSERT(lastIndex >= 0);
+  MOZ_ASSERT(lastIndex >= 0 && size_t(lastIndex) <= input->length());
 
   // RegExp execution was successful only if the pairs have actually been
   // filled in. Note that IC code always passes a nullptr maybeMatches.

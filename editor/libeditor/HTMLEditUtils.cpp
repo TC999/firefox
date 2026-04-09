@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -633,11 +632,6 @@ bool HTMLEditUtils::IsVisibleElementEvenIfLeafNode(const nsIContent& aContent) {
   if (!aContent.IsHTMLElement()) {
     return true;
   }
-  nsIFrame* const primaryFrame = aContent.GetPrimaryFrame();
-  if (primaryFrame && aContent.IsInComposedDoc() &&
-      HTMLEditUtils::IsInclusiveAncestorCSSDisplayNone(aContent)) {
-    return false;
-  }
   if (HTMLEditUtils::IsBlockElement(
           aContent, BlockInlineCheck::UseComputedDisplayStyle)) {
     return true;
@@ -651,11 +645,10 @@ bool HTMLEditUtils::IsVisibleElementEvenIfLeafNode(const nsIContent& aContent) {
                                    nsGkAtoms::select, nsGkAtoms::textarea)) {
     return true;
   }
-  if (const HTMLInputElement* inputElement =
-          HTMLInputElement::FromNode(&aContent)) {
+  if (const auto* inputElement = HTMLInputElement::FromNode(aContent)) {
     return inputElement->ControlType() != FormControlType::InputHidden;
   }
-  if (primaryFrame) {
+  if (nsIFrame* const primaryFrame = aContent.GetPrimaryFrame()) {
     // If the frame is not dirty or non-inline container frame, we can trust
     // whether the frame is empty or not.
     if (!primaryFrame->IsSubtreeDirty() || !primaryFrame->IsInlineFrame()) {
@@ -2565,7 +2558,7 @@ bool HTMLEditUtils::IsEmptyNode(nsPresContext* aPresContext,
               IsTableCellElement(*aNode.AsContent()), false};
     }
     if (styleDisplay->mDisplay != StyleDisplay::None &&
-        styleDisplay->HasAppearance()) {
+        styleDisplay->HasNativeAppearance()) {
       return {false, false, true};
     }
     if (styleDisplay->IsListItem()) {

@@ -1,6 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: sw=2 ts=8 et :
- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -198,10 +195,16 @@ class PuppetWidget final : public nsIWidget,
   BrowserChild* GetOwningBrowserChild() override { return mBrowserChild; }
   LayersId GetLayersId() const override;
 
-  void UpdateBackingScaleCache(float aDpi, int32_t aRounding, double aScale) {
+  void UpdateBackingScaleCache(float aDpi, int32_t aRounding, double aScale,
+                               double aDesktopToDeviceScale) {
     mDPI = aDpi;
     mRounding = aRounding;
     mDefaultScale = aScale;
+    mDesktopToDeviceScale = aDesktopToDeviceScale;
+  }
+
+  mozilla::DesktopToLayoutDeviceScale GetDesktopToDeviceScale() override {
+    return mozilla::DesktopToLayoutDeviceScale(mDesktopToDeviceScale);
   }
 
   // safe area insets support
@@ -360,6 +363,7 @@ class PuppetWidget final : public nsIWidget,
   float mDPI = GetFallbackDPI();
   int32_t mRounding = 1;
   double mDefaultScale = GetFallbackDefaultScale().scale;
+  double mDesktopToDeviceScale = 1.0;
 
   LayoutDeviceIntMargin mSafeAreaInsets;
   RefPtr<TextEventDispatcherListener> mNativeTextEventDispatcherListener;

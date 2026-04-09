@@ -3,30 +3,9 @@
 
 "use strict";
 
-const lazy = {};
-ChromeUtils.defineESModuleGetters(lazy, {
-  IntentClassifier:
-    "moz-src:///browser/components/aiwindow/models/IntentClassifier.sys.mjs",
-});
-
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
     set: [["browser.search.suggest.enabled", false]],
-  });
-
-  const fakeIntentEngine = {
-    run() {
-      return [
-        { label: "chat", score: 0.95 },
-        { label: "search", score: 0.05 },
-      ];
-    },
-  };
-
-  const originalCreateEngine = lazy.IntentClassifier._createEngine;
-  lazy.IntentClassifier._createEngine = () => Promise.resolve(fakeIntentEngine);
-  registerCleanupFunction(() => {
-    lazy.IntentClassifier._createEngine = originalCreateEngine;
   });
 });
 
@@ -137,7 +116,7 @@ add_task(async function test_click_ask_row_picks_result() {
       "fetchWithHistory should be called after picking the AI_CHAT row"
     );
 
-    const conversation = fetchWithHistoryStub.firstCall.args[0];
+    const conversation = fetchWithHistoryStub.firstCall.args[0].conversation;
     const messages = conversation.getMessagesInOpenAiFormat();
     const userMessage = messages.findLast(m => m.role === "user");
     Assert.equal(

@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -279,6 +277,7 @@
 #include "nsISimpleEnumerator.h"
 #include "nsISizeOfEventTarget.h"
 #include "nsISlowScriptDebug.h"
+#include "nsISupportsPrimitives.h"
 #include "nsISupportsUtils.h"
 #include "nsIThread.h"
 #include "nsITimedChannel.h"
@@ -961,6 +960,7 @@ nsGlobalWindowInner::nsGlobalWindowInner(nsGlobalWindowOuter* aOuterWindow,
     os->AddObserver(mObserver, NS_IOSERVICE_OFFLINE_STATUS_TOPIC, false);
     os->AddObserver(mObserver, MEMORY_PRESSURE_OBSERVER_TOPIC, false);
     os->AddObserver(mObserver, PERMISSION_CHANGED_TOPIC, false);
+    os->AddObserver(mObserver, "browser-perm-changed", false);
     os->AddObserver(mObserver, "screen-information-changed", false);
     os->AddObserver(mObserver, "audio-playback", false);
   }
@@ -1226,6 +1226,14 @@ void nsGlobalWindowInner::FreeInnerObjects() {
   // Remove our reference to the document and the document principal.
   mFocusedElement = nullptr;
 
+  // Unregister any remaining media source blob: URLs created by this window.
+  if (RefPtr<DocGroup> docGroup = GetDocGroup()) {
+    nsTArray<nsCString> mediaSourceURLs = std::move(mMediaSourceURLs);
+    for (auto& url : mediaSourceURLs) {
+      docGroup->UnregisterMediaSourceURL(url, /* aNotifyWindow */ false);
+    }
+  }
+
   nsIGlobalObject::UnlinkObjectsInGlobal();
 
   NotifyWindowIDDestroyed("inner-window-destroyed");
@@ -1278,6 +1286,7 @@ void nsGlobalWindowInner::FreeInnerObjects() {
       os->RemoveObserver(mObserver, NS_IOSERVICE_OFFLINE_STATUS_TOPIC);
       os->RemoveObserver(mObserver, MEMORY_PRESSURE_OBSERVER_TOPIC);
       os->RemoveObserver(mObserver, PERMISSION_CHANGED_TOPIC);
+      os->RemoveObserver(mObserver, "browser-perm-changed");
       os->RemoveObserver(mObserver, "screen-information-changed");
       os->RemoveObserver(mObserver, "audio-playback");
     }
@@ -1735,9 +1744,8 @@ mozilla::dom::StorageManager* nsGlobalWindowInner::GetStorageManager() {
 bool nsGlobalWindowInner::IsEligibleForMessaging() { return IsFullyActive(); }
 
 void nsGlobalWindowInner::ReportToConsole(
-    uint32_t aErrorFlags, const nsCString& aCategory,
-    nsContentUtils::PropertiesFile aFile, const nsCString& aMessageName,
-    const nsTArray<nsString>& aParams,
+    uint32_t aErrorFlags, const nsCString& aCategory, PropertiesFile aFile,
+    const nsCString& aMessageName, const nsTArray<nsString>& aParams,
     const mozilla::SourceLocation& aLocation) {
   nsContentUtils::ReportToConsole(aErrorFlags, aCategory, mDoc, aFile,
                                   aMessageName.get(), aParams, aLocation);
@@ -2300,12 +2308,12 @@ MOZ_CAN_RUN_SCRIPT static bool IsDeferredLoadEmptyFrame(Element& aEmbedder) {
       MOZ_ASSERT_UNREACHABLE();
       return false;
     case EmptyFrameLibrary::ZE:
-      if (StaticPrefs::dom_about_blank_ze_hack_require_zcomponents() &&
-          !property.mZComponents.WasPassed()) {
+      if (!property.mZE_Init.WasPassed()) {
         return false;
       }
       // No use counter at least for now.
-      aEmbedder.OwnerDoc()->WarnOnceAbout(Document::eOldZECompatHack);
+      aEmbedder.OwnerDoc()->WarnOnceAbout(
+          DeprecatedOperations::eOldZECompatHack);
       return true;
     case EmptyFrameLibrary::CKEditor:
       const auto* version = [&]() -> const CkEditorVersion* {
@@ -2650,7 +2658,7 @@ VisualViewport* nsGlobalWindowInner::VisualViewport() {
 
 nsScreen* nsGlobalWindowInner::Screen() {
   if (!mScreen) {
-    mScreen = new nsScreen(this);
+    mScreen = nsScreen::Create(this);
   }
   return mScreen;
 }
@@ -2724,6 +2732,10 @@ Maybe<ClientState> nsPIDOMWindowInner::GetClientState() const {
 
 Maybe<ServiceWorkerDescriptor> nsPIDOMWindowInner::GetController() const {
   return nsGlobalWindowInner::Cast(this)->GetController();
+}
+
+ClientSource* nsPIDOMWindowInner::GetClientSource() const {
+  return nsGlobalWindowInner::Cast(this)->GetClientSource();
 }
 
 void nsPIDOMWindowInner::SetPolicyContainer(
@@ -3150,8 +3162,7 @@ void nsGlobalWindowInner::AudioPlaybackChanged(bool aIsPlayingAudio) {
 }
 
 bool nsPIDOMWindowInner::IsCurrentInnerWindow() const {
-  if (mozilla::SessionHistoryInParent() && mBrowsingContext &&
-      mBrowsingContext->IsInBFCache()) {
+  if (mBrowsingContext && mBrowsingContext->IsInBFCache()) {
     return false;
   }
 
@@ -3417,10 +3428,10 @@ bool nsGlobalWindowInner::ResolveComponentsShim(
 
   // Define a bunch of shims from the Ci.nsIDOMFoo to window.Foo for DOM
   // interfaces with constants.
-  for (uint32_t i = 0; i < std::size(kInterfaceShimMap); ++i) {
+  for (auto entry : kInterfaceShimMap) {
     // Grab the names from the table.
-    const char* geckoName = kInterfaceShimMap[i].geckoName;
-    const char* domName = kInterfaceShimMap[i].domName;
+    const char* geckoName = entry.geckoName;
+    const char* domName = entry.domName;
 
     // Look up the appopriate interface object on the global.
     JS::Rooted<JS::Value> v(aCx, JS::UndefinedValue());
@@ -5305,9 +5316,8 @@ nsGlobalWindowInner::ShowSlowScriptDialog(JSContext* aCx,
   }
 
   bool failed = false;
-  auto getString = [&](const char* name,
-                       nsContentUtils::PropertiesFile propFile =
-                           nsContentUtils::eDOM_PROPERTIES) {
+  auto getString = [&](const char* name, PropertiesFile propFile =
+                                             PropertiesFile::DOM_PROPERTIES) {
     nsAutoString result;
     nsresult rv = nsContentUtils::GetLocalizedString(propFile, name, result);
 
@@ -5327,7 +5337,7 @@ nsGlobalWindowInner::ShowSlowScriptDialog(JSContext* aCx,
     checkboxMsg = getString("KillAddonScriptGlobalMessage");
 
     auto appName =
-        getString("brandShortName", nsContentUtils::eBRAND_PROPERTIES);
+        getString("brandShortName", PropertiesFile::BRAND_PROPERTIES);
 
     nsCOMPtr<nsIAddonPolicyService> aps =
         do_GetService("@mozilla.org/addons/policy-service;1");
@@ -5337,7 +5347,7 @@ nsGlobalWindowInner::ShowSlowScriptDialog(JSContext* aCx,
     }
 
     rv = nsContentUtils::FormatLocalizedString(
-        msg, nsContentUtils::eDOM_PROPERTIES, "KillAddonScriptMessage",
+        msg, PropertiesFile::DOM_PROPERTIES, "KillAddonScriptMessage",
         addonName, appName);
 
     failed = failed || NS_FAILED(rv);
@@ -5391,7 +5401,7 @@ nsGlobalWindowInner::ShowSlowScriptDialog(JSContext* aCx,
       filenameUTF16.ReplaceLiteral(cutStart, cutLength, u"\x2026");
     }
     rv = nsContentUtils::FormatLocalizedString(
-        scriptLocation, nsContentUtils::eDOM_PROPERTIES, "KillScriptLocation",
+        scriptLocation, PropertiesFile::DOM_PROPERTIES, "KillScriptLocation",
         filenameUTF16);
 
     if (NS_SUCCEEDED(rv)) {
@@ -5481,14 +5491,49 @@ nsresult nsGlobalWindowInner::Observe(nsISupports* aSubject, const char* aTopic,
     return NS_OK;
   }
 
-  if (!nsCRT::strcmp(aTopic, PERMISSION_CHANGED_TOPIC)) {
+  if (!nsCRT::strcmp(aTopic, PERMISSION_CHANGED_TOPIC) ||
+      !nsCRT::strcmp(aTopic, "browser-perm-changed")) {
+    bool isBrowserPerm = !nsCRT::strcmp(aTopic, "browser-perm-changed");
+
     nsCOMPtr<nsIPermission> perm(do_QueryInterface(aSubject));
     if (!perm) {
-      // A null permission indicates that the entire permission list
-      // was cleared.
-      MOZ_ASSERT(!nsCRT::strcmp(aData, u"cleared"));
+      // Bulk browser permission clear — subject is an nsISupportsPRUint64
+      // carrying the browserId. Only process if this window belongs to that
+      // tab.
+      if (isBrowserPerm) {
+        nsCOMPtr<nsISupportsPRUint64> wrapper = do_QueryInterface(aSubject);
+        if (wrapper) {
+          uint64_t clearedBrowserId = 0;
+          wrapper->GetData(&clearedBrowserId);
+          if (clearedBrowserId) {
+            RefPtr<BrowsingContext> bc = GetBrowsingContext();
+            if (!bc || bc->Top()->BrowserId() != clearedBrowserId) {
+              return NS_OK;
+            }
+          }
+        }
+      }
       UpdatePermissions();
+      if (mDoc) {
+        RefPtr<PermissionDelegateHandler> permDelegateHandler =
+            mDoc->GetPermissionDelegateHandler();
+        if (permDelegateHandler) {
+          permDelegateHandler->PopulateAllDelegatedPermissions();
+        }
+      }
       return NS_OK;
+    }
+
+    if (isBrowserPerm) {
+      uint64_t permBrowserId = 0;
+      perm->GetBrowserId(&permBrowserId);
+      if (!permBrowserId) {
+        return NS_OK;
+      }
+      RefPtr<BrowsingContext> bc = GetBrowsingContext();
+      if (!bc || bc->Top()->BrowserId() != permBrowserId) {
+        return NS_OK;
+      }
     }
 
     nsAutoCString type;
@@ -6790,8 +6835,7 @@ void nsGlobalWindowInner::EventListenerAdded(nsAtom* aType) {
   }
 
   if (aType == nsGkAtoms::onbeforeunload && mWindowGlobalChild) {
-    if (!mozilla::SessionHistoryInParent() ||
-        !StaticPrefs::
+    if (!StaticPrefs::
             docshell_shistory_bfcache_ship_allow_beforeunload_listeners()) {
       if (++mUnloadOrBeforeUnloadListenerCount == 1) {
         mWindowGlobalChild->BlockBFCacheFor(
@@ -6828,8 +6872,7 @@ void nsGlobalWindowInner::EventListenerRemoved(nsAtom* aType) {
   }
 
   if (aType == nsGkAtoms::onbeforeunload && mWindowGlobalChild) {
-    if (!mozilla::SessionHistoryInParent() ||
-        !StaticPrefs::
+    if (!StaticPrefs::
             docshell_shistory_bfcache_ship_allow_beforeunload_listeners()) {
       if (--mUnloadOrBeforeUnloadListenerCount == 0) {
         mWindowGlobalChild->UnblockBFCacheFor(
@@ -6947,6 +6990,8 @@ void nsGlobalWindowInner::AddSizeOfIncludingThis(
     aWindowSizes.mDOMSizes.mDOMPerformanceEventEntries =
         mPerformance->SizeOfEventEntries(aWindowSizes.mState.mMallocSizeOf);
   }
+
+  aWindowSizes.mMediaSourceURLsCount = mMediaSourceURLs.Length();
 }
 
 void nsGlobalWindowInner::RegisterDataDocumentForMemoryReporting(
@@ -7893,6 +7938,16 @@ TrustedTypePolicyFactory* nsGlobalWindowInner::TrustedTypes() {
   }
 
   return mTrustedTypePolicyFactory;
+}
+
+void nsGlobalWindowInner::NoteMediaSourceURL(const nsACString& aURL) {
+  MOZ_ASSERT(!IsDying(), "MediaSourceURL will never be cleaned up");
+  mMediaSourceURLs.InsertElementSorted(aURL);
+}
+
+void nsGlobalWindowInner::UnnoteMediaSourceURL(const nsACString& aURL) {
+  DebugOnly<bool> found = mMediaSourceURLs.RemoveElementSorted(aURL);
+  MOZ_ASSERT(found, "MediaSourceURL should have been noted");
 }
 
 void nsPIDOMWindowInner::MaybeSetHasPointerRawUpdateEventListeners() {

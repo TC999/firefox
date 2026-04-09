@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -261,10 +259,6 @@ class ServoStyleSet {
       dom::Element* aParentElement, PseudoStyleType aType,
       ComputedStyle* aParentStyle, const AtomArray& aInputWord);
 
-  // Try to resolve the staring style for a given element. Please call this
-  // function after checking if it may have rules inside @starting-style.
-  already_AddRefed<ComputedStyle> ResolveStartingStyle(dom::Element& aElement);
-
   already_AddRefed<ComputedStyle> ResolvePositionTry(
       dom::Element& aElement, const ComputedStyle& aStyle,
       const StylePositionTryFallbacksItem&);
@@ -398,6 +392,8 @@ class ServoStyleSet {
       nsTArray<RefPtr<StyleAnimationValue>>& aAnimationValues);
 
   void AppendFontFaceRules(nsTArray<nsFontFaceRuleContainer>& aArray);
+
+  already_AddRefed<StyleViewTransitionRule> GetLastViewTransitionRule();
 
   const StyleLockedCounterStyleRule* CounterStyleRuleForName(nsAtom* aName);
 

@@ -511,7 +511,7 @@ static Maybe<NrIceCtx::NatSimulatorConfig> GetNatConfig() {
       CSFLogDebug(LOGTAG, "Redirect address: %s", redirect_address.get());
       CSFLogDebug(LOGTAG, "Redirect targets: %s", redirect_targets.get());
       natConfig.mRedirectAddress = redirect_address;
-      std::stringstream str(redirect_targets.Data());
+      std::stringstream str(redirect_targets.get());
       std::string target;
       while (getline(str, target, ',')) {
         CSFLogDebug(LOGTAG, "Adding target: %s", target.c_str());

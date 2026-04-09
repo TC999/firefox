@@ -6,6 +6,11 @@
 document.addEventListener(
   "MozBeforeInitialXULLayout",
   () => {
+    const lazy = {};
+    ChromeUtils.defineESModuleGetters(lazy, {
+      TranslationsParent: "resource://gre/actors/TranslationsParent.sys.mjs",
+    });
+
     // <commandset id="mainCommandSet"> defined in browser-sets.inc
     document
       .getElementById("mainCommandSet")
@@ -122,6 +127,12 @@ document.addEventListener(
           case "cmd_translate":
             FullPageTranslationsPanel.open(event);
             break;
+          case "cmd_openAboutTranslations":
+            lazy.TranslationsParent.openAboutTranslationsPage({
+              browserWindow: window,
+              targetLanguage: "derive",
+            }).catch(console.error);
+            break;
           case "Browser:AddBookmarkAs":
             PlacesCommandHook.bookmarkPage();
             break;
@@ -231,7 +242,7 @@ document.addEventListener(
             OpenBrowserWindow({ aiWindow: false });
             break;
           case "Tools:AIWindow":
-            AIWindow.launchWindow(gBrowser?.selectedBrowser, true);
+            AIWindow.launchWindow(gBrowser?.selectedBrowser, true, "menu");
             break;
           case "Tools:ChatsHistory":
             FirefoxViewHandler.openTab("chats");

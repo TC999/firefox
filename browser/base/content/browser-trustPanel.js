@@ -246,7 +246,7 @@ class TrustPanel {
         });
       document
         .getElementById("trustpanel-clear-cookies-button")
-        .addEventListener("click", event =>
+        .addEventListener("command", event =>
           this.#showClearCookiesSubview(event)
         );
       document
@@ -431,6 +431,18 @@ class TrustPanel {
       "disabled",
       !ContentBlockingAllowList.canHandle(window.gBrowser.selectedBrowser)
     );
+
+    let hasSiteData = false;
+    try {
+      let baseDomain = SiteDataManager.getBaseDomainFromHost(this.#uri.host);
+      hasSiteData = await SiteDataManager.hasSiteData(baseDomain);
+    } catch (e) {}
+    this.#updateAttribute(
+      document.getElementById("trustpanel-clear-cookies-button"),
+      "disabled",
+      !hasSiteData
+    );
+
     this.#updateAttribute(
       document.getElementById("trustpanel-toggle"),
       "disabled",
@@ -640,13 +652,13 @@ class TrustPanel {
     if (this.#isInternalSecurePage) {
       return true;
     }
+    if (this.#isCertErrorPage || this.#isCertUserOverridden) {
+      return false;
+    }
     if (this.#isSecureConnection) {
       return true;
     }
     if (this.#isBrokenConnection) {
-      return false;
-    }
-    if (this.#isCertErrorPage || this.#isCertUserOverridden) {
       return false;
     }
     if (this.#isPotentiallyTrustworthy) {

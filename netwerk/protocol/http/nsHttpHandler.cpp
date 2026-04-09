@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:set ts=4 sw=2 sts=2 et cin: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -31,6 +29,7 @@
 #include "mozilla/Base64.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/Components.h"
+#include "mozilla/EndianUtils.h"
 #include "mozilla/Printf.h"
 #include "mozilla/RandomNum.h"
 #include "mozilla/SHA1.h"
@@ -219,9 +218,7 @@ already_AddRefed<nsHttpHandler> nsHttpHandler::GetInstance() {
 static nsCString ImageAcceptHeader() {
   nsCString mimeTypes;
 
-#ifdef MOZ_AV1
   mimeTypes.Append("image/avif,");
-#endif
 
 #ifdef MOZ_JXL
   if (mozilla::StaticPrefs::image_jxl_enabled()) {
@@ -246,9 +243,7 @@ static nsCString DocumentAcceptHeader() {
 
   // we also insert all of the image formats before */* when the pref is set
   if (mozilla::StaticPrefs::network_http_accept_include_images()) {
-#ifdef MOZ_AV1
     mimeTypes.Append("image/avif,");
-#endif
 
 #ifdef MOZ_JXL
     if (mozilla::StaticPrefs::image_jxl_enabled()) {
@@ -1546,9 +1541,9 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
       // and accept-encoding.dictionary, update both if either changes (which is
       // quite rare, so there's no real perf hit)
       nsAutoCString acceptDictionaryEncodings;
-      rv = Preferences::GetCString(HTTP_PREF("accept-encoding.dictionary"),
-                                   acceptDictionaryEncodings);
-      if (NS_SUCCEEDED(rv) && !acceptDictionaryEncodings.IsEmpty()) {
+      nsresult rvDic = Preferences::GetCString(
+          HTTP_PREF("accept-encoding.dictionary"), acceptDictionaryEncodings);
+      if (NS_SUCCEEDED(rvDic) && !acceptDictionaryEncodings.IsEmpty()) {
         acceptEncodings.Append(", "_ns);
         acceptEncodings.Append(acceptDictionaryEncodings);
         rv = SetAcceptEncodings(acceptEncodings.get(), true, true);
@@ -2579,10 +2574,33 @@ nsresult nsHttpHandler::SpeculativeConnectInternal(
     }
   }
 
+  bool fetchHTTPSRR = EchConfigEnabled();
+  if (StaticPrefs::network_http_happy_eyeballs_enabled()) {
+    ci->SetHappyEyeballsEnabled(true);
+    // When HE is enabled, HTTPS RR lookups are handled by
+    // HappyEyeballsConnectionAttempt.
+    fetchHTTPSRR = false;
+  }
+
   LOG(("MaybeSpeculativeConnectWithHTTPSRR for ci=%s", ci->HashKey().get()));
   // When ech is enabled, always do speculative connect with HTTPS RR.
-  return MaybeSpeculativeConnectWithHTTPSRR(ci, aCallbacks, 0,
-                                            EchConfigEnabled());
+  return MaybeSpeculativeConnectWithHTTPSRR(ci, aCallbacks, 0, fetchHTTPSRR);
+}
+
+nsresult nsHttpHandler::SpeculativeConnect(nsHttpConnectionInfo* ci,
+                                           nsIInterfaceRequestor* callbacks,
+                                           uint32_t caps,
+                                           SpeculativeTransaction* aTrans) {
+  if (mDebugObservations) {
+    nsCOMPtr<nsIObserverService> obsService = services::GetObserverService();
+    if (obsService) {
+      nsPrintfCString debugHashKey("%s", ci->HashKey().get());
+      obsService->NotifyObservers(nullptr, "speculative-connect-request",
+                                  NS_ConvertUTF8toUTF16(debugHashKey).get());
+    }
+  }
+  RefPtr<nsHttpConnectionInfo> clone = ci->Clone();
+  return mConnMgr->SpeculativeConnect(clone, callbacks, caps, aTrans);
 }
 
 NS_IMETHODIMP
@@ -2821,13 +2839,13 @@ void nsHttpHandler::ExcludeHttp2OrHttp3Internal(
   MOZ_ASSERT_IF(!nsIOService::UseSocketProcess(), OnSocketThread());
 
   if (ci->IsHttp3()) {
-    if (!mExcludedHttp3Origins.Contains(ci->GetRoutedHost())) {
+    {
       MutexAutoLock lock(mHttpExclusionLock);
       mExcludedHttp3Origins.Insert(ci->GetRoutedHost());
     }
     mConnMgr->ExcludeHttp3(ci);
   } else {
-    if (!mExcludedHttp2Origins.Contains(ci->GetOrigin())) {
+    {
       MutexAutoLock lock(mHttpExclusionLock);
       mExcludedHttp2Origins.Insert(ci->GetOrigin());
     }

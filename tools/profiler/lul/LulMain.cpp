@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -205,9 +203,8 @@ LExpr* RuleSet::ExprForRegno(DW_REG_NUMBER aRegno) {
   }
 }
 
-RuleSet::RuleSet() {
-  // All fields are of type LExpr and so are initialised by LExpr::LExpr().
-}
+// All fields are of type LExpr and so are initialised by LExpr::LExpr().
+RuleSet::RuleSet() = default;
 
 ////////////////////////////////////////////////////////////////
 // SecMap                                                     //
@@ -1071,8 +1068,8 @@ TaggedUWord EvaluatePfxExpr(int32_t start, const UnwindRegs* aOldRegs,
   // the highest numbered in-use element.
   const int N_STACK = 10;
   TaggedUWord stack[N_STACK];
+  std::fill(std::begin(stack), std::end(stack), TaggedUWord());
   int stackPointer = -1;
-  for (int i = 0; i < N_STACK; i++) stack[i] = TaggedUWord();
 
 #define PUSH(_tuw)                                             \
   do {                                                         \

@@ -163,8 +163,22 @@ async function waitForHttp3Route(
 ) {
   let listenerRef;
 
+  let firstAttempt = true;
   // Function to (re)open the channel using the same listener instance.
   const retry = () => {
+    if (!firstAttempt) {
+      // eslint-disable-next-line mozilla/no-arbitrary-setTimeout
+      do_timeout(1000, () => {
+        Services.obs.notifyObservers(null, "net:cancel-all-connections");
+        const chan = makeChan(uri);
+        if (altSvc) {
+          chan.setRequestHeader("x-altsvc", altSvc, false);
+        }
+        chan.asyncOpen(listenerRef);
+      });
+      return;
+    }
+    firstAttempt = false;
     const chan = makeChan(uri);
     if (altSvc) {
       chan.setRequestHeader("x-altsvc", altSvc, false);
@@ -335,6 +349,38 @@ async function do_test_request_cancelled_by_server(h3Route, httpsOrigin) {
   chan.asyncOpen(listener);
 
   // Resolves at the point where run_next_test() used to be called
+  await promise;
+}
+
+// Server resets request stream with an unrecognized application error code.
+// The transaction must retry via H2/H1 and succeed.
+async function do_test_unknown_reset(httpsOrigin) {
+  dump("do_test_unknown_reset()\n");
+
+  const chan = makeChan(httpsOrigin + "UnknownReset");
+  const promise = new Promise(resolve => {
+    const listener = {
+      onStartRequest(request) {
+        Assert.ok(request instanceof Ci.nsIHttpChannel);
+        Assert.equal(request.status, Cr.NS_OK);
+        Assert.equal(request.responseStatus, 200);
+      },
+      onDataAvailable(request, stream, off, cnt) {
+        read_stream(stream, cnt);
+      },
+      onStopRequest(request, status) {
+        Assert.equal(status, Cr.NS_OK);
+        let httpVersion = "";
+        try {
+          httpVersion = request.protocolVersion;
+        } catch (e) {}
+        Assert.notEqual(httpVersion, "h3");
+        resolve(request);
+      },
+    };
+    chan.asyncOpen(listener);
+  });
+
   await promise;
 }
 

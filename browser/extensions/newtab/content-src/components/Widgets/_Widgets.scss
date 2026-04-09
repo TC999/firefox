@@ -22,6 +22,7 @@
     grid-column: 1 / -1;
     display: grid;
     grid-template-columns: subgrid;
+    grid-template-rows: subgrid;
   }
 }
 
@@ -109,6 +110,7 @@
     grid-column: 1 / -1;
     display: grid;
     grid-template-columns: subgrid;
+    grid-auto-rows: var(--row-height);
     gap: var(--space-medium);
   }
 
@@ -140,7 +142,7 @@
       }
     }
 
-    .small-widget {
+    .is-small {
       height: var(--widgets-small-card-height);
     }
   }
@@ -221,3 +223,4 @@
   }
 
 }
+

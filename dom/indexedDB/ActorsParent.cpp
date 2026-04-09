@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -13,7 +11,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <functional>
 #include <iterator>
 #include <new>
 #include <numeric>
@@ -1629,12 +1626,11 @@ struct ConnectionPool::DatabaseInfo final {
   }
 
   nsresult Dispatch(already_AddRefed<nsIRunnable> aRunnable);
+  DatabaseInfo(const DatabaseInfo&) = delete;
+  DatabaseInfo& operator=(const DatabaseInfo&) = delete;
 
  private:
   ~DatabaseInfo();
-
-  DatabaseInfo(const DatabaseInfo&) = delete;
-  DatabaseInfo& operator=(const DatabaseInfo&) = delete;
 };
 
 struct ConnectionPool::DatabaseCompleteCallback final {
@@ -4451,9 +4447,6 @@ class Cursor final
   void SendResponseInternal(CursorResponse& aResponse,
                             const FilesArrayT<CursorType>& aFiles);
 
-  // Must call SendResponseInternal!
-  bool SendResponse(const CursorResponse& aResponse) = delete;
-
   // IPDL methods.
   void ActorDestroy(ActorDestroyReason aWhy) override;
 
@@ -4480,6 +4473,9 @@ class Cursor final
       : Base{std::move(aTransaction), std::move(aObjectStoreMetadata),
              aDirection, aConstructionTag},
         KeyValueBase{this->mTransaction.unsafeGetRawPtr()} {}
+
+  // Must call SendResponseInternal!
+  bool SendResponse(const CursorResponse& aResponse) = delete;
 
  private:
   void SetOptionalKeyRange(const Maybe<SerializedKeyRange>& aOptionalKeyRange,
@@ -7613,6 +7609,15 @@ void DatabaseConnection::UpdateRefcountFunction::ReleaseSavepoint() {
   mConnection->AssertIsOnConnectionThread();
   MOZ_ASSERT(mInSavepoint);
 
+  // The savepoint is being committed. The deltas it contributed are now
+  // permanent in mDelta, so reset mSavepointDelta on each entry before
+  // dropping the index. The FileInfoEntry objects themselves persist in
+  // mFileInfoEntries across savepoints; without this reset, a stale
+  // mSavepointDelta would be carried into the next savepoint.
+  for (const auto& entry : mSavepointEntriesIndex.Values()) {
+    entry->ResetSavepointDelta();
+  }
+
   mSavepointEntriesIndex.Clear();
   mInSavepoint = false;
 }
@@ -10405,6 +10410,13 @@ bool TransactionBase::VerifyRequestParams(
     switch (fileAddInfo.type()) {
       case StructuredCloneFileBase::eBlob:
         if (NS_AUUF_OR_WARN_IF(!file)) {
+          return false;
+        }
+
+        // Reject actors managed by a different Database
+        if (NS_AUUF_OR_WARN_IF(file->Manager() !=
+                               static_cast<const PBackgroundIDBDatabaseParent*>(
+                                   &GetDatabase()))) {
           return false;
         }
         break;
@@ -17186,6 +17198,8 @@ void GetDatabasesOp::SendResults() {
   if (HasFailed()) {
     mResolver(ClampResultCode(ResultCode()));
   } else {
+    std::sort(mDatabaseMetadataArray.begin(), mDatabaseMetadataArray.end(),
+              [](const auto& a, const auto& b) { return a.name() < b.name(); });
     mResolver(mDatabaseMetadataArray);
   }
 

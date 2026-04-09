@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -535,8 +533,8 @@ bool ScrollbarsForWheel::IsActive() {
   if (sActiveOwner) {
     return true;
   }
-  for (size_t i = 0; i < kNumberOfTargets; ++i) {
-    if (sActivatedScrollTargets[i]) {
+  for (auto& sActivatedScrollTarget : sActivatedScrollTargets) {
+    if (sActivatedScrollTarget) {
       return true;
     }
   }
@@ -567,8 +565,8 @@ void ScrollbarsForWheel::TemporarilyActivateAllPossibleScrollTargets(
 
 /* static */
 void ScrollbarsForWheel::DeactivateAllTemporarilyActivatedScrollTargets() {
-  for (size_t i = 0; i < kNumberOfTargets; i++) {
-    AutoWeakFrame* scrollTarget = &sActivatedScrollTargets[i];
+  for (auto& sActivatedScrollTarget : sActivatedScrollTargets) {
+    AutoWeakFrame* scrollTarget = &sActivatedScrollTarget;
     if (*scrollTarget) {
       nsIScrollbarMediator* scrollbarMediator = do_QueryFrame(*scrollTarget);
       if (scrollbarMediator) {

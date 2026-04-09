@@ -8,14 +8,15 @@ use crate::derives::*;
 use crate::parser::{Parse, ParserContext};
 use crate::properties::{NonCustomPropertyId, PropertyId, ShorthandId};
 use crate::values::generics::animation as generics;
-use crate::values::generics::position::TreeScoped;
+use crate::values::generics::position::{IsTreeScoped, TreeScoped};
 use crate::values::specified::{LengthPercentage, NonNegativeNumber, Time};
-use crate::values::{CustomIdent, DashedIdent, KeyframesName};
+use crate::values::{AtomIdent, CustomIdent, DashedIdent, KeyframesName};
 use crate::Atom;
 use cssparser::{match_ignore_ascii_case, Parser};
 use std::fmt::{self, Write};
 use style_traits::{
     CssWriter, KeywordsCollectFn, ParseError, SpecifiedValueInfo, StyleParseErrorKind, ToCss,
+    ToTyped,
 };
 
 /// A given transition property, that is either `All`, a longhand or shorthand
@@ -49,6 +50,8 @@ impl ToCss for TransitionProperty {
         }
     }
 }
+
+impl ToTyped for TransitionProperty {}
 
 impl Parse for TransitionProperty {
     fn parse<'i, 't>(
@@ -129,6 +132,7 @@ impl TransitionProperty {
     ToCss,
     ToResolvedValue,
     ToShmem,
+    ToTyped,
 )]
 #[repr(u8)]
 pub enum TransitionBehavior {
@@ -174,6 +178,7 @@ impl Parse for AnimationDuration {
 #[derive(
     Copy, Clone, Debug, MallocSizeOf, PartialEq, Parse, SpecifiedValueInfo, ToCss, ToShmem, ToTyped,
 )]
+#[typed_value(derive_fields)]
 pub enum AnimationIterationCount {
     /// A `<number>` value.
     Number(NonNegativeNumber),
@@ -212,6 +217,7 @@ impl AnimationIterationCount {
 )]
 #[value_info(other_values = "none")]
 #[repr(C)]
+#[typed_value(derive_fields)]
 pub struct AnimationName(pub KeyframesName);
 
 impl AnimationName {
@@ -446,6 +452,7 @@ impl Default for Scroller {
     ToCss,
     ToResolvedValue,
     ToShmem,
+    ToTyped,
 )]
 #[repr(u8)]
 pub enum ScrollAxis {
@@ -600,6 +607,12 @@ impl TimelineIdent {
     }
 }
 
+impl IsTreeScoped for TimelineIdent {
+    fn is_tree_scoped(&self) -> bool {
+        !self.is_none()
+    }
+}
+
 impl Parse for TimelineIdent {
     fn parse<'i, 't>(
         context: &ParserContext,
@@ -625,6 +638,8 @@ impl ToCss for TimelineIdent {
         self.0.to_css(dest)
     }
 }
+
+impl ToTyped for TimelineName {}
 
 /// A specified value for the `animation-timeline` property.
 pub type AnimationTimeline = generics::GenericAnimationTimeline<LengthPercentage>;
@@ -698,30 +713,30 @@ impl Parse for ViewTimelineInset {
     PartialEq,
     MallocSizeOf,
     SpecifiedValueInfo,
+    ToCss,
     ToComputedValue,
     ToResolvedValue,
     ToShmem,
     ToTyped,
 )]
-#[repr(C, u8)]
-pub enum ViewTransitionName {
-    /// None keyword.
-    None,
-    /// match-element keyword.
-    /// https://drafts.csswg.org/css-view-transitions-2/#auto-vt-name
-    MatchElement,
-    /// A `<custom-ident>`.
-    Ident(Atom),
-}
+#[repr(transparent)]
+#[value_info(other_values = "none, match-element")]
+pub struct ViewTransitionNameKeyword(AtomIdent);
 
-impl ViewTransitionName {
+impl ViewTransitionNameKeyword {
     /// Returns the `none` value.
     pub fn none() -> Self {
-        Self::None
+        Self(AtomIdent::new(atom!("none")))
     }
 }
 
-impl Parse for ViewTransitionName {
+impl IsTreeScoped for ViewTransitionNameKeyword {
+    fn is_tree_scoped(&self) -> bool {
+        self.0 .0 != atom!("none")
+    }
+}
+
+impl Parse for ViewTransitionNameKeyword {
     fn parse<'i, 't>(
         _: &ParserContext,
         input: &mut Parser<'i, 't>,
@@ -733,26 +748,22 @@ impl Parse for ViewTransitionName {
         }
 
         if ident.eq_ignore_ascii_case("match-element") {
-            return Ok(Self::MatchElement);
+            return Ok(Self(AtomIdent::new(atom!("match-element"))));
         }
 
         // We check none already, so don't need to exclude none here.
         // Note: "auto" is not supported yet so we exclude it.
-        CustomIdent::from_ident(location, ident, &["auto"]).map(|i| Self::Ident(i.0))
+        CustomIdent::from_ident(location, ident, &["auto"]).map(|i| Self(AtomIdent::new(i.0)))
     }
 }
 
-impl ToCss for ViewTransitionName {
-    fn to_css<W>(&self, dest: &mut CssWriter<W>) -> fmt::Result
-    where
-        W: Write,
-    {
-        use crate::values::serialize_atom_identifier;
-        match *self {
-            Self::None => dest.write_str("none"),
-            Self::MatchElement => dest.write_str("match-element"),
-            Self::Ident(ref ident) => serialize_atom_identifier(ident, dest),
-        }
+/// https://drafts.csswg.org/css-view-transitions-1/#view-transition-name-prop
+pub type ViewTransitionName = TreeScoped<ViewTransitionNameKeyword>;
+
+impl ViewTransitionName {
+    /// Return the `none` value.
+    pub fn none() -> Self {
+        Self::with_default_level(ViewTransitionNameKeyword::none())
     }
 }
 
@@ -764,6 +775,7 @@ impl ToCss for ViewTransitionName {
 #[derive(
     Clone,
     Debug,
+    Default,
     Eq,
     Hash,
     PartialEq,
@@ -777,13 +789,19 @@ impl ToCss for ViewTransitionName {
 )]
 #[repr(C)]
 #[value_info(other_values = "none")]
-pub struct ViewTransitionClass(
+pub struct ViewTransitionClassList(
     #[css(iterable, if_empty = "none")]
     #[ignore_malloc_size_of = "Arc"]
     crate::ArcSlice<CustomIdent>,
 );
 
-impl ViewTransitionClass {
+impl IsTreeScoped for ViewTransitionClassList {
+    fn is_tree_scoped(&self) -> bool {
+        !self.is_none()
+    }
+}
+
+impl ViewTransitionClassList {
     /// Returns the default value, `none`. We use the default slice (i.e. empty) to represent it.
     pub fn none() -> Self {
         Self(Default::default())
@@ -793,9 +811,14 @@ impl ViewTransitionClass {
     pub fn is_none(&self) -> bool {
         self.0.is_empty()
     }
+
+    /// Iterates over the contained custom idents.
+    pub fn iter(&self) -> impl Iterator<Item = &CustomIdent> {
+        self.0.iter()
+    }
 }
 
-impl Parse for ViewTransitionClass {
+impl Parse for ViewTransitionClassList {
     fn parse<'i, 't>(
         _: &ParserContext,
         input: &mut Parser<'i, 't>,
@@ -809,6 +832,16 @@ impl Parse for ViewTransitionClass {
         Ok(Self(crate::ArcSlice::from_iter(
             Space::parse(input, |i| CustomIdent::parse(i, &["none"]))?.into_iter(),
         )))
+    }
+}
+
+/// https://drafts.csswg.org/css-view-transitions-2/#view-transition-class-prop
+pub type ViewTransitionClass = TreeScoped<ViewTransitionClassList>;
+
+impl ViewTransitionClass {
+    /// Returns the default value, `none`.
+    pub fn none() -> Self {
+        Self::with_default_level(ViewTransitionClassList::none())
     }
 }
 

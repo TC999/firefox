@@ -38,10 +38,16 @@ BACKGROUND_TABS = [
 SUPPORTED_DEVICES = {"SM-A556E": "a55", "Pixel 6": "p6", "SM-S921B": "s24"}
 VALID_IMAGES_DIR = "testing/performance/mobile-startup/expected_startup_screenshots"
 ERROR_THRESHOLD = 8  # This is the lower bound for the high pass filter to remove noise
-ITERATIONS = 5
 MAX_STARTUP_TIME = 25000  # 25000ms = 25 seconds
 PROD_CHRM = "chrome-m"
 PROD_FENIX = "fenix"
+
+# SHA-256 fingerprint of testing/raptor/browsertime/utils/http2-cert.pem,
+# used for cert_override.txt so Fenix trusts the local HTTPS server.
+SERVER_CERT_FINGERPRINT = (
+    "55:31:7E:DD:E2:BA:47:5B:E4:FF:93:19:F6:5B:EA:74:"
+    "97:BF:46:21:D0:2D:A5:64:8C:C8:3E:C3:3B:64:EC:E6"
+)
 
 
 class ImageAnalzer:
@@ -83,6 +89,8 @@ class ImageAnalzer:
     def app_setup(self):
         if ON_TRY:
             self.device.shell(f"pm clear {self.package_name}")
+            # Bug 2019204 - Clear Security Hub package to prevent 'not responding' dialogs
+            self.device.shell("pm clear com.google.android.apps.security.securityhub")
         time.sleep(3)
         self.skip_onboarding()
         self.device.enable_notifications(
@@ -93,6 +101,39 @@ class ImageAnalzer:
         self.device.shell(f"am force-stop {self.package_name}")
         # Extra delay needed to avoid shutdown thread active during startup
         time.sleep(3)
+        if self.test_url.startswith("https"):
+            self._add_cert_override()
+
+    def _add_cert_override(self):
+        """Write cert_override.txt to the Fenix profile.
+
+        This makes Firefox accept the test server's TLS certificate
+        without needing enterprise_roots (which loads certs asynchronously
+        and can race with the first TLS connection).
+        """
+        if self.browser != PROD_FENIX:
+            return
+
+        data_dir = f"/data/data/{self.package_name}/files/mozilla"
+        try:
+            entries = self.device.shell_output(f"ls {data_dir}").strip().split()
+        except Exception:
+            print(f"Profile directory {data_dir} not found, skipping cert override")
+            return
+        profiles = [e for e in entries if ".default" in e]
+        if not profiles:
+            print(f"No .default profile under {data_dir}, skipping cert override")
+            return
+
+        profile_dir = f"{data_dir}/{profiles[0]}"
+        # cert_override.txt format: host:port, hash algorithm OID, fingerprint.
+        # OID.2.16.840.1.101.3.4.2.1 is SHA-256.
+        override_line = (
+            f"localhost:8000\tOID.2.16.840.1.101.3.4.2.1\t{SERVER_CERT_FINGERPRINT}\t"
+        )
+        self.device.shell_output(
+            f"echo '{override_line}' > {profile_dir}/cert_override.txt"
+        )
 
     def skip_onboarding(self):
         # Skip onboarding for chrome and fenix
@@ -336,6 +377,7 @@ if __name__ == "__main__":
 
     base_testing_dir = os.environ["TESTING_DIR"]
     profiler_combinations = get_profiler_combinations()
+    iterations = 10
     if not profiler_combinations:
         profiler_combinations = [[]]
     for profilers in profiler_combinations:
@@ -344,11 +386,12 @@ if __name__ == "__main__":
             output_path = pathlib.Path(base_testing_dir) / subdir_name
             output_path.mkdir(parents=True, exist_ok=True)
             os.environ["TESTING_DIR"] = str(output_path)
+            iterations = 5
         else:
             os.environ["TESTING_DIR"] = base_testing_dir
 
         ImageObject = ImageAnalzer(browser, test, test_url, profilers)
-        for iteration in range(ITERATIONS):
+        for iteration in range(iterations):
             ImageObject.app_setup()
             ImageObject.get_video(iteration)
             nav_done_frame = ImageObject.get_page_loaded_time(iteration)

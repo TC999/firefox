@@ -7,6 +7,8 @@
  * These include NS_ERROR_* codes and URL parameter error codes.
  */
 
+import { NET_ERROR_ILLUSTRATIONS } from "chrome://global/content/errors/net-error-illustrations.mjs";
+
 export const HTTPS_UPGRADES_MDN_DOCS =
   "https://developer.mozilla.org/docs/Web/Security/HTTPS-Only_Mode";
 export const COOP_MDN_DOCS =
@@ -73,7 +75,7 @@ export const NET_ERRORS = [
       whatCanYouDoL10nArgs: { hostname: null },
     },
     hasNoUserFix: false,
-    image: "chrome://global/skin/illustrations/no-connection.svg",
+    image: NET_ERROR_ILLUSTRATIONS.noConnection,
   },
   {
     id: "blockedByCOOP",
@@ -189,7 +191,7 @@ export const NET_ERRORS = [
       whatCanYouDoL10nId: "neterror-http-empty-response",
     },
     hasNoUserFix: false,
-    image: "chrome://global/skin/illustrations/no-connection.svg",
+    image: NET_ERROR_ILLUSTRATIONS.noConnection,
   },
   {
     id: "nssBadCert",
@@ -246,7 +248,7 @@ export const NET_ERRORS = [
       whatCanYouDoL10nId: "fp-neterror-offline-what-can-you-do-body",
     },
     hasNoUserFix: false,
-    image: "chrome://global/skin/illustrations/no-connection.svg",
+    image: NET_ERROR_ILLUSTRATIONS.noConnection,
   },
   {
     id: "netInterrupt",
@@ -267,15 +269,15 @@ export const NET_ERRORS = [
       whatCanYouDoL10nId: "fp-neterror-offline-what-can-you-do-body",
     },
     hasNoUserFix: false,
-    image: "chrome://global/skin/illustrations/no-connection.svg",
+    image: NET_ERROR_ILLUSTRATIONS.noConnection,
   },
   {
     id: "netTimeout",
     errorCode: "netTimeout",
     category: "net",
-    bodyTitleL10nId: "problem-with-this-site-title",
+    bodyTitleL10nId: "netTimeout-title",
     introContent: {
-      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nId: "fp-neterror-net-timeout-intro",
       dataL10nArgs: { hostname: null },
     },
     descriptionParts: DESCRIPTION_PARTS_MAP.connectionFailureDescription,
@@ -284,11 +286,15 @@ export const NET_ERRORS = [
       showGoBack: false,
     },
     customNetError: {
-      titleL10nId: "problem-with-this-site-title",
-      whatCanYouDoL10nId: "fp-neterror-offline-what-can-you-do-body",
+      titleL10nId: "netTimeout-title",
+      whatCanYouDoItems: [
+        "neterror-load-error-try-again",
+        "neterror-load-error-connection",
+        "neterror-load-error-firewall",
+      ],
     },
     hasNoUserFix: false,
-    image: "chrome://global/skin/illustrations/no-connection.svg",
+    image: NET_ERROR_ILLUSTRATIONS.noConnection,
   },
   {
     id: "dnsNotFound",
@@ -312,7 +318,7 @@ export const NET_ERRORS = [
     },
     hasNoUserFix: false,
     checkTrrOnly: true,
-    image: "chrome://global/skin/illustrations/no-connection.svg",
+    image: NET_ERROR_ILLUSTRATIONS.noConnection,
   },
   {
     id: "blockedByPolicy",
@@ -336,8 +342,12 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "problem-with-this-site-title",
     introContent: {
-      dataL10nId: "fp-neterror-offline-intro",
-      dataL10nArgs: { hostname: null },
+      dataL10nId: "fp-neterror-http-error-intro",
+      dataL10nArgs: {
+        hostname: null,
+        responsestatus: null,
+        responsestatustext: null,
+      },
     },
     descriptionParts: [{ tag: "li", dataL10nId: "neterror-http-error-page" }],
     buttons: {
@@ -346,10 +356,13 @@ export const NET_ERRORS = [
     },
     customNetError: {
       titleL10nId: "problem-with-this-site-title",
-      whatCanYouDoL10nId: "neterror-load-error-try-again",
+      whatCanYouDoItems: [
+        "neterror-http-error-page",
+        "neterror-load-error-try-again",
+      ],
     },
     hasNoUserFix: false,
-    image: "chrome://global/skin/illustrations/no-connection.svg",
+    image: NET_ERROR_ILLUSTRATIONS.noConnection,
   },
   {
     id: "serverError",
@@ -357,8 +370,12 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "problem-with-this-site-title",
     introContent: {
-      dataL10nId: "fp-neterror-offline-intro",
-      dataL10nArgs: { hostname: null },
+      dataL10nId: "fp-neterror-http-error-intro",
+      dataL10nArgs: {
+        hostname: null,
+        responsestatus: null,
+        responsestatustext: null,
+      },
     },
     descriptionParts: [
       { tag: "li", dataL10nId: "neterror-load-error-try-again" },
@@ -369,10 +386,13 @@ export const NET_ERRORS = [
     },
     customNetError: {
       titleL10nId: "problem-with-this-site-title",
-      whatCanYouDoL10nId: "neterror-load-error-try-again",
+      whatCanYouDoItems: [
+        "neterror-http-error-page",
+        "neterror-load-error-try-again",
+      ],
     },
     hasNoUserFix: false,
-    image: "chrome://global/skin/illustrations/no-connection.svg",
+    image: NET_ERROR_ILLUSTRATIONS.noConnection,
   },
   {
     id: "invalidHeaderValue",
@@ -393,7 +413,7 @@ export const NET_ERRORS = [
       whatCanYouDoL10nId: "neterror-load-error-try-again",
     },
     hasNoUserFix: false,
-    image: "chrome://global/skin/illustrations/no-connection.svg",
+    image: NET_ERROR_ILLUSTRATIONS.noConnection,
   },
   {
     id: "deniedPortAccess",
@@ -401,8 +421,7 @@ export const NET_ERRORS = [
     category: "blocked",
     bodyTitleL10nId: "deniedPortAccess-title",
     introContent: {
-      dataL10nId: "fp-neterror-offline-intro",
-      dataL10nArgs: { hostname: null },
+      dataL10nId: "fp-neterror-denied-port-access",
     },
     descriptionParts: [],
     buttons: {
@@ -411,7 +430,6 @@ export const NET_ERRORS = [
     },
     customNetError: {
       titleL10nId: "deniedPortAccess-title",
-      whatCanYouDoL10nId: "certerror-bad-cert-domain-what-can-you-do-about-it",
     },
     hasNoUserFix: true,
   },
@@ -527,8 +545,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "fileNotFound-title",
     introContent: {
-      dataL10nId: "fp-neterror-offline-intro",
-      dataL10nArgs: { hostname: null },
+      dataL10nId: "neterror-file-not-found-intro",
+      dataL10nArgs: { path: null },
     },
     descriptionParts: [
       { tag: "li", dataL10nId: "neterror-file-not-found-filename" },
@@ -540,7 +558,7 @@ export const NET_ERRORS = [
     },
     customNetError: {
       titleL10nId: "fileNotFound-title",
-      whatCanYouDoL10nId: "neterror-http-error-page",
+      whatCanYouDoL10nId: "neterror-file-not-found-what-can-you-do",
     },
     hasNoUserFix: true,
   },
@@ -623,9 +641,10 @@ export const NET_ERRORS = [
     },
     customNetError: {
       titleL10nId: "netOffline-title",
-      whatCanYouDoL10nId: "fp-neterror-offline-what-can-you-do-body",
+      whatCanYouDoL10nId: "neterror-net-offline",
     },
     hasNoUserFix: false,
+    image: "chrome://global/skin/illustrations/no-connection.svg",
   },
   {
     id: "networkProtocolError",
@@ -737,7 +756,7 @@ export const NET_ERRORS = [
     customNetError: {
       titleL10nId: "fp-neterror-vpn-error-title",
     },
-    image: "chrome://global/skin/illustrations/no-connection.svg",
+    image: NET_ERROR_ILLUSTRATIONS.noConnection,
     hasNoUserFix: false,
   },
   {

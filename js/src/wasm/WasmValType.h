@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- *
+/*
  * Copyright 2021 Mozilla Foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -438,6 +436,7 @@ class RefType {
   inline bool isExternHierarchy() const;
   inline bool isAnyHierarchy() const;
   inline bool isExnHierarchy() const;
+  inline bool isInhabitable() const;
   static bool isSubTypeOf(RefType subType, RefType superType);
   static bool castPossible(RefType sourceType, RefType destType);
 

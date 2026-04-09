@@ -13,8 +13,8 @@ transforms = TransformSequence()
 # TODO: Once we're ready to roll this out to production, we should decide if we want to
 # hold it in beta for a few cycles, or let it ride the train to release.
 # If holding in beta, we'll need to uplift a patch to remove the release entry.
+# TODO: update taskcluster/docs/partials.rst once we are fully rolled out
 LEGACY_PARTIALS_PROJECTS = {
-    "mozilla-beta",
     "mozilla-release",
     "mozilla-esr115",
     "mozilla-esr128",

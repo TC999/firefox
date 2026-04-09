@@ -28,6 +28,7 @@ import mozilla.components.browser.state.search.RegionState
 import mozilla.components.browser.state.search.SearchEngine
 import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.state.SearchState
+import mozilla.components.browser.state.state.createTab
 import mozilla.components.browser.state.state.selectedOrDefaultSearchEngine
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.browser.storage.sync.PlacesBookmarksStorage
@@ -124,7 +125,9 @@ class BrowserToolbarSearchMiddlewareTest {
         every { navigate(any<NavDirections>()) } just Runs
         every { navigate(any<Int>()) } just Runs
     }
-    val browsingModeManager: BrowsingModeManager = mockk()
+    val browsingModeManager: BrowsingModeManager = mockk {
+        every { mode } returns Normal
+    }
 
     @Test
     fun `WHEN the toolbar enters in edit mode THEN a new search selector button is added`() {
@@ -1023,6 +1026,106 @@ class BrowserToolbarSearchMiddlewareTest {
     }
 
     @Test
+    fun `GIVEN homepage as a new tab is disabled and the source tab is available WHEN search term is committed THEN perform search in the source tab`() {
+        val searchTerm = "Firefox"
+        val captorMiddleware = CaptureActionsMiddleware<AppState, AppAction>()
+        val browserUseCases: FenixBrowserUseCases = mockk(relaxed = true)
+        val components: Components = mockk(relaxed = true) {
+            every { useCases.fenixBrowserUseCases } returns browserUseCases
+        }
+        val settings: Settings = mockk(relaxed = true) {
+            every { enableHomepageAsNewTab } returns false
+        }
+        val browsingModeManager: BrowsingModeManager = mockk(relaxed = true) {
+            every { mode } returns Normal
+        }
+        val appStore = AppStore(
+            initialState = AppState(
+                searchState = AppSearchState.EMPTY.copy(sourceTabId = "test"),
+            ),
+            middlewares = listOf(captorMiddleware),
+        )
+        val browserStore = BrowserStore(
+            BrowserState(
+                tabs = listOf(
+                    createTab("https://test.com", id = "test"),
+                ),
+                search = fakeSearchState(),
+            ),
+            middleware = listOf(captureBrowserActionsMiddleware),
+        )
+        val (_, store) = buildMiddlewareAndAddToStore(
+            appStore = appStore,
+            browserStore = browserStore,
+            components = components,
+            settings = settings,
+            browsingModeManager = browsingModeManager,
+        )
+
+        store.dispatch(CommitUrl(searchTerm))
+
+        verifyOrder {
+            navController.navigate(NavGraphDirections.actionGlobalBrowser())
+            browserUseCases.loadUrlOrSearch(
+                searchTermOrURL = searchTerm,
+                newTab = false,
+                forceSearch = false,
+                private = false,
+                searchEngine = any(),
+            )
+        }
+        captureBrowserActionsMiddleware.assertFirstAction(EngagementFinished::class) { action ->
+            assertFalse(action.abandoned)
+        }
+        captorMiddleware.assertLastAction(SearchEnded::class) {}
+    }
+
+    @Test
+    fun `GIVEN homepage as a new tab is disabled and the source tab is not available WHEN search term is committed THEN perform search in a new tab`() {
+        val searchTerm = "Firefox"
+        val captorMiddleware = CaptureActionsMiddleware<AppState, AppAction>()
+        val browserUseCases: FenixBrowserUseCases = mockk(relaxed = true)
+        val components: Components = mockk(relaxed = true) {
+            every { useCases.fenixBrowserUseCases } returns browserUseCases
+        }
+        val settings: Settings = mockk(relaxed = true) {
+            every { enableHomepageAsNewTab } returns false
+        }
+        val browsingModeManager: BrowsingModeManager = mockk(relaxed = true) {
+            every { mode } returns Normal
+        }
+        val appStore = AppStore(
+            initialState = AppState(
+                searchState = AppSearchState.EMPTY.copy(sourceTabId = "test"),
+            ),
+            middlewares = listOf(captorMiddleware),
+        )
+        val (_, store) = buildMiddlewareAndAddToStore(
+            appStore = appStore,
+            components = components,
+            settings = settings,
+            browsingModeManager = browsingModeManager,
+        )
+
+        store.dispatch(CommitUrl(searchTerm))
+
+        verifyOrder {
+            navController.navigate(NavGraphDirections.actionGlobalBrowser())
+            browserUseCases.loadUrlOrSearch(
+                searchTermOrURL = searchTerm,
+                newTab = true,
+                forceSearch = false,
+                private = false,
+                searchEngine = any(),
+            )
+        }
+        captureBrowserActionsMiddleware.assertFirstAction(EngagementFinished::class) { action ->
+            assertFalse(action.abandoned)
+        }
+        captorMiddleware.assertLastAction(SearchEnded::class) {}
+    }
+
+    @Test
     fun `GIVEN the toolbar is in edit mode WHEN updateSearchActionsEnd is triggered via ToggleEditMode THEN a voice search action button is added to the end actions`() {
         every { settings.shouldShowVoiceSearch } returns true
         val middleware = spyk(buildMiddleware(appStore = appStore))
@@ -1071,6 +1174,7 @@ class BrowserToolbarSearchMiddlewareTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals("mozilla.test", store.state.editState.query.current)
+        assertTrue(store.state.editState.isQueryPrefilled)
         appStoreActionsCaptor.assertLastAction(QrScannerInputConsumed::class)
         verify {
             browserUseCases.loadUrlOrSearch(
@@ -1105,6 +1209,7 @@ class BrowserToolbarSearchMiddlewareTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals("test.mozilla", store.state.editState.query.current)
+        assertTrue(store.state.editState.isQueryPrefilled)
         appStoreActionsCaptor.assertLastAction(QrScannerInputConsumed::class)
         verify {
             browserUseCases.loadUrlOrSearch(
@@ -1144,6 +1249,7 @@ class BrowserToolbarSearchMiddlewareTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals("test.com", store.state.editState.query.current)
+        assertTrue(store.state.editState.isQueryPrefilled)
         appStoreActionsCaptor.assertLastAction(QrScannerInputConsumed::class)
         verify {
             browserUseCases.loadUrlOrSearch(

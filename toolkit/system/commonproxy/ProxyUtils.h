@@ -16,6 +16,10 @@ nsresult GetProxyFromEnvironment(const nsACString& aScheme,
                                  const nsACString& aHost, int32_t aPort,
                                  nsACString& aResult);
 bool IsHostProxyEntry(const nsACString& aHost, const nsACString& aOverride);
+
+// Returns true if any proxy-related environment variable is set
+// (http_proxy, https_proxy, all_proxy, or uppercase equivalents).
+bool HasProxyEnvVars();
 }  // namespace system
 }  // namespace toolkit
 }  // namespace mozilla

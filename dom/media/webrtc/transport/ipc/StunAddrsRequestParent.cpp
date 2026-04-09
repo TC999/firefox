@@ -65,8 +65,8 @@ mozilla::ipc::IPCResult StunAddrsRequestParent::RecvRegisterMDNSHostname(
   }
 
   if (mSharedMDNSService) {
-    mSharedMDNSService->RegisterHostname(aHostname.BeginReading(),
-                                         aAddress.BeginReading());
+    mSharedMDNSService->RegisterHostname(PromiseFlatCString(aHostname).get(),
+                                         PromiseFlatCString(aAddress).get());
   }
 
   return IPC_OK();
@@ -81,7 +81,8 @@ mozilla::ipc::IPCResult StunAddrsRequestParent::RecvQueryMDNSHostname(
   }
 
   if (mSharedMDNSService) {
-    mSharedMDNSService->QueryHostname(this, aHostname.BeginReading());
+    mSharedMDNSService->QueryHostname(this,
+                                      PromiseFlatCString(aHostname).get());
   }
 
   return IPC_OK();
@@ -96,7 +97,7 @@ mozilla::ipc::IPCResult StunAddrsRequestParent::RecvUnregisterMDNSHostname(
   }
 
   if (mSharedMDNSService) {
-    mSharedMDNSService->UnregisterHostname(aHostname.BeginReading());
+    mSharedMDNSService->UnregisterHostname(PromiseFlatCString(aHostname).get());
   }
 
   return IPC_OK();

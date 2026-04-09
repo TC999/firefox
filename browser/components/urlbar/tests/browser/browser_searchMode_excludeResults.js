@@ -218,10 +218,15 @@ add_task(async function malformedEngine() {
 });
 
 async function enterSearchMode(engineName) {
+  await UrlbarTestUtils.promiseAutocompleteResultPopup({
+    window,
+    value: "",
+  });
   let popup = UrlbarTestUtils.searchModeSwitcherPopup(window);
   await UrlbarTestUtils.openSearchModeSwitcher(window);
   let popupHidden = UrlbarTestUtils.searchModeSwitcherPopupClosed(window);
   popup.querySelector(`menuitem[label=${engineName}]`).click();
   await popupHidden;
+  window.gURLBar.search("example");
   await UrlbarTestUtils.promiseSearchComplete(window);
 }

@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- *
+/*
  * Copyright 2016 Mozilla Foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -924,30 +922,18 @@ static int32_t MemoryInit(JSContext* cx, Instance* instance,
     return -1;
   }
 
-  bool isOOM = false;
-
   if (&srcTable == &dstTable && dstOffset > srcOffset) {
     for (uint32_t i = len; i > 0; i--) {
-      if (!dstTable->copy(cx, *srcTable, dstOffset + (i - 1),
-                          srcOffset + (i - 1))) {
-        isOOM = true;
-        break;
-      }
+      dstTable->copy(*srcTable, dstOffset + (i - 1), srcOffset + (i - 1));
     }
   } else if (&srcTable == &dstTable && dstOffset == srcOffset) {
     // No-op
   } else {
     for (uint32_t i = 0; i < len; i++) {
-      if (!dstTable->copy(cx, *srcTable, dstOffset + i, srcOffset + i)) {
-        isOOM = true;
-        break;
-      }
+      dstTable->copy(*srcTable, dstOffset + i, srcOffset + i);
     }
   }
 
-  if (isOOM) {
-    return -1;
-  }
   return 0;
 }
 
@@ -2132,7 +2118,7 @@ int32_t Instance::stringCharCodeAt(Instance* instance, void* stringArg,
   char16_t c;
   if (!string->getChar(cx, index, &c)) {
     MOZ_ASSERT(cx->isThrowingOutOfMemory());
-    return false;
+    return -1;
   }
   return c;
 }
@@ -2156,7 +2142,7 @@ int32_t Instance::stringCodePointAt(Instance* instance, void* stringArg,
   char32_t c;
   if (!string->getCodePoint(cx, index, &c)) {
     MOZ_ASSERT(cx->isThrowingOutOfMemory());
-    return false;
+    return -1;
   }
   return c;
 }
@@ -2235,15 +2221,14 @@ int32_t Instance::stringEquals(Instance* instance, void* firstStringArg,
   AnyRef firstStringRef = AnyRef::fromCompiledCode(firstStringArg);
   AnyRef secondStringRef = AnyRef::fromCompiledCode(secondStringArg);
 
-  // Null strings are considered equals
-  if (firstStringRef.isNull() || secondStringRef.isNull()) {
-    return firstStringRef.isNull() == secondStringRef.isNull();
-  }
-
-  // Otherwise, rule out any other kind of reference value
-  if (!firstStringRef.isJSString() || !secondStringRef.isJSString()) {
+  if ((!firstStringRef.isNull() && !firstStringRef.isJSString()) ||
+      (!secondStringRef.isNull() && !secondStringRef.isJSString())) {
     ReportTrapError(cx, JSMSG_WASM_BAD_CAST);
     return -1;
+  }
+
+  if (firstStringRef.isNull() || secondStringRef.isNull()) {
+    return firstStringRef.isNull() == secondStringRef.isNull() ? 1 : 0;
   }
 
   bool equals;
@@ -2484,9 +2469,8 @@ Instance::Instance(JSContext* cx, Handle<WasmInstanceObject*> object,
       allocationMetadataBuilder_(nullptr),
       addressOfLastBufferedWholeCell_(
           cx->runtime()->gc.addressOfLastBufferedWholeCell()) {
-  for (size_t i = 0; i < N_BASELINE_SCRATCH_WORDS; i++) {
-    baselineScratchWords_[i] = 0;
-  }
+  std::fill(std::begin(baselineScratchWords_), std::end(baselineScratchWords_),
+            0);
 }
 
 Instance* Instance::create(JSContext* cx, Handle<WasmInstanceObject*> object,
@@ -3136,9 +3120,8 @@ void Instance::submitCallRefHints(uint32_t funcIndex) {
     }
 
     JS::UniqueChars countsStr;
-    for (size_t i = 0; i < CallRefMetrics::NUM_SLOTS; i++) {
-      countsStr =
-          JS_sprintf_append(std::move(countsStr), "%u ", metrics.counts[i]);
+    for (const auto& count : metrics.counts) {
+      countsStr = JS_sprintf_append(std::move(countsStr), "%u ", count);
     }
     JS::UniqueChars targetStr;
     if (skipReason) {
@@ -3247,8 +3230,8 @@ void Instance::tracePrivate(JSTracer* trc) {
     for (uint32_t i = 0; i < codeTailMeta().numCallRefMetrics; i++) {
       CallRefMetrics* metrics = &callRefMetrics_[i];
       MOZ_ASSERT(metrics->checkInvariants());
-      for (size_t j = 0; j < CallRefMetrics::NUM_SLOTS; j++) {
-        TraceNullableEdge(trc, &metrics->targets[j], "indirect call target");
+      for (auto& target : metrics->targets) {
+        TraceNullableEdge(trc, &target, "indirect call target");
       }
     }
   }

@@ -67,7 +67,7 @@ this.clipboard = class extends ExtensionAPI {
           // a cached copy of nsITransferable if available, e.g. when the copy
           // was initiated by the same browser instance. To make sure that a
           // nsIInputStream is returned instead of the cached imgIContainer,
-          // the image is exported as as `kNativeImageMime`. Data associated
+          // the image is exported as `kNativeImageMime`. Data associated
           // with this type is converted to a platform-specific image format
           // when written to the clipboard. The type is not used when images
           // are read from the clipboard (on all platforms, not just macOS).

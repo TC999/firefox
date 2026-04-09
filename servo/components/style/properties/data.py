@@ -59,6 +59,10 @@ PRIORITARY_PROPERTIES = set(
         "zoom",
         # Line height lengths depend on this.
         "line-height",
+        # appearance and -moz-default-appearance control whether
+        # @appearance-base rules apply.
+        "-moz-default-appearance",
+        "appearance",
     ]
 )
 
@@ -951,6 +955,7 @@ class PropertiesData(object):
         self.font_face_descriptors = self._load_descriptors("font_face_descriptors.toml")
         self.counter_style_descriptors = self._load_descriptors("counter_style_descriptors.toml")
         self.property_descriptors = self._load_descriptors("property_descriptors.toml")
+        self.view_transition_descriptors = self._load_descriptors("view_transition_descriptors.toml")
 
 
     def declare_all_shorthand(self):

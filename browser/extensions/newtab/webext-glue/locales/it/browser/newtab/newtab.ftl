@@ -313,9 +313,22 @@ newtab-error-fallback-refresh-link = Aggiornare la pagina per riprovare.
 
 newtab-custom-shortcuts-title = Scorciatoie
 newtab-custom-shortcuts-subtitle = Siti che hai salvato oppure visitato
+#  (developer note): @nova-cleanup(remove-string): Remove old string once Nova lands. The newtab-custom-shortcuts-nova string will take over
 newtab-custom-shortcuts-toggle =
     .label = Scorciatoie
     .description = Siti che hai salvato oppure visitato
+newtab-custom-shortcuts-toggle-rows =
+    .label = Scorciatoie
+    .description = Numero di righe
+# Variables
+#   $num (number) - Number of rows to display
+#  (developer note): @nova-cleanup(remove-string): Remove string once Nova lands. We won't be using "row"/"rows" anymore for the dropdown
+newtab-custom-row-selector2 =
+    .label =
+        { $num ->
+            [one] { $num } riga
+           *[other] { $num } righe
+        }
 # Variables
 #   $num (number) - Number of rows to display
 newtab-custom-row-selector =
@@ -364,6 +377,8 @@ newtab-wallpaper-title = Sfondi
 newtab-wallpaper-reset = Ripristina predefinito
 newtab-wallpaper-upload-image = Carica immagine
 newtab-wallpaper-custom-color = Scegli un colore
+newtab-wallpaper-toggle-title =
+    .label = Sfondi
 # Variables
 #   $file_size (number) - The number of the maximum image file size (in MB) that may be uploaded
 newtab-wallpaper-error-max-file-size = L’immagine eccede la dimensione massima consentita ({ $file_size } MB). Prova a caricare un file più piccolo.
@@ -639,6 +654,8 @@ newtab-report-cancel = Annulla
 newtab-report-submit = Invia
 newtab-toast-thanks-for-reporting =
     .message = Grazie per la segnalazione.
+newtab-toast-widgets-hidden =
+    .message = Seleziona l’icona a forma di matita per ripristinare i widget in qualsiasi momento.
 
 ## Strings for task / to-do list productivity widget
 
@@ -679,6 +696,7 @@ newtab-widget-lists-name-placeholder-default =
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Nuova lista
 newtab-widget-section-title = Widget
+newtab-widget-menu-hide = Nascondi widget
 # Tooltip for hide all widgets button
 newtab-widget-section-hide-all-button =
     .title = Nascondi widget
@@ -721,10 +739,12 @@ newtab-daily-briefing-card-timestamp = Aggiornato { $minutes }m fa
 newtab-widget-message-title = Mantieni la concentrazione utilizzando le liste e il timer integrato
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Da promemoria veloci a liste di attività quotidiane, da sessioni di concentrazione a pause per rilassarsi: mantieni l’attenzione e rispetta i tempi.
-newtab-promo-card-title-addons = Semplici estensioni, grande impatto
-# “starter pack” means a curated set of recommended browser extensions to help users get started
-newtab-promo-card-body-addons = Prova lo starter pack con le estensioni curate dallo staff di { -brand-product-name }.
-newtab-promo-card-cta-addons = Scopri le nostre scelte
+# "Make Firefox yours" refers to about:newtab. The call to action here ("Try it now")
+# is to customize the new tab page with a background image or color from
+# the built-in wallpaper collection or uploading your own image.
+newtab-promo-card-title-addons = Rendi { -brand-product-name } davvero tuo
+newtab-promo-card-body-addons = Scegli uno sfondo dalla nostra raccolta oppure creane uno tuo.
+newtab-promo-card-cta-addons = Provalo ora
 newtab-promo-card-title = Sostieni { -brand-product-name }
 newtab-promo-card-body = Gli sponsor sostengono la nostra missione di costruire un Web migliore
 newtab-promo-card-cta = Ulteriori informazioni

@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -68,16 +66,16 @@ TEST(PrefsBasics, Serialize)
 
   nsCString str;
   Preferences::SerializePreferences(str, true);
-  fprintf(stderr, "%s\n", str.Data());
+  fprintf(stderr, "%s\n", str.get());
   // Assert that some prefs were not sanitized
-  ASSERT_NE(nullptr, strstr(str.Data(), "B--:"));
-  ASSERT_NE(nullptr, strstr(str.Data(), "I--:"));
-  ASSERT_NE(nullptr, strstr(str.Data(), "S--:"));
+  ASSERT_NE(nullptr, strstr(str.get(), "B--:"));
+  ASSERT_NE(nullptr, strstr(str.get(), "I--:"));
+  ASSERT_NE(nullptr, strstr(str.get(), "S--:"));
   // Assert that something was sanitized
   ASSERT_NE(
       nullptr,
       strstr(
-          str.Data(),
+          str.get(),
           "I-S:56/datareporting.policy.dataSubmissionPolicyAcceptedVersion"));
 }
 

@@ -190,7 +190,9 @@ def resolve_dynamic_chunks(config, tasks):
             yield task
             continue
 
-        all_runtimes = get_runtimes(task["test-platform"], task["test-name"])
+        suite_name = task["test-name"] + task.get("variant-suffix", "")
+        all_runtimes = get_runtimes(task["test-platform"], suite_name)
+
         runtimes = resolve_manifest_runtimes(
             all_runtimes, task["test-manifests"]["active"]
         )

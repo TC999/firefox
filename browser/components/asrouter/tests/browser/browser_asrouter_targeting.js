@@ -506,10 +506,16 @@ add_task(async function check_needsUpdate() {
 
 add_task(async function checksearchEngines() {
   const result = await ASRouterTargeting.Environment.searchEngines;
-  const expectedInstalled = (await SearchService.getAppProvidedEngines())
+  const appProvidedEngines = await SearchService.getAppProvidedEngines();
+  const expectedInstalled = appProvidedEngines
     .map(engine => engine.id)
     .sort()
     .join(",");
+  const expectedHasEnteredSearchMode = {};
+  for (let engine of appProvidedEngines) {
+    expectedHasEnteredSearchMode[engine.id] = engine.hasBeenUsed;
+  }
+
   ok(
     result.installed.length,
     "searchEngines.installed should be a non-empty array"
@@ -528,6 +534,11 @@ add_task(async function checksearchEngines() {
     (await SearchService.getDefault()).id,
     "searchEngines.current should be the current engine name"
   );
+  Assert.deepEqual(
+    result.hasEnteredSearchMode,
+    expectedHasEnteredSearchMode,
+    "searchEngines.hasEnteredSearchmode should map engine ids to hasBeenUsed values"
+  );
 
   const message = {
     id: "foo",
@@ -540,17 +551,26 @@ add_task(async function checksearchEngines() {
     message,
     "should select correct item by searchEngines.current"
   );
+  const [firstEngine] = appProvidedEngines;
 
   const message2 = {
     id: "foo",
-    targeting: `searchEngines[${
-      (await SearchService.getAppProvidedEngines())[0].id
-    } in .installed]`,
+    targeting: `searchEngines[${firstEngine.id} in .installed]`,
   };
   is(
     await ASRouterTargeting.findMatchingMessage({ messages: [message2] }),
     message2,
     "should select correct item by searchEngines.installed"
+  );
+
+  const message3 = {
+    id: "foo",
+    targeting: `searchEngines[.hasEnteredSearchMode.${firstEngine.id} == ${firstEngine.hasBeenUsed}]`,
+  };
+  is(
+    await ASRouterTargeting.findMatchingMessage({ messages: [message3] }),
+    message3,
+    "should select correct item by searchEngines.hasEnteredSearchMode"
   );
 });
 
@@ -1677,15 +1697,10 @@ add_task(async function test_creditCardsSaved() {
         gBrowser.selectedBrowser.browsingContext.currentWindowGlobal.getActor(
           "FormAutofill"
         ),
-        "receiveMessage"
+        "getRecords"
       )
-      .withArgs(
-        sandbox.match({
-          name: "FormAutofill:GetRecords",
-          data: { collectionName: "creditCards" },
-        })
-      )
-      .resolves({ records: [creditcard] })
+      .withArgs(sandbox.match({ collectionName: "creditCards" }))
+      .resolves([creditcard])
       .callThrough();
 
     is(
@@ -1694,8 +1709,8 @@ add_task(async function test_creditCardsSaved() {
       "Should return 1 when 1 credit card is saved"
     );
     ok(
-      stub.calledWithMatch({ name: "FormAutofill:GetRecords" }),
-      "Targeting called FormAutofill:GetRecords"
+      stub.calledWithMatch({ collectionName: "creditCards" }),
+      "Targeting called getRecords"
     );
 
     sandbox.restore();

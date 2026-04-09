@@ -5,6 +5,8 @@
 import { ContentSection } from "content-src/components/CustomizeMenu/ContentSection/ContentSection";
 import { connect } from "react-redux";
 import React from "react";
+
+const PREF_NOVA_ENABLED = "nova.enabled";
 // eslint-disable-next-line no-shadow
 import { CSSTransition } from "react-transition-group";
 
@@ -14,6 +16,9 @@ export class _CustomizeMenu extends React.PureComponent {
     this.onEntered = this.onEntered.bind(this);
     this.onExited = this.onExited.bind(this);
     this.onSubpanelToggle = this.onSubpanelToggle.bind(this);
+    this.personalizeButtonRef = React.createRef();
+    this.customizeMenuRef = React.createRef();
+    this.closeButtonRef = React.createRef();
     this.state = {
       exitEventFired: false,
       subpanelOpen: false,
@@ -26,34 +31,39 @@ export class _CustomizeMenu extends React.PureComponent {
 
   onEntered() {
     this.setState({ exitEventFired: false });
-    if (this.closeButton) {
-      this.closeButton.focus();
+    if (this.closeButtonRef.current) {
+      this.closeButtonRef.current.focus();
     }
   }
 
   onExited() {
     this.setState({ exitEventFired: true });
-    if (this.openButton) {
-      this.openButton.focus();
+    if (this.personalizeButtonRef.current) {
+      this.personalizeButtonRef.current.focus();
     }
   }
 
   render() {
     const activationWindowVariant =
       this.props.Prefs.values["activationWindow.variant"];
+
     const activationWindowClass = activationWindowVariant
       ? `activation-window-variant-${activationWindowVariant}`
       : "";
+    // @nova-cleanup(remove-pref): remove nova pref
+    const novaEnabled = this.props.Prefs.values[PREF_NOVA_ENABLED];
 
     return (
       <span>
         <CSSTransition
+          nodeRef={this.personalizeButtonRef}
           timeout={300}
           classNames="personalize-animate"
           in={!this.props.showing}
           appear={true}
         >
           <button
+            ref={this.personalizeButtonRef}
             className={`${activationWindowClass} personalize-button`}
             data-l10n-id="newtab-customize-panel-icon-button"
             aria-haspopup="dialog"
@@ -63,7 +73,6 @@ export class _CustomizeMenu extends React.PureComponent {
                 this.props.onOpen();
               }
             }}
-            ref={c => (this.openButton = c)}
           >
             <label data-l10n-id="newtab-customize-panel-icon-button-label" />
             <div>
@@ -75,6 +84,7 @@ export class _CustomizeMenu extends React.PureComponent {
           </button>
         </CSSTransition>
         <CSSTransition
+          nodeRef={this.customizeMenuRef}
           timeout={250}
           classNames="customize-animate"
           in={this.props.showing}
@@ -82,11 +92,15 @@ export class _CustomizeMenu extends React.PureComponent {
           onExited={this.onExited}
           appear={true}
         >
-          <div className="customize-menu-animate-wrapper">
+          <div
+            ref={this.customizeMenuRef}
+            className="customize-menu-animate-wrapper"
+          >
             <div
+              // @nova-cleanup(remove-conditional): Remove nova-enabled class
               className={`customize-menu ${
                 this.state.subpanelOpen ? "subpanel-open" : ""
-              }`}
+              } ${novaEnabled ? "nova-enabled" : ""}`}
               role="dialog"
               data-l10n-id="newtab-settings-dialog-label"
             >
@@ -97,7 +111,7 @@ export class _CustomizeMenu extends React.PureComponent {
                   type="icon ghost"
                   data-l10n-id="newtab-custom-close-menu-button"
                   iconsrc="chrome://global/skin/icons/close.svg"
-                  ref={c => (this.closeButton = c)}
+                  ref={this.closeButtonRef}
                 ></moz-button>
               </div>
               <ContentSection
@@ -123,6 +137,14 @@ export class _CustomizeMenu extends React.PureComponent {
                 onSubpanelToggle={this.onSubpanelToggle}
                 toggleSectionsMgmtPanel={this.props.toggleSectionsMgmtPanel}
                 showSectionsMgmtPanel={this.props.showSectionsMgmtPanel}
+                novaEnabled={novaEnabled}
+                toggleWidgetsManagementPanel={
+                  this.props.toggleWidgetsManagementPanel
+                }
+                showWidgetsManagementPanel={
+                  this.props.showWidgetsManagementPanel
+                }
+                widgetsEnabled={this.props.widgetsEnabled}
               />
             </div>
           </div>

@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1089,7 +1087,7 @@ void Navigator::RegisterProtocolHandler(const nsAString& aScheme,
     // console so that web developers have some way to tell what's going wrong.
     nsContentUtils::ReportToConsole(
         nsIScriptError::warningFlag, "DOM"_ns, mWindow->GetDoc(),
-        nsContentUtils::eDOM_PROPERTIES,
+        PropertiesFile::DOM_PROPERTIES,
         "RegisterProtocolHandlerPrivateBrowsingWarning");
     return;
   }
@@ -2213,7 +2211,7 @@ already_AddRefed<Promise> Navigator::RequestMediaKeySystemAccess(
       (void)doc->GetDocumentURI(*uri);
     }
     nsContentUtils::ReportToConsole(nsIScriptError::warningFlag, "Media"_ns,
-                                    doc, nsContentUtils::eDOM_PROPERTIES,
+                                    doc, PropertiesFile::DOM_PROPERTIES,
                                     "MediaEMEInsecureContextDeprecatedWarning",
                                     params);
   }

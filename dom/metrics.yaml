@@ -200,8 +200,12 @@ perf:
         type: quantity
         unit: integer
       android_app_link_launch_type:
-        description:
-          "AppLink launch type, android only. UNKNOWN = 0 COLD = 1, WARM = 2, HOT = 3, see LoadURIOptions.webidl"
+        description: |
+          AppLink launch type, android only.
+            - 0 UNKNOWN: not an applink navigation
+            - 1 COLD: process and activity created from scratch
+            - 2 WARM: process alive but target activity created fresh
+            - 3 HOT: process alive and existing target activity instance reused
         type: quantity
         unit: integer
       android_app_link_to_navigation_start:
@@ -211,8 +215,9 @@ perf:
         unit: ms
       android_isolation_category:
         description: |
-          Process isolation category: shared_web, site_isolated, coop_isolated, or other
-        type: string
+          Process isolation category: 0=other, 1=shared_web, 2=site_isolated, 3=coop_isolated
+        type: quantity
+        unit: integer
     send_in_pings:
       - pageload
   page_load_domain:
@@ -268,52 +273,6 @@ perf:
         unit: integer
     send_in_pings:
       - pageload-base-domain
-
-  h3p_page_load_time:
-    type: labeled_timing_distribution
-    description: >
-      Time in milliseconds from navigationStart to loadEventStart for the
-      foreground http or https root content document. This is collected only on
-      page load where the main document uses HTTP3. It is keyed based on whether
-      a "priority" header has been received.
-
-      This metric was generated to correspond to the Legacy Telemetry
-      exponential histogram H3P_PERF_PAGE_LOAD_TIME_MS.
-    time_unit: millisecond
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1743965
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1796398
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1743965
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1796398
-    notification_emails:
-      - necko@mozilla.com
-    expires: never
-    telemetry_mirror: H3P_PERF_PAGE_LOAD_TIME_MS
-
-  h3p_first_contentful_paint:
-    type: labeled_timing_distribution
-    description: >
-      The time between navigationStart and the first contentful paint of a
-      foreground http or https root content document, in milliseconds. The
-      contentful paint timestamp is taken during display list building and does
-      not include rasterization or compositing of that paint. This is collected
-      only on page load where the main document uses HTTP3. It is keyed based on
-      whether a "priority" header has been received.
-
-      This metric was generated to correspond to the Legacy Telemetry
-      exponential histogram H3P_PERF_FIRST_CONTENTFUL_PAINT_MS.
-    time_unit: millisecond
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1743965
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1796398
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1743965
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1796398
-    notification_emails:
-      - necko@mozilla.com
-    expires: never
-    telemetry_mirror: H3P_PERF_FIRST_CONTENTFUL_PAINT_MS
 
   dns_first_byte:
     type: labeled_timing_distribution
@@ -445,65 +404,6 @@ performance.pageload:
       - dpalmeiro@mozilla.com
       - perf-telemetry-alerts@mozilla.com
     expires: never
-
-  http3_fcp_http3: &http3_fcp_http3
-    type: timing_distribution
-    time_unit: millisecond
-    description: >
-        The time between navigationStart and the first contentful paint of
-        a foreground http or https root content document, in milliseconds.
-        The contentful paint timestamp is taken during display list building
-        and does not include rasterization or compositing of that paint.
-        This is collected only on page load where the main document uses or suppports HTTP3.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1675503
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1898245
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1898245
-    notification_emails:
-      - necko@mozilla.com
-      - perf-telemetry-alerts@mozilla.com
-    expires: never
-
-  http3_fcp_supports_http3:
-    <<: *http3_fcp_http3
-    description: >
-        The time between navigationStart and the first contentful paint of
-        a foreground http or https root content document, in milliseconds.
-        The contentful paint timestamp is taken during display list building
-        and does not include rasterization or compositing of that paint.
-        This is collected only on page load where the main document supports but is not using HTTP3.
-
-  h3p_fcp_with_priority: &h3p_fcp_with_priority
-    type: timing_distribution
-    time_unit: millisecond
-    description: >
-        The time between navigationStart and the first contentful paint of
-        a foreground http or https root content document, in milliseconds.
-        The contentful paint timestamp is taken during display list
-        building and does not include rasterization or compositing of that paint.
-        This is collected only on page load where the main document uses HTTP3.
-        A "priority" header has been received.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1743965
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1796398
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1898245
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1898245
-    notification_emails:
-      - necko@mozilla.com
-      - perf-telemetry-alerts@mozilla.com
-    expires: never
-
-  http3_fcp_without_priority:
-    <<: *h3p_fcp_with_priority
-    description: >
-        The time between navigationStart and the first contentful paint of
-        a foreground http or https root content document, in milliseconds.
-        The contentful paint timestamp is taken during display list
-        building and does not include rasterization or compositing of that paint.
-        This is collected only on page load where the main document uses HTTP3.
-        A "priority" header has not been received.
 
 performance.time:
   dom_interactive:
@@ -743,7 +643,7 @@ security:
       - https://bugzil.la/1955578
     notification_emails:
       - tschuster@mozilla.com
-    expires: 152
+    expires: 160
     extra_keys:
       name:
         description: >

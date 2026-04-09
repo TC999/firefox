@@ -10,14 +10,6 @@
 
 "use strict";
 
-const lazy = {};
-ChromeUtils.defineESModuleGetters(lazy, {
-  IntentClassifier:
-    "moz-src:///browser/components/aiwindow/models/IntentClassifier.sys.mjs",
-});
-
-let gIntentEngineStub;
-
 add_setup(async function () {
   // Prevent network requests for remote search suggestions during testing.
   await SpecialPowers.pushPrefEnv({
@@ -27,23 +19,6 @@ add_setup(async function () {
     ],
   });
 });
-
-/**
- * Submit the smartbar by pressing Enter.
- *
- * @param {MozBrowser} browser - The browser element
- */
-async function submitSmartbar(browser) {
-  await SpecialPowers.spawn(browser, [], async () => {
-    const aiWindowElement = content.document.querySelector("ai-window");
-    const smartbar = aiWindowElement.shadowRoot.querySelector(
-      "#ai-window-smartbar"
-    );
-    const inputField = smartbar.inputField;
-    inputField.focus();
-    EventUtils.synthesizeKey("KEY_Enter", {}, content);
-  });
-}
 
 /**
  * Dispatch a `smartbar-commit` event.
@@ -86,7 +61,6 @@ add_setup(async function () {
         formattedPrompt.includes(keyword)
       );
 
-      // Simulate model confidence scores
       if (isSearch) {
         return [
           { label: "search", score: 0.95 },
@@ -100,12 +74,7 @@ add_setup(async function () {
     },
   };
 
-  gIntentEngineStub = sinon
-    .stub(lazy.IntentClassifier, "_createEngine")
-    .resolves(fakeIntentEngine);
-  registerCleanupFunction(() => {
-    sinon.restore();
-  });
+  gIntentEngineStub.resolves(fakeIntentEngine);
 });
 
 add_task(async function test_smartbar_submit_chat() {
@@ -128,7 +97,7 @@ add_task(async function test_smartbar_submit_chat() {
       "Should call fetchWithHistory once"
     );
 
-    const conversation = fetchWithHistoryStub.firstCall.args[0];
+    const conversation = fetchWithHistoryStub.firstCall.args[0].conversation;
     const messages = conversation.getMessagesInOpenAiFormat();
     const userMessage = messages.findLast(message => message.role === "user");
 
@@ -537,7 +506,7 @@ add_task(async function test_smartbar_can_submit_followup_prompts() {
     await typeInSmartbar(browser, followupPrompt);
     await submitSmartbar(browser);
 
-    const conversation = fetchWithHistoryStub.firstCall.args[0];
+    const conversation = fetchWithHistoryStub.firstCall.args[0].conversation;
     const messages = conversation.getMessagesInOpenAiFormat();
     const initialUserMessage = messages.find(
       message => message.content === intialPrompt
@@ -762,7 +731,6 @@ add_task(
 
       const win = await openAIWindow();
       const browser = win.gBrowser.selectedBrowser;
-      await BrowserTestUtils.browserLoaded(browser, false, AIWINDOW_URL);
 
       await dispatchSmartbarCommit(browser, "initial prompt", "chat");
       await TestUtils.waitForTick();
@@ -801,7 +769,6 @@ add_task(
 
       const win = await openAIWindow();
       const browser = win.gBrowser.selectedBrowser;
-      await BrowserTestUtils.browserLoaded(browser, false, AIWINDOW_URL);
 
       await dispatchSmartbarCommit(browser, "initial prompt", "chat");
       await TestUtils.waitForTick();
@@ -830,3 +797,61 @@ add_task(
     }
   }
 );
+
+add_task(async function test_sidebar_element_order() {
+  const { win, sidebarBrowser } = await openAIWindowWithSidebar();
+
+  await SpecialPowers.spawn(sidebarBrowser, [], async () => {
+    const aiWindow = await ContentTaskUtils.waitForCondition(
+      () => content.document.querySelector("ai-window"),
+      "Wait for ai-window element"
+    );
+    const root = aiWindow.shadowRoot;
+
+    const prompts = await ContentTaskUtils.waitForCondition(
+      () => root.querySelector("smartwindow-prompts"),
+      "Wait for smartwindow-prompts"
+    );
+    const smartbarSlot = await ContentTaskUtils.waitForCondition(
+      () => root.querySelector("#smartbar-slot"),
+      "Wait for #smartbar-slot"
+    );
+
+    Assert.ok(
+      prompts.compareDocumentPosition(smartbarSlot) &
+        content.Node.DOCUMENT_POSITION_FOLLOWING,
+      "smartbar-slot should follow smartwindow-prompts in sidebar DOM order"
+    );
+  });
+
+  await BrowserTestUtils.closeWindow(win);
+});
+
+add_task(async function test_fullpage_element_order() {
+  const win = await openAIWindow();
+
+  await SpecialPowers.spawn(win.gBrowser.selectedBrowser, [], async () => {
+    const aiWindow = await ContentTaskUtils.waitForCondition(
+      () => content.document.querySelector("ai-window"),
+      "Wait for ai-window element"
+    );
+    const root = aiWindow.shadowRoot;
+
+    const prompts = await ContentTaskUtils.waitForCondition(
+      () => root.querySelector("smartwindow-prompts"),
+      "Wait for smartwindow-prompts"
+    );
+    const smartbarSlot = await ContentTaskUtils.waitForCondition(
+      () => root.querySelector("#smartbar-slot"),
+      "Wait for #smartbar-slot"
+    );
+
+    Assert.ok(
+      smartbarSlot.compareDocumentPosition(prompts) &
+        content.Node.DOCUMENT_POSITION_FOLLOWING,
+      "smartwindow-prompts should follow smartbar-slot in fullpage DOM order"
+    );
+  });
+
+  await BrowserTestUtils.closeWindow(win);
+});

@@ -117,7 +117,10 @@ add_task(
     // Skip this test on Android because the httpOrigin (http://foo.example.com)
     // is on 127.0.0.1, while the http3Server (https://foo.example.com) is
     // on 10.0.2.2. Currently, we can't change the IP mapping dynamically.
-    skip_if: () => mozinfo.os == "android",
+    // Happy Eyeballs doesn't support different alt-svc host for now.
+    skip_if: () =>
+      mozinfo.os == "android" ||
+      Services.prefs.getBoolPref("network.http.happy_eyeballs_enabled", false),
   },
   async function test_http_alt_svc() {
     setup_h1_server(h3ServerDomain);
@@ -137,4 +140,11 @@ add_task(async function test_slow_receiver() {
 // TODO: Bug 1582667 should try to fix issue with connection being closed.
 add_task(async function test_version_fallback() {
   await do_test_version_fallback(httpsOrigin);
+});
+
+// This test must run after test_version_fallback: it triggers an H2/H1
+// fallback which establishes an H2 connection, interfering with the h1.1
+// assertion in test_version_fallback if placed before it.
+add_task(async function test_unknown_reset() {
+  await do_test_unknown_reset(httpsOrigin);
 });

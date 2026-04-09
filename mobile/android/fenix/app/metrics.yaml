@@ -105,6 +105,7 @@ events:
 
           * default.action
           * default.suggestion
+          * default.digital_assistant
           * shortcut.action
           * shortcut.suggestion
         type: string
@@ -145,8 +146,8 @@ events:
           edit_bookmark, find_in_page, forward, forward_long_press, history, install_addon,
           installed_addon_details, menu_banner, new_tab, open_in_app, open_in_fenix, print_content,
           quit, reader_mode_appearance, reload, remove_from_top_sites, save_to_collection,
-          set_default_browser, settings, share, stop, sync_account, translate and
-          web_extension_browser_action_clicked.
+          move_to_non_private_tab, set_default_browser, settings, share, stop, sync_account,
+          translate and web_extension_browser_action_clicked.
         type: string
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/1024
@@ -265,7 +266,7 @@ events:
 
           We currently track: show_search_suggestions, remote_debugging, telemetry,
           tracking_protection, search_bookmarks, search_browsing_history, show_clipboard_suggestions,
-          show_search_shortcuts, open_links_in_a_private_tab, pref_key_sync_logins,
+          open_links_in_a_private_tab, pref_key_sync_logins,
           pref_key_sync_bookmarks, pref_key_sync_history, pref_key_show_voice_search,
           pref_key_show_search_suggestions_in_private, pref_key_show_trending_search_suggestions,
           pref_key_show_recent_search_suggestions.
@@ -768,6 +769,11 @@ events:
         description: |
           The name of the default search engine the user selected as a string.
           Custom search engine user created will have the name `Custom`.
+      is_private_default:
+        type: boolean
+        description: |
+          Whether the search engine was selected as the private browsing
+          default rather than the normal browsing default.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1827686
     data_reviews:
@@ -900,7 +906,7 @@ translations:
           could-not-translate, could-not-restore, could-not-determine-translation-download-size, could-not-load-languages,
           could-not-load-settings, could-not-load-language-settings, could-not-load-never-translate-sites,
           language-not-supported, model-could-not-retrieve, model-could-not-delete, model-could-not-download,
-          model-language-required, model-download-required
+          model-language-required, model-download-required, could-not-set-browser-enabled, engine-deactivated
         type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1886221
@@ -2247,7 +2253,7 @@ onboarding:
       method:
         type: string
         description: |
-          The method in which the user exits onboarding. The value should be either "skipped" or "completed". (The skip option is not implemented yet)
+          The method in which the user exits onboarding. The value should be either "skipped" or "completed".
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
@@ -2256,8 +2262,10 @@ onboarding:
         description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2010810
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2028189
     data_reviews:
       - https://phabricator.services.mozilla.com/D281286
+      - https://phabricator.services.mozilla.com/D291731
     data_sensitivity:
       - interaction
     notification_emails:
@@ -2936,33 +2944,6 @@ custom_review_prompt:
       - android-probes@mozilla.com
     expires: never
 
-search_shortcuts:
-  selected:
-    type: event
-    description: |
-      A user selected a search shortcut engine to use
-    extra_keys:
-      engine:
-        type: string
-        description: |
-          The name of the built-in search engine the user selected as a string
-    bugs:
-      - https://github.com/mozilla-mobile/fenix/issues/793
-    data_reviews:
-      - https://github.com/mozilla-mobile/fenix/pull/1202#issuecomment-476870449
-      - https://github.com/mozilla-mobile/fenix/pull/15713#issuecomment-703972068
-      - https://github.com/mozilla-mobile/fenix/pull/19924#issuecomment-861423789
-      - https://github.com/mozilla-mobile/fenix/pull/20517#pullrequestreview-718069041
-      - https://github.com/mozilla-mobile/fenix/pull/23453#issuecomment-1024694220
-      - https://github.com/mozilla-mobile/fenix/pull/28502
-      - https://github.com/mozilla-mobile/firefox-android/pull/4039
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Search
-        - Shortcuts
 
 toolbar_settings:
   changed_position:
@@ -4555,31 +4536,6 @@ preferences:
     metadata:
       tags:
         - Settings
-  search_shortcuts_enabled:
-    type: boolean
-    lifetime: application
-    description: |
-      Whether or not the user has enabled search shortcuts.
-      default: true
-    send_in_pings:
-      - metrics
-    bugs:
-      - https://github.com/mozilla-mobile/fenix/issues/11118
-    data_reviews:
-      - https://github.com/mozilla-mobile/fenix/pull/11211
-      - https://github.com/mozilla-mobile/fenix/pull/15713#issuecomment-703972068
-      - https://github.com/mozilla-mobile/fenix/pull/19924#issuecomment-861423789
-      - https://github.com/mozilla-mobile/fenix/pull/20517#pullrequestreview-718069041
-      - https://github.com/mozilla-mobile/fenix/pull/23453#issuecomment-1024694220
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Search
-        - Settings
   signed_in_sync:
     type: boolean
     lifetime: application
@@ -5017,6 +4973,74 @@ search.default_engine:
       - https://github.com/mozilla-mobile/fenix/pull/23453#issuecomment-1024694220
       - https://github.com/mozilla-mobile/fenix/pull/28502
       - https://github.com/mozilla-mobile/firefox-android/pull/4039
+    data_sensitivity:
+      - technical
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+search.default_engine_for_private:
+  code:
+    type: string
+    lifetime: application
+    description: |
+      If the default private browsing search engine is pre-loaded with Fenix
+      this value will be the search engine identifier. If it's a custom search
+      engine the value will be "custom". If the private browsing default is the
+      same as the normal default, this will still record the correct identifier.
+    send_in_pings:
+      - metrics
+      - baseline
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2016133
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D291051
+    data_sensitivity:
+      - technical
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    no_lint:
+      - BASELINE_PING
+  name:
+    type: string
+    lifetime: application
+    description: |
+      If the default private browsing search engine is pre-loaded with Fenix
+      this value will be the search engine name. If it's a custom search engine
+      the value will be "custom". If the private browsing default is the same as
+      the normal default, this will be "default".
+    send_in_pings:
+      - metrics
+      - baseline
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2016133
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D291051
+    data_sensitivity:
+      - technical
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    no_lint:
+      - BASELINE_PING
+  search_url:
+    type: url
+    lifetime: application
+    description: |
+      If the default private browsing search engine is pre-loaded with Fenix
+      this value will be the base URL we use to build the search query for the
+      search engine. For example: https://mysearchengine.com/?query=%s. If it's
+      a custom search engine the value will not be set.
+    send_in_pings:
+      - metrics
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2016133
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D291051
     data_sensitivity:
       - technical
       - interaction
@@ -10481,28 +10505,6 @@ perf.awesomebar:
     notification_emails:
       - android-probes@mozilla.com
     expires: never
-  shortcuts_suggestions:
-    send_in_pings:
-      - metrics
-    type: timing_distribution
-    time_unit: millisecond
-    description: |
-      Duration of a shortcuts awesomebar suggestion query.
-    bugs:
-      - https://github.com/mozilla-mobile/android-components/issues/4992
-    data_reviews:
-      - https://github.com/mozilla-mobile/fenix/pull/10276#pullrequestreview-411101979
-      - https://github.com/mozilla-mobile/fenix/pull/19924#issuecomment-861423789
-      - https://github.com/mozilla-mobile/fenix/pull/21315#issuecomment-920848442
-      - https://github.com/mozilla-mobile/fenix/pull/27068#issuecomment-1251509973
-      - https://github.com/mozilla-mobile/firefox-android/pull/3319
-      - https://github.com/mozilla-mobile/firefox-android/pull/4039
-    data_sensitivity:
-      - technical
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
 
 autoplay:
   visited_setting:
@@ -11528,6 +11530,46 @@ awesomebar:
     expires: never
     extra_keys:
       provider: *non_sponsored_suggestion_provider
+    metadata:
+      tags:
+        - Search
+  optimized_suggestion_card_displayed:
+    type: event
+    description: When an optimized search suggestion card is shown.
+    extra_keys:
+      card_type:
+        description: |
+          The type of suggestion card shown. One of: stocks, flights, sports
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014705
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D284918
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Search
+  optimized_suggestion_card_clicked:
+    type: event
+    description: When an optimized search suggestion card is clicked.
+    extra_keys:
+      card_type:
+        description: |
+          The type of suggestion card clicked. One of: stocks, flights, sports
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014705
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D284918
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
     metadata:
       tags:
         - Search
@@ -13527,10 +13569,11 @@ customization_settings:
       item:
         description: |
           A string containing the name of the shortcut the user selected. These items include:
-          new_tab, share, bookmark, translate, homepage, back
+          new_tab, share, bookmark, translate, homepage, back, none.
         type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2002636
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2020026
     data_reviews:
       - https://phabricator.services.mozilla.com/D274607
     data_sensitivity:
@@ -13629,6 +13672,8 @@ nimbus_system:
           type: string
         user_accepted_tou:
           type: boolean
+        user_disabled_ai:
+          type: boolean
         no_shortcuts_or_stories_opt_outs:
           type: boolean
         addon_ids:
@@ -13648,6 +13693,7 @@ nimbus_system:
       - 'https://bugzilla.mozilla.org/show_bug.cgi?id=1991528'
       - 'https://bugzilla.mozilla.org/show_bug.cgi?id=1993034'
       - 'https://bugzilla.mozilla.org/show_bug.cgi?id=1992306'
+      - 'https://bugzilla.mozilla.org/show_bug.cgi?id=2028993'
     data_reviews:
       - 'https://bugzilla.mozilla.org/show_bug.cgi?id=1898552#c3'
       - 'https://phabricator.services.mozilla.com/D258942'
@@ -13657,6 +13703,7 @@ nimbus_system:
       - 'https://phabricator.services.mozilla.com/D268391'
       - 'https://phabricator.services.mozilla.com/D268931'
       - 'https://phabricator.services.mozilla.com/D270859'
+      - 'https://phabricator.services.mozilla.com/D291861'
     data_sensitivity:
       - interaction
     notification_emails:
@@ -15020,6 +15067,213 @@ toolbar:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1971857
     data_reviews:
       - https://phabricator.services.mozilla.com/D264134
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+integrity:
+  warmed_up:
+    type: event
+    description: |
+      Records when the Play Integrity client has completed its warm-up.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2026727
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D290217
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+ai_summarize:
+  closed:
+    type: event
+    description: |
+      Recorded when the user cancels or closes the summarization at any point.
+    extra_keys:
+      model:
+        description: The name of the model used for summarization.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2025523
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D289882
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  completed:
+    type: event
+    description: |
+      Recorded when the summarizer service returns the summary or errors out.
+    extra_keys:
+      success:
+        description: True for success, false for failure.
+        type: boolean
+      language:
+        description: The BCP 47 language tag of the page.
+        type: string
+      length_words:
+        description: The number of words in the page content.
+        type: quantity
+      length_chars:
+        description: The number of characters in the page content.
+        type: quantity
+      connection_type:
+        description: |
+          The network connection type, e.g. "wifi" or "cellular".
+        type: string
+      model:
+        description: The name of the model used for summarization.
+        type: string
+      error_type:
+        description: |
+          If an error occurred, the resulting error code. Examples include:
+          1005 (meaning content was too large to summarize)
+          1007 (meaning LLM service has rate-limited the user)
+        type: string
+      summarize_duration_ms:
+        description: |
+          Time in milliseconds between request and completion.
+        type: quantity
+      content_type:
+        description: |
+          The content type of the web-page as listed in its JSONLD structured data.
+          See https://schema.org/docs/full.html for a list of potential types.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2025523
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D289882
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  consent_displayed:
+    type: event
+    description: |
+      Recorded when the consent flow concludes, either by the user
+      accepting, declining, or dismissing the dialogue.
+    extra_keys:
+      agreed:
+        description: Whether the user accepted the consent.
+        type: boolean
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2025523
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D289882
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  requested:
+    type: event
+    description: |
+      Records when the user initiates summarization.
+      (e.g. taps menu button, toolbar icon or shakes the device).
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2025523
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D289882
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  started:
+    type: event
+    description: |
+      Recorded when the summarizer service starts processing the page's text content.
+    extra_keys:
+      trigger:
+        description: |
+          How the user initiated summarization. Possible values:
+          "shake", "menu", "toolbar_button".
+        type: string
+      length_words:
+        description: The number of words in the page content.
+        type: quantity
+      length_chars:
+        description: The number of characters in the page content.
+        type: quantity
+      model:
+        description: The name of the model used for summarization.
+        type: string
+      content_type:
+        description: |
+          The content type of the web-page as listed in its JSONLD structured data.
+          See https://schema.org/docs/full.html for a list of potential types.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2025523
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D289882
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  duration:
+    type: timing_distribution
+    time_unit: millisecond
+    description: |
+      Records the total time for generating the summary and showing it to the
+      user. Starts when the user triggers summarization. Ends when user sees
+      the result or an error.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2025523
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D289882
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+user_ai_summarize:
+  gesture_enabled:
+    type: boolean
+    lifetime: application
+    description: |
+      Records if the user has shake to summarize gesture option enabled.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2025523
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D289882
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  summarization_enabled:
+    type: boolean
+    lifetime: application
+    description: |
+      Records if the user has summarization enabled.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2025523
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D289882
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  summarization_consented:
+    type: boolean
+    lifetime: application
+    description: |
+      Records if the user has consented to shake to summarize feature.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2025523
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D289882
     data_sensitivity:
       - interaction
     notification_emails:

@@ -11,6 +11,7 @@
 use crate::derives::*;
 use crate::parser::{Parse, ParserContext};
 use crate::values::distance::{ComputeSquaredDistance, SquaredDistance};
+use crate::values::generics::position::IsTreeScoped;
 use crate::Atom;
 pub use cssparser::{serialize_identifier, serialize_name, CowRcStr, Parser};
 pub use cssparser::{SourceLocation, Token};
@@ -18,8 +19,8 @@ use precomputed_hash::PrecomputedHash;
 use selectors::parser::SelectorParseErrorKind;
 use std::fmt::{self, Debug, Write};
 use style_traits::{
-    CssString, CssWriter, MathSum, NumericValue, ParseError, StyleParseErrorKind, ToCss,
-    TypedValue, UnitValue,
+    CssString, CssWriter, KeywordValue, MathSum, NumericValue, ParseError, StyleParseErrorKind,
+    ToCss, ToTyped, TypedValue, UnitValue,
 };
 use thin_vec::ThinVec;
 use to_shmem::impl_trivial_to_shmem;
@@ -639,6 +640,15 @@ impl ToCss for CustomIdent {
     }
 }
 
+impl ToTyped for CustomIdent {
+    fn to_typed(&self, dest: &mut ThinVec<TypedValue>) -> Result<(), ()> {
+        // This shouldn't escape identifiers. See bug 2023533.
+        let s = ToCss::to_css_cssstring(self);
+        dest.push(TypedValue::Keyword(KeywordValue(s)));
+        Ok(())
+    }
+}
+
 /// <https://www.w3.org/TR/css-values-4/#dashed-idents>
 /// This is simply an Atom, but will only parse if the identifier starts with "--".
 #[repr(transparent)]
@@ -693,8 +703,14 @@ impl DashedIdent {
         #[cfg(feature = "gecko")]
         let name = &self.0.as_slice()[2..];
         #[cfg(feature = "servo")]
-        let name = self.0.get(2..).unwrap();
+        let name = &self.0[2..];
         Atom::from(name)
+    }
+}
+
+impl IsTreeScoped for DashedIdent {
+    fn is_tree_scoped(&self) -> bool {
+        !self.is_empty()
     }
 }
 
@@ -775,9 +791,7 @@ impl Parse for KeyframesName {
         Ok(match *input.next()? {
             Token::Ident(ref s) => Self(CustomIdent::from_ident(location, s, &["none"])?.0),
             // Note that empty <string> should be rejected.
-            Token::QuotedString(ref s) if !s.as_ref().is_empty() => {
-                Self(Atom::from(s.as_ref()))
-            },
+            Token::QuotedString(ref s) if !s.as_ref().is_empty() => Self(Atom::from(s.as_ref())),
             ref t => return Err(location.new_unexpected_token_error(t.clone())),
         })
     }
@@ -805,5 +819,13 @@ impl ToCss for KeyframesName {
 
         #[cfg(feature = "servo")]
         return serialize(self.0.as_ref(), dest);
+    }
+}
+
+impl ToTyped for KeyframesName {
+    fn to_typed(&self, dest: &mut ThinVec<TypedValue>) -> Result<(), ()> {
+        let s = ToCss::to_css_cssstring(self);
+        dest.push(TypedValue::Keyword(KeywordValue(s)));
+        Ok(())
     }
 }

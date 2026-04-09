@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -2448,11 +2446,10 @@ class nsLayoutUtils {
    * want to maintain a mapping from gfxFontEntry to InspectorFontFace
    * records, so use a temporary hashtable for that.
    */
-  typedef nsTArray<mozilla::UniquePtr<mozilla::dom::InspectorFontFace>>
-      UsedFontFaceList;
-  typedef nsTHashMap<nsPtrHashKey<gfxFontEntry>,
-                     mozilla::dom::InspectorFontFace*>
-      UsedFontFaceTable;
+  using UsedFontFaceList =
+      nsTArray<mozilla::UniquePtr<mozilla::dom::InspectorFontFace>>;
+  using UsedFontFaceTable =
+      nsTHashMap<nsPtrHashKey<gfxFontEntry>, mozilla::dom::InspectorFontFace*>;
 
   /**
    * Adds all font faces used in the frame tree starting from aFrame
@@ -3159,6 +3156,11 @@ class nsLayoutUtils {
    * used for the given scrollbar part frame.
    */
   static ComputedStyle* StyleForScrollbar(const nsIFrame* aScrollbarPart);
+
+  static bool UseOverlayScrollbars(const nsIFrame* aScrollbarPart);
+
+  static mozilla::StyleScrollbarWidth ScrollbarWidthFor(
+      const nsIFrame* aScrollbarPart);
 
   /**
    * Returns true if |aFrame| is scrolled out of view by a scrollable element in

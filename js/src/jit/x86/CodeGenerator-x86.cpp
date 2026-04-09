@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -519,10 +517,8 @@ class OutOfLineTruncate : public OutOfLineCodeBase<CodeGeneratorX86> {
   LDefinition* tempFloat() { return ins_->getTemp(0); }
 
   const wasm::TrapSiteDesc& trapSiteDesc() const {
-    if (ins_->isTruncateDToInt32()) {
-      return ins_->toTruncateDToInt32()->mir()->trapSiteDesc();
-    }
-
+    MOZ_ASSERT(ins_->isWasmBuiltinTruncateDToInt32(),
+               "Wasm only uses WasmBuiltinTruncateDToInt32");
     return ins_->toWasmBuiltinTruncateDToInt32()->mir()->trapSiteDesc();
   }
 };
@@ -545,10 +541,8 @@ class OutOfLineTruncateFloat32 : public OutOfLineCodeBase<CodeGeneratorX86> {
   LDefinition* tempFloat() { return ins_->getTemp(0); }
 
   const wasm::TrapSiteDesc& trapSiteDesc() const {
-    if (ins_->isTruncateFToInt32()) {
-      return ins_->toTruncateDToInt32()->mir()->trapSiteDesc();
-    }
-
+    MOZ_ASSERT(ins_->isWasmBuiltinTruncateFToInt32(),
+               "Wasm only uses WasmBuiltinTruncateFToInt32");
     return ins_->toWasmBuiltinTruncateFToInt32()->mir()->trapSiteDesc();
   }
 };

@@ -185,6 +185,8 @@ support-files = [
 
 ["browser_partitionkey_bloburl.js"]
 
+["browser_partitionkey_mediasourceurl.js"]
+
 ["browser_permissionInNormalWindows.js"]
 
 ["browser_permissionInPrivateWindows.js"]
@@ -249,6 +251,9 @@ skip-if = [
 ["browser_staticPartition_network.js"]
 
 ["browser_staticPartition_saveAs.js"]
+skip-if = [
+  "os == 'win' && os_version == '11.26200' && asan", # Bug 2019745
+]
 support-files = [
   "file_saveAsImage.sjs",
   "file_saveAsVideo.sjs",

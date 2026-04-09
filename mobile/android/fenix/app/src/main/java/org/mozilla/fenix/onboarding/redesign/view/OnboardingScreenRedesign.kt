@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.PagerState
@@ -354,6 +355,7 @@ private fun OnboardingContent(
 
         Column(
             verticalArrangement = Arrangement.Center,
+            modifier = Modifier.systemBarsPadding(),
         ) {
             Spacer(Modifier.weight(1f)).takeIf { !layout.isSmall }
 
@@ -388,6 +390,7 @@ private fun OnboardingContent(
                     onCustomizeToolbarButtonClick = onCustomizeToolbarButtonClick,
                     onTermsOfServiceButtonClick = onAgreeAndConfirmTermsOfService,
                     shouldShowElevation = !layout.isSmall,
+                    isSmallDevice = layout.isSmall,
                 )
 
                 OnboardingPageForType(
@@ -398,7 +401,6 @@ private fun OnboardingContent(
                     onMarketingDataLearnMoreClick = onMarketingDataLearnMoreClick,
                     onMarketingOptInToggle = onMarketingOptInToggle,
                     onMarketingDataContinueClick = onMarketingDataContinueClick,
-                    isSmallDevice = layout.isSmall,
                 )
             }
 
@@ -412,7 +414,7 @@ private fun OnboardingContent(
                         .padding(bottom = 16.dp),
                     activeColor = MaterialTheme.colorScheme.onPrimary,
                     inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    leaveTrail = true,
+                    leaveTrail = false,
                 )
             }
         }
@@ -448,14 +450,13 @@ private fun OnboardingPageForType(
     onMarketingDataLearnMoreClick: () -> Unit,
     onMarketingOptInToggle: (optIn: Boolean) -> Unit,
     onMarketingDataContinueClick: (allowMarketingDataCollection: Boolean) -> Unit,
-    isSmallDevice: Boolean,
 ) {
     when (type) {
         OnboardingPageUiData.Type.DEFAULT_BROWSER,
         OnboardingPageUiData.Type.SYNC_SIGN_IN,
         OnboardingPageUiData.Type.ADD_SEARCH_WIDGET,
         OnboardingPageUiData.Type.NOTIFICATION_PERMISSION,
-            -> OnboardingPageRedesign(state, isSmallDevice)
+            -> OnboardingPageRedesign(state)
 
         OnboardingPageUiData.Type.TOOLBAR_PLACEMENT -> {
             val context = LocalContext.current
@@ -486,7 +487,6 @@ private fun OnboardingPageForType(
         OnboardingPageUiData.Type.TERMS_OF_SERVICE -> TermsOfServiceOnboardingPageRedesign(
             state,
             termsOfServiceEventHandler,
-            isSmallDevice = isSmallDevice,
         )
 
         // no-ops

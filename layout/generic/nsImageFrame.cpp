@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1617,9 +1615,14 @@ void nsImageFrame::Reflow(nsPresContext* aPresContext, ReflowOutput& aMetrics,
     currentRequest->GetImageStatus(&loadStatus);
   }
 
-  if (aPresContext->IsPaginated() &&
-      ((loadStatus & imgIRequest::STATUS_SIZE_AVAILABLE) ||
-       HasAnyStateBits(IMAGE_SIZECONSTRAINED)) &&
+  const bool haveSize = loadStatus & imgIRequest::STATUS_SIZE_AVAILABLE;
+
+  // Printing an image frame in vertical writing mode is not properly supported
+  // yet (Bug 1751260). In this case, don't split it, and let the display-list
+  // slicing fallback (layout.display-list.improve-fragmentation) handle
+  // fragmentation.
+  if (aPresContext->IsPaginated() && !wm.IsVertical() &&
+      (haveSize || HasAnyStateBits(IMAGE_SIZECONSTRAINED)) &&
       NS_UNCONSTRAINEDSIZE != aReflowInput.AvailableHeight() &&
       aMetrics.Height() > aReflowInput.AvailableHeight()) {
     // our desired height was greater than 0, so to avoid infinite
@@ -1632,9 +1635,6 @@ void nsImageFrame::Reflow(nsPresContext* aPresContext, ReflowOutput& aMetrics,
   aMetrics.SetOverflowAreasToDesiredBounds();
   const bool imageOK = mKind != Kind::ImageLoadingContent ||
                        ImageOk(mContent->AsElement()->State());
-
-  // Determine if the size is available
-  const bool haveSize = loadStatus & imgIRequest::STATUS_SIZE_AVAILABLE;
   if (!imageOK || !haveSize) {
     nsRect altFeedbackSize(
         0, 0,

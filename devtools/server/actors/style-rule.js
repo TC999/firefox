@@ -722,10 +722,20 @@ class StyleRuleActor extends Actor {
       } else if (ruleClassName === "CSSContainerRule") {
         ancestorData.push({
           type,
-          // Send containerName and containerQuery separately (instead of conditionText)
+          // send the array of conditions (e.g. their name and query instead of conditionText)
           // so the client has more flexibility to display the information.
-          containerName: rawRule.containerName,
-          containerQuery: rawRule.containerQuery,
+          conditions: Array.from(rawRule.conditions).map((condition, i) => ({
+            containerName: condition.name,
+            containerQuery: condition.query,
+            // For now, we consider the condition as matching if queryContainerFor returns
+            // an actual element (so condition with unexisting container name would appear
+            // as unmatched).
+            // But we should actually check that the condition is met (see Bug 2030236).
+            matched: !!rawRule.queryContainerFor(
+              this.currentlySelectedElement,
+              i
+            ),
+          })),
         });
       } else if (ruleClassName === "CSSSupportsRule") {
         ancestorData.push({
@@ -738,7 +748,10 @@ class StyleRuleActor extends Actor {
           start: rawRule.start,
           end: rawRule.end,
         });
-      } else if (ruleClassName === "CSSStartingStyleRule") {
+      } else if (
+        ruleClassName === "CSSStartingStyleRule" ||
+        ruleClassName === "CSSAppearanceBaseRule"
+      ) {
         ancestorData.push({
           type,
         });
@@ -1414,6 +1427,7 @@ class StyleRuleActor extends Actor {
    *
    * @param {number} ancestorRuleIndex: The index of the @container rule in this.ancestorRules
    * @param {NodeActor} nodeActor: The nodeActor for which we want to retrieve the query container
+   * @param {number} conditionIndex: The index of <container-condition> in the @container rule
    * @returns {object} An object with the following properties:
    *          - node: {NodeActor|null} The nodeActor representing the query container,
    *            null if none were found
@@ -1421,7 +1435,7 @@ class StyleRuleActor extends Actor {
    *          - inlineSize: {string} The computed `inlineSize` value of the query container (e.g. `120px`)
    *          - blockSize: {string} The computed `blockSize` value of the query container (e.g. `812px`)
    */
-  getQueryContainerForNode(ancestorRuleIndex, nodeActor) {
+  getQueryContainerForNode(ancestorRuleIndex, nodeActor, conditionIndex) {
     const ancestorRule = this.ancestorRules[ancestorRuleIndex];
     if (!ancestorRule) {
       console.error(
@@ -1431,7 +1445,8 @@ class StyleRuleActor extends Actor {
     }
 
     const containerEl = ancestorRule.rawRule.queryContainerFor(
-      nodeActor.rawNode
+      nodeActor.rawNode,
+      conditionIndex
     );
 
     // queryContainerFor returns null when the container name wasn't find in any ancestor.

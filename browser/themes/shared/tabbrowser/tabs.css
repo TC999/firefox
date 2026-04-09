@@ -26,22 +26,8 @@
   /* Collapsed tabs should be square, so set width to match the min height */
   --tab-collapsed-background-width: var(--tab-min-height);
   --tab-collapsed-width: calc(var(--tab-collapsed-background-width) + 2 * var(--tab-inner-inline-margin));
-  --tab-inner-inline-margin: var(--space-medium);
-  --tab-inline-padding: 8px;
-  --tab-pinned-expanded-background-width: 40px;
-  --tab-pinned-margin-inline-expanded: var(--space-xsmall);
   --tab-pinned-min-width-expanded: calc(var(--tab-pinned-expanded-background-width) + 2 * var(--tab-pinned-margin-inline-expanded));
-  --tab-pinned-container-margin-inline-expanded: var(--space-small);
-  --tab-border-radius: var(--toolbarbutton-border-radius);
-  --tab-overflow-clip-margin: 2px;
-  --tab-close-button-padding: 6px;
-  --tab-block-margin: 4px;
-  --tab-icon-end-margin: 5.5px;
-  --tab-label-line-height: 1.7;
-  --tab-loading-fill: #0a84ff;
-  --tab-hover-background-color: color-mix(in srgb, currentColor 11%, transparent);
-  --tab-selected-textcolor: var(--toolbar-color);
-  --tab-selected-bgcolor: var(--toolbar-bgcolor);
+  --tab-note-icon-end-margin: var(--dimension-4);
   --tab-selected-color-scheme: var(--toolbar-color-scheme);
   &[lwt-tab-selected="light"] {
     --tab-selected-color-scheme: light;
@@ -50,15 +36,6 @@
     --tab-selected-color-scheme: dark;
   }
   --tab-selected-shadow: var(--tab-box-shadow);
-  --tab-outline: 1px solid var(--tab-outline-color);
-  --tab-outline-color: transparent;
-  --tab-outline-offset: -1px;
-  --tab-selected-outline-color: transparent;
-  --tab-hover-outline-color: transparent;
-  @media (prefers-contrast) {
-    --tab-selected-outline-color: currentColor;
-    --tab-hover-outline-color: currentColor;
-  }
   @media (forced-colors) {
     &:not([lwtheme]) {
       --tab-outline-color: ButtonText;
@@ -69,12 +46,11 @@
   &[lwtheme] {
     --tab-selected-outline-color: var(--lwt-tab-line-color, currentColor);
   }
-  --tab-dragover-transform-duration: 200ms;
-  --tab-dragover-transition: transform var(--tab-dragover-transform-duration) var(--animation-easing-function);
+  --tab-dragover-transition: transform 200ms var(--animation-easing-function);
   --tab-dragover-outline-color: var(--focus-outline-color);
-  --vertical-tabs-scrollbar-color: auto;
+  --tab-vertical-scrollbar-color: auto;
   @media (-moz-platform: macos) {
-    --vertical-tabs-scrollbar-color: color-mix(in srgb, currentColor 26%, transparent) transparent;
+    --tab-vertical-scrollbar-color: color-mix(in srgb, currentColor 26%, transparent) transparent;
   }
 
   /* TAB GROUP COLORS
@@ -118,8 +94,8 @@
 @media -moz-pref("sidebar.verticalTabs") {
   :root {
     --tab-min-height: max(32px, calc(var(--tab-label-line-height) * 1em));
-    --tab-block-margin: 2px;
-    --tab-inline-padding: var(--space-medium);
+    --tab-block-margin: var(--tab-vertical-block-margin);
+    --tab-inline-padding: var(--tab-vertical-inline-padding);
   }
 }
 
@@ -1049,7 +1025,7 @@ tab-split-view-wrapper[dragtarget] {
 .tabbrowser-tab:is([image], [pinned]) > .tab-stack > .tab-content[attention]:not([selected]),
 .tabbrowser-tab > .tab-stack > .tab-content[pinned][titlechanged]:not([selected]),
 #tabbrowser-tabs[orient="vertical"] .tabbrowser-tab > .tab-stack > .tab-content[titlechanged]:not([selected]) {
-  background-image: radial-gradient(circle, var(--attention-dot-color), var(--attention-dot-color) 2px, transparent 2px);
+  background-image: radial-gradient(circle, var(--tab-attention-dot-color), var(--tab-attention-dot-color) 2px, transparent 2px);
   background-position: center bottom 6.5px;
   background-size: 4px 4px;
   background-repeat: no-repeat;
@@ -1200,16 +1176,13 @@ tab-group > tab-split-view-wrapper {
       }
     }
 
-    &[last-tab-or-split-view] > .tabbrowser-tab .tab-group-line {
-      inset-block-start: calc(var(--space-xsmall) * -2);
-    }
-
     > .tabbrowser-tab {
       overflow: visible;
 
       .tab-group-line {
         inset-inline-start: calc(var(--space-medium) * -1) !important;
-        inset-block: calc(var(--space-xsmall) * -1);
+        inset-block-start: calc(var(--space-xsmall) * -2);
+        inset-block-end: calc(var(--space-xsmall) * -1);
       }
 
       &:last-child {
@@ -1254,6 +1227,7 @@ tab-group > tab-split-view-wrapper {
 
   .tabbrowser-tab {
     padding-inline: 2px;
+
     .tab-background {
       min-height: calc(var(--tab-min-height) - 4px); /* exclude the 4px padding normally added */
 
@@ -1272,9 +1246,30 @@ tab-group > tab-split-view-wrapper {
     tab-group & {
       overflow: visible;
     }
+
+    .tab-content[attention]:not(selected) {
+      background-position-y: bottom 0.5px !important;
+      background-position-x: left calc(var(--tab-inline-padding) + var(--icon-size) - 7px) !important;
+      &:-moz-locale-dir(rtl) {
+        background-position-x: right calc(var(--tab-inline-padding) + var(--icon-size) - 7px) !important;
+      }
+
+      @media not (-moz-platform: linux) {
+        background-position-x: left calc(var(--tab-inline-padding) + var(--icon-size) - 10px) !important;
+        &:-moz-locale-dir(rtl) {
+          background-position-x: right calc(var(--tab-inline-padding) + var(--icon-size) - 10px) !important;
+        }
+      }
+    }
+
+    /* prettier-ignore */
+    #tabbrowser-tabs[movingtab-addToGroup] tab-split-view-wrapper[dragtarget] & {
+      overflow: visible;
+    }
   }
 }
 
+/* Tabs in split-view-wrapper defaults */
 #tabbrowser-tabs tab-split-view-wrapper {
   display: grid;
   grid-template-columns: 50% 50%;
@@ -1293,12 +1288,6 @@ tab-group > tab-split-view-wrapper {
     }
   }
 
-  /* Prevent the close button from being cutoff by the bookmarks toolbar / nav bar
-  if split view is first in list if non-pinned vertical tabs */
-  #tabbrowser-tabs[orient="vertical"]:not([expanded]) &:first-child {
-    margin-block-start: var(--space-xsmall);
-  }
-
   @media (prefers-reduced-motion: no-preference) {
     #tabbrowser-tabs[movingtab] &:not(:active) {
       transition: var(--tab-dragover-transition);
@@ -1310,13 +1299,15 @@ tab-group > tab-split-view-wrapper {
     outline: 1px solid var(--tab-dragover-outline-color);
   }
 
+  /* show outline when split view wrapper is about to be grouped */
+  #tabbrowser-tabs[movingtab-group] &[dragover-groupTarget] {
+    background-color: light-dark(var(--dragover-tab-group-color-pale), var(--dragover-tab-group-color));
+    color: light-dark(var(--dragover-tab-group-color), var(--dragover-tab-group-color-pale));
+    outline-color: light-dark(var(--dragover-tab-group-color), var(--dragover-tab-group-color-pale));
+  }
+
   .tabbrowser-tab {
     padding-block: 0 !important;
-
-    /* Allow close button to overflow the split view wrapper */
-    #tabbrowser-tabs[orient="vertical"]:not([expanded]) & {
-      overflow: visible;
-    }
 
     .tab-background {
       margin-inline: var(--space-xxsmall);
@@ -1325,6 +1316,11 @@ tab-group > tab-split-view-wrapper {
 
     .tab-content {
       padding-inline: var(--space-medium);
+      background-position-y: 4px !important;
+      background-position-x: left calc(var(--tab-inline-padding) + var(--icon-size) - 7px) !important;
+      &:-moz-locale-dir(rtl) {
+        background-position-x: right calc(var(--tab-inline-padding) + var(--icon-size) - 7px) !important;
+      }
 
       @media (forced-colors) {
         #tabbrowser-tabs tab-split-view-wrapper[hasactivetab] .tabbrowser-tab:not([selected]) & {
@@ -1333,23 +1329,27 @@ tab-group > tab-split-view-wrapper {
       }
     }
 
-    &:first-child {
-      .tab-background {
-        margin-inline-end: 0;
+    /* For explicitly horizontally-oriented split-view-wrapped tabs only.
+       We do want the specificity granted by :is (vs. :where) in this case */
+    :is(#tabbrowser-tabs[orient="horizontal"], #tabbrowser-tabs[orient="vertical"][expanded]) tab-split-view-wrapper & {
+      &:first-child {
+        .tab-background {
+          margin-inline-end: 0;
+        }
+
+        tab-split-view-wrapper:not([hasactivetab]) & {
+          border-block-end: transparent;
+        }
       }
 
-      tab-split-view-wrapper:not([hasactivetab]) & {
-        border-block-end: transparent;
-      }
-    }
+      &:last-child {
+        .tab-background {
+          margin-inline-start: 0;
+        }
 
-    &:last-child {
-      .tab-background {
-        margin-inline-start: 0;
-      }
-
-      .tab-content {
-        padding-inline-start: var(--space-medium);
+        .tab-content {
+          padding-inline-start: var(--space-medium);
+        }
       }
     }
   }
@@ -1374,42 +1374,82 @@ tab-group > tab-split-view-wrapper {
           outline-color: transparent;
         }
       }
+    }
+  }
+  .tabbrowser-tab:last-child {
+    border-inline-start: 1px solid transparent;
+  }
+
+  &:not([hasactivetab]) .tabbrowser-tab:last-child {
+    border-inline-start-color: var(--toolbarbutton-icon-fill);
+  }
+}
+
+/* Overrides for split-view-wrapped tabs in a vertical tabstrip */
+#tabbrowser-tabs[orient="vertical"] tab-split-view-wrapper {
+  border-radius: var(--tab-border-radius);
+  gap: var(--space-xsmall);
+  grid-template-columns: 49.5% 49.5%;
+
+  @container vertical-tabs-container (max-width: 210px) {
+    grid-template-columns: 1fr;
+
+    &:not([hasactivetab]) .tabbrowser-tab {
+      &:first-child {
+        border-block-end: 1px solid var(--toolbarbutton-icon-fill);
+        border-inline-end: transparent;
+      }
 
       &:last-child {
-        border-inline-start: 1px solid var(--toolbarbutton-icon-fill);
+        border-inline-start: transparent !important;
       }
-    }
-  }
-
-  #tabbrowser-tabs[orient="vertical"] & {
-    border-radius: var(--tab-border-radius);
-    gap: var(--space-xsmall);
-    grid-template-columns: 49.5% 49.5%;
-
-    @container vertical-tabs-container (max-width: 210px) {
-      grid-template-columns: 1fr;
-
-      &:not([hasactivetab]) .tabbrowser-tab {
-        &:first-child {
-          border-block-end: 1px solid var(--toolbarbutton-icon-fill);
-          border-inline-end: transparent;
-        }
-
-        &:last-child {
-          border-inline-start: transparent !important;
-        }
-      }
-    }
-  }
-
-  #tabbrowser-tabs[orient="vertical"]:not([expanded]) & {
-    .tab-close-button {
-      top: -5px;
-      inset-inline-start: -7px;
     }
   }
 }
 
+/* Overrides for split-view-wrapped tabs in a collapsed vertical tabstrip */
+#tabbrowser-tabs[orient="vertical"]:not([expanded]) tab-split-view-wrapper {
+  /* Prevent the close button from being cutoff by the bookmarks toolbar / nav bar
+  if split view is first in list if non-pinned vertical tabs */
+  &:first-child {
+    margin-block-start: var(--space-xsmall);
+  }
+
+  /* Allow close button to overflow the split view wrapper */
+  .tabbrowser-tab {
+    overflow: visible;
+
+    .tab-background {
+      width: 100%;
+      margin-inline: 0;
+      margin-block: 0;
+    }
+
+    .tab-content {
+      padding-inline: unset;
+      justify-content: center;
+      background-position-y: 4px !important;
+      background-position-x: left calc(var(--tab-inline-padding) + var(--icon-size) - 10px) !important;
+      &:-moz-locale-dir(rtl) {
+        background-position-x: right calc(var(--tab-inline-padding) + var(--icon-size) - 10px) !important;
+      }
+
+      @media not (-moz-platform: linux) {
+        background-position-x: left calc(var(--tab-inline-padding) + var(--icon-size) - 7px) !important;
+        &:-moz-locale-dir(rtl) {
+          background-position-x: right calc(var(--tab-inline-padding) + var(--icon-size) - 7px) !important;
+        }
+      }
+    }
+  }
+
+  .tab-close-button {
+    top: -5px;
+    inset-inline-start: -7px;
+  }
+}
+
+/* Drag/drop of split-view-wrapped tabs */
 #tabbrowser-tabs[orient="vertical"] tab-split-view-wrapper {
   &[small-stack] {
     box-shadow:
@@ -1482,6 +1522,32 @@ tab-group > tab-split-view-wrapper {
   position: absolute;
   background-color: var(--tab-group-line-color);
 
+  /* prettier-ignore */
+  #tabbrowser-tabs:is([movingtab-ungroup], [movingtab-group]) tab-split-view-wrapper[dragtarget] & {
+    display: none;
+  }
+
+  /* prettier-ignore */
+  #tabbrowser-tabs[orient="vertical"]:is([movingtab-ungroup], [movingtab-group]) tab-split-view-wrapper[dragtarget] .tabbrowser-tab:first-child & {
+    display: flex;
+  }
+
+  /* prettier-ignore */
+  #tabbrowser-tabs[movingtab][movingtab-addToGroup]:not([movingtab-group], [movingtab-ungroup]) tab-split-view-wrapper[dragtarget] & {
+    display: flex;
+    background-color: light-dark(var(--dragover-tab-group-color), var(--dragover-tab-group-color-invert));
+  }
+
+  /* prettier-ignore */
+  #tabbrowser-tabs[orient="vertical"][movingtab][movingtab-addToGroup]:not([expanded]) tab-split-view-wrapper[dragtarget] & {
+    inset-inline-start: calc(((var(--space-medium)) * -1) + 2px) !important;
+  }
+
+  /* prettier-ignore */
+  #tabbrowser-tabs[orient="vertical"][movingtab]:is([expanded]) tab-split-view-wrapper[dragtarget] .tabbrowser-tab:last-child & {
+    display: none;
+  }
+
   #tabbrowser-tabs[orient="horizontal"] & {
     height: var(--tab-group-line-thickness);
     inset-inline: calc(-1 * var(--tab-overflow-clip-margin));
@@ -1514,6 +1580,11 @@ tab-group > tab-split-view-wrapper {
 
   tab-group & {
     display: flex;
+  }
+
+  /* prettier-ignore */
+  #tabbrowser-tabs:is([movingtab-ungroup], [movingtab-group]) tab-group > tab-split-view-wrapper:active .tabbrowser-tab > .tab-stack > .tab-background > & {
+    display: none;
   }
 
   /* prettier-ignore */
@@ -1562,7 +1633,7 @@ tab-group {
 
 #tabbrowser-tabs[orient="vertical"][expanded] {
   tab-group > :is(.tab-group-label-container, .tabbrowser-tab),
-  &[movingtab][movingtab-addToGroup]:not([movingtab-group], [movingtab-ungroup]) .tabbrowser-tab:is(:active, [multiselected]) {
+  &[movingtab][movingtab-addToGroup]:not([movingtab-group], [movingtab-ungroup]) tab-group > .tabbrowser-tab:is(:active, [multiselected]) {
     margin-inline-start: var(--space-medium);
   }
 }
@@ -1774,28 +1845,33 @@ tab-group {
   }
 
   #tabbrowser-tabs[orient="vertical"] & {
-    height: 24px;
+    --tab-group-label-size: 24px;
+    height: var(--tab-group-label-size);
     min-height: auto;
-    line-height: 24px;
-    min-width: 24px;
+    line-height: var(--tab-group-label-size);
+    min-width: var(--tab-group-label-size);
+
+    :root[uidensity="touch"] & {
+      --tab-group-label-size: 27px;
+    }
 
     #tabbrowser-tabs:not([expanded]) & {
-      width: 24px;
-      max-width: 24px;
+      width: var(--tab-group-label-size);
+      max-width: var(--tab-group-label-size);
       font-size-adjust: 0;
 
       &::first-letter {
         font: message-box;
         font-weight: var(--font-weight-semibold);
-        line-height: 24px;
+        line-height: var(--tab-group-label-size);
       }
     }
+  }
 
-    #tabbrowser-tabs[expanded] & {
-      align-self: start;
-      max-width: -moz-available;
-      margin-inline-end: var(--space-medium);
-    }
+  #tabbrowser-tabs[expanded] & {
+    align-self: start;
+    max-width: -moz-available;
+    margin-inline-end: var(--space-medium);
   }
 }
 
@@ -2031,7 +2107,7 @@ tab-group {
 
   &::part(scrollbox) {
     scrollbar-width: thin;
-    scrollbar-color: var(--vertical-tabs-scrollbar-color);
+    scrollbar-color: var(--tab-vertical-scrollbar-color);
     overflow-y: auto;
   }
 }
@@ -2112,7 +2188,7 @@ tab-group {
 
   &::part(scrollbox) {
     scrollbar-width: thin;
-    scrollbar-color: var(--vertical-tabs-scrollbar-color);
+    scrollbar-color: var(--tab-vertical-scrollbar-color);
     overflow-y: auto;
   }
 
@@ -2383,11 +2459,15 @@ tab-group {
   color-scheme: var(--tab-selected-color-scheme);
 }
 
-:root:not([privatebrowsingmode]) :is(toolbarbutton, toolbarpaletteitem) ~ #tabbrowser-tabs,
-:root[privatebrowsingmode] :is(toolbarbutton:not(#firefox-view-button), toolbarpaletteitem:not(#wrapper-firefox-view-button)) ~ #tabbrowser-tabs {
-  border-inline-start: var(--tabstrip-inner-border);
-  padding-inline-start: 2px;
-  margin-inline-start: 2px;
+:root:not([privatebrowsingmode]) :is(toolbarbutton, toolbarpaletteitem),
+:root[privatebrowsingmode] :is(toolbarbutton:not(#firefox-view-button), toolbarpaletteitem:not(#wrapper-firefox-view-button)) {
+  ~ #tabbrowser-tabs[orient="horizontal"]::before {
+    display: flex;
+    content: "";
+    border-inline-start: var(--tabstrip-inner-border);
+    padding-inline-start: 2px;
+    margin-inline-start: 2px;
+  }
 }
 
 :root[privatebrowsingmode] :is(#firefox-view-button, #menu_openFirefoxView) {
@@ -2597,23 +2677,21 @@ toolbar:not(#TabsToolbar) #firefox-view-button {
   width: calc(var(--icon-size-xsmall) + 8px);
   height: calc(var(--icon-size-xsmall) + 8px);
   padding: 4px;
-  margin-inline-end: calc(var(--tab-close-button-padding) / -2);
+  margin-inline-end: var(--tab-note-icon-end-margin);
 
   list-style-image: url("chrome://global/skin/icons/tab-notes-12.svg");
   -moz-context-properties: fill;
   fill: var(--icon-color);
 
+  /* Vertical expanded: reserve space so the note icon does not jump when the close shows.*/
   #tabbrowser-tabs[orient="vertical"][expanded] & {
-    /*
-     * Keep the tab note icon out of the way of the close button, even when
-     * the close button is not showing because the tab is not being hovered.
-     */
     .tabbrowser-tab:not(:hover) & {
       /* .tab-close-button is 24px wide with border-box sizing */
-      margin-inline-end: calc(24px - var(--tab-close-button-padding));
+      margin-inline-end: calc(var(--tab-note-icon-end-margin) + 24px - var(--tab-close-button-padding) / 2);
     }
+
     .tabbrowser-tab:is([visuallyselected], :hover) & {
-      margin-inline-end: calc(var(--tab-close-button-padding) / -2);
+      margin-inline-end: var(--tab-note-icon-end-margin);
     }
   }
 }

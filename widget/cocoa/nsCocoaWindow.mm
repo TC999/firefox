@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -86,6 +84,10 @@
 #include "mozilla/layers/CompositorBridgeChild.h"
 #include "mozilla/widget/Screen.h"
 #include <algorithm>
+
+#ifdef ACCESSIBILITY
+#  include "mozilla/a11y/DocAccessible.h"
+#endif
 
 #undef DEBUG_UPDATE
 #undef INVALIDATE_DEBUGGING  // flash areas as they are invalidated
@@ -1385,7 +1387,7 @@ void nsCocoaWindow::DispatchAPZWheelInputEvent(InputData& aEvent) {
         break;
       }
       case SCROLLWHEEL_INPUT: {
-        // For wheel events on OS X, send it to APZ using the WidgetInputEvent
+        // For wheel events on macOS, send it to APZ using the WidgetInputEvent
         // variant of ReceiveInputEvent, because the APZInputBridge version of
         // that function has special handling (for delta multipliers etc.) that
         // we need to run. Using the InputData variant would bypass that and
@@ -1481,8 +1483,16 @@ void nsCocoaWindow::LookUpDictionary(
 }
 
 #ifdef ACCESSIBILITY
-already_AddRefed<a11y::LocalAccessible> nsCocoaWindow::GetDocumentAccessible() {
+already_AddRefed<a11y::LocalAccessible> nsCocoaWindow::GetWindowAccessible() {
   if (!mozilla::a11y::ShouldA11yBeEnabled()) return nullptr;
+
+  if (GetWindowType() == WindowType::Popup &&
+      GetPopupType() != PopupType::Panel) {
+    // If we are a non-panel popup, like a menu or tooltip, we want to return
+    // null. We rely on the gecko tree hierarchy instead of the native widget
+    // one to expose this accessible.
+    return nullptr;
+  }
 
   // mAccessible might be dead if accessibility was previously disabled and is
   // now being enabled again.
@@ -1496,6 +1506,14 @@ already_AddRefed<a11y::LocalAccessible> nsCocoaWindow::GetDocumentAccessible() {
   // need to fetch the accessible anew, because it has gone away.
   // cache the accessible in our weak ptr
   RefPtr<a11y::LocalAccessible> acc = GetRootAccessible();
+  if (GetWindowType() == WindowType::Popup) {
+    // If we're a popup panel, we want to return the accessible for the
+    // content of the panel, not the accessible for the document.
+    if (nsIFrame* popupFrame = GetFrame()) {
+      acc = acc->AsDoc()->GetAccessible(popupFrame->GetContent());
+    }
+  }
+
   mAccessible = do_GetWeakReference(acc.get());
 
   return acc.forget();
@@ -2324,9 +2342,9 @@ NSEvent* gLastDragMouseDownEvent = nil;  // [strong]
   gLastDragView = nil;
 
   if (!mGeckoChild || mBlockedLastMouseDown || mPerformedDrag) {
-    // There is case that mouseUp event will be fired right after DnD on OSX. As
-    // mPerformedDrag will be YES at end of DnD processing, ignore this mouseUp
-    // event fired right after DnD.
+    // There is case that mouseUp event will be fired right after DnD on macOS.
+    // As mPerformedDrag will be YES at end of DnD processing, ignore this
+    // mouseUp event fired right after DnD.
     return;
   }
 
@@ -4303,8 +4321,7 @@ nsresult nsCocoaWindow::RestoreHiDPIMode() {
 
   nsAutoRetainCocoaObject kungFuDeathGrip(self);
   RefPtr<nsCocoaWindow> geckoChild(mGeckoChild);
-  RefPtr<a11y::LocalAccessible> accessible =
-      geckoChild->GetDocumentAccessible();
+  RefPtr<a11y::LocalAccessible> accessible = geckoChild->GetWindowAccessible();
   if (!accessible) return nil;
 
   accessible->GetNativeInterface((void**)&nativeAccessible);
@@ -4325,6 +4342,10 @@ nsresult nsCocoaWindow::RestoreHiDPIMode() {
 
 - (id)representedView {
   return self;
+}
+
+- (BOOL)hasMozAccessible {
+  return [self accessible] != nil;
 }
 
 - (BOOL)isRoot {
@@ -4401,16 +4422,13 @@ nsresult nsCocoaWindow::RestoreHiDPIMode() {
   if (!mozilla::a11y::ShouldA11yBeEnabled())
     return [super accessibilityAttributeValue:attribute];
 
-  id<mozAccessible> accessible = [self accessible];
-
-  // if we're the root (topmost) accessible, we need to return our native
-  // AXParent as we traverse outside to the hierarchy of whoever embeds us.
-  // thus, fall back on NSView's default implementation for this attribute.
-  if ([attribute isEqualToString:NSAccessibilityParentAttribute] &&
-      [accessible isRoot]) {
-    id parentAccessible = [super accessibilityAttributeValue:attribute];
-    return parentAccessible;
+  if ([attribute isEqualToString:NSAccessibilityParentAttribute]) {
+    // Ensure native accessibles with corresponding mozAccessibles reference
+    // their native parent, not their mozAccessible parent.
+    return [super accessibilityAttributeValue:attribute];
   }
+
+  id<mozAccessible> accessible = [self accessible];
 
   return [accessible accessibilityAttributeValue:attribute];
 
@@ -5600,7 +5618,7 @@ void nsCocoaWindow::GetWorkspaceID(nsAString& workspaceID) {
 int32_t nsCocoaWindow::GetWorkspaceID() {
   NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
 
-  // Mac OSX space IDs start at '1' (default space), so '0' means 'unknown',
+  // macOS space IDs start at '1' (default space), so '0' means 'unknown',
   // effectively.
   CGSSpaceID sid = 0;
 
@@ -5660,7 +5678,7 @@ void nsCocoaWindow::MoveToWorkspace(const nsAString& workspaceIDStr) {
 void nsCocoaWindow::MoveVisibleWindowToWorkspace(int32_t workspaceID) {
   CGSConnection cid = _CGSDefaultConnection();
   int32_t currentSpace = GetWorkspaceID();
-  // If an empty workspace ID is passed in (not valid on OSX), or when the
+  // If an empty workspace ID is passed in (not valid on macOS), or when the
   // window is already on this workspace, we don't need to do anything.
   if (!workspaceID || workspaceID == currentSpace) {
     return;
@@ -6732,7 +6750,7 @@ void nsCocoaWindow::CaptureRollupEvents(bool aDoCapture) {
     // non-native popup window).  In these cases the "active" popup window
     // should be the topmost -- the (nested) context menu the mouse is currently
     // over, or the combo-box's drop-down list (when it's displayed).  But
-    // (among windows that have the same "level") OS X makes topmost the window
+    // (among windows that have the same "level") macOS makes topmost the window
     // that last received a mouse-down event, which may be incorrect (in the
     // combo-box case, it makes topmost the window containing the combo-box).
     // So here we fiddle with a non-native popup window's level to make sure the
@@ -7919,9 +7937,17 @@ static const NSString* kStateCollectionBehavior = @"collectionBehavior";
 - (id)accessibilityAttributeValue:(NSString*)attribute {
   NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
 
+  if ([self isKindOfClass:[PopupWindow class]]) {
+    if ([attribute isEqualToString:NSAccessibilityRoleAttribute]) {
+      // If this is a popup window give it a proper role so VoiceOver
+      // picks it up correctly.
+      return NSAccessibilityPopoverRole;
+    }
+  }
+
   id retval = [super accessibilityAttributeValue:attribute];
 
-  // The following works around a problem with Text-to-Speech on OS X 10.7.
+  // The following works around a problem with Text-to-Speech on macOS 10.7.
   // See bug 674612 for more info.
   //
   // When accessibility is off, AXUIElementCopyAttributeValue(), when called
@@ -7933,10 +7959,10 @@ static const NSString* kStateCollectionBehavior = @"collectionBehavior";
   // AXWindow object will always have four "accessible" children, one of which
   // is an AXStaticText object (the title bar's "title"; the other three are
   // the close, minimize and zoom buttons).  This means that (for complicated
-  // reasons, for which see bug 674612) Text-to-Speech on OS X 10.7 will often
+  // reasons, for which see bug 674612) Text-to-Speech on macOS 10.7 will often
   // "speak" the window title, no matter what text is selected, or even if no
   // text at all is selected.  (This always happens when accessibility is off.
-  // It doesn't happen in Firefox releases because Apple has (on OS X 10.7)
+  // It doesn't happen in Firefox releases because Apple has (on macOS 10.7)
   // special-cased the handling of apps whose CFBundleIdentifier is
   // org.mozilla.firefox.)
   //
@@ -7964,6 +7990,15 @@ static const NSString* kStateCollectionBehavior = @"collectionBehavior";
   return retval;
 
   NS_OBJC_END_TRY_BLOCK_RETURN(nil);
+}
+
+- (BOOL)isAccessibilityElement {
+  if (!mozilla::a11y::ShouldA11yBeEnabled())
+    return [super isAccessibilityElement];
+
+  // If the main child view does not have a gecko accessible associated with it,
+  // this window should not be present in the accessible tree.
+  return [self.mainChildView hasMozAccessible];
 }
 
 - (void)releaseJSObjects {

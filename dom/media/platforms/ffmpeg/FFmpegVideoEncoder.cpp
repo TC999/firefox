@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:set ts=2 sw=2 sts=2 et cindent: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -791,7 +789,7 @@ FFmpegVideoEncoder<LIBAV_VER>::ToMediaRawData(AVPacket* aPacket) {
   if (isH264 && mConfig.mCodecSpecific.as<H264Specific>().mFormat ==
                     H264BitStreamFormat::AVC) {
     if (!mCodecName.Equals("libx264"_ns) && AnnexB::IsAnnexB(*data)) {
-      if (AnnexB::ConvertSampleToAVCC(data, mLastExtraData)) {
+      if (!AnnexB::ConvertSampleToAVCC(data, mLastExtraData)) {
         return Err(MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
                                "Failed to convert to AVCC"_ns));
       }

@@ -78,7 +78,7 @@ add_task(async function test_translate_ai_feature_toggle_from_disabled() {
     ],
   });
 
-  await TranslationsParent.AIFeature.disable();
+  await TranslationsParent.AIFeature.block();
 
   info("Search for the translate quick action keyword");
   await UrlbarTestUtils.promiseAutocompleteResultPopup({
@@ -114,7 +114,7 @@ add_task(async function test_translate_ai_feature_toggle_from_disabled() {
     EventUtils.synthesizeKey("KEY_Escape");
   });
 
-  await TranslationsParent.AIFeature.disable();
+  await TranslationsParent.AIFeature.block();
 
   info("Search for the translate quick action keyword after disable again");
   await UrlbarTestUtils.promiseAutocompleteResultPopup({
@@ -163,7 +163,7 @@ add_task(async function test_translate_ai_feature_toggle_from_enabled() {
     EventUtils.synthesizeKey("KEY_Escape");
   });
 
-  await TranslationsParent.AIFeature.disable();
+  await TranslationsParent.AIFeature.block();
 
   info("Search for the translate quick action keyword after disable");
   await UrlbarTestUtils.promiseAutocompleteResultPopup({
@@ -284,16 +284,20 @@ add_task(async function test_translate_includes_target_language() {
   EventUtils.synthesizeKey("KEY_Tab", {}, window);
   EventUtils.synthesizeKey("KEY_Enter", {}, window);
 
-  info("Wait for about:translations to load and check query params");
+  info("Wait for about:translations to load and check hash parameters");
   await BrowserTestUtils.browserLoaded(translateTab.linkedBrowser, false, url =>
     url.startsWith("about:translations")
   );
 
   const url = new URL(translateTab.linkedBrowser.currentURI.spec);
-  const hashParams = new URLSearchParams(url.hash.substring(1));
-  const targetLang = hashParams.get("trg");
+  const hashParameters = new URLSearchParams(url.hash.substring(1));
+  const targetLanguage = hashParameters.get("trg");
 
-  Assert.equal(targetLang, "en", "Target language parameter is set to 'en'");
+  Assert.equal(
+    targetLanguage,
+    "en",
+    "Target language parameter is set to 'en'"
+  );
 
   if (UrlbarTestUtils.isPopupOpen(window)) {
     await UrlbarTestUtils.promisePopupClose(window, () => {
@@ -313,10 +317,12 @@ add_task(
 
     info("Temporarily override preferred language lookup to fail once");
     let oneTimeOverrideCalled = false;
-    const originalFn = TranslationsParent.getTopPreferredSupportedToLang;
+    const originalGetTopPreferredSupportedToLang =
+      TranslationsParent.getTopPreferredSupportedToLang;
     TranslationsParent.getTopPreferredSupportedToLang = async () => {
       oneTimeOverrideCalled = true;
-      TranslationsParent.getTopPreferredSupportedToLang = originalFn;
+      TranslationsParent.getTopPreferredSupportedToLang =
+        originalGetTopPreferredSupportedToLang;
       throw new Error("Simulated failure retrieving the preferred language");
     };
 
@@ -341,10 +347,21 @@ add_task(
     );
 
     const url = new URL(translateTab.linkedBrowser.currentURI.spec);
-    Assert.equal(url.hash, "", "No target language parameter is appended");
+    const hashParameters = new URLSearchParams(url.hash.substring(1));
+
+    Assert.equal(
+      hashParameters.get("src"),
+      "detect",
+      'The default source language parameter is "detect"'
+    );
+    Assert.equal(
+      hashParameters.get("trg"),
+      null,
+      "No target language parameter is appended"
+    );
     Assert.ok(oneTimeOverrideCalled, "The overridden language lookup ran once");
     Assert.equal(
-      originalFn,
+      originalGetTopPreferredSupportedToLang,
       TranslationsParent.getTopPreferredSupportedToLang,
       "The preferred-language getter has been restored"
     );
@@ -407,4 +424,47 @@ add_task(async function test_translate_switches_to_existing_tab() {
   }
   BrowserTestUtils.removeTab(otherTab);
   BrowserTestUtils.removeTab(translateTab);
+});
+
+add_task(async function test_translate_reenabled() {
+  info("Disable the translate quick action and ensure it is hidden");
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.translations.quickAction.enabled", false]],
+  });
+
+  info("Search for the translate quick action keyword");
+  await UrlbarTestUtils.promiseAutocompleteResultPopup({
+    window,
+    value: "tran",
+  });
+
+  Assert.ok(
+    !window.document.querySelector(
+      `.urlbarView-action-btn[data-action=translate]`
+    ),
+    "Translate action is not shown when disabled"
+  );
+
+  await UrlbarTestUtils.promisePopupClose(window, () => {
+    EventUtils.synthesizeKey("KEY_Escape");
+  });
+
+  await SpecialPowers.popPrefEnv();
+
+  info("Search for the translate quick action keyword");
+  await UrlbarTestUtils.promiseAutocompleteResultPopup({
+    window,
+    value: "tran",
+  });
+
+  Assert.ok(
+    window.document.querySelector(
+      ".urlbarView-action-btn[data-action=translate]"
+    ),
+    "Translate action is now shown"
+  );
+
+  await UrlbarTestUtils.promisePopupClose(window, () => {
+    EventUtils.synthesizeKey("KEY_Escape");
+  });
 });

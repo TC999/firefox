@@ -1,5 +1,4 @@
-/* -*- Mode: C++; tab-width: 20; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -2336,7 +2335,7 @@ bool ItemVariationData::Validate(const COLRv1Header* aHeader,
   uint32_t deltaSetSize =
       (uint16_t(regionIndexCount) + uint16_t(wordDeltaCount)) << longWords;
   if (reinterpret_cast<const char*>(deltaSets()) +
-          uint16_t(itemCount) * deltaSetSize >
+          uint64_t(uint16_t(itemCount)) * deltaSetSize >
       reinterpret_cast<const char*>(aHeader) + aLength) {
     return false;
   }

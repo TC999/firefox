@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -77,6 +75,8 @@ class udev_lib {
     DLSYM(udev_device_unref);
     DLSYM(udev_device_new_from_syspath);
     DLSYM(udev_device_get_devnode);
+    DLSYM(udev_device_get_driver);
+    DLSYM(udev_device_get_parent);
     DLSYM(udev_device_get_parent_with_subsystem_devtype);
     DLSYM(udev_device_get_property_value);
     DLSYM(udev_device_get_action);
@@ -113,6 +113,8 @@ class udev_lib {
   struct udev_device* (*udev_device_new_from_syspath)(struct udev*,
                                                       const char*);
   const char* (*udev_device_get_devnode)(struct udev_device*);
+  const char* (*udev_device_get_driver)(struct udev_device*);
+  struct udev_device* (*udev_device_get_parent)(struct udev_device*);
   struct udev_device* (*udev_device_get_parent_with_subsystem_devtype)(
       struct udev_device*, const char*, const char*);
   const char* (*udev_device_get_property_value)(struct udev_device*,

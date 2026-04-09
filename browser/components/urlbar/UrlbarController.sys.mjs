@@ -7,7 +7,9 @@ import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 /**
  * @import {BrowserSearchTelemetry} from "moz-src:///browser/components/search/BrowserSearchTelemetry.sys.mjs"
  * @import {ProvidersManager} from "moz-src:///browser/components/urlbar/UrlbarProvidersManager.sys.mjs"
+ * @import {SapLocation, SmartbarInput} from "moz-src:///browser/components/urlbar/content/SmartbarInput.mjs"
  * @import {UrlbarView} from "moz-src:///browser/components/urlbar/UrlbarView.sys.mjs"
+ * @import {WindowMode} from "moz-src:///browser/components/urlbar/content/UrlbarInput.mjs"
  */
 
 const lazy = {};
@@ -352,11 +354,13 @@ export class UrlbarController {
           } else if (
             lazy.UrlbarPrefs.get("focusContentDocumentOnEsc") &&
             !this.input.searchMode &&
-            (this.input.getAttribute("pageproxystate") == "valid" ||
-              (this.input.value == "" &&
-                this.browserWindow.isBlankPageURL(
-                  this.browserWindow.gBrowser.currentURI.spec
-                )))
+            (this.input.sapName == "searchbar"
+              ? this.input.value == ""
+              : this.input.getAttribute("pageproxystate") == "valid" ||
+                (this.input.value == "" &&
+                  this.browserWindow.isBlankPageURL(
+                    this.browserWindow.gBrowser.currentURI.spec
+                  )))
           ) {
             this.browserWindow.gBrowser.selectedBrowser.focus();
           } else {
@@ -627,10 +631,9 @@ export class UrlbarController {
   }
 
   /**
-   * Triggers a "dismiss" engagement for the selected result if one is selected
-   * and it's not the heuristic. Providers that can respond to dismissals of
-   * their results should implement `onEngagement()`, handle the
-   * dismissal, and call `controller.removeResult()`.
+   * Triggers a "dismiss" engagement for the selected result if one is selected.
+   * Providers that can respond to dismissals of their results should implement
+   * `onEngagement()`, handle the dismissal, and call `controller.removeResult()`.
    *
    * @param {Event} event
    *   The event that triggered dismissal.
@@ -654,7 +657,10 @@ export class UrlbarController {
     }
 
     let result = this.input.view.selectedResult;
-    if (!result || result.heuristic) {
+    if (!result) {
+      return false;
+    }
+    if (result.heuristic && !result.autofill) {
       return false;
     }
 
@@ -887,6 +893,11 @@ class TelemetryEvent {
    *   One of "unknown", "autofill", "visiturl", "bookmark", "help", "history",
    *   "keyword", "searchengine", "searchsuggestion", "switchtab", "remotetab",
    *   "extension", "oneoff", "dismiss".
+   * @property {SapLocation} [location]
+   *   The location where the interaction occurred.
+   *   Required when sap is "smartbar".
+   * @property {WindowMode} [windowMode]
+   *   The window mode: classic, private, or smartwindow.
    */
 
   /**
@@ -1027,6 +1038,9 @@ class TelemetryEvent {
       searchMode: internalDetails.searchMode,
       selIndex: internalDetails.selIndex,
       selType: internalDetails.selType,
+      location: internalDetails.location,
+      windowMode: internalDetails.windowMode,
+      ...this.#getOptionalSmartbarTelemetry(internalDetails.searchSource),
     });
 
     if (!internalDetails.isSessionOngoing) {
@@ -1068,7 +1082,7 @@ class TelemetryEvent {
    *
    * @param {string} searchSource
    *   The search source string to convert.
-   * @returns {null|"urlbar"|"searchbar"|"handoff"|"urlbar_newtab"|"urlbar_addonpage"}
+   * @returns {null|"urlbar"|"searchbar"|"smartbar"|"handoff"|"urlbar_newtab"|"urlbar_addonpage"}
    *   The sap value for urlbar.* telemetry or null if the browser window
    *   already started closing. In that case, no telemetry should be recorded.
    */
@@ -1077,8 +1091,12 @@ class TelemetryEvent {
     if (searchSource === "urlbar_handoff") {
       return "handoff";
     }
+    // TODO (bug 2024630): Ideally, we would not add every new SAP here.
     if (searchSource === "searchbar") {
       return "searchbar";
+    }
+    if (searchSource === "smartbar") {
+      return "smartbar";
     }
     if (browserWindow.closed) {
       // If the browser window has already started closing, then we bail-out.
@@ -1127,6 +1145,18 @@ class TelemetryEvent {
    *   "extension", "oneoff", "dismiss".
    * @param {number} [details.viewTime]
    *   The length of the view time in milliseconds.
+   * @param {SapLocation} [details.location]
+   *   The location where the interaction occurred.
+   *   Required when sap is "smartbar".
+   * @param {WindowMode} [details.windowMode]
+   *   The window mode: classic, private, or smartwindow.
+   * @param {string} [details.chatId]
+   *   UUID for this smart window session. Unique identifier for each chat
+   *   conversation. Only set when sap is `smartbar`.
+   * @param {string} [details.intent]
+   *   The detected intent for the input. Only set when sap is `smartbar`.
+   * @param {string} [details.model]
+   *   Model selected by the user. Only set when sap is `smartbar`.
    */
   #recordSearchEngagementTelemetry(
     method,
@@ -1142,11 +1172,23 @@ class TelemetryEvent {
       selIndex,
       selType,
       viewTime = 0,
+      location = null,
+      chatId = "",
+      intent = "",
+      model = "",
+      windowMode,
     }
   ) {
     let sap = this.#searchSourceToSap(searchSource);
     if (!sap) {
       return;
+    }
+    // The extra_key `location` is optional, but required for the smartbar.
+    // TODO (bug 2024631): Support location for all SAPs.
+    if (this._controller.input.sapName === "smartbar" && !location) {
+      throw new Error(
+        "Telemetry extra_key `location` is required for smartbar"
+      );
     }
     searchMode = searchMode ?? this._controller.input.searchMode;
 
@@ -1222,6 +1264,10 @@ class TelemetryEvent {
           results,
           actions,
           available_semantic_sources,
+          window_mode: windowMode,
+          ...(sap === "smartbar"
+            ? { location, chat_id: chatId, intent, model }
+            : {}),
         };
         lazy.logger.info(`engagement event:`, eventInfo);
         Glean.urlbar.engagement.record(eventInfo);
@@ -1241,6 +1287,10 @@ class TelemetryEvent {
           results,
           actions,
           available_semantic_sources,
+          window_mode: windowMode,
+          ...(sap === "smartbar"
+            ? { location, chat_id: chatId, intent, model }
+            : {}),
         };
         lazy.logger.info(`abandonment event:`, eventInfo);
         Glean.urlbar.abandonment.record(eventInfo);
@@ -1269,6 +1319,10 @@ class TelemetryEvent {
           selected_result,
           results,
           feature: "suggest",
+          window_mode: windowMode,
+          ...(sap === "smartbar"
+            ? { location, chat_id: chatId, intent, model }
+            : {}),
         };
         lazy.logger.info(`disable event:`, eventInfo);
         Glean.urlbar.disable.record(eventInfo);
@@ -1297,6 +1351,10 @@ class TelemetryEvent {
           threshold: lazy.UrlbarPrefs.get(
             "events.bounce.maxSecondsFromLastSearch"
           ),
+          window_mode: windowMode,
+          ...(sap === "smartbar"
+            ? { location, chat_id: chatId, intent, model }
+            : {}),
         };
         lazy.logger.info(`bounce event:`, eventInfo);
         Glean.urlbar.bounce.record(eventInfo);
@@ -1306,6 +1364,30 @@ class TelemetryEvent {
         console.error(`Unknown telemetry event method: ${method}`);
       }
     }
+  }
+
+  /**
+   * Returns Smart Window telemetry data for SAP `smartbar`.
+   *
+   * @param {string} searchSource
+   *   The search source identifier.
+   * @returns {{ chatId: string, intent: string, model: string } | null}
+   *   Telemetry for the smartbar.
+   */
+  #getOptionalSmartbarTelemetry(searchSource) {
+    const isSmartbar = this.#searchSourceToSap(searchSource) === "smartbar";
+    if (!isSmartbar) {
+      return null;
+    }
+    // If SAP is `smartbar` we can safely cast to type `SmartbarInput`.
+    const input = /** @type {SmartbarInput} */ (
+      /** @type {unknown} */ (this._controller.input)
+    );
+    return {
+      chatId: input.conversationTelemetryInfo?.chat_id ?? "",
+      intent: input.smartbarAction ?? "",
+      model: input.modelName ?? "",
+    };
   }
 
   /**
@@ -1552,6 +1634,11 @@ class TelemetryEvent {
     }
     if (event.type === "tabswitch") {
       return "tab_switch";
+    }
+    // dismiss_autofill temporarily blocks autofill suggestions rather than
+    // removing history, but we still want to report it "dismiss" in telemetry.
+    if (details.element?.dataset.command === "dismiss_autofill") {
+      return "dismiss";
     }
     if (
       details.element?.dataset.command &&
@@ -1846,6 +1933,9 @@ class TelemetryEvent {
       searchMode: details.searchMode,
       selIndex: details.selIndex,
       selType: details.selType,
+      location: details.location,
+      windowMode: details.windowMode,
+      ...this.#getOptionalSmartbarTelemetry(details.searchSource),
     });
 
     this._lastSearchDetailsForDisableSuggestTracking = null;
@@ -1986,6 +2076,9 @@ class TelemetryEvent {
       selIndex: details.selIndex,
       selType: details.selType,
       viewTime: viewTime / 1000,
+      location: details.location,
+      windowMode: details.windowMode,
+      ...this.#getOptionalSmartbarTelemetry(details.searchSource),
     });
   }
 }

@@ -138,11 +138,11 @@ export class SearchModeSwitcher {
     if (this.#isEnabled()) {
       this.updateSearchIcon();
 
-      if (
-        this.#input.searchMode?.engineName == "Perplexity" &&
-        !lazy.UrlbarPrefs.get("perplexity.hasBeenInSearchMode")
-      ) {
-        lazy.UrlbarPrefs.set("perplexity.hasBeenInSearchMode", true);
+      let engine = lazy.UrlbarSearchUtils.getEngineByName(
+        this.#input.searchMode?.engineName
+      );
+      if (engine && engine.isConfigEngine && !engine.hasBeenUsed) {
+        engine.markAsUsed();
       }
     }
   }
@@ -412,28 +412,14 @@ export class SearchModeSwitcher {
     }
 
     let browser = this.#input.window.gBrowser;
-    let separator = this.#popup.querySelector(
+    let installedEngineSeparator = this.#popup.querySelector(
+      ".searchmode-switcher-popup-installed-engine-separator"
+    );
+    let footerSeparator = this.#popup.querySelector(
       ".searchmode-switcher-popup-footer-separator"
     );
 
-    let openSearchEngines = lazy.OpenSearchManager.getEngines(
-      browser.selectedBrowser
-    );
-    openSearchEngines = openSearchEngines.slice(
-      0,
-      SearchModeSwitcher.MAX_OPENSEARCH_ENGINES
-    );
-
-    for (let engine of openSearchEngines) {
-      let menuitem = this.#createButton(engine.title, engine.icon);
-      menuitem.classList.add("searchmode-switcher-addEngine");
-      menuitem.addEventListener("command", e => {
-        this.#installOpenSearchEngine(e, engine);
-      });
-      this.#popup.insertBefore(menuitem, separator);
-    }
-
-    // Add engines installed.
+    // Add installed engines.
     let engines = [];
     try {
       engines = await lazy.SearchService.getVisibleEngines();
@@ -449,6 +435,7 @@ export class SearchModeSwitcher {
       let menuitem = this.#createButton(engine.name, icon);
       menuitem.classList.add("searchmode-switcher-installed");
       menuitem.setAttribute("label", engine.name);
+      menuitem.setAttribute("tooltiptext", engine.name);
       menuitem.setAttribute("closemenu", "none");
 
       if (engine.isNew() && engine.isAppProvided) {
@@ -466,10 +453,35 @@ export class SearchModeSwitcher {
         }
       );
 
-      this.#popup.insertBefore(menuitem, separator);
+      installedEngineSeparator.before(menuitem);
     }
 
-    await this.#buildLocalSearchModeList(separator);
+    await this.#buildLocalSearchModeList(footerSeparator);
+
+    // Add engines that can be installed.
+    let openSearchEngines = lazy.OpenSearchManager.getEngines(
+      browser.selectedBrowser
+    );
+    openSearchEngines = openSearchEngines.slice(
+      0,
+      SearchModeSwitcher.MAX_OPENSEARCH_ENGINES
+    );
+
+    for (let engine of openSearchEngines) {
+      let menuitem = this.#createButton(engine.title, engine.icon);
+      menuitem.classList.add("searchmode-switcher-addEngine");
+      this.#input.document.l10n.setAttributes(
+        menuitem,
+        "search-one-offs-add-engine",
+        {
+          engineName: engine.title,
+        }
+      );
+      menuitem.addEventListener("command", e => {
+        this.#installOpenSearchEngine(e, engine);
+      });
+      footerSeparator.after(menuitem);
+    }
 
     this.#popup.dispatchEvent(new Event("rebuild"));
   }
@@ -526,7 +538,7 @@ export class SearchModeSwitcher {
         }
       );
 
-      this.#popup.insertBefore(menuitem, separator);
+      separator.before(menuitem);
     }
   }
 
@@ -544,27 +556,28 @@ export class SearchModeSwitcher {
       this.closePanel();
     }
 
-    let search = "";
-    /** @type {Parameters<UrlbarInput["search"]>[1]} */
-    let opts = null;
-    if (engine) {
-      search = this.#input.value;
-      opts = {
-        searchEngine: engine,
-        searchModeEntry: "searchbutton",
-      };
-    } else if (restrict) {
-      search = restrict + " " + this.#input.value;
-      opts = { searchModeEntry: "searchbutton" };
-    }
+    let opts = { searchEngine: engine, searchModeEntry: "searchbutton" };
 
-    if (whereToOpenSerp) {
-      this.#input.openEngineHomePage(search, {
-        searchEngine: opts.searchEngine,
-        where: whereToOpenSerp,
-      });
-    } else {
+    if (restrict || (!this.#input.userTypedValue && !whereToOpenSerp)) {
+      let search = restrict ? restrict + " " + this.#input.userTypedValue : "";
       this.#input.search(search, opts);
+    } else {
+      if (engine && !whereToOpenSerp) {
+        this.#input.value = this.#input.userTypedValue;
+        this.#input.setSearchMode(
+          {
+            engineName: engine.name,
+            entry: "searchbutton",
+            source: lazy.UrlbarUtils.RESULT_SOURCE.SEARCH,
+            isPreview: false,
+          },
+          this.#input.window.gBrowser.selectedBrowser
+        );
+      }
+      if (whereToOpenSerp) {
+        opts.where = whereToOpenSerp;
+      }
+      this.#input.openEngineHomePage(this.#input.userTypedValue || "", opts);
     }
 
     if (engine) {
@@ -622,7 +635,7 @@ export class SearchModeSwitcher {
   }
 
   #createButton(label, icon) {
-    let menuitem = this.#input.window.document.createXULElement("menuitem");
+    let menuitem = this.#input.document.createXULElement("menuitem");
     menuitem.setAttribute("label", label);
     menuitem.setAttribute("class", "menuitem-iconic");
     menuitem.setAttribute("image", icon ?? DEFAULT_ENGINE_ICON);

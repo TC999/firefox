@@ -1091,6 +1091,9 @@ html {
   min-height: 100vh;
 }
 
+.onboardingContainer:has(.embedded-backup-restore-container) .screen[pos=split][fullscreen] .section-main .main-content {
+  text-align: start;
+}
 .onboardingContainer:has(.embedded-backup-restore-container) .screen[pos=split][fullscreen] .section-main .main-content .welcome-text {
   margin-block: 15px 22px;
 }
@@ -1126,6 +1129,7 @@ html {
   --tile-info-hover-background-color: oklch(from var(--color-violet-10) l c h / 30%);
   --screen-1-yellow-circle-background-color: var(--color-purple-60);
   --screen-2-yellow-circle-background-color: var(--color-pink-50);
+  --message-bar-icon-color: light-dark(var(--color-blue-60), var(--color-blue-20));
   font-family: system-ui;
   font-size: 16px;
   position: relative;
@@ -2187,7 +2191,6 @@ html {
     margin-inline: auto;
   }
   .onboardingContainer .screen[pos=split][fullscreen] .section-secondary {
-    --mr-secondary-position: center var(--mr-secondary-background-position-y) / 50%;
     height: 250px;
   }
   .onboardingContainer .screen[pos=split][fullscreen] .section-secondary .hero-image img {
@@ -2222,7 +2225,6 @@ html {
   margin-inline: auto;
 }
 [narrow] .onboardingContainer .screen[pos=split][fullscreen] .section-secondary {
-  --mr-secondary-position: center var(--mr-secondary-background-position-y) / 50%;
   height: 250px;
 }
 [narrow] .onboardingContainer .screen[pos=split][fullscreen] .section-secondary .hero-image img {
@@ -2266,8 +2268,7 @@ html {
     width: 400px;
   }
   .onboardingContainer .screen[pos=split]:where(:not([no-rdm])) .section-secondary {
-    --mr-secondary-background-position-y: top;
-    --mr-secondary-position: center var(--mr-secondary-background-position-y) / 75%;
+    --mr-secondary-position: center center / 75%;
     border-radius: var(--border-radius-medium) var(--border-radius-medium) 0 0;
     margin: auto;
     margin-bottom: 0;
@@ -2454,8 +2455,7 @@ html {
   width: 400px;
 }
 [narrow] .onboardingContainer .screen[pos=split]:where(:not([no-rdm])) .section-secondary {
-  --mr-secondary-background-position-y: top;
-  --mr-secondary-position: center var(--mr-secondary-background-position-y) / 75%;
+  --mr-secondary-position: center center / 75%;
   border-radius: var(--border-radius-medium) var(--border-radius-medium) 0 0;
   margin: auto;
   margin-bottom: 0;
@@ -2736,6 +2736,10 @@ html {
 }
 .onboardingContainer .welcome-text .cta-paragraph .cta-paragraph-icon {
   display: inline-block;
+  fill: currentColor;
+  stroke: currentColor;
+  color: var(--message-bar-icon-color);
+  -moz-context-properties: fill, stroke;
 }
 .onboardingContainer .welcome-text .cta-paragraph.info-tile {
   display: flex;
@@ -2743,6 +2747,7 @@ html {
   border-radius: var(--border-radius-small);
   border: 1px solid var(--card-border-color);
   padding: 10px 12px;
+  gap: 0.5em;
 }
 .onboardingContainer .welcome-text .cta-paragraph a {
   margin: 0;

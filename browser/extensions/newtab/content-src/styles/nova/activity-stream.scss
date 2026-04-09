@@ -156,7 +156,6 @@ input {
 @import '../../components/ConfirmDialog/ConfirmDialog';
 @import '../../components/CustomizeMenu/CustomizeMenu';
 @import '../../components/WallpaperCategories/WallpaperCategories';
-@import '../../components/Weather/Weather';
 @import '../../components/DownloadModalToggle/DownloadModalToggle';
 @import '../../components/Card/Card';
 @import '../../components/CollapsibleSection/CollapsibleSection';
@@ -170,7 +169,7 @@ input {
 @import '../../components/Widgets/Widgets';
 @import '../../components/Widgets/Lists/Lists';
 @import '../../components/Widgets/FocusTimer/FocusTimer';
-@import '../../components/Widgets/WeatherForecast/WeatherForecast';
+@import '../../components/Widgets/Weather/Weather';
 
 // Discovery Stream Components
 @import '../../components/DiscoveryStreamComponents/CardGrid/CardGrid';
@@ -182,6 +181,7 @@ input {
 @import '../../components/DiscoveryStreamComponents/TopSites/TopSites';
 @import '../../components/DiscoveryStreamComponents/DSLinkMenu/DSLinkMenu';
 @import '../../components/DiscoveryStreamComponents/DSCard/DSCard';
+@import '../../components/DiscoveryStreamComponents/DSCard/nova/DSCard';
 @import '../../components/DiscoveryStreamComponents/DSContextFooter/DSContextFooter';
 @import '../../components/DiscoveryStreamComponents/DSImage/DSImage';
 @import '../../components/DiscoveryStreamImpressionStats/ImpressionStats';
@@ -201,5 +201,9 @@ input {
 @import '../../components/DiscoveryStreamComponents/InterestPicker/InterestPicker';
 @import '../../components/DiscoveryStreamComponents/ReportContent/ReportContent';
 @import '../../components/DiscoveryStreamComponents/PersonalizedCard/PersonalizedCard';
+
+// Nova Component Styles
+@import 'TopSites';
+@import 'CardSections';
 
 // stylelint-enable no-invalid-position-at-import-rule

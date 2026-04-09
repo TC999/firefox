@@ -4,14 +4,23 @@
 
 package mozilla.components.lib.llm.mlpa.service
 
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.MissingFieldException
+import mozilla.components.concept.fetch.MutableHeaders
+import mozilla.components.concept.fetch.Response
 import mozilla.components.concept.integrity.IntegrityToken
+import mozilla.components.concept.llm.Llm
 import mozilla.components.lib.llm.mlpa.fakes.FakeClient
 import mozilla.components.lib.llm.mlpa.fakes.asBody
+import mozilla.components.lib.llm.mlpa.fakes.streamedResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class FetchClientMlpaServiceTest {
@@ -76,7 +85,6 @@ class FetchClientMlpaServiceTest {
             }
         }
 
-    @OptIn(ExperimentalSerializationApi::class)
     @Test
     fun `GIVEN a failure response WHEN we try to verify an integrity THEN return a failure`() =
         runTest {
@@ -98,7 +106,7 @@ class FetchClientMlpaServiceTest {
         }
 
     @Test
-    fun `GIVEN a successful response WHEN try to chat THEN return a constructed Response`() =
+    fun `GIVEN non-streamed successful response WHEN try to chat THEN return a constructed Response`() =
         runTest {
             val json = """
                 {
@@ -118,24 +126,21 @@ class FetchClientMlpaServiceTest {
             val response = mlpaService.completion(
                 authorizationToken = AuthorizationToken.Integrity("my-token"),
                 request = ChatService.Request(
-                    model = ChatService.Request.ModelID.mistral,
+                    model = ChatService.Request.ModelID.mozSummarization,
                     messages = listOf(ChatService.Request.Message.user("hello")),
+                    stream = false,
                 ),
             )
 
-            val expected = ChatService.Response(
-                choices = listOf(
-                    ChatService.Response.Choice(ChatService.Response.Message("world!")),
-                ),
-            )
+            val expected = listOf("world!")
 
-            assertEquals(response.getOrThrow(), expected)
+            assertEquals(response.toList(), expected)
             assertEquals("s2s-android", fakeClient.lastRequest?.headers?.get("service-type"))
             assertEquals("true", fakeClient.lastRequest?.headers?.get("use-play-integrity"))
         }
 
     @Test
-    fun `GIVEN a successful response with an fxa token WHEN try to chat THEN dont include the use-play-integrity header`() =
+    fun `GIVEN non-streamed success response with an fxa token WHEN try to chat THEN dont include the use-play-integrity header`() =
         runTest {
             val json = """
                 {
@@ -155,18 +160,37 @@ class FetchClientMlpaServiceTest {
             val response = mlpaService.completion(
                 authorizationToken = AuthorizationToken.Fxa("my-token"),
                 request = ChatService.Request(
-                    model = ChatService.Request.ModelID.mistral,
+                    model = ChatService.Request.ModelID.mozSummarization,
                     messages = listOf(ChatService.Request.Message.user("hello")),
+                    stream = false,
                 ),
             )
 
-            val expected = ChatService.Response(
-                choices = listOf(
-                    ChatService.Response.Choice(ChatService.Response.Message("world!")),
+            val expected = listOf("world!")
+
+            assertEquals(response.toList(), expected)
+            assertEquals("s2s-android", fakeClient.lastRequest?.headers?.get("service-type"))
+            assertEquals(null, fakeClient.lastRequest?.headers?.get("use-play-integrity"))
+        }
+
+    @Test
+    fun `GIVEN streamed success response WHEN try to chat THEN return the content of the response`() =
+        runTest {
+            val fakeClient = FakeClient.success(streamedResponseBody.asBody)
+            val mlpaService = FetchClientMlpaService(fakeClient, MlpaConfig.prodProd)
+
+            val response = mlpaService.completion(
+                authorizationToken = AuthorizationToken.Fxa("my-token"),
+                request = ChatService.Request(
+                    model = ChatService.Request.ModelID.mozSummarization,
+                    messages = listOf(ChatService.Request.Message.user("hello")),
+                    stream = true,
                 ),
             )
 
-            assertEquals(response.getOrThrow(), expected)
+            val expected = listOf("Hello", " World!")
+
+            assertEquals(response.toList(), expected)
             assertEquals("s2s-android", fakeClient.lastRequest?.headers?.get("service-type"))
             assertEquals(null, fakeClient.lastRequest?.headers?.get("use-play-integrity"))
         }
@@ -193,35 +217,68 @@ class FetchClientMlpaServiceTest {
             val response = mlpaService.completion(
                 authorizationToken = AuthorizationToken.Integrity("my-token"),
                 request = ChatService.Request(
-                    model = ChatService.Request.ModelID.mistral,
+                    model = ChatService.Request.ModelID.mozSummarization,
                     messages = listOf(ChatService.Request.Message.user("hello")),
+                    stream = false,
                 ),
             )
 
-            assertTrue(response.isFailure)
-
-            response.onFailure {
-                assertTrue(it is MissingFieldException)
-            }
+            response
+                .onEach { fail("Should immediately throw") }
+                .catch { assertTrue(it is MissingFieldException) }
+                .collect()
         }
 
     @Test
-    fun `GIVEN an error status code WHEN try to chat THEN return a failure`() =
+    fun `GIVEN an error status code WHEN try to chat THEN return the appropriate error`() =
         runTest {
-            val mlpaService = FetchClientMlpaService(FakeClient.failure(401), MlpaConfig.prodProd)
+            data class Case(val statusCode: Int, val expectedError: ChatServiceError) {
+                val headers get() = when (expectedError) {
+                    ChatServiceError.RateLimited(8000L),
+                    ChatServiceError.BudgetExceeded(8000L),
+                        -> MutableHeaders("Retry-After" to "8000")
+                    else -> MutableHeaders()
+                }
 
-            val response = mlpaService.completion(
-                authorizationToken = AuthorizationToken.Integrity("my-token"),
-                request = ChatService.Request(
-                    model = ChatService.Request.ModelID.mistral,
-                    messages = listOf(ChatService.Request.Message.user("hello")),
-                ),
+                val body get() = when (expectedError) {
+                    is ChatServiceError.BudgetExceeded -> "{ \"error\": 1 }".asBody
+                    is ChatServiceError.RateLimited -> "{ \"error\": 2 }".asBody
+                    is ChatServiceError.UpstreamError -> "{ \"error\": \"There was an error\" }".asBody
+                    else -> Response.Body.empty()
+                }
+            }
+
+            val cases = listOf(
+                Case(401, ChatServiceError.InvalidToken()),
+                Case(403, ChatServiceError.UserBlocked()),
+                Case(413, ChatServiceError.RequestTooLarge()),
+                Case(429, ChatServiceError.BudgetExceeded(8000L)),
+                Case(429, ChatServiceError.BudgetExceeded(null)),
+                Case(429, ChatServiceError.RateLimited(8000L)),
+                Case(502, ChatServiceError.UpstreamError("There was an error")),
+                Case(500, ChatServiceError.ServerError(500)),
             )
 
-            assertTrue(response.isFailure)
+            cases.forEach { case ->
+                val service = FetchClientMlpaService(
+                    client = FakeClient.failure(case.statusCode, case.headers, case.body),
+                    config = MlpaConfig.prodProd,
+                )
 
-            response.onFailure {
-                assertEquals("Chat Service Failed: Received status code 401", it.message)
+                val response = service.completion(
+                    authorizationToken = AuthorizationToken.Integrity("my-token"),
+                    request = ChatService.Request(
+                        model = ChatService.Request.ModelID.mozSummarization,
+                        messages = listOf(ChatService.Request.Message.user("hello")),
+                    ),
+                )
+
+                response
+                    .onEach { _ -> fail("We should have thrown an exception") }
+                    .catch {
+                        assertTrue("Should be ChatServiceError but got $it", it is ChatServiceError)
+                        assertEquals(case.expectedError.errorCode, (it as Llm.Exception).errorCode)
+                    }.collect()
             }
         }
 }

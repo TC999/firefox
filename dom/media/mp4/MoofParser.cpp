@@ -974,12 +974,13 @@ Result<Ok, nsresult> Moof::ParseTrun(const Box& aBox, const Mvhd& aMvhd,
   }
 
   // Bug 2004835: use CheckedInt to make sure we don't overflow.
-  // According to the spec, MP4 times shall be unsigned 64 bits integer,
-  // but we need signed integers here for the computation. So we aren't
-  // 100% compliant but we don't expect such big values anyway: we just
-  // need to handle potential high/invalid values correctly and not
-  // overflow in this case
-  CheckedInt64 decodeTime = *aDecodeTime;
+  // Reinterpret the tfdt as signed before assigning to CheckedInt.
+  // Some encoders store AAC pre-roll delay as 2^64-N (e.g. 2^64-2048), which
+  // is valid per ISO 14496-12 but exceeds INT64_MAX. The static_cast gives a
+  // small negative value (-N) that the existing edit-list mechanism treats as
+  // pre-roll, keeping the presentation timestamps correct. Accumulation
+  // overflow is still caught by the isValid() check below.
+  CheckedInt64 decodeTime = static_cast<int64_t>(*aDecodeTime);
 
   if (!mIndex.SetCapacity(mIndex.Length() + sampleCount, fallible)) {
     LOG_ERROR(Moof, "Out of Memory");
@@ -1041,6 +1042,9 @@ Result<Ok, nsresult> Moof::ParseTrun(const Box& aBox, const Mvhd& aMvhd,
     LOG_WARN(Moof, "Decode time overflow in ParseTrun");
     return Err(NS_ERROR_FAILURE);
   }
+  // The int64_t -> uint64_t conversion preserves the bit pattern; the next
+  // ParseTrun call reinterprets it back via static_cast<int64_t>, recovering
+  // the correct (possibly negative) decode time.
   *aDecodeTime = decodeTime.value();
 
   LOG_DEBUG(Trun, "Done.");

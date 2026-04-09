@@ -81,12 +81,19 @@ sealed class TabsTrayItem(
         override val id: String = UUID.randomUUID().toString(),
         val title: String,
         val theme: TabGroupTheme,
-        val tabs: HashSet<Tab>,
+        val tabs: MutableList<Tab>,
         val closed: Boolean = false,
     ) : TabsTrayItem(
         id = id,
         isHomepageItem = false,
-    )
+    ) {
+        /**
+         * Retrieves the thumbnail image data for the first 4 tabs in the group's tab collection.
+         */
+        val thumbnails by lazy {
+            tabs.take(4).map { it.toThumbnailImageData() }
+        }
+    }
 
     /**
      * @param text The text to search for.
@@ -125,7 +132,7 @@ internal fun createTabGroup(
     id: String = UUID.randomUUID().toString(),
     title: String = "",
     theme: TabGroupTheme = TabGroupTheme.default,
-    tabs: HashSet<TabsTrayItem.Tab> = hashSetOf(),
+    tabs: MutableList<TabsTrayItem.Tab> = mutableListOf(),
     closed: Boolean = false,
 ): TabsTrayItem.TabGroup = TabsTrayItem.TabGroup(
     id = id,

@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -44,15 +42,20 @@ class OpenVRControllerManifestManager {
     return mManifest.Get(static_cast<uint32_t>(aType), aPath);
   }
 
+  OpenVRControllerManifestManager(const OpenVRControllerManifestManager&) =
+      delete;
+  const OpenVRControllerManifestManager& operator=(
+      const OpenVRControllerManifestManager&) = delete;
+
  private:
   ~OpenVRControllerManifestManager() {
-    if (!mAction.IsEmpty() && remove(mAction.BeginReading()) != 0) {
+    if (!mAction.IsEmpty() && remove(mAction.get()) != 0) {
       MOZ_ASSERT(false, "Delete controller action file failed.");
     }
     mAction = "";
 
     for (const auto& path : mManifest.Values()) {
-      if (!path.IsEmpty() && remove(path.BeginReading()) != 0) {
+      if (!path.IsEmpty() && remove(path.get()) != 0) {
         MOZ_ASSERT(false, "Delete controller manifest file failed.");
       }
     }
@@ -61,11 +64,6 @@ class OpenVRControllerManifestManager {
 
   nsCString mAction;
   nsTHashMap<nsUint32HashKey, nsCString> mManifest;
-  OpenVRControllerManifestManager(const OpenVRControllerManifestManager&) =
-      delete;
-
-  const OpenVRControllerManifestManager& operator=(
-      const OpenVRControllerManifestManager&) = delete;
 };
 
 StaticRefPtr<OpenVRControllerManifestManager> sOpenVRControllerManifestManager;

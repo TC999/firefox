@@ -36,6 +36,8 @@ import {
   MESSAGES_BY_DATE,
   MESSAGES_BY_DATE_AND_ROLE,
   DELETE_CONVERSATION_BY_ID,
+  DELETE_CONVERSATIONS_BY_DATE,
+  DELETE_ALL_CONVERSATIONS,
   CONVERSATIONS_OLDEST,
   CONVERSATION_HISTORY,
   ESCAPE_CHAR,
@@ -54,7 +56,7 @@ export {
   CONVERSATION_STATUS,
   MESSAGE_ROLE,
   MEMORIES_FLAG_SOURCE,
-} from "./ChatConstants.sys.mjs";
+} from "./AIWindowConstants.sys.mjs";
 
 import {
   CURRENT_SCHEMA_VERSION,
@@ -62,7 +64,7 @@ import {
   DB_FILE_NAME,
   PREF_BRANCH,
   CONVERSATION_STATUS,
-} from "./ChatConstants.sys.mjs";
+} from "./AIWindowConstants.sys.mjs";
 
 import {
   parseConversationRow,
@@ -127,11 +129,13 @@ class ChatStore {
   #asyncShutdownBlocker;
   #conn;
   #promiseConn;
+  #lastRecordedSize;
 
   constructor() {
     this.#asyncShutdownBlocker = async () => {
       await this.#closeConnection();
     };
+    this.#lastRecordedSize = null;
   }
 
   /**
@@ -163,6 +167,8 @@ class ChatStore {
           updated_date: conversation.updatedDate,
           status: conversation.status,
           active_branch_tip_message_id: conversation.activeBranchTipMessageId,
+          security_properties: toJSONOrNull(conversation.securityProperties),
+          seen_urls: JSON.stringify(Array.from(conversation.seenUrls ?? [])),
         });
 
         const messages = conversation.messages.map(m => ({
@@ -191,6 +197,8 @@ class ChatStore {
         lazy.log.error("Transaction failed to execute", e.message, e.stack);
         throw e;
       });
+
+    this.#recordDatabaseSize();
   }
 
   /**
@@ -219,6 +227,8 @@ class ChatStore {
 
         throw e;
       });
+
+    this.#recordDatabaseSize();
   }
 
   /**
@@ -249,6 +259,8 @@ class ChatStore {
 
         throw e;
       });
+
+    this.#recordDatabaseSize();
   }
 
   /**
@@ -708,6 +720,8 @@ class ChatStore {
         await this.#conn.execute(deleteConvsSql, conversations);
       });
     }
+
+    this.#recordDatabaseSize();
   }
 
   /**
@@ -749,6 +763,47 @@ class ChatStore {
     await this.#conn.execute(DELETE_CONVERSATION_BY_ID, {
       conv_id: id,
     });
+
+    this.#recordDatabaseSize();
+  }
+
+  /**
+   * Deletes all conversations created within the given date range.
+   * Messages are cascade-deleted via foreign key constraints.
+   *
+   * @param {Date} startDate - The start date, inclusive
+   * @param {Date} endDate - The end date, inclusive
+   */
+  async deleteConversationsByDateRange(startDate, endDate) {
+    await this.#ensureDatabase().catch(e => {
+      lazy.log.error(
+        "Could not ensure a database connection.",
+        e.message,
+        e.stack
+      );
+      throw e;
+    });
+
+    await this.#conn.execute(DELETE_CONVERSATIONS_BY_DATE, {
+      start_date: startDate.getTime(),
+      end_date: endDate.getTime(),
+    });
+  }
+
+  /**
+   * Deletes all conversations and their messages.
+   */
+  async deleteAllConversations() {
+    await this.#ensureDatabase().catch(e => {
+      lazy.log.error(
+        "Could not ensure a database connection.",
+        e.message,
+        e.stack
+      );
+      throw e;
+    });
+
+    await this.#conn.execute(DELETE_ALL_CONVERSATIONS);
   }
 
   /**
@@ -757,6 +812,27 @@ class ChatStore {
   async destroyDatabase() {
     await this.#removeDatabaseFiles();
     this.#promiseConn = null;
+    this.#recordDatabaseSizeValue(0);
+  }
+
+  async #recordDatabaseSize() {
+    let size = null;
+    try {
+      size = await this.getDatabaseSize();
+    } catch (e) {
+      lazy.log.error("Could not record database size", e.message, e.stack);
+      return;
+    }
+
+    this.#recordDatabaseSizeValue(size);
+  }
+
+  #recordDatabaseSizeValue(size) {
+    if (size === this.#lastRecordedSize) {
+      return;
+    }
+    this.#lastRecordedSize = size;
+    Glean.smartWindow.chatStorage.set(size);
   }
 
   /**

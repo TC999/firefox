@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -235,8 +233,7 @@ void Navigation::EventListenerRemoved(nsAtom* aType) {
 
 /* static */
 bool Navigation::IsAPIEnabled(JSContext* /* unused */, JSObject* /* unused */) {
-  return SessionHistoryInParent() &&
-         StaticPrefs::dom_navigation_webidl_enabled_DoNotUseDirectly();
+  return StaticPrefs::dom_navigation_webidl_enabled_DoNotUseDirectly();
 }
 
 void Navigation::Entries(
@@ -375,7 +372,8 @@ void Navigation::InitializeHistoryEntries(
 
 // https://html.spec.whatwg.org/#update-the-navigation-api-entries-for-a-same-document-navigation
 void Navigation::UpdateEntriesForSameDocumentNavigation(
-    SessionHistoryInfo* aDestinationSHE, NavigationType aNavigationType) {
+    SessionHistoryInfo* aDestinationSHE, NavigationType aNavigationType,
+    bool aFiredNavigateEvent) {
   // Step 1.
   if (HasEntriesAndEventsDisabled()) {
     return;
@@ -435,7 +433,8 @@ void Navigation::UpdateEntriesForSameDocumentNavigation(
     entry->ResetIndexForDisposal();
   }
 
-  RefPtr ongoingNavigateEvent = mOngoingNavigateEvent;
+  RefPtr ongoingNavigateEvent =
+      aFiredNavigateEvent ? mOngoingNavigateEvent : nullptr;
   RefPtr ongoingAPIMethodTracker = mOngoingAPIMethodTracker;
 
   {
@@ -533,7 +532,7 @@ struct NavigationWaitForAllScope final : public nsISupports,
   RefPtr<NavigationDestination> mDestination;
 
  private:
-  ~NavigationWaitForAllScope() {}
+  ~NavigationWaitForAllScope() = default;
 
  public:
   // https://html.spec.whatwg.org/#process-navigate-event-handler-failure
@@ -1349,7 +1348,7 @@ void Navigation::TraverseTo(JSContext* aCx, const nsAString& aKey,
   //    early error result for an "InvalidStateError" DOMException.
   nsID key{};
   const bool foundKey =
-      key.Parse(NS_ConvertUTF16toUTF8(aKey).Data()) &&
+      key.Parse(NS_ConvertUTF16toUTF8(aKey).get()) &&
       std::find_if(mEntries.begin(), mEntries.end(), [&](const auto& aEntry) {
         return aEntry->Key() == key;
       }) != mEntries.end();

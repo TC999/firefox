@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1664,7 +1662,7 @@ void nsCSSFrameConstructor::CreateGeneratedContent(
 
         nsAutoString temp;
         nsContentUtils::GetMaybeLocalizedString(
-            nsContentUtils::eFORMS_PROPERTIES, "Submit", mDocument, temp);
+            PropertiesFile::FORMS_PROPERTIES, "Submit", mDocument, temp);
         RefPtr c = CreateGenConTextNode(aState, temp, nullptr);
         aAddChild(c);
         return;
@@ -2410,7 +2408,7 @@ nsIFrame* nsCSSFrameConstructor::ConstructDocElementFrame(
     if (bodyWM != rootWM) {
       nsContentUtils::ReportToConsole(nsIScriptError::warningFlag, "Layout"_ns,
                                       mDocument,
-                                      nsContentUtils::eLAYOUT_PROPERTIES,
+                                      PropertiesFile::LAYOUT_PROPERTIES,
                                       "PrincipalWritingModePropagationWarning");
     }
     return bodyWM;
@@ -3615,7 +3613,7 @@ nsCSSFrameConstructor::FindInputData(const Element& aElement,
   // not (respectively) StyleAppearance::Radio and StyleAppearance::Checkbox.)
   if ((controlType == FormControlType::InputCheckbox ||
        controlType == FormControlType::InputRadio) &&
-      !aStyle.StyleDisplay()->HasAppearance()) {
+      !aStyle.StyleDisplay()->HasNativeAppearance()) {
     return nullptr;
   }
 
@@ -7298,7 +7296,7 @@ void nsCSSFrameConstructor::GetAlternateTextFor(const Element& aElement,
 
     // If there's no "value" attribute either, then use the localized string for
     // "Submit" as the alternate text.
-    nsContentUtils::GetMaybeLocalizedString(nsContentUtils::eFORMS_PROPERTIES,
+    nsContentUtils::GetMaybeLocalizedString(PropertiesFile::FORMS_PROPERTIES,
                                             "Submit", aElement.OwnerDoc(),
                                             aAltText);
   }

@@ -14,15 +14,11 @@ const {
   "moz-src:///browser/components/aiwindow/models/Tools.sys.mjs"
 );
 
-const { Chat } = ChromeUtils.importESModule(
-  "moz-src:///browser/components/aiwindow/models/Chat.sys.mjs"
-);
-
-add_task(async function test_run_search_registered_in_toolMap() {
+add_task(async function test_run_search_is_callable() {
   Assert.strictEqual(
-    typeof Chat.toolMap.run_search,
+    typeof RunSearch.runSearch,
     "function",
-    "run_search should be registered in Chat.toolMap"
+    "RunSearch.runSearch should be a function"
   );
 });
 
@@ -129,6 +125,82 @@ add_task(async function test_run_search_no_browsingContext_returns_error() {
   Assert.ok(
     result.includes("no browsingContext provided"),
     "Error should mention no browsingContext provided"
+  );
+});
+
+function createFakeSearchContext() {
+  const fakeTab = { selected: true };
+  const fakeWin = {
+    closed: false,
+    gBrowser: {
+      getTabForBrowser: () => fakeTab,
+      addProgressListener(listener) {
+        listener.onStateChange(
+          null,
+          null,
+          Ci.nsIWebProgressListener.STATE_STOP |
+            Ci.nsIWebProgressListener.STATE_IS_NETWORK
+        );
+      },
+      removeProgressListener() {},
+    },
+  };
+  return {
+    browsingContext: {
+      topChromeWindow: fakeWin,
+      embedderElement: {
+        currentURI: Services.io.newURI("https://example.com"),
+      },
+    },
+  };
+}
+
+add_task(async function test_runSearch_sets_security_flags() {
+  const fakeContext = createFakeSearchContext();
+  const conversation = makeConversation();
+  const result = await RunSearch.runSearch(
+    { query: "test query" },
+    fakeContext.browsingContext,
+    conversation
+  );
+  conversation.securityProperties.commit();
+
+  Assert.ok(result.includes("Error"), "Expected an error result from the mock");
+  Assert.equal(
+    conversation.securityProperties.privateData,
+    true,
+    "private_data flag set"
+  );
+  Assert.equal(
+    conversation.securityProperties.untrustedInput,
+    true,
+    "untrusted_input flag set"
+  );
+});
+
+add_task(async function test_runSearch_allowed_when_flags_set() {
+  const fakeContext = createFakeSearchContext();
+  const conversation = makeConversation({
+    privateData: true,
+    untrustedInput: true,
+  });
+  const result = await RunSearch.runSearch(
+    { query: "test query" },
+    fakeContext.browsingContext,
+    conversation
+  );
+
+  Assert.ok(result.includes("Error"), "no security refusal");
+});
+
+add_task(async function test_runSearch_no_security_flags_on_early_exit() {
+  const conversation = makeConversation();
+  await RunSearch.runSearch({ query: "" }, {}, conversation);
+  conversation.securityProperties.commit();
+  Assert.equal(
+    conversation.securityProperties.untrustedInput,
+    false,
+    "flag not set early"
   );
 });
 

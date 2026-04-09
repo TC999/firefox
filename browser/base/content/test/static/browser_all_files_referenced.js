@@ -241,6 +241,9 @@ var allowlist = [
   // File from the ipp-activator add-on
   { file: "resource://builtin-addons/ipp-activator/breakages/tab.json" },
 
+  // Bug 2025853 - ContentSharingUtils is not yet imported anywhere.
+  { file: "resource://app/modules/contentsharing/ContentSharingUtils.sys.mjs" },
+
   // Starting from here, files in the allowlist are bugs that need fixing.
   // Bug 1339424 (wontfix?)
   {
@@ -330,6 +333,12 @@ var allowlist = [
   {
     file: "resource://app/modules/backup/CookiesBackupResource.sys.mjs",
   },
+
+  // Bug 2023223: Replace loginOrigin, addresses, payments, and form history
+  // richlist items with autocomplete-row-item
+  {
+    file: "chrome://global/content/autocomplete-row-item/autocomplete-row-item.mjs",
+  },
 ];
 
 if (AppConstants.NIGHTLY_BUILD) {
@@ -337,6 +346,15 @@ if (AppConstants.NIGHTLY_BUILD) {
     // A debug tool that is only available in Nightly builds, and is accessed
     // directly by developers via the chrome URI (bug 1888491)
     { file: "chrome://browser/content/backup/debug.html" }
+  );
+}
+
+if (!AppConstants.RELEASE_OR_BETA) {
+  allowlist.push(
+    // browser/extensions/newtab/actors/AboutNewTabChild.sys.mjs constructs the
+    // URL dynamically: `chrome://global/content/vendor/react${debugString}.js`
+    { file: "chrome://global/content/vendor/react-dev.js" },
+    { file: "chrome://global/content/vendor/react-dom-dev.js" }
   );
 }
 

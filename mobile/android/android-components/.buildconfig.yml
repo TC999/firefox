@@ -83,6 +83,7 @@ projects:
     - components:lib-fetch-okhttp
     - components:lib-publicsuffixlist
     - components:lib-state
+    - components:service-merino-manifest
     - components:support-base
     - components:support-images
     - components:support-ktx
@@ -428,6 +429,12 @@ projects:
     publish: true
     upstream_dependencies:
     - components:tooling-lint
+  components:concept-ai-controls:
+    description: An abstract definition of a ai-controls component.
+    path: components/concept/ai-controls
+    publish: true
+    upstream_dependencies:
+    - components:tooling-lint
   components:concept-awesomebar:
     description: An abstract definition of an awesomebar component.
     path: components/concept/awesomebar
@@ -734,6 +741,7 @@ projects:
     - components:lib-publicsuffixlist
     - components:lib-state
     - components:service-location
+    - components:service-merino-manifest
     - components:support-appservices
     - components:support-base
     - components:support-images
@@ -801,6 +809,7 @@ projects:
     - components:lib-publicsuffixlist
     - components:lib-state
     - components:service-location
+    - components:service-merino-manifest
     - components:support-appservices
     - components:support-base
     - components:support-images
@@ -847,6 +856,7 @@ projects:
     - components:lib-state
     - components:service-digitalassetlinks
     - components:service-location
+    - components:service-merino-manifest
     - components:support-appservices
     - components:support-base
     - components:support-images
@@ -888,6 +898,15 @@ projects:
     - components:ui-colors
     - components:ui-icons
     - components:ui-widgets
+  components:feature-example:
+    description: A sample feature component demonstrating module structure and conventions.
+    path: components/feature/example
+    publish: false
+    upstream_dependencies:
+    - components:concept-base
+    - components:concept-fetch
+    - components:support-base
+    - components:tooling-lint
   components:feature-findinpage:
     description: Feature that will subscribe to the selected session and show an UI
       for results of find in page.
@@ -964,6 +983,7 @@ projects:
     - components:lib-publicsuffixlist
     - components:lib-state
     - components:service-location
+    - components:service-merino-manifest
     - components:support-appservices
     - components:support-base
     - components:support-images
@@ -972,6 +992,47 @@ projects:
     - components:support-remotesettings
     - components:support-test
     - components:support-test-libstate
+    - components:support-utils
+    - components:tooling-lint
+    - components:ui-autocomplete
+    - components:ui-colors
+    - components:ui-icons
+    - components:ui-tabcounter
+    - components:ui-widgets
+  components:feature-ipprotection:
+    description: Feature module bridging GeckoView IP protection proxy state into
+      an AC store.
+    path: components/feature/ipprotection
+    publish: false
+    upstream_dependencies:
+    - components:browser-errorpages
+    - components:browser-menu
+    - components:browser-menu2
+    - components:browser-session-storage
+    - components:browser-state
+    - components:browser-tabstray
+    - components:browser-thumbnails
+    - components:browser-toolbar
+    - components:compose-base
+    - components:concept-awesomebar
+    - components:concept-base
+    - components:concept-engine
+    - components:concept-fetch
+    - components:concept-menu
+    - components:concept-storage
+    - components:concept-sync
+    - components:concept-tabstray
+    - components:concept-toolbar
+    - components:feature-session
+    - components:feature-tabs
+    - components:lib-dataprotect
+    - components:lib-publicsuffixlist
+    - components:lib-state
+    - components:service-firefox-accounts
+    - components:support-base
+    - components:support-images
+    - components:support-ktx
+    - components:support-test
     - components:support-utils
     - components:tooling-lint
     - components:ui-autocomplete
@@ -1107,7 +1168,20 @@ projects:
     path: components/feature/protection-dashboard
     publish: true
     upstream_dependencies:
+    - components:browser-errorpages
+    - components:browser-state
+    - components:concept-awesomebar
+    - components:concept-base
+    - components:concept-engine
+    - components:concept-fetch
+    - components:concept-storage
+    - components:lib-publicsuffixlist
+    - components:lib-state
+    - components:support-base
+    - components:support-ktx
+    - components:support-utils
     - components:tooling-lint
+    - components:ui-icons
   components:feature-push:
     description: Feature that implements push notifications with a supported push
       service.
@@ -1152,6 +1226,7 @@ projects:
     - components:lib-state
     - components:service-digitalassetlinks
     - components:service-location
+    - components:service-merino-manifest
     - components:support-appservices
     - components:support-base
     - components:support-images
@@ -1271,6 +1346,7 @@ projects:
     - components:lib-publicsuffixlist
     - components:lib-state
     - components:service-location
+    - components:service-merino-manifest
     - components:support-appservices
     - components:support-base
     - components:support-images
@@ -1412,6 +1488,7 @@ projects:
     upstream_dependencies:
     - components:browser-errorpages
     - components:compose-base
+    - components:concept-ai-controls
     - components:concept-base
     - components:concept-engine
     - components:concept-fetch
@@ -1448,6 +1525,7 @@ projects:
     - components:lib-publicsuffixlist
     - components:lib-state
     - components:service-firefox-accounts
+    - components:service-merino-manifest
     - components:support-appservices
     - components:support-base
     - components:support-images
@@ -1671,6 +1749,7 @@ projects:
     - components:lib-publicsuffixlist
     - components:lib-state
     - components:service-location
+    - components:service-merino-manifest
     - components:support-appservices
     - components:support-base
     - components:support-images
@@ -1697,6 +1776,24 @@ projects:
     - components:support-base
     - components:support-test
     - components:tooling-lint
+  components:lib-ai-controls:
+    description: An abstract definition of a ai-controls component.
+    path: components/lib/ai-controls
+    publish: true
+    upstream_dependencies:
+    - components:browser-errorpages
+    - components:concept-ai-controls
+    - components:concept-base
+    - components:concept-engine
+    - components:concept-fetch
+    - components:concept-storage
+    - components:lib-publicsuffixlist
+    - components:support-base
+    - components:support-ktx
+    - components:support-test-fakes
+    - components:support-utils
+    - components:tooling-lint
+    - components:ui-icons
   components:lib-auth:
     description: A component for various kinds of authentication mechanisms.
     path: components/lib/auth
@@ -1810,13 +1907,21 @@ projects:
     path: components/lib/llm-mlpa
     publish: true
     upstream_dependencies:
+    - components:browser-errorpages
     - components:concept-base
+    - components:concept-engine
     - components:concept-fetch
     - components:concept-integrity
     - components:concept-llm
+    - components:concept-storage
+    - components:lib-publicsuffixlist
     - components:support-base
+    - components:support-ktx
     - components:support-test
+    - components:support-test-fakes
+    - components:support-utils
     - components:tooling-lint
+    - components:ui-icons
   components:lib-publicsuffixlist:
     description: A library for reading and using the public suffix list.
     path: components/lib/publicsuffixlist
@@ -1924,6 +2029,7 @@ projects:
     - components:service-digitalassetlinks
     - components:service-glean
     - components:service-location
+    - components:service-merino-manifest
     - components:service-nimbus
     - components:service-sync-logins
     - components:support-android-test
@@ -1981,6 +2087,7 @@ projects:
     - components:lib-publicsuffixlist
     - components:lib-state
     - components:service-location
+    - components:service-merino-manifest
     - components:service-nimbus
     - components:support-appservices
     - components:support-base
@@ -2280,6 +2387,20 @@ projects:
     - components:support-test
     - components:support-utils
     - components:tooling-lint
+  components:service-merino-manifest:
+    description: A library that provides metadata for popular websites using an embedded
+      snapshot of the Merino manifest.
+    path: components/service/merino-manifest
+    publish: true
+    upstream_dependencies:
+    - components:concept-base
+    - components:concept-fetch
+    - components:lib-publicsuffixlist
+    - components:support-base
+    - components:support-ktx
+    - components:support-test
+    - components:support-utils
+    - components:tooling-lint
   components:service-nimbus:
     description: A client-side experiment SDK
     path: components/service/nimbus
@@ -2408,7 +2529,20 @@ projects:
     path: components/support/license
     publish: true
     upstream_dependencies:
+    - components:browser-errorpages
+    - components:concept-base
+    - components:concept-engine
+    - components:concept-fetch
+    - components:concept-storage
+    - components:concept-toolbar
+    - components:lib-publicsuffixlist
+    - components:support-base
+    - components:support-ktx
+    - components:support-utils
     - components:tooling-lint
+    - components:ui-colors
+    - components:ui-icons
+    - components:ui-widgets
   components:support-locale:
     description: A component to allow apps to change the system defined language by
       their custom one

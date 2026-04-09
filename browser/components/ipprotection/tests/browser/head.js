@@ -10,11 +10,11 @@ const { IPProtection, IPProtectionWidget } = ChromeUtils.importESModule(
 );
 
 const { IPProtectionService, IPProtectionStates } = ChromeUtils.importESModule(
-  "moz-src:///browser/components/ipprotection/IPProtectionService.sys.mjs"
+  "moz-src:///toolkit/components/ipprotection/IPProtectionService.sys.mjs"
 );
 
 const { IPPProxyManager, IPPProxyStates } = ChromeUtils.importESModule(
-  "moz-src:///browser/components/ipprotection/IPPProxyManager.sys.mjs"
+  "moz-src:///toolkit/components/ipprotection/IPPProxyManager.sys.mjs"
 );
 
 const { IPProtectionAlertManager } = ChromeUtils.importESModule(
@@ -22,11 +22,11 @@ const { IPProtectionAlertManager } = ChromeUtils.importESModule(
 );
 
 const { IPPSignInWatcher } = ChromeUtils.importESModule(
-  "moz-src:///browser/components/ipprotection/IPPSignInWatcher.sys.mjs"
+  "moz-src:///toolkit/components/ipprotection/fxa/IPPSignInWatcher.sys.mjs"
 );
 
 const { IPPEnrollAndEntitleManager } = ChromeUtils.importESModule(
-  "moz-src:///browser/components/ipprotection/IPPEnrollAndEntitleManager.sys.mjs"
+  "moz-src:///toolkit/components/ipprotection/fxa/IPPEnrollAndEntitleManager.sys.mjs"
 );
 
 const { HttpServer, HTTP_403 } = ChromeUtils.importESModule(
@@ -38,7 +38,7 @@ const { NimbusTestUtils } = ChromeUtils.importESModule(
 );
 
 const { Server } = ChromeUtils.importESModule(
-  "moz-src:///browser/components/ipprotection/IPProtectionServerlist.sys.mjs"
+  "moz-src:///toolkit/components/ipprotection/IPProtectionServerlist.sys.mjs"
 );
 
 ChromeUtils.defineESModuleGetters(this, {
@@ -49,10 +49,14 @@ ChromeUtils.defineESModuleGetters(this, {
 });
 
 const { ProxyPass, ProxyUsage, Entitlement } = ChromeUtils.importESModule(
-  "moz-src:///browser/components/ipprotection/GuardianClient.sys.mjs"
+  "moz-src:///toolkit/components/ipprotection/GuardianClient.sys.mjs"
 );
 const { RemoteSettings } = ChromeUtils.importESModule(
   "resource://services-settings/remote-settings.sys.mjs"
+);
+
+const { SpecialMessageActions } = ChromeUtils.importESModule(
+  "resource://messaging-system/lib/SpecialMessageActions.sys.mjs"
 );
 
 // Adapted from devtools/client/performance-new/test/browser/helpers.js
@@ -98,7 +102,11 @@ const defaultState = new IPProtectionPanel().state;
 async function openPanel(state, win = window) {
   let panel = IPProtection.getPanel(win);
   if (state) {
-    panel.setState(state);
+    panel.setState({
+      isCheckingEntitlement: false,
+      unauthenticated: false,
+      ...state,
+    });
   }
 
   let panelShownPromise = waitForPanelEvent(win.document, "popupshown");
@@ -256,6 +264,7 @@ let DEFAULT_SERVICE_STATUS = {
   isSignedIn: false,
   isEnrolledAndEntitled: undefined,
   canEnroll: true,
+  isLinkedToGuardian: false,
   entitlement: {
     status: 200,
     error: undefined,
@@ -268,17 +277,23 @@ let DEFAULT_SERVICE_STATUS = {
     usage: makeUsage(),
   },
   usageInfo: makeUsage(),
+  signInFlow: true,
 };
 /* exported DEFAULT_SERVICE_STATUS */
 
 let STUBS = {
   isEnrolledAndEntitled: undefined,
   hasUpgraded: undefined,
-  enroll: undefined,
+  isEnrolling: undefined,
+  isCheckingEntitlement: undefined,
+  updateEntitlement: undefined,
+  refetchEntitlement: undefined,
+  enrollWithFxa: undefined,
   fetchUserInfo: undefined,
   fetchProxyPass: undefined,
   fetchProxyUsage: undefined,
   isLinkedToGuardian: undefined,
+  fxaSignInFlow: undefined,
 };
 /* exported STUBS */
 
@@ -370,19 +385,39 @@ function setupStubs(stubs = STUBS) {
     IPPEnrollAndEntitleManager,
     "hasUpgraded"
   );
+  // Stub isEnrolling, isCheckingEntitlement, updateEntitlement, and refetchEntitlement
+  // to prevent loading skeleton from rendering unexpectedly during tests.
+  stubs.isEnrolling = setupSandbox
+    .stub(IPPEnrollAndEntitleManager, "isEnrolling")
+    .get(() => false);
+  stubs.isCheckingEntitlement = setupSandbox
+    .stub(IPPEnrollAndEntitleManager, "isCheckingEntitlement")
+    .get(() => false);
+  stubs.updateEntitlement = setupSandbox
+    .stub(IPPEnrollAndEntitleManager, "updateEntitlement")
+    .resolves();
+  stubs.refetchEntitlement = setupSandbox
+    .stub(IPPEnrollAndEntitleManager, "refetchEntitlement")
+    .resolves();
 
   const guardianStub = {
-    enroll: setupSandbox.stub(),
+    enrollWithFxa: setupSandbox.stub(),
     fetchUserInfo: setupSandbox.stub(),
     fetchProxyPass: setupSandbox.stub(),
     fetchProxyUsage: setupSandbox.stub(),
-    isLinkedToGuardian: setupSandbox.stub().resolves(false),
   };
-  stubs.enroll = guardianStub.enroll;
+  stubs.enrollWithFxa = guardianStub.enrollWithFxa;
   stubs.fetchUserInfo = guardianStub.fetchUserInfo;
   stubs.fetchProxyPass = guardianStub.fetchProxyPass;
   stubs.fetchProxyUsage = guardianStub.fetchProxyUsage;
-  stubs.isLinkedToGuardian = guardianStub.isLinkedToGuardian;
+  stubs.isLinkedToGuardian = setupSandbox.stub(
+    IPPEnrollAndEntitleManager,
+    "isLinkedToGuardian"
+  );
+  stubs.fxaSignInFlow = setupSandbox.stub(
+    SpecialMessageActions,
+    "fxaSignInFlow"
+  );
 
   setupSandbox.stub(IPProtectionService, "guardian").get(() => guardianStub);
 }
@@ -397,6 +432,8 @@ function setupService(
     entitlement,
     proxyPass,
     usageInfo,
+    isLinkedToGuardian,
+    signInFlow,
   } = DEFAULT_SERVICE_STATUS,
   stubs = STUBS
 ) {
@@ -413,7 +450,7 @@ function setupService(
   }
 
   if (typeof canEnroll != "undefined") {
-    stubs.enroll.resolves({
+    stubs.enrollWithFxa.resolves({
       ok: canEnroll,
     });
   }
@@ -430,6 +467,14 @@ function setupService(
 
   if (typeof usageInfo != "undefined") {
     stubs.fetchProxyUsage.resolves(usageInfo);
+  }
+
+  if (typeof isLinkedToGuardian != "undefined") {
+    stubs.isLinkedToGuardian.resolves(isLinkedToGuardian);
+  }
+
+  if (typeof signInFlow != "undefined") {
+    stubs.fxaSignInFlow.resolves(signInFlow);
   }
 }
 /* exported setupService */

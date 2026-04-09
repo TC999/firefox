@@ -43,6 +43,7 @@
 #ifdef HB_TINY
 #define HB_LEAN
 #define HB_MINI
+#define HB_NO_SVG
 #define HB_OPTIMIZE_SIZE
 #define HB_OPTIMIZE_SIZE_MORE
 #define HB_MINIMIZE_MEMORY_USAGE
@@ -60,7 +61,6 @@
 #define HB_NO_BUFFER_SERIALIZE
 #define HB_NO_BUFFER_VERIFY
 #define HB_NO_BITMAP
-#define HB_NO_CFF
 #define HB_NO_COLOR
 #define HB_NO_DRAW
 #define HB_NO_ERRNO
@@ -78,7 +78,6 @@
 #define HB_NO_NAME
 #define HB_NO_OPEN
 #define HB_NO_OT_FONT_GLYPH_NAMES
-#define HB_NO_OT_SHAPE_FRACTIONS
 #define HB_NO_PAINT
 #define HB_NO_SETLOCALE
 #define HB_NO_STYLE
@@ -92,8 +91,6 @@
 #define HB_NO_LEGACY
 #define HB_NO_BEYOND_64K
 #define HB_NO_CUBIC_GLYF
-#define HB_NO_VAR_COMPOSITES
-#define HB_NO_VAR_HVF
 #endif
 
 #ifdef __OPTIMIZE_SIZE__
@@ -135,14 +132,15 @@
 #define HB_NO_OT_FONT_BITMAP
 #endif
 
+#ifdef HB_NO_DRAW
+#define HB_NO_CFF
+#define HB_NO_OUTLINE
+#define HB_NO_PAINT
+#endif
+
 #ifdef HB_NO_CFF
 #define HB_NO_OT_FONT_CFF
 #define HB_NO_SUBSET_CFF
-#endif
-
-#ifdef HB_NO_DRAW
-#define HB_NO_OUTLINE
-#define HB_NO_PAINT
 #endif
 
 #ifdef HB_NO_LEGACY

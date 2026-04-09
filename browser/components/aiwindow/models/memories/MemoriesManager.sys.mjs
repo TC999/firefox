@@ -16,7 +16,6 @@ import {
   MODEL_FEATURES,
   openAIEngine,
   renderPrompt,
-  SERVICE_TYPES,
 } from "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs";
 import { MemoryStore } from "moz-src:///browser/components/aiwindow/services/MemoryStore.sys.mjs";
 import {
@@ -86,8 +85,7 @@ export class MemoriesManager {
     const buildFresh = () => {
       this.#openAIEngineGenerationPromise = openAIEngine.build(
         MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
-        `${DEFAULT_ENGINE_ID}-memories-generation`,
-        SERVICE_TYPES.MEMORIES
+        `${DEFAULT_ENGINE_ID}-memories-generation`
       );
       return this.#openAIEngineGenerationPromise;
     };
@@ -122,8 +120,7 @@ export class MemoriesManager {
     const buildFresh = () => {
       this.#openAIEngineUsagePromise = openAIEngine.build(
         MODEL_FEATURES.MEMORIES_MESSAGE_CLASSIFICATION_SYSTEM,
-        `${DEFAULT_ENGINE_ID}-memories-usage`,
-        SERVICE_TYPES.MEMORIES
+        `${DEFAULT_ENGINE_ID}-memories-usage`
       );
       return this.#openAIEngineUsagePromise;
     };
@@ -400,7 +397,7 @@ export class MemoriesManager {
    * Retrieves memories by ID.
    * This is a quick-access wrapper around MemoryStore.getMemories() specifically requiring the memoryIds option.
    *
-   * @param {Array<string>} memoryIds   List of memory IDs
+   * @param {Set<string>} memoryIds   Set of memory IDs
    * @returns {Promise<Array<Map<{
    *  memory_summary: string,
    *  category: string,
@@ -455,7 +452,10 @@ export class MemoriesManager {
 
     if (Array.isArray(generatedMemories)) {
       for (const memoryPartial of generatedMemories) {
-        const stored = await MemoryStore.addMemory(memoryPartial);
+        const stored = await MemoryStore.addMemory({
+          ...memoryPartial,
+          source,
+        });
         persistedMemories.push(stored);
       }
     }
@@ -515,11 +515,12 @@ export class MemoriesManager {
    * Hard deletion permenantly removes the memory from storage entirely. This method should be used
    * by UI to allow users to delete memories they no longer want stored.
    *
-   * @param {string} memoryId        ID of the memory to hard-delete
-   * @returns {Promise<boolean>}      True if the memory was found and deleted, false otherwise
+   * @param {string} memoryId       ID of the memory to hard-delete
+   * @param {string} trigger        What was the trigger (assistant, settings, other)
+   * @returns {Promise<boolean>}    True if the memory was found and deleted, false otherwise
    */
-  static async hardDeleteMemoryById(memoryId) {
-    return await MemoryStore.hardDeleteMemory(memoryId);
+  static async hardDeleteMemoryById(memoryId, trigger) {
+    return await MemoryStore.hardDeleteMemory(memoryId, trigger);
   }
 
   /**

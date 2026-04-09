@@ -16,14 +16,20 @@ const { AppConstants } = ChromeUtils.importESModule(
  */
 
 /**
+ * The current window mode.
+ *
+ * @typedef {"classic" | "private" | "smartwindow"} WindowMode
+ */
+
+/**
  * @typedef {object} AutofillPlaceholder
  * @property {string} value
  *   The autofill value.
- * @property {"origin" | "url" | "adaptive"} type
+ * @property {"origin" | "url" | "adaptive_url" | "adaptive_origin"} type
  *   The autofill type.
  * @property {string} adaptiveHistoryInput
- *   If the type is "adaptive", this is the matching input value from adaptive
- *   history.
+ *   If the type is "adaptive_url" or "adaptive_origin", this is the matching
+ *   input value from adaptive history.
  * @property {number} selectionStart
  *   The selectionStart at the time of autofill.
  * @property {number} selectionEnd
@@ -33,6 +39,8 @@ const { AppConstants } = ChromeUtils.importESModule(
  */
 
 const lazy = XPCOMUtils.declareLazy({
+  AIWindow:
+    "moz-src:///browser/components/aiwindow/ui/modules/AIWindow.sys.mjs",
   ASRouter: "resource:///modules/asrouter/ASRouter.sys.mjs",
   BrowserSearchTelemetry:
     "moz-src:///browser/components/search/BrowserSearchTelemetry.sys.mjs",
@@ -128,8 +136,11 @@ export class UrlbarInput extends HTMLElement {
                      native="false">
             <menucaption class="searchmode-switcher-popup-description"
                          role="heading" />
-            <menuseparator/>
-            <menuseparator class="searchmode-switcher-popup-footer-separator"/>
+${
+  lazy.UrlbarPrefs.get("nova.featureGate")
+    ? '<menuseparator class="searchmode-switcher-popup-installed-engine-separator" /><menuseparator class="searchmode-switcher-popup-footer-separator"/>'
+    : '<menuseparator/><menuseparator class="searchmode-switcher-popup-installed-engine-separator searchmode-switcher-popup-footer-separator"/>'
+}
             <menuitem class="searchmode-switcher-popup-search-settings-button menuitem-iconic"
                       data-action="openpreferences"
                       image="chrome://global/skin/icons/settings.svg"
@@ -142,9 +153,7 @@ export class UrlbarInput extends HTMLElement {
                        flex="1">
           <html:input id="urlbar-scheme"
                       required="required"/>
-          <html:input id="urlbar-input"
-                      class="urlbar-input textbox-input"
-                      aria-controls="urlbar-results"
+          <html:input class="urlbar-input textbox-input"
                       role="combobox"
                       aria-autocomplete="both"
                       inputmode="mozAwesomebar"
@@ -153,6 +162,7 @@ export class UrlbarInput extends HTMLElement {
         <moz-urlbar-slot name="revert-button"> </moz-urlbar-slot>
         <image class="urlbar-icon urlbar-go-button"
                role="button"
+               keyNav="false"
                data-l10n-id="urlbar-go-button"/>
         <moz-urlbar-slot name="page-actions" hidden=""> </moz-urlbar-slot>
       </hbox>
@@ -162,8 +172,7 @@ export class UrlbarInput extends HTMLElement {
             tooltip="aHTMLTooltip">
         <html:div class="urlbarView-body-outer">
           <html:div class="urlbarView-body-inner">
-            <html:div id="urlbar-results"
-                      class="urlbarView-results"
+            <html:div class="urlbarView-results"
                       role="listbox"/>
           </html:div>
         </html:div>
@@ -244,6 +253,7 @@ export class UrlbarInput extends HTMLElement {
 
   /** @type {AutofillPlaceholder|null} */
   _autofillPlaceholder = null;
+  _autofillBackspaceState = null;
 
   _resultForCurrentValue = null;
   _untrimmedValue = "";
@@ -329,14 +339,22 @@ export class UrlbarInput extends HTMLElement {
     }
 
     this.panel = this.querySelector(".urlbarView");
+    this._inputContainer = this.querySelector(".urlbar-input-container");
     this.inputField = /** @type {HTMLInputElement} */ (
       this.querySelector(".urlbar-input")
     );
+
+    let resultListboxId = this.#sapName + "-results";
+    this.querySelector(".urlbarView-results").id = resultListboxId;
+    this.inputField.setAttribute("aria-controls", resultListboxId);
+
+    if (this.#isAddressbar) {
+      this.inputField.id = "urlbar-input";
+    }
     if (this.#sapName == "searchbar") {
       // This adds a native clear button.
       this.inputField.setAttribute("type", "search");
     }
-    this._inputContainer = this.querySelector(".urlbar-input-container");
 
     this.controller = new lazy.UrlbarController({ input: this });
     this.view = new lazy.UrlbarView(this);
@@ -345,11 +363,12 @@ export class UrlbarInput extends HTMLElement {
     let searchModeSwitcherDescription = this.querySelector(
       ".searchmode-switcher-popup-description"
     );
+
     searchModeSwitcherDescription.setAttribute(
       "data-l10n-id",
-      this.#isAddressbar
-        ? "urlbar-searchmode-popup-description-menucaption"
-        : "urlbar-searchmode-popup-sticky-description-menucaption"
+      this.#isAddressbar && !lazy.UrlbarPrefs.get("nova.featureGate")
+        ? "urlbar-searchmode-popup-one-off-description-menucaption"
+        : "urlbar-searchmode-popup-header-menucaption"
     );
 
     // The event bufferer can be used to defer events that may affect users
@@ -404,6 +423,7 @@ export class UrlbarInput extends HTMLElement {
     if (this.inOverflowPanel && this.view.isOpen) {
       this.view.close();
     }
+    this.toggleAttribute("focused", this.focused);
 
     // Don't attach event listeners if the toolbar is not visible
     // in this window or the urlbar is readonly.
@@ -581,8 +601,11 @@ export class UrlbarInput extends HTMLElement {
   #onContextMenuRebuilt() {
     this._initStripOnShare();
     this._initPasteAndGo();
-    if (AppConstants.platform == "macosx") {
+    if (this.#isAddressbar && AppConstants.platform == "macosx") {
       this.#initShareURL();
+    }
+    if (this.sapName == "searchbar") {
+      this.#initClearSearchHistory();
     }
   }
 
@@ -609,6 +632,20 @@ export class UrlbarInput extends HTMLElement {
 
   get sapName() {
     return this.#sapName;
+  }
+
+  /**
+   * Gets the window mode for telemetry.
+   *
+   * @returns {WindowMode} The window mode.
+   */
+  get windowMode() {
+    if (this.isPrivate) {
+      return "private";
+    }
+    return lazy.AIWindow.isAIWindowActive(this.window)
+      ? "smartwindow"
+      : "classic";
   }
 
   blur() {
@@ -1230,6 +1267,7 @@ export class UrlbarInput extends HTMLElement {
       searchString: typedValue,
       result: selectedResult || this._resultForCurrentValue || null,
       searchSource: this.getSearchSource(event),
+      windowMode: this.windowMode,
     });
 
     if (this.#isAddressbar && URL.canParse(url)) {
@@ -1455,6 +1493,7 @@ export class UrlbarInput extends HTMLElement {
         searchString: this._lastSearchString,
         selType: "dismiss",
         searchSource: this.getSearchSource(event),
+        windowMode: this.windowMode,
       });
       this.view.onQueryResultRemoved(result.rowIndex);
       return;
@@ -1497,6 +1536,7 @@ export class UrlbarInput extends HTMLElement {
         selType: "canonized",
         searchString: this._lastSearchString,
         searchSource: this.getSearchSource(event),
+        windowMode: this.windowMode,
       });
       this._loadURL(this._untrimmedValue, event, where, openParams, browser);
       return;
@@ -1582,6 +1622,7 @@ export class UrlbarInput extends HTMLElement {
             element
           ),
           searchSource: this.getSearchSource(event),
+          windowMode: this.windowMode,
         });
 
         let activeSplitView = this.window.gBrowser.selectedTab.splitview;
@@ -1635,6 +1676,7 @@ export class UrlbarInput extends HTMLElement {
               element
             ),
             searchSource: this.getSearchSource(event),
+            windowMode: this.windowMode,
           });
           this.maybeConfirmSearchModeFromResult({
             result,
@@ -1723,6 +1765,7 @@ export class UrlbarInput extends HTMLElement {
           selType: "tip",
           searchString: this._lastSearchString,
           searchSource: this.getSearchSource(event),
+          windowMode: this.windowMode,
         });
         return;
       }
@@ -1748,6 +1791,7 @@ export class UrlbarInput extends HTMLElement {
               element
             ),
             searchSource: this.getSearchSource(event),
+            windowMode: this.windowMode,
           });
           return;
         }
@@ -1760,6 +1804,7 @@ export class UrlbarInput extends HTMLElement {
           selType: "extension",
           searchString: this._lastSearchString,
           searchSource: this.getSearchSource(event),
+          windowMode: this.windowMode,
         });
 
         // The urlbar needs to revert to the loaded url when a command is
@@ -1789,6 +1834,7 @@ export class UrlbarInput extends HTMLElement {
             element
           ),
           searchSource: this.getSearchSource(event),
+          windowMode: this.windowMode,
         });
         this.maybeConfirmSearchModeFromResult({
           result,
@@ -1808,6 +1854,7 @@ export class UrlbarInput extends HTMLElement {
             element
           ),
           searchSource: this.getSearchSource(event),
+          windowMode: this.windowMode,
         });
         return;
       }
@@ -1822,14 +1869,58 @@ export class UrlbarInput extends HTMLElement {
       let input;
       if (!result.heuristic) {
         input = this._lastSearchString;
-      } else if (result.autofill?.type == "adaptive") {
+      } else if (
+        result.autofill?.type == "adaptive_url" ||
+        result.autofill?.type == "adaptive_origin"
+      ) {
         input = result.autofill.adaptiveHistoryInput;
+      } else if (
+        lazy.UrlbarPrefs.get("autoFillAdaptiveHistoryEnabled") &&
+        result.autofill?.type == "origin" &&
+        // Bug: 2026227: Investigate if we want to use a higher threshold
+        this._lastSearchString?.length > 0
+      ) {
+        // The origin root URL (e.g. http://example.com/) may not be in
+        // moz_places yet. It's derived from a deep-link visit. Defer the
+        // write until the navigation records the visit.
+        lazy.UrlbarUtils.addToInputHistoryWhenReady(
+          url,
+          this._lastSearchString
+        ).catch(console.error);
       }
+
       // `input` may be an empty string, so do a strict comparison here.
       if (input !== undefined) {
         // We don't await for this, because a rejection should not interrupt
         // the load. Just reportError it.
         lazy.UrlbarUtils.addToInputHistory(url, input).catch(console.error);
+      }
+
+      // Re-integration: If the user picks a non-autofill result for a URL
+      // that has a blocked origin, clear the block.
+      if (
+        lazy.UrlbarPrefs.get("autoFillAdaptiveHistoryEnabled") &&
+        !result.autofill &&
+        result.type == lazy.UrlbarUtils.RESULT_TYPE.URL
+      ) {
+        let isOrigin = lazy.UrlbarUtils.isOriginUrl(url);
+        if (isOrigin) {
+          lazy.UrlbarUtils.clearOriginAutofillBlock(url)
+            .then(wasBlocked => {
+              if (wasBlocked) {
+                Glean.urlbarAutofill.reintegration.origin.add(1);
+              }
+            })
+            .catch(console.error);
+        } else {
+          lazy.UrlbarUtils.clearOriginPageAutofillBlock(url)
+            .then(wasBlocked => {
+              if (wasBlocked) {
+                Glean.urlbarAutofill.reintegration.url.add(1);
+              }
+            })
+            .catch(console.error);
+        }
       }
     }
 
@@ -1839,6 +1930,7 @@ export class UrlbarInput extends HTMLElement {
       searchString: this._lastSearchString,
       selType: this.controller.engagementEvent.typeFromElement(result, element),
       searchSource: this.getSearchSource(event),
+      windowMode: this.windowMode,
     });
 
     this.controller.engagementEvent.record(event, {
@@ -1847,6 +1939,7 @@ export class UrlbarInput extends HTMLElement {
       searchString: this._lastSearchString,
       selType: this.controller.engagementEvent.typeFromElement(result, element),
       searchSource: this.getSearchSource(event),
+      windowMode: this.windowMode,
     });
 
     if (result.payload.sendAttributionRequest) {
@@ -2337,7 +2430,7 @@ export class UrlbarInput extends HTMLElement {
     }
     this.selectionStart = -1;
 
-    this.window.openTrustedLinkIn(url, where);
+    this.window.openTrustedLinkIn(url, where, { inBackground: true });
   }
 
   /**
@@ -3002,6 +3095,7 @@ export class UrlbarInput extends HTMLElement {
       this.controller.engagementEvent.record(event, {
         searchString: this._lastSearchString,
         searchSource: this.getSearchSource(event),
+        windowMode: this.windowMode,
       });
     }
 
@@ -3290,6 +3384,7 @@ export class UrlbarInput extends HTMLElement {
   _resetSearchState() {
     this._lastSearchString = this.value;
     this._autofillPlaceholder = null;
+    this._autofillBackspaceState = null;
   }
 
   /**
@@ -3323,7 +3418,10 @@ export class UrlbarInput extends HTMLElement {
     // if the caret isn't at the end of the input.
     let canAutofillPlaceholder = false;
     if (this._autofillPlaceholder) {
-      if (this._autofillPlaceholder.type == "adaptive") {
+      if (
+        this._autofillPlaceholder.type == "adaptive_url" ||
+        this._autofillPlaceholder.type == "adaptive_origin"
+      ) {
         canAutofillPlaceholder =
           value.length >=
             this._autofillPlaceholder.adaptiveHistoryInput.length &&
@@ -3830,6 +3928,7 @@ export class UrlbarInput extends HTMLElement {
       searchString: this._lastSearchString,
       selType: element.dataset.command,
       searchSource: this.getSearchSource(event),
+      windowMode: this.windowMode,
     });
 
     if (element.dataset.command == "manage") {
@@ -4391,6 +4490,10 @@ export class UrlbarInput extends HTMLElement {
     insertLocation.insertAdjacentElement("afterend", pasteAndGo);
   }
 
+  /**
+   * Initializes the share URL context menu item.
+   * This is only shown on the addressbar and only on macOS.
+   */
   #initShareURL() {
     let contextMenu = this.querySelector("moz-input-box").menupopup;
     let insertLocation = this.#findMenuItemLocation("cmd_selectAll");
@@ -4401,8 +4504,29 @@ export class UrlbarInput extends HTMLElement {
     contextMenu.addEventListener("popupshowing", () => {
       let browser = this.window.gBrowser?.selectedBrowser;
       if (browser) {
-        lazy.SharingUtils.updateShareURLMenuItem(browser, separator);
+        lazy.SharingUtils.updateShareURLMenuItem(browser, null, separator);
       }
+    });
+  }
+
+  /**
+   * Initializes the clear search history context menu item.
+   * This is only shown on the searchbar.
+   */
+  #initClearSearchHistory() {
+    let insertLocation = this.#findMenuItemLocation("cmd_selectAll");
+
+    let separator = this.document.createXULElement("menuseparator");
+    insertLocation.after(separator);
+
+    let clearHistory = this.document.createXULElement("menuitem");
+    separator.after(clearHistory);
+
+    clearHistory.setAttribute("anonid", "clear-search-history");
+    this.document.l10n.setAttributes(clearHistory, "clear-search-history");
+    clearHistory.addEventListener("command", () => {
+      lazy.UrlbarUtils.clearFormHistory();
+      this.handleRevert();
     });
   }
 
@@ -4825,12 +4949,18 @@ export class UrlbarInput extends HTMLElement {
   }
 
   /**
+   * Used to indicate if the input already has focus when a click is made, and
+   * if so, then we shouldn't select all the text.
+   */
+  #preventClickSelectsAll = false;
+
+  /**
    * Determines if we should select all the text in the Urlbar based on the
    *  Urlbar state, and whether the selection is empty.
    */
   #maybeSelectAll() {
     if (
-      !this._preventClickSelectsAll &&
+      !this.#preventClickSelectsAll &&
       this.#compositionState != lazy.UrlbarUtils.COMPOSITION.COMPOSING &&
       this.focused &&
       this.inputField.selectionStart == this.inputField.selectionEnd
@@ -4866,12 +4996,16 @@ export class UrlbarInput extends HTMLElement {
     this.controller.engagementEvent.record(event, {
       searchString: this._lastSearchString,
       searchSource: this.getSearchSource(event),
+      windowMode: this.windowMode,
     });
 
     this.focusedViaMousedown = false;
     this._handoffSession = undefined;
     this._isHandoffSession = false;
     this.removeAttribute("focused");
+    // Reset this, so that it doesn't cause issues with different tests
+    // when they focus and select the address bar.
+    this.#preventClickSelectsAll = false;
 
     if (this._autofillPlaceholder && this.userTypedValue) {
       // If we were autofilling, remove the autofilled portion, by restoring
@@ -4925,6 +5059,8 @@ export class UrlbarInput extends HTMLElement {
     this._isKeyDownWithCtrl = false;
     this._isKeyDownWithMeta = false;
     this._isKeyDownWithMetaAndLeft = false;
+
+    this._autofillBackspaceState = null;
 
     Services.obs.notifyObservers(null, "urlbar-blur");
   }
@@ -5059,7 +5195,7 @@ export class UrlbarInput extends HTMLElement {
         }
 
         this.focusedViaMousedown = !this.focused;
-        this._preventClickSelectsAll = this.focused;
+        this.#preventClickSelectsAll = this.focused;
 
         // Keep the focus status, since the attribute may be changed
         // upon calling this.focus().
@@ -5095,7 +5231,7 @@ export class UrlbarInput extends HTMLElement {
         }
         // Don't close the view when clicking on a tab; we may want to keep the
         // view open on tab switch, and the TabSelect event arrived earlier.
-        if (event.target.closest("tab")) {
+        if (event.target.closest?.("tab")) {
           break;
         }
 
@@ -5113,6 +5249,7 @@ export class UrlbarInput extends HTMLElement {
             this.controller.engagementEvent.record(blurEvent, {
               searchString: this._lastSearchString,
               searchSource: this.getSearchSource(blurEvent),
+              windowMode: this.windowMode,
             });
           }
 
@@ -5131,6 +5268,41 @@ export class UrlbarInput extends HTMLElement {
     ) {
       // Take a telemetry if user deleted whole autofilled value.
       Glean.urlbar.autofillDeletion.add(1);
+    }
+
+    if (
+      lazy.UrlbarPrefs.get("autoFillAdaptiveHistoryEnabled") &&
+      event.inputType === "deleteContentBackward"
+    ) {
+      if (!this._autofillBackspaceState && this._autofillPlaceholder) {
+        this._autofillBackspaceState = {
+          url: this._resultForCurrentValue?.payload?.url,
+          count: 0,
+        };
+      }
+      if (this._autofillBackspaceState) {
+        this._autofillBackspaceState.count++;
+        if (
+          this._autofillBackspaceState.count >=
+          lazy.UrlbarPrefs.get("autoFill.backspaceThreshold")
+        ) {
+          if (!this.isPrivate) {
+            let { url } = this._autofillBackspaceState;
+            if (url) {
+              let blockUntil =
+                Date.now() +
+                lazy.UrlbarPrefs.get("autoFill.backspaceBlockDurationMs");
+              lazy.UrlbarUtils.blockAutofill(url, blockUntil).catch(
+                console.error
+              );
+            }
+          }
+          this._autofillBackspaceState = null;
+        }
+      }
+    } else if (this._autofillBackspaceState) {
+      // Any non-backspace input resets the state.
+      this._autofillBackspaceState = null;
     }
 
     let value = this.value;

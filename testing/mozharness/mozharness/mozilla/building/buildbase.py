@@ -879,8 +879,19 @@ items from that key's value."
         )
         self.run_command(
             command=[
-                "make",
+                sys.executable,
+                "mach",
                 "source-package",
+                "--output=source.tar.xz",
+            ],
+            cwd=dirs["abs_src_dir"],
+            env=env,
+            output_timeout=60 * 45,
+            halt_on_failure=True,
+        )
+        self.run_command(
+            command=[
+                "make",
                 "source-upload",
             ],
             cwd=dirs["abs_obj_dir"],

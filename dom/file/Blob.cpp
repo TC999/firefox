@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -72,7 +70,7 @@ void Blob::MakeValidBlobType(nsAString& aType) {
 }
 
 /* static */
-Blob* Blob::Create(nsIGlobalObject* aGlobal, BlobImpl* aImpl) {
+already_AddRefed<Blob> Blob::Create(nsIGlobalObject* aGlobal, BlobImpl* aImpl) {
   MOZ_ASSERT(aImpl);
 
   MOZ_ASSERT(aGlobal);
@@ -80,7 +78,9 @@ Blob* Blob::Create(nsIGlobalObject* aGlobal, BlobImpl* aImpl) {
     return nullptr;
   }
 
-  return aImpl->IsFile() ? new File(aGlobal, aImpl) : new Blob(aGlobal, aImpl);
+  RefPtr<Blob> blob =
+      aImpl->IsFile() ? new File(aGlobal, aImpl) : new Blob(aGlobal, aImpl);
+  return blob.forget();
 }
 
 /* static */

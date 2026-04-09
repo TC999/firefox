@@ -7,10 +7,13 @@ const { ChatConversation } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/ui/modules/ChatConversation.sys.mjs"
 );
 const { SYSTEM_PROMPT_TYPE, MESSAGE_ROLE } = ChromeUtils.importESModule(
-  "moz-src:///browser/components/aiwindow/ui/modules/ChatConstants.sys.mjs"
+  "moz-src:///browser/components/aiwindow/ui/modules/AIWindowConstants.sys.mjs"
 );
 const { Chat } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/models/Chat.sys.mjs"
+);
+const { RunSearch, GetPageContent, toolFns } = ChromeUtils.importESModule(
+  "moz-src:///browser/components/aiwindow/models/Tools.sys.mjs"
 );
 const { MODEL_FEATURES, openAIEngine, FEATURE_MAJOR_VERSIONS } =
   ChromeUtils.importESModule(
@@ -49,24 +52,29 @@ function getLastAssistantResponse(conversation) {
 
 add_task(async function test_Chat_real_tools_are_registered() {
   Assert.strictEqual(
-    typeof Chat.toolMap.get_open_tabs,
+    typeof toolFns.getOpenTabs,
     "function",
-    "get_open_tabs should be registered in toolMap"
+    "getOpenTabs should be a function"
   );
   Assert.strictEqual(
-    typeof Chat.toolMap.search_browsing_history,
+    typeof toolFns.searchBrowsingHistory,
     "function",
-    "search_browsing_history should be registered in toolMap"
+    "searchBrowsingHistory should be a function"
   );
   Assert.strictEqual(
-    typeof Chat.toolMap.get_page_content,
+    typeof GetPageContent.getPageContent,
     "function",
-    "get_page_content should be registered in toolMap"
+    "GetPageContent.getPageContent should be a function"
   );
   Assert.strictEqual(
-    typeof Chat.toolMap.get_user_memories,
+    typeof toolFns.getUserMemories,
     "function",
-    "get_user_memories should be registered in the toolMap"
+    "getUserMemories should be a function"
+  );
+  Assert.strictEqual(
+    typeof RunSearch.runSearch,
+    "function",
+    "RunSearch.runSearch should be a function"
   );
 });
 
@@ -163,7 +171,7 @@ add_task(async function test_Chat_fetchWithHistory_streams_and_forwards_args() {
     // Build engine
     const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
 
-    await Chat.fetchWithHistory(conversation, engineInstance);
+    await Chat.fetchWithHistory({ conversation, engineInstance });
 
     Assert.equal(
       getLastAssistantResponse(conversation).content.body,
@@ -201,8 +209,8 @@ add_task(async function test_Chat_fetchWithHistory_handles_tool_calls() {
                 {
                   id: "call_123",
                   function: {
-                    name: "test_tool",
-                    arguments: JSON.stringify({ param: "value" }),
+                    name: "search_browsing_history",
+                    arguments: JSON.stringify({ searchTerm: "hello" }),
                   },
                 },
               ],
@@ -219,8 +227,9 @@ add_task(async function test_Chat_fetchWithHistory_handles_tool_calls() {
       },
     };
 
-    // Mock tool function
-    Chat.toolMap.test_tool = sb.stub().resolves("tool result");
+    const toolStub = sb
+      .stub(toolFns, "searchBrowsingHistory")
+      .resolves("tool result");
 
     sb.stub(openAIEngine, "build").resolves(fakeEngine);
     sb.stub(openAIEngine, "getFxAccountToken").resolves("mock_token");
@@ -240,7 +249,7 @@ add_task(async function test_Chat_fetchWithHistory_handles_tool_calls() {
 
     // Build engine
     const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
-    await Chat.fetchWithHistory(conversation, engineInstance);
+    await Chat.fetchWithHistory({ conversation, engineInstance });
 
     const toolCalls = conversation.messages.filter(
       message =>
@@ -256,14 +265,14 @@ add_task(async function test_Chat_fetchWithHistory_handles_tool_calls() {
     Assert.equal(toolCalls.length, 1, "Should have one tool call");
     Assert.ok(
       toolCalls[0].content.body.tool_calls[0].function.name.includes(
-        "test_tool"
+        "search_browsing_history"
       ),
       "Tool call log should mention tool name"
     );
-    Assert.ok(Chat.toolMap.test_tool.calledOnce, "Tool should be called once");
+    Assert.ok(toolStub.calledOnce, "Tool should be called once");
     Assert.deepEqual(
-      Chat.toolMap.test_tool.firstCall.args[0],
-      { param: "value" },
+      toolStub.firstCall.args[0],
+      { searchTerm: "hello" },
       "Tool should receive correct parameters"
     );
     Assert.equal(
@@ -273,7 +282,6 @@ add_task(async function test_Chat_fetchWithHistory_handles_tool_calls() {
     );
   } finally {
     sb.restore();
-    delete Chat.toolMap.test_tool;
   }
 });
 
@@ -306,7 +314,7 @@ add_task(
       // Build engine
       const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
       const consume = async () => {
-        await Chat.fetchWithHistory(conversation, engineInstance);
+        await Chat.fetchWithHistory({ conversation, engineInstance });
       };
 
       await Assert.rejects(
@@ -337,7 +345,7 @@ add_task(
                   {
                     id: "call_456",
                     function: {
-                      name: "test_tool",
+                      name: "search_browsing_history",
                       arguments: "invalid json {",
                     },
                   },
@@ -355,7 +363,9 @@ add_task(
         },
       };
 
-      Chat.toolMap.test_tool = sb.stub().resolves("should not be called");
+      const toolStub = sb
+        .stub(toolFns, "searchBrowsingHistory")
+        .resolves("should not be called");
 
       sb.stub(openAIEngine, "build").resolves(fakeEngine);
       sb.stub(openAIEngine, "getFxAccountToken").resolves("mock_token");
@@ -374,7 +384,7 @@ add_task(
       conversation.addAssistantMessage("text", "");
 
       const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
-      await Chat.fetchWithHistory(conversation, engineInstance);
+      await Chat.fetchWithHistory({ conversation, engineInstance });
 
       Assert.equal(
         getLastAssistantResponse(conversation).content.body,
@@ -382,12 +392,11 @@ add_task(
         "Should yield text from both calls"
       );
       Assert.ok(
-        Chat.toolMap.test_tool.notCalled,
+        toolStub.notCalled,
         "Tool should not be called with invalid JSON"
       );
     } finally {
       sb.restore();
-      delete Chat.toolMap.test_tool;
     }
   }
 );
@@ -427,7 +436,7 @@ add_task(
         },
       };
 
-      sb.stub(Chat.toolMap, "get_open_tabs").resolves([]);
+      sb.stub(toolFns, "getOpenTabs").resolves([]);
       sb.stub(openAIEngine, "build").resolves(fakeEngine);
       sb.stub(openAIEngine, "getFxAccountToken").resolves("mock_token");
 
@@ -445,7 +454,7 @@ add_task(
       conversation.addAssistantMessage("text", "");
 
       const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
-      await Chat.fetchWithHistory(conversation, engineInstance);
+      await Chat.fetchWithHistory({ conversation, engineInstance });
 
       // Find the assistant message with tool_calls
       const assistantToolCallMessage = conversation.messages.find(
@@ -465,8 +474,8 @@ add_task(
         "Empty arguments string should be converted to '{}'"
       );
       Assert.ok(
-        Chat.toolMap.get_open_tabs.calledOnce,
-        "Tool should be called once even with empty args"
+        toolFns.getOpenTabs.calledOnce,
+        "Tool should be called once by the tool call"
       );
       Assert.equal(
         getLastAssistantResponse(conversation).content.body,
@@ -553,15 +562,16 @@ add_task(
       };
 
       const getPageContentStub = sb
-        .stub(Chat.toolMap, "get_page_content")
-        .callsFake(async (_params, _allowedUrls, secProps = {}) => {
-          if (secProps.untrusted_input && secProps.private_data) {
+        .stub(GetPageContent, "getPageContent")
+        .callsFake(async (_params, conversation) => {
+          const secProps = conversation.securityProperties;
+          if (secProps.untrustedInput && secProps.privateData) {
             return [
               `get_page_content is not available for ${_params?.url} when the conversation involves both untrusted input and private data.`,
             ];
           }
-          secProps.untrusted_input = true;
-          secProps.private_data = true;
+          secProps.setUntrustedInput();
+          secProps.setPrivateData();
           return ["page content"];
         });
       sb.stub(openAIEngine, "build").resolves(fakeEngine);
@@ -572,7 +582,6 @@ add_task(
         description: "desc",
         pageUrl: new URL("https://www.firefox.com"),
         pageMeta: {},
-        securityProperties: { untrusted_input: false, private_data: false },
       });
       conversation.addUserMessage(
         "Get page content twice",
@@ -582,15 +591,15 @@ add_task(
       conversation.addAssistantMessage("text", "");
 
       const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
-      await Chat.fetchWithHistory(conversation, engineInstance);
+      await Chat.fetchWithHistory({ conversation, engineInstance });
 
       Assert.strictEqual(
-        conversation.securityProperties.untrusted_input,
+        conversation.securityProperties.untrustedInput,
         true,
         "untrusted_input should be true after get_page_content"
       );
       Assert.strictEqual(
-        conversation.securityProperties.private_data,
+        conversation.securityProperties.privateData,
         true,
         "private_data should be true after get_page_content"
       );
@@ -670,7 +679,7 @@ add_task(async function test_Chat_fetchWithHistory_uses_modelId_from_pref() {
     conversation.addAssistantMessage("text", "");
 
     const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
-    await Chat.fetchWithHistory(conversation, engineInstance);
+    await Chat.fetchWithHistory({ conversation, engineInstance });
 
     Assert.ok(
       createEngineStub.calledOnce,
@@ -735,7 +744,7 @@ add_task(
       };
 
       const runSearchStub = sb
-        .stub(Chat.toolMap, "run_search")
+        .stub(RunSearch, "runSearch")
         .resolves("search result");
       sb.stub(openAIEngine, "build").resolves(fakeEngine);
       sb.stub(openAIEngine, "getFxAccountToken").resolves("mock_token");
@@ -771,10 +780,15 @@ add_task(
 
       const context = {
         browsingContext: { embedderElement: mockBrowser },
+        telemetry: { location: "home" },
       };
 
       const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
-      await Chat.fetchWithHistory(conversation, engineInstance, context);
+      await Chat.fetchWithHistory({
+        conversation,
+        engineInstance,
+        browsingContext: context.browsingContext,
+      });
 
       Assert.ok(
         runSearchStub.calledOnce,
@@ -786,7 +800,11 @@ add_task(
       // execution and the model continues generating text.
       callCount = 1;
       conversation.addAssistantMessage("text", "");
-      await Chat.fetchWithHistory(conversation, engineInstance, context);
+      await Chat.fetchWithHistory({
+        conversation,
+        engineInstance,
+        browsingContext: context.browsingContext,
+      });
 
       Assert.ok(
         runSearchStub.calledOnce,
@@ -803,7 +821,7 @@ add_task(
         msg => msg.role === MESSAGE_ROLE.TOOL
       );
       const guardMessage = toolMessages.find(msg =>
-        String(msg.content?.body).includes("only one allowed per user message")
+        String(msg.content?.body).includes("ERROR: run_search tool call error:")
       );
       Assert.ok(guardMessage, "Guard tool result should be in conversation");
 
@@ -811,7 +829,11 @@ add_task(
       conversation.addUserMessage("Go ahead", "https://www.firefox.com", 0);
       conversation.addAssistantMessage("text", "");
       callCount = 0;
-      await Chat.fetchWithHistory(conversation, engineInstance, context);
+      await Chat.fetchWithHistory({
+        conversation,
+        engineInstance,
+        browsingContext: context.browsingContext,
+      });
 
       Assert.ok(
         runSearchStub.calledTwice,
@@ -819,6 +841,158 @@ add_task(
       );
 
       origLazy.AIWindow.openSidebarAndContinue = origOpenSidebar;
+    } finally {
+      sb.restore();
+    }
+  }
+);
+
+add_task(
+  async function test_Chat_fetchWithHistory_get_user_memories_called_when_memories_enabled() {
+    const sb = sinon.createSandbox();
+    try {
+      let callCount = 0;
+      const fakeEngine = {
+        runWithGenerator(_options) {
+          callCount++;
+          async function* gen() {
+            if (callCount === 1) {
+              yield {
+                toolCalls: [
+                  {
+                    id: "call_get_user_memories_001",
+                    function: {
+                      name: "get_user_memories",
+                      arguments: JSON.stringify({}),
+                    },
+                  },
+                ],
+              };
+            } else {
+              yield { text: "Final answer." };
+            }
+          }
+          return gen();
+        },
+        getConfig() {
+          return {};
+        },
+      };
+
+      sb.stub(toolFns, "getUserMemories").resolves("list of memories");
+      sb.stub(openAIEngine, "build").resolves(fakeEngine);
+      sb.stub(openAIEngine, "getFxAccountToken").resolves("mock_token");
+
+      const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
+
+      const conversation = new ChatConversation({
+        title: "memories are enabled",
+        description: "desc",
+        pageUrl: new URL("https://www.firefox.com"),
+        pageMeta: {},
+      });
+      conversation.addUserMessage(
+        "What memories have you saved about me?",
+        "https://www.firefox.com",
+        { memoriesEnabled: true }
+      );
+      conversation.addAssistantMessage("text", "");
+
+      await Chat.fetchWithHistory({ conversation, engineInstance });
+
+      Assert.ok(
+        toolFns.getUserMemories.calledOnce,
+        "get_user_memories should be called exactly once"
+      );
+
+      // Verify tool response is in the conversation
+      const toolMessages = conversation.messages.filter(
+        msg => msg.role === MESSAGE_ROLE.TOOL
+      );
+      const getUserMemoriesErrorMsg = toolMessages.find(msg =>
+        String(msg.content?.body).includes("list of memories")
+      );
+      Assert.ok(
+        getUserMemoriesErrorMsg,
+        "get_user_memories should return the correct string when memories are enabled"
+      );
+    } finally {
+      sb.restore();
+    }
+  }
+);
+
+add_task(
+  async function test_Chat_fetchWithHistory_get_user_memories_returns_error_when_memories_disabled() {
+    const sb = sinon.createSandbox();
+    try {
+      let callCount = 0;
+      const fakeEngine = {
+        runWithGenerator(_options) {
+          callCount++;
+          async function* gen() {
+            if (callCount === 1) {
+              yield {
+                toolCalls: [
+                  {
+                    id: "call_get_user_memories_001",
+                    function: {
+                      name: "get_user_memories",
+                      arguments: JSON.stringify({}),
+                    },
+                  },
+                ],
+              };
+            } else {
+              yield { text: "Final answer." };
+            }
+          }
+          return gen();
+        },
+        getConfig() {
+          return {};
+        },
+      };
+
+      sb.stub(toolFns, "getUserMemories").resolves("list of memories");
+      sb.stub(openAIEngine, "build").resolves(fakeEngine);
+      sb.stub(openAIEngine, "getFxAccountToken").resolves("mock_token");
+
+      const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
+
+      const conversation = new ChatConversation({
+        title: "memories are enabled",
+        description: "desc",
+        pageUrl: new URL("https://www.firefox.com"),
+        pageMeta: {},
+      });
+      conversation.addUserMessage(
+        "What memories have you saved about me?",
+        "https://www.firefox.com",
+        { memoriesEnabled: false }
+      );
+      conversation.addAssistantMessage("text", "");
+
+      await Chat.fetchWithHistory({ conversation, engineInstance });
+
+      Assert.ok(
+        !toolFns.getUserMemories.calledOnce,
+        "get_user_memories should not be called when memories are disabled"
+      );
+
+      // Verify tool response is in conversation with correct text
+      const toolMessages = conversation.messages.filter(
+        msg => msg.role === MESSAGE_ROLE.TOOL
+      );
+      const getUserMemoriesErrorMsg = toolMessages.find(msg =>
+        String(msg.content?.body).includes(
+          "ERROR: get_user_memories tool call error:"
+        )
+      );
+      Assert.ok(
+        getUserMemoriesErrorMsg,
+        "get_user_memories error should be raised when memories are disabled"
+      );
     } finally {
       sb.restore();
     }

@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1279,7 +1277,7 @@ nsresult CollectProcessInfo(ProcessInfo& info) {
     for (int32_t cpu = 0; cpu < info.cpuCount; ++cpu) {
       nsPrintfCString core_cpus(
           "/sys/devices/system/cpu/cpu%d/topology/core_cpus", cpu);
-      std::ifstream input(core_cpus.Data());
+      std::ifstream input(core_cpus.get());
       // Kernel versions before 5.3 didn't have core_cpus, they had
       // thread_siblings instead, with the same content. As of writing, kernel
       // version 6.9 still has both, but thread_siblings has been deprecated
@@ -1287,7 +1285,7 @@ nsresult CollectProcessInfo(ProcessInfo& info) {
       if (input.fail()) {
         core_cpus.Truncate(core_cpus.Length() - sizeof("core_cpus") + 1);
         core_cpus.AppendLiteral("thread_siblings");
-        input.open(core_cpus.Data());
+        input.open(core_cpus.get());
       }
       std::string line;
       if (!getline(input, line)) {
@@ -1538,10 +1536,10 @@ nsresult nsSystemInfo::Init() {
                {PR_SI_RELEASE, "version"},
                {PR_SI_RELEASE_BUILD, "build"}};
 
-  for (uint32_t i = 0; i < (sizeof(items) / sizeof(items[0])); i++) {
+  for (auto item : items) {
     char buf[SYS_INFO_BUFFER_LENGTH];
-    if (PR_GetSystemInfo(items[i].cmd, buf, sizeof(buf)) == PR_SUCCESS) {
-      rv = SetPropertyAsACString(NS_ConvertASCIItoUTF16(items[i].name),
+    if (PR_GetSystemInfo(item.cmd, buf, sizeof(buf)) == PR_SUCCESS) {
+      rv = SetPropertyAsACString(NS_ConvertASCIItoUTF16(item.name),
                                  nsDependentCString(buf));
       if (NS_WARN_IF(NS_FAILED(rv))) {
         return rv;
@@ -1578,9 +1576,9 @@ nsresult nsSystemInfo::Init() {
 #endif
   if (virtualMem) SetUint64Property(u"virtualmemsize"_ns, virtualMem);
 
-  for (uint32_t i = 0; i < std::size(cpuPropItems); i++) {
-    rv = SetPropertyAsBool(NS_ConvertASCIItoUTF16(cpuPropItems[i].name),
-                           cpuPropItems[i].propfun());
+  for (auto cpuPropItem : cpuPropItems) {
+    rv = SetPropertyAsBool(NS_ConvertASCIItoUTF16(cpuPropItem.name),
+                           cpuPropItem.propfun());
     if (NS_WARN_IF(NS_FAILED(rv))) {
       return rv;
     }

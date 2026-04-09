@@ -78,6 +78,11 @@ sealed class MenuAction : Action {
     data object FindInPage : MenuAction()
 
     /**
+     * [MenuAction] dispatched to move the current private tab to a non-private tab.
+     */
+    data object MoveToNonPrivateTab : MenuAction()
+
+    /**
      * [MenuAction] dispatched when it's a new installation of Firefox.
      */
     data object MenuBanner : MenuAction()

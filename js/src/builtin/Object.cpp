@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -1837,7 +1835,7 @@ static bool CountEnumerableOwnPropertiesNative(JSContext* cx, HandleObject obj,
 
   *optimized = true;
 
-  int32_t num_properties = 0;
+  size_t num_properties = 0;
 
   // If possible, attempt to use the shape's iterator cache.
   Rooted<PropertyIteratorObject*> piter(cx,
@@ -1864,10 +1862,9 @@ static bool CountEnumerableOwnPropertiesNative(JSContext* cx, HandleObject obj,
     Handle<TypedArrayObject*> tobj = obj.as<TypedArrayObject>();
     size_t len = tobj->length().valueOr(0);
 
-    // Fail early if the typed array contains too many elements for a
-    // dense array, because we likely OOM anyway when trying to allocate
-    // more than 2GB for the properties vector. This also means we don't
-    // need to handle indices greater than MAX_INT32 in the loop below.
+    // Fail early if the typed array contains too many elements for a dense
+    // array. This could be relaxed in the future but is consistent with
+    // TryEnumerableOwnPropertiesNative.
     if (len > NativeObject::MAX_DENSE_ELEMENTS_COUNT) {
       ReportOversizedAllocation(cx, JSMSG_ALLOC_OVERFLOW);
       return false;
@@ -1894,6 +1891,7 @@ static bool CountEnumerableOwnPropertiesNative(JSContext* cx, HandleObject obj,
     }
   }
 
+  MOZ_RELEASE_ASSERT(num_properties <= INT32_MAX);
   rval = num_properties;
   return true;
 }

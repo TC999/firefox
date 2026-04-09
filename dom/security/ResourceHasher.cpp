@@ -4,6 +4,8 @@
 
 #include "ResourceHasher.h"
 
+#include <cinttypes>
+
 #include "WAICTUtils.h"
 #include "nsComponentManagerUtils.h"
 #include "nsNetCID.h"
@@ -66,7 +68,7 @@ nsresult ResourceHasher::Finish() {
     MOZ_LOG(gWaictLog, LogLevel::Debug,
             ("[this=%p] ResourceHasher::Finish -- "
              "Hash computed successfully: %s\n",
-             this, mComputedHash.BeginReading()));
+             this, mComputedHash.get()));
   } else {
     MOZ_LOG(gWaictLog, LogLevel::Error,
             ("[this=%p] ResourceHasher::Finish -- "

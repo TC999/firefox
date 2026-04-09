@@ -11,9 +11,9 @@ Differential Revision: https://phabricator.services.mozilla.com/D219218
 Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/60eb5ef11c8df7eb6e0d616cb76885d9109f114d
 ---
  .../linux/device_info_pipewire.cc             | 10 +++-
- .../video_capture/linux/pipewire_session.cc   | 55 ++++++++++++++++++-
- .../video_capture/linux/pipewire_session.h    | 26 ++++++++-
- 3 files changed, 85 insertions(+), 6 deletions(-)
+ .../video_capture/linux/pipewire_session.cc   | 49 ++++++++++++++++++-
+ .../video_capture/linux/pipewire_session.h    | 26 +++++++++-
+ 3 files changed, 81 insertions(+), 4 deletions(-)
 
 diff --git a/modules/video_capture/linux/device_info_pipewire.cc b/modules/video_capture/linux/device_info_pipewire.cc
 index 009e1408b9..a737f9bdb3 100644
@@ -42,7 +42,7 @@ index 009e1408b9..a737f9bdb3 100644
  uint32_t DeviceInfoPipeWire::NumberOfDevices() {
    RTC_CHECK(pipewire_session_);
 diff --git a/modules/video_capture/linux/pipewire_session.cc b/modules/video_capture/linux/pipewire_session.cc
-index 63f0c8c99d..036739b74a 100644
+index a6a87fde3e..d2108586b1 100644
 --- a/modules/video_capture/linux/pipewire_session.cc
 +++ b/modules/video_capture/linux/pipewire_session.cc
 @@ -35,6 +35,7 @@
@@ -53,27 +53,7 @@ index 63f0c8c99d..036739b74a 100644
  #include "modules/video_capture/video_capture_defines.h"
  #include "modules/video_capture/video_capture_options.h"
  #include "rtc_base/logging.h"
-@@ -104,7 +105,8 @@ PipeWireNode::PipeWireNode(PipeWireSession* session,
-       .param = OnNodeParam,
-   };
- 
--  pw_node_add_listener(reinterpret_cast<pw_node*>(proxy_), &node_listener_, &node_events, this);
-+  pw_node_add_listener(reinterpret_cast<pw_node*>(proxy_), &node_listener_,
-+                       &node_events, this);
- }
- 
- // static
-@@ -136,7 +138,8 @@ void PipeWireNode::OnNodeInfo(void* data, const pw_node_info* info) {
-       uint32_t id = info->params[i].id;
-       if (id == SPA_PARAM_EnumFormat &&
-           info->params[i].flags & SPA_PARAM_INFO_READ) {
--        pw_node_enum_params(reinterpret_cast<pw_node*>(that->proxy_), 0, id, 0, UINT32_MAX, nullptr);
-+        pw_node_enum_params(reinterpret_cast<pw_node*>(that->proxy_), 0, id, 0,
-+                            UINT32_MAX, nullptr);
-         break;
-       }
-     }
-@@ -304,6 +307,30 @@ void PipeWireSession::InitPipeWire(int fd) {
+@@ -308,6 +309,30 @@ void PipeWireSession::InitPipeWire(int fd) {
      Finish(VideoCaptureOptions::Status::ERROR);
  }
  
@@ -104,7 +84,7 @@ index 63f0c8c99d..036739b74a 100644
  RTC_NO_SANITIZE("cfi-icall")
  bool PipeWireSession::StartPipeWire(int fd) {
    pw_initializer_ = std::make_unique<PipeWireInitializer>();
-@@ -376,6 +403,21 @@ void PipeWireSession::PipeWireSync() {
+@@ -380,6 +405,21 @@ void PipeWireSession::PipeWireSync() {
    sync_seq_ = pw_core_sync(pw_core_, PW_ID_CORE, sync_seq_);
  }
  
@@ -126,7 +106,7 @@ index 63f0c8c99d..036739b74a 100644
  // static
  void PipeWireSession::OnCoreError(void* data,
                                    uint32_t id,
-@@ -433,6 +475,8 @@ void PipeWireSession::OnRegistryGlobal(void* data,
+@@ -437,6 +477,8 @@ void PipeWireSession::OnRegistryGlobal(void* data,
  
    that->nodes_.push_back(PipeWireNode::Create(that, id, props));
    that->PipeWireSync();
@@ -135,7 +115,7 @@ index 63f0c8c99d..036739b74a 100644
  }
  
  // static
-@@ -442,10 +486,15 @@ void PipeWireSession::OnRegistryGlobalRemove(void* data, uint32_t id) {
+@@ -446,10 +488,15 @@ void PipeWireSession::OnRegistryGlobalRemove(void* data, uint32_t id) {
    std::erase_if(that->nodes_, [id](const PipeWireNode::PipeWireNodePtr& node) {
      return node->id() == id;
    });
@@ -153,7 +133,7 @@ index 63f0c8c99d..036739b74a 100644
    webrtc::MutexLock lock(&callback_lock_);
  
 diff --git a/modules/video_capture/linux/pipewire_session.h b/modules/video_capture/linux/pipewire_session.h
-index e5463ad6a5..c6bc394c88 100644
+index d192c09444..29998822fc 100644
 --- a/modules/video_capture/linux/pipewire_session.h
 +++ b/modules/video_capture/linux/pipewire_session.h
 @@ -34,6 +34,7 @@

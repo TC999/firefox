@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -255,6 +253,11 @@ already_AddRefed<MediaRawData> ArrayOfRemoteMediaRawData::ElementAt(
       !ReadParam(aReader, &array->mExtraDatas)) {
     return false;
   }
+  if (array->mSamples.Length() != array->mBuffers.Count() ||
+      array->mSamples.Length() != array->mAlphaBuffers.Count() ||
+      array->mSamples.Length() != array->mExtraDatas.Count()) {
+    return false;
+  }
   *aVar = std::move(array);
   return true;
 }
@@ -340,6 +343,14 @@ already_AddRefed<AudioData> ArrayOfRemoteAudioData::ElementAt(
   audioData->mDuration = sample.mBase.duration();
   audioData->mOriginalTime = sample.mOriginalTime;
   audioData->mTrimWindow = sample.mTrimWindow;
+  CheckedInt<size_t> requiredLen =
+      CheckedInt<size_t>(sample.mDataOffset) +
+      CheckedInt<size_t>(sample.mFrames) * CheckedInt<size_t>(sample.mChannels);
+  if (!requiredLen.isValid() ||
+      requiredLen.value() > audioData->mAudioData.Length()) {
+    NS_WARNING("Malformed RemoteAudioData");
+    return nullptr;
+  }
   audioData->mFrames = sample.mFrames;
   audioData->mDataOffset = sample.mDataOffset;
   return audioData.forget();
@@ -382,8 +393,8 @@ IPC::ParamTraits<mozilla::ArrayOfRemoteAudioData::RemoteAudioData>::Write(
 IPC::ParamTraits<mozilla::ArrayOfRemoteAudioData::RemoteAudioData>::Read(
     IPC::MessageReader* aReader, paramType* aVar) {
   return ReadParam(aReader, &aVar->mBase) &&
-         ReadParam(aReader, &aVar->mChannels) &&
-         ReadParam(aReader, &aVar->mRate) &&
+         ReadParam(aReader, &aVar->mChannels) && aVar->mChannels > 0 &&
+         ReadParam(aReader, &aVar->mRate) && aVar->mRate > 0 &&
          ReadParam(aReader, &aVar->mChannelMap) &&
          ReadParam(aReader, &aVar->mOriginalTime) &&
          ReadParam(aReader, &aVar->mTrimWindow) &&

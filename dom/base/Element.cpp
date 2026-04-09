@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -282,8 +280,9 @@ nsIFrame* nsIContent::GetPrimaryFrame(mozilla::FlushType aType) {
     return nullptr;
   }
 
+  RefPtr<mozilla::PresShell> presShell = frame->PresShell();
   if (aType == mozilla::FlushType::Layout) {
-    frame->PresShell()->EnsureReflowIfFrameHasHiddenContent(frame);
+    presShell->EnsureReflowIfFrameHasHiddenContent(frame);
     frame = GetPrimaryFrame();
   }
 
@@ -450,7 +449,7 @@ void nsIContent::UpdateEditableState(bool aNotify) {
     }
   }
 
-  nsIContent* parent = GetParent();
+  nsINode* parent = GetParentNode();
   SetEditableFlag(parent && parent->HasFlag(NODE_IS_EDITABLE));
 }
 
@@ -3089,7 +3088,7 @@ void Element::UnbindFromTree(UnbindContext& aContext) {
     // The element being removed is an ancestor of the fullscreen element,
     // exit fullscreen state.
     nsContentUtils::ReportToConsole(nsIScriptError::warningFlag, "DOM"_ns,
-                                    OwnerDoc(), nsContentUtils::eDOM_PROPERTIES,
+                                    OwnerDoc(), PropertiesFile::DOM_PROPERTIES,
                                     "RemovedFullscreenElement");
     // Fully exit fullscreen.
     Document::ExitFullscreenInDocTree(OwnerDoc());
@@ -3533,6 +3532,7 @@ bool Element::OnlyNotifySameValueSet(int32_t aNamespaceID, nsAtom* aName,
   }
 
   nsAutoScriptBlocker scriptBlocker;
+  OnAttrSetButNotChanged(aNamespaceID, aName, aValue, aNotify);
   MutationObservers::NotifyAttributeSetToCurrentValue(this, aNamespaceID,
                                                       aName);
   return true;
@@ -3640,7 +3640,6 @@ nsresult Element::SetAttrInternal(int32_t aNamespaceID, nsAtom* aName,
 
   if (OnlyNotifySameValueSet(aNamespaceID, aName, aPrefix, aValue, aNotify,
                              oldValue, &modType, &oldValueSet)) {
-    OnAttrSetButNotChanged(aNamespaceID, aName, aValue, aNotify);
     return NS_OK;
   }
 
@@ -3684,7 +3683,6 @@ nsresult Element::SetParsedAttr(int32_t aNamespaceID, nsAtom* aName,
     const nsAttrValueOrString value(aParsedValue);
     if (OnlyNotifySameValueSet(aNamespaceID, aName, aPrefix, value, aNotify,
                                oldValue, &modType, &oldValueSet)) {
-      OnAttrSetButNotChanged(aNamespaceID, aName, value, aNotify);
       return NS_OK;
     }
   }
@@ -4614,6 +4612,11 @@ nsresult Element::CopyInnerTo(Element* aDst, ReparseAttributes aReparse) {
     // Propagate :defined state to the static clone.
     if (State().HasState(ElementState::DEFINED)) {
       aDst->SetDefined(true);
+    }
+    // Propagate pseudo-element if needed.
+    auto pseudo = GetPseudoElementType();
+    if (pseudo != PseudoStyleType::NotPseudo) {
+      aDst->SetPseudoElementType(pseudo);
     }
   }
 
@@ -6252,8 +6255,7 @@ StylePropertyMapReadOnly* Element::ComputedStyleMap() {
   nsDOMSlots* slots = DOMSlots();
 
   if (!slots->mComputedStyleMap) {
-    slots->mComputedStyleMap =
-        MakeRefPtr<StylePropertyMapReadOnly>(this, /* aComputed */ true);
+    slots->mComputedStyleMap = MakeRefPtr<StylePropertyMapReadOnly>(this);
   }
 
   return slots->mComputedStyleMap;

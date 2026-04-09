@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -23,6 +21,10 @@ namespace JS {
 class ArrayBufferOrView;
 class AutoCheckCannotGC;
 }  // namespace JS
+
+namespace mozilla::dom {
+class IDBTransaction;
+}  // namespace mozilla::dom
 
 namespace mozilla::dom::indexedDB {
 
@@ -146,7 +148,8 @@ class Key {
   // A key return value is indicated by returning `true` whereas `false` means
   // either invalid (if `aRv.Failed()` is `false`) or an exception (otherwise).
   IDBResult<Ok, IDBSpecialValue::Invalid> SetFromJSVal(
-      JSContext* aCx, JS::Handle<JS::Value> aVal);
+      JSContext* aCx, JS::Handle<JS::Value> aVal,
+      mozilla::dom::IDBTransaction* aTransaction = nullptr);
 
   nsresult ToJSVal(JSContext* aCx, JS::MutableHandle<JS::Value> aVal) const;
 

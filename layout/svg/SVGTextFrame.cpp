@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -3434,13 +3432,13 @@ void SVGTextFrame::ReflowSVG() {
  * for the specified rendered run.
  */
 static TextRenderedRun::GeometryFlags TextRenderedRunFlagsForBBoxContribution(
-    const TextRenderedRun& aRun, uint32_t aBBoxFlags) {
+    const TextRenderedRun& aRun, SVGBBoxFlags aBBoxFlags) {
   TextRenderedRun::GeometryFlags flags;
-  if (aBBoxFlags & SVGUtils::eBBoxIncludeFillGeometry) {
+  if (aBBoxFlags.contains(SVGBBoxFlag::IncludeFillGeometry)) {
     flags += TextRenderedRun::GeometryFlag::IncludeFill;
   }
-  if ((aBBoxFlags & SVGUtils::eBBoxIncludeStrokeGeometry) ||
-      ((aBBoxFlags & SVGUtils::eBBoxIncludeStroke) &&
+  if (aBBoxFlags.contains(SVGBBoxFlag::IncludeStrokeGeometry) ||
+      (aBBoxFlags.contains(SVGBBoxFlag::IncludeStroke) &&
        SVGUtils::HasStroke(aRun.mFrame))) {
     flags += TextRenderedRun::GeometryFlag::IncludeStroke;
   }
@@ -3448,11 +3446,11 @@ static TextRenderedRun::GeometryFlags TextRenderedRunFlagsForBBoxContribution(
 }
 
 SVGBBox SVGTextFrame::GetBBoxContribution(const Matrix& aToBBoxUserspace,
-                                          uint32_t aFlags) {
+                                          SVGBBoxFlags aFlags) {
   NS_ASSERTION(PrincipalChildList().FirstChild(), "must have a child frame");
   SVGBBox bbox;
 
-  if (aFlags & SVGUtils::eForGetClientRects) {
+  if (aFlags.contains(SVGBBoxFlag::ForGetClientRects)) {
     if (!mRect.IsEmpty()) {
       Rect rect = NSRectToRect(mRect, AppUnitsPerCSSPixel());
       bbox = aToBBoxUserspace.TransformBounds(rect);

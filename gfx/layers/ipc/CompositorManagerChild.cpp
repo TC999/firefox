@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -151,8 +149,7 @@ bool CompositorManagerChild::CreateContentCompositorBridge(
 /* static */
 already_AddRefed<CompositorBridgeChild>
 CompositorManagerChild::CreateWidgetCompositorBridge(
-    uint64_t aProcessToken, WebRenderLayerManager* aLayerManager,
-    uint32_t aNamespace, CSSToLayoutDeviceScale aScale,
+    uint64_t aProcessToken, uint32_t aNamespace, CSSToLayoutDeviceScale aScale,
     const CompositorOptions& aOptions, bool aUseExternalSurfaceSize,
     const gfx::IntSize& aSurfaceSize, uint64_t aInnerWindowId) {
   MOZ_ASSERT(XRE_IsParentProcess());
@@ -174,14 +171,14 @@ CompositorManagerChild::CreateWidgetCompositorBridge(
     return nullptr;
   }
 
-  bridge->InitForWidget(aProcessToken, aLayerManager, aNamespace);
+  bridge->InitForWidget(aProcessToken, aNamespace);
   return bridge.forget();
 }
 
 /* static */
 already_AddRefed<CompositorBridgeChild>
 CompositorManagerChild::CreateSameProcessWidgetCompositorBridge(
-    WebRenderLayerManager* aLayerManager, uint32_t aNamespace) {
+    uint32_t aNamespace) {
   MOZ_ASSERT(XRE_IsParentProcess());
   MOZ_ASSERT(NS_IsMainThread());
   if (NS_WARN_IF(!sInstance || !sInstance->CanSend())) {
@@ -196,7 +193,7 @@ CompositorManagerChild::CreateSameProcessWidgetCompositorBridge(
     return nullptr;
   }
 
-  bridge->InitForWidget(1, aLayerManager, aNamespace);
+  bridge->InitForWidget(1, aNamespace);
   return bridge.forget();
 }
 

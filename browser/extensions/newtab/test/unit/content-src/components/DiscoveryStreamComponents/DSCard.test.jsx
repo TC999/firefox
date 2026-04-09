@@ -31,8 +31,6 @@ const DEFAULT_PROPS = {
   },
   DiscoveryStream: INITIAL_STATE.DiscoveryStream,
   Prefs: INITIAL_STATE.Prefs,
-  fetchTimestamp: new Date("March 20, 2024 10:30:44").getTime(),
-  firstVisibleTimestamp: new Date("March 21, 2024 10:11:12").getTime(),
 };
 
 describe("<DSCard>", () => {
@@ -54,6 +52,43 @@ describe("<DSCard>", () => {
   it("should render", () => {
     assert.ok(wrapper.exists());
     assert.ok(wrapper.find(".ds-card"));
+  });
+
+  it("should include nova-card-ui class when Nova is enabled in sections mode", () => {
+    wrapper.setProps({
+      mayHaveSectionsCards: true,
+      sectionsClassNames: "col-1-small",
+      Prefs: {
+        ...INITIAL_STATE.Prefs,
+        values: { ...INITIAL_STATE.Prefs.values, "nova.enabled": true },
+      },
+    });
+
+    assert.isTrue(wrapper.find("article.ds-card").hasClass("nova-card-ui"));
+  });
+
+  it("should include nova-card-ui class when Nova is enabled in CardGrid (no sections)", () => {
+    wrapper.setProps({
+      mayHaveSectionsCards: false,
+      Prefs: {
+        ...INITIAL_STATE.Prefs,
+        values: { ...INITIAL_STATE.Prefs.values, "nova.enabled": true },
+      },
+    });
+
+    assert.isTrue(wrapper.find("article.ds-card").hasClass("nova-card-ui"));
+  });
+
+  it("should not include nova-card-ui class when Nova is disabled", () => {
+    wrapper.setProps({
+      mayHaveSectionsCards: false,
+      Prefs: {
+        ...INITIAL_STATE.Prefs,
+        values: { ...INITIAL_STATE.Prefs.values, "nova.enabled": false },
+      },
+    });
+
+    assert.isFalse(wrapper.find("article.ds-card").hasClass("nova-card-ui"));
   });
 
   it("should render a SafeAnchor", () => {
@@ -254,8 +289,6 @@ describe("<DSCard>", () => {
             card_type: "organic",
             recommendation_id: undefined,
             tile_id: "fooidx",
-            fetchTimestamp: DEFAULT_PROPS.fetchTimestamp,
-            firstVisibleTimestamp: DEFAULT_PROPS.firstVisibleTimestamp,
             scheduled_corpus_item_id: undefined,
             corpus_item_id: undefined,
             recommended_at: undefined,
@@ -316,8 +349,6 @@ describe("<DSCard>", () => {
             card_type: "spoc",
             recommendation_id: undefined,
             tile_id: "fooidx",
-            fetchTimestamp: DEFAULT_PROPS.fetchTimestamp,
-            firstVisibleTimestamp: DEFAULT_PROPS.firstVisibleTimestamp,
             scheduled_corpus_item_id: undefined,
             corpus_item_id: undefined,
             recommended_at: undefined,
@@ -381,8 +412,6 @@ describe("<DSCard>", () => {
             recommendation_id: undefined,
             tile_id: "fooidx",
             shim: "click shim",
-            fetchTimestamp: DEFAULT_PROPS.fetchTimestamp,
-            firstVisibleTimestamp: DEFAULT_PROPS.firstVisibleTimestamp,
             scheduled_corpus_item_id: undefined,
             corpus_item_id: undefined,
             recommended_at: undefined,

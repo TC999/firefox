@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -901,7 +899,7 @@ RefPtr<GenericPromise> ProfilerParent::ProfilerStarted(
   // We need filters as a Span<const char*> to test pids in the lambda below.
   auto filtersCStrings = nsTArray<const char*>{aParams->GetFilters().Length()};
   for (const auto& filter : aParams->GetFilters()) {
-    filtersCStrings.AppendElement(filter.Data());
+    filtersCStrings.AppendElement(filter.get());
   }
   aParams->GetActiveTabID(&ipcParams.activeTabID());
 

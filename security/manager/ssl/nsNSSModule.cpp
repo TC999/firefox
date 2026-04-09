@@ -1,5 +1,4 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- *
+/*
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -7,7 +6,6 @@
 #include "nsNSSModule.h"
 
 #include "ContentSignatureVerifier.h"
-#include "OSKeyStore.h"
 #include "OSReauthenticator.h"
 #include "PKCS11ModuleDB.h"
 #include "SecretDecoderRing.h"
@@ -95,8 +93,6 @@ IMPL(nsNSSCertificateDB, nullptr)
 IMPL(nsCertTree, nullptr)
 IMPL(ContentSignatureVerifier, nullptr)
 IMPL(nsRandomGenerator, nullptr, ProcessRestriction::AnyProcess)
-IMPL(OSKeyStore, nullptr, ProcessRestriction::ParentProcessOnly,
-     ThreadRestriction::MainThreadOnly)
 IMPL(OSReauthenticator, nullptr, ProcessRestriction::ParentProcessOnly,
      ThreadRestriction::MainThreadOnly)
 #undef IMPL

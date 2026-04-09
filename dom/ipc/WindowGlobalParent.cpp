@@ -1,5 +1,3 @@
-/* -*- Mode: C++; c-basic-offset: 2; indent-tabs-mode: nil; tab-width: 8 -*- */
-/* vim: set sw=2 ts=8 et tw=80 ft=cpp : */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -644,8 +642,7 @@ already_AddRefed<JSActor> WindowGlobalParent::InitJSActor(
 }
 
 bool WindowGlobalParent::IsCurrentGlobal() {
-  if (mozilla::SessionHistoryInParent() && BrowsingContext() &&
-      BrowsingContext()->IsInBFCache()) {
+  if (BrowsingContext() && BrowsingContext()->IsInBFCache()) {
     return false;
   }
 
@@ -1811,8 +1808,7 @@ void WindowGlobalParent::SetShouldReportHasBlockedOpaqueResponse(
 
 IPCResult WindowGlobalParent::RecvSetCookies(
     const nsCString& aBaseDomain, const OriginAttributes& aOriginAttributes,
-    nsIURI* aHost, bool aFromHttp, bool aIsThirdParty,
-    const nsTArray<CookieStruct>& aCookies) {
+    nsIURI* aHost, bool aIsThirdParty, const nsTArray<CookieStruct>& aCookies) {
   // Get CookieServiceParent via
   // ContentParent->NeckoParent->CookieServiceParent.
   ContentParent* contentParent = GetContentParent();
@@ -1826,8 +1822,8 @@ IPCResult WindowGlobalParent::RecvSetCookies(
   NS_ENSURE_TRUE(csParent, IPC_OK());
   auto* cs = static_cast<net::CookieServiceParent*>(csParent);
 
-  return cs->SetCookies(aBaseDomain, aOriginAttributes, aHost, aFromHttp,
-                        aIsThirdParty, aCookies, GetBrowsingContext());
+  return cs->SetCookies(aBaseDomain, aOriginAttributes, aHost, aIsThirdParty,
+                        aCookies, GetBrowsingContext());
 }
 
 IPCResult WindowGlobalParent::RecvOnInitialStorageAccess() {

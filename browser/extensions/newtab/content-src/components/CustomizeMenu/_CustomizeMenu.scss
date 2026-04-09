@@ -200,7 +200,8 @@
   .widgets-section h2 {
     font-size: inherit;
     margin-block-start: 0;
-    font-weight: var(--font-weight-heading);
+    // @backward-compat { version 150 } D281466/D283723 renamed design tokens; remove once Firefox 150 is on Release.
+    font-weight: var(--font-weight-heading, var(--heading-font-weight));
   }
 
   .settings-widgets,
@@ -273,35 +274,18 @@
       fill: var(--newtab-element-secondary-color);
     }
 
-    .selector {
-      color: var(--newtab-text-primary-color);
-      width: 118px;
-      display: block;
-      border: 1px solid var(--border-color);
-      border-radius: var(--border-radius-small);
-      appearance: none;
-      padding-block: var(--space-small);
-      padding-inline: var(--space-small) var(--space-medium);
-      margin-inline-start: var(--space-xxsmall);
-      margin-block-end: var(--space-xxsmall);
-      -moz-context-properties: fill;
-      fill: var(--newtab-text-primary-color);
-      background: url('chrome://global/skin/icons/arrow-down-12.svg') right no-repeat;
-      background-size: 8px;
-      background-origin: content-box;
-      background-color: var(--newtab-background-color-secondary);
+    #shortcuts-toggle {
+      display: flex;
+      flex-direction: column;
 
-      &:hover {
-        background-color: var(--newtab-element-secondary-hover-color);
-      }
-
-      &:dir(rtl) {
-        background-position-x: left;
+      #row-selector {
+        width: 138px;
       }
     }
 
     .more-info-top-wrapper,
-    .more-info-pocket-wrapper {
+    .more-info-pocket-wrapper,
+    .more-info-widgets-wrapper {
       margin-inline-start: calc(var(--space-xxsmall) * -1);
       overflow: hidden;
 
@@ -311,11 +295,18 @@
       }
     }
 
-    .more-info-pocket-wrapper {
+    .more-info-pocket-wrapper,
+    .more-info-widgets-wrapper {
       .more-information {
-        // Note: This is necessary so the follow/block topics panel can
+        // Note: This is necessary so the management panels can
         // be positioned absolutely across the entire Customize menu
         position: static;
+      }
+    }
+
+    .more-info-pocket-wrapper {
+      .more-information {
+        padding-block: var(--space-medium);
       }
 
       .check-wrapper {
@@ -407,7 +398,7 @@
 // Make sure form elements under the "Shortcuts" subsection don't change position on focus
 // by always having a 2px box shadow around them - one that blends in with the background.
 .home-section .section {
-  .customize-menu-checkbox, .selector {
+  .customize-menu-checkbox {
     outline: 0;
     box-shadow: 0 0 0 2px light-dark(var(--newtab-background-color), var(--newtab-background-color-dark));
   }
@@ -423,7 +414,7 @@
 // by setting a bright 2px box shadow in active and focus states.
 .home-section .section
 {
-  .customize-menu-checkbox, .selector {
+  .customize-menu-checkbox {
     &:is(:focus-visible) {
       box-shadow: 0 0 0 2px var(--color-accent-primary);
       outline: var(--focus-outline); // For Windows high-contrast mode
@@ -436,9 +427,10 @@
   }
 }
 
-.sections-mgmt-panel {
-  height: 100%;
+.sections-mgmt-panel,
+.widgets-mgmt-panel {
   // Width of panel minus the margins
+  height: 100%;
   inset-inline-start: var(--space-xlarge);
   position: absolute;
   inset-block-start: 0;
@@ -454,6 +446,37 @@
     transform: translateX(-100%);
   }
 
+  h3 {
+    font-size: inherit;
+    margin-block: 0 var(--space-small);
+  }
+
+  .arrow-button {
+    background: url('chrome://global/skin/icons/arrow-left.svg') no-repeat left center;
+
+    &:dir(rtl) {
+      background: url('chrome://global/skin/icons/arrow-right.svg') no-repeat right center;
+    }
+
+    border: none;
+    cursor: pointer;
+    margin-block-end: var(--space-xlarge);
+    padding-inline-start: var(--space-xlarge);
+    -moz-context-properties: fill;
+    fill: currentColor;
+    min-height: var(--size-item-small);
+    margin-inline-start: var(--space-xsmall);
+    margin-block-start: var(--space-xsmall);
+
+    h1 {
+      font-size: var(--font-size-root);
+      margin-block: 0;
+      font-weight: var(--button-font-weight);
+    }
+  }
+}
+
+.sections-mgmt-panel {
   @media (prefers-reduced-motion: no-preference) {
     &.sections-mgmt-panel-enter,
     &.sections-mgmt-panel-exit,
@@ -466,12 +489,6 @@
   &.sections-mgmt-panel-enter-done,
   &.sections-mgmt-panel-enter-active {
     transform: translateX(0);
-  }
-
-  // Typography
-  h3 {
-    font-size: inherit;
-    margin-block: 0 var(--space-small);
   }
 
   // List
@@ -495,32 +512,6 @@
     display: block;
     margin-block-end: var(--space-xxlarge);
     color: var(--text-color-deemphasized);
-  }
-
-  // Buttons
-  .arrow-button {
-    background: url('chrome://global/skin/icons/arrow-left.svg') no-repeat left center;
-
-    &:dir(rtl) {
-      background: url('chrome://global/skin/icons/arrow-right.svg') no-repeat right center;
-    }
-
-    border: none;
-    cursor: pointer;
-    margin-block-end: var(--space-xlarge);
-    padding-inline-start: var(--space-xlarge);
-    -moz-context-properties: fill;
-    fill: currentColor;
-    min-height: var(--size-item-small);
-    margin-inline-start: var(--space-xsmall);
-    margin-block-start: var(--space-xsmall);
-
-    h1 {
-      font-size: var(--font-size-root);
-      margin-block: 0;
-      font-weight: var(--button-font-weight);
-    }
-
   }
 
   // Follow / Unfollow and Block / Unblock Buttons
@@ -584,5 +575,44 @@
       }
     }
   }
+}
 
+.widgets-mgmt-panel {
+  @media (prefers-reduced-motion: no-preference) {
+    &.widgets-mgmt-panel-enter,
+    &.widgets-mgmt-panel-exit,
+    &.widgets-mgmt-panel-enter-done,
+    &.widgets-mgmt-panel-exit-done {
+      transition: transform 300ms;
+    }
+  }
+
+  &.widgets-mgmt-panel-enter-done,
+  &.widgets-mgmt-panel-enter-active {
+    transform: translateX(0);
+  }
+
+  .settings-widgets {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-large);
+  }
+
+}
+
+.widgets-mgmt-panel-container {
+  padding-block: var(--space-medium);
+}
+
+// @nova-cleanup(remove-conditional): Remove .nova-enabled selector, make default behavior for #shortcuts-section, #widgets-section and #row-selector
+.nova-enabled {
+  #shortcuts-section,
+  #widgets-section,
+  #pocket-section {
+    margin-block: var(--space-medium);
+  }
+
+  .section #shortcuts-toggle #row-selector {
+    width: 100%;
+  }
 }

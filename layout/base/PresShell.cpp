@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -3405,28 +3403,24 @@ static bool ComputeNeedToScroll(WhenToScroll aWhenToScroll, nscoord aLineSize,
 
 static nscoord ComputeWhereToScroll(WhereToScroll aWhereToScroll,
                                     nscoord aOriginalCoord, nscoord aRectMin,
-                                    nscoord aRectMax, nscoord aViewMin,
-                                    nscoord aViewMax, nscoord* aRangeMin,
-                                    nscoord* aRangeMax) {
+                                    nscoord aRectMax, nscoord aViewSize,
+                                    nscoord aScrollMin, nscoord aScrollMax) {
   nscoord resultCoord = aOriginalCoord;
-  nscoord scrollPortLength = aViewMax - aViewMin;
   if (!aWhereToScroll.mPercentage) {
     // Scroll the minimum amount necessary to show as much as possible of the
     // frame. If the frame is too large, don't hide any initially visible part
     // of it.
-    nscoord min = std::min(aRectMin, aRectMax - scrollPortLength);
-    nscoord max = std::max(aRectMin, aRectMax - scrollPortLength);
+    nscoord min = std::min(aRectMin, aRectMax - aViewSize);
+    nscoord max = std::max(aRectMin, aRectMax - aViewSize);
     resultCoord = std::clamp(aOriginalCoord, min, max);
   } else {
     float percent = aWhereToScroll.mPercentage.value() / 100.0f;
     nscoord frameAlignCoord =
         NSToCoordRound(aRectMin + (aRectMax - aRectMin) * percent);
-    resultCoord = NSToCoordRound(frameAlignCoord - scrollPortLength * percent);
+    resultCoord = NSToCoordRound(frameAlignCoord - aViewSize * percent);
   }
-  // Force the scroll range to extend to include resultCoord.
-  *aRangeMin = std::min(resultCoord, aRectMax - scrollPortLength);
-  *aRangeMax = std::max(resultCoord, aRectMin);
-  return resultCoord;
+  // Clamp scroll offset to the viable range.
+  return std::clamp(resultCoord, aScrollMin, aScrollMax);
 }
 
 static WhereToScroll GetApplicableWhereToScroll(
@@ -3472,6 +3466,25 @@ static ScrollMode GetScrollModeForScrollIntoView(
   return aScrollContainerFrame->ScrollModeForScrollBehavior(behavior);
 }
 
+struct ScrollPointRange {
+  nscoord mCoord;
+  nscoord mMin;
+  nscoord mMax;
+};
+
+static ScrollPointRange ComputeWhereToScrollAndRange(
+    WhereToScroll aWhereToScroll, nscoord aOriginalCoord, nscoord aRectMin,
+    nscoord aRectMax, nscoord aViewSize, nscoord aScrollMin,
+    nscoord aScrollMax) {
+  const auto coord =
+      ComputeWhereToScroll(aWhereToScroll, aOriginalCoord, aRectMin, aRectMax,
+                           aViewSize, aScrollMin, aScrollMax);
+
+  const auto min = std::min(coord, aRectMax - aViewSize);
+  const auto max = std::max(coord, aRectMin) - min;
+  return ScrollPointRange{coord, min, max};
+}
+
 /**
  * This function takes a scroll container frame, a rect in the coordinate system
  * of the scrolled frame, and a desired percentage-based scroll
@@ -3514,8 +3527,8 @@ static Maybe<nsPoint> ScrollToShowRect(
     lineSize = aScrollContainerFrame->GetLineScrollAmount();
   }
   ScrollStyles ss = aScrollContainerFrame->GetScrollStyles();
-  nsRect allowedRange(scrollPt, nsSize(0, 0));
-
+  nsRect scrollRange(scrollPt, nsSize(0, 0));
+  const auto scrollConstraint = aScrollContainerFrame->GetVisualScrollRange();
   if ((aScrollFlags & ScrollFlags::ScrollOverflowHidden) ||
       ss.mVertical != StyleOverflow::Hidden) {
     if (ComputeNeedToScroll(aVertical.mWhenToScroll, lineSize.height, aRect.y,
@@ -3526,12 +3539,13 @@ static Maybe<nsPoint> ScrollToShowRect(
           aScrollContainerFrame, aScrollableFrame, aTarget,
           ScrollDirection::eVertical, aVertical.mWhereToScroll);
 
-      nscoord maxHeight;
-      scrollPt.y = ComputeWhereToScroll(
+      const auto result = ComputeWhereToScrollAndRange(
           whereToScroll, scrollPt.y, rectToScrollIntoView.y,
-          rectToScrollIntoView.YMost(), visibleRect.y, visibleRect.YMost(),
-          &allowedRange.y, &maxHeight);
-      allowedRange.height = maxHeight - allowedRange.y;
+          rectToScrollIntoView.YMost(), visibleRect.height, scrollConstraint.y,
+          scrollConstraint.YMost());
+      scrollPt.y = result.mCoord;
+      scrollRange.y = result.mMin;
+      scrollRange.height = result.mMax;
     }
   }
 
@@ -3545,12 +3559,13 @@ static Maybe<nsPoint> ScrollToShowRect(
           aScrollContainerFrame, aScrollableFrame, aTarget,
           ScrollDirection::eHorizontal, aHorizontal.mWhereToScroll);
 
-      nscoord maxWidth;
-      scrollPt.x = ComputeWhereToScroll(
+      const auto result = ComputeWhereToScrollAndRange(
           whereToScroll, scrollPt.x, rectToScrollIntoView.x,
-          rectToScrollIntoView.XMost(), visibleRect.x, visibleRect.XMost(),
-          &allowedRange.x, &maxWidth);
-      allowedRange.width = maxWidth - allowedRange.x;
+          rectToScrollIntoView.XMost(), visibleRect.width, scrollConstraint.x,
+          scrollConstraint.XMost());
+      scrollPt.x = result.mCoord;
+      scrollRange.x = result.mMin;
+      scrollRange.width = result.mMax;
     }
   }
 
@@ -3564,7 +3579,7 @@ static Maybe<nsPoint> ScrollToShowRect(
       GetScrollModeForScrollIntoView(aScrollContainerFrame, aScrollFlags);
   nsIFrame* frame = do_QueryFrame(aScrollContainerFrame);
   AutoWeakFrame weakFrame(frame);
-  aScrollContainerFrame->ScrollTo(scrollPt, scrollMode, &allowedRange,
+  aScrollContainerFrame->ScrollTo(scrollPt, scrollMode, &scrollRange,
                                   ScrollSnapFlags::IntendedEndPosition,
                                   aScrollFlags & ScrollFlags::TriggeredByScript
                                       ? ScrollTriggeredByScript::Yes
@@ -3796,24 +3811,21 @@ void PresShell::ScrollFrameIntoVisualViewport(
     // position. Otherwise if we've already scrolled, this scrollIntoView
     // operation will jump back to near (0, 0) position.
     nsPoint layoutOffset = rootScrollContainer->GetScrollPosition();
+    const auto scrollRange = rootScrollContainer->GetVisualScrollRange();
 
     const nsRect visibleRect(layoutOffset, visualViewportSize);
-    nscoord unusedRangeMinOutparam;
-    nscoord unusedRangeMaxOutparam;
     nscoord x = ComputeWhereToScroll(
         aScrollFlags & ScrollFlags::ForZoomToFocusedInput
             ? WhereToScroll::Nearest
             : aHorizontal.mWhereToScroll,
         layoutOffset.x, aPositionFixedRect.x, aPositionFixedRect.XMost(),
-        visibleRect.x, visibleRect.XMost(), &unusedRangeMinOutparam,
-        &unusedRangeMaxOutparam);
+        visibleRect.width, scrollRange.x, scrollRange.XMost());
     nscoord y = ComputeWhereToScroll(
         aScrollFlags & ScrollFlags::ForZoomToFocusedInput
             ? WhereToScroll::Nearest
             : aVertical.mWhereToScroll,
         layoutOffset.y, aPositionFixedRect.y, aPositionFixedRect.YMost(),
-        visibleRect.y, visibleRect.YMost(), &unusedRangeMinOutparam,
-        &unusedRangeMaxOutparam);
+        visibleRect.height, scrollRange.y, scrollRange.YMost());
 
     layoutOffset.x += x;
     layoutOffset.y += y;
@@ -5071,6 +5083,9 @@ UniquePtr<RangePaintInfo> PresShell::CreateRangePaintInfo(
     // XXX deal with frame being null due to display:contents
     for (; frame;
          frame = nsLayoutUtils::GetNextContinuationOrIBSplitSibling(frame)) {
+      if (frame->HasAnyStateBits(NS_FRAME_IS_NONDISPLAY)) {
+        continue;
+      }
       info->mBuilder.SetVisibleRect(frame->InkOverflowRect());
       info->mBuilder.SetDirtyRect(frame->InkOverflowRect());
       frame->BuildDisplayListForStackingContext(&info->mBuilder, &info->mList);
@@ -7804,17 +7819,13 @@ bool PresShell::EventHandler::MaybeFlushPendingNotifications(
 
   switch (aGUIEvent->mMessage) {
     case eMouseDown:
-    case eMouseUp: {
-      RefPtr<nsPresContext> presContext = mPresShell->GetPresContext();
-      if (NS_WARN_IF(!presContext)) {
+    case eMouseUp:  // XXX How about eContextMenu?
+    {
+      if (NS_WARN_IF(!mPresShell->GetPresContext())) {
         return false;
       }
-      uint64_t framesConstructedCount = presContext->FramesConstructedCount();
-      uint64_t framesReflowedCount = presContext->FramesReflowedCount();
-
       MOZ_KnownLive(mPresShell)->FlushPendingNotifications(FlushType::Layout);
-      return framesConstructedCount != presContext->FramesConstructedCount() ||
-             framesReflowedCount != presContext->FramesReflowedCount();
+      return true;
     }
     default:
       return false;
@@ -7884,18 +7895,19 @@ nsIFrame* PresShell::EventHandler::GetFrameToHandleNonTouchEvent(
   // If target is in a child document, we've not flushed its layout yet.
   PresShell* childPresShell = targetFrame->PresShell();
   EventHandler childEventHandler(*childPresShell);
-  bool layoutChanged =
+  const AutoWeakFrame targetFrameWeak(targetFrame);
+  const DebugOnly<bool> flushedPendingNotifications =
       childEventHandler.MaybeFlushPendingNotifications(aGUIEvent);
   if (!aWeakRootFrameToHandleEvent.IsAlive()) {
     // Stop handling the event if the root frame to handle event is destroyed
     // by the reflow. (but why?)
     return nullptr;
   }
-  if (!layoutChanged) {
-    // If the layout in the child PresShell hasn't been changed, we don't
-    // need to recompute the target.
+  if (targetFrameWeak.IsAlive()) {
+    // If the target frame is alive, we don't need to recompute the target.
     return targetFrame;
   }
+  MOZ_ASSERT(flushedPendingNotifications);
 
   // Finally, we need to recompute the target with the latest layout.
   targetFrame =
@@ -11235,10 +11247,10 @@ void ReflowCountMgr::DoGrandHTMLTotals() {
     }
   });
 
-  static const char* title[] = {"Class", "Reflows"};
+  static const char* titles[] = {"Class", "Reflows"};
   fprintf(mFD, "<tr>");
-  for (uint32_t i = 0; i < std::size(title); i++) {
-    fprintf(mFD, "<td><center><b>%s<b></center></td>", title[i]);
+  for (const char* title : titles) {
+    fprintf(mFD, "<td><center><b>%s<b></center></td>", title);
   }
   fprintf(mFD, "</tr>\n");
 
@@ -11350,6 +11362,21 @@ nsIFrame* PresShell::GetAnchorPosAnchor(
         aName, aPositionedFrame, entry.Data());
   }
   return nullptr;
+}
+
+void PresShell::CollectAnchorNames(const nsIFrame* aPositionedFrame,
+                                   nsTArray<nsString>& aResult) {
+  const auto* pos = aPositionedFrame->StylePosition();
+  StyleCascadeLevel anchorTreeScope = pos->mPositionAnchor.scope;
+
+  for (auto iter = mAnchorPosAnchors.Iter(); !iter.Done(); iter.Next()) {
+    const auto& name = iter.Key();
+    ScopedNameRef scopedName{name, anchorTreeScope};
+    if (AnchorPositioningUtils::FindFirstAcceptableAnchor(
+            scopedName, aPositionedFrame, iter.Data())) {
+      aResult.AppendElement(nsDependentAtomString(name));
+    }
+  }
 }
 
 void PresShell::AddAnchorPosAnchorImpl(const nsAtom* aName, nsIFrame* aFrame,

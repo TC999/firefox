@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -18,9 +16,7 @@ namespace mozilla::dom {
 
 PermissionStatus::PermissionStatus(nsIGlobalObject* aGlobal,
                                    PermissionName aName)
-    : DOMEventTargetHelper(aGlobal),
-      mName(aName),
-      mState(PermissionState::Denied) {
+    : DOMEventTargetHelper(aGlobal), mName(aName) {
   KeepAliveIfHasListenersFor(nsGkAtoms::onchange);
 }
 
@@ -32,10 +28,14 @@ RefPtr<PermissionStatus::SimplePromise> PermissionStatus::Init() {
 
   return mSink->Init()->Then(
       GetCurrentSerialEventTarget(), __func__,
-      [self = RefPtr(this)](const PermissionStatusSink::PermissionStatePromise::
-                                ResolveOrRejectValue& aResult) {
+      [self = RefPtr(this)](
+          const PermissionStatusSink::InternalPermissionStatesPromise::
+              ResolveOrRejectValue& aResult) {
         if (aResult.IsResolve()) {
-          self->mState = self->ComputeStateFromAction(aResult.ResolveValue());
+          PermissionStatusSink::InternalPermissionStates states =
+              aResult.ResolveValue();
+          self->mState = self->ComputeStateFromAction(states.mBrowser);
+          self->mSystemState = states.mSystem;
           return SimplePromise::CreateAndResolve(NS_OK, __func__);
         }
 

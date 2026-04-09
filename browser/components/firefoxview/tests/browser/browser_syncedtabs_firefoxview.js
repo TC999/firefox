@@ -51,7 +51,7 @@ add_task(async function test_unconfigured_initial_state() {
     // Test telemetry for signing into Firefox Accounts.
     await clearAllParentTelemetryEvents();
     EventUtils.synthesizeMouseAtCenter(
-      emptyState.querySelector(`button[data-action="sign-in"]`),
+      emptyState.querySelector(`moz-button[data-action="sign-in"]`).buttonEl,
       {},
       browser.contentWindow
     );
@@ -142,7 +142,7 @@ add_task(async function test_signed_in() {
     // Test telemetry for adding a device.
     await clearAllParentTelemetryEvents();
     EventUtils.synthesizeMouseAtCenter(
-      emptyState.querySelector(`button[data-action="add-device"]`),
+      emptyState.querySelector(`moz-button[data-action="add-device"]`).buttonEl,
       {},
       browser.contentWindow
     );
@@ -1016,9 +1016,13 @@ add_task(async function test_tab_sync_enabled() {
     );
 
     const actionButton = syncedTabsComponent.emptyState?.querySelector(
-      "button[data-action=sync-tabs-disabled]"
+      "moz-button[data-action=sync-tabs-disabled]"
     );
-    EventUtils.synthesizeMouseAtCenter(actionButton, {}, browser.contentWindow);
+    EventUtils.synthesizeMouseAtCenter(
+      actionButton.buttonEl,
+      {},
+      browser.contentWindow
+    );
     await TestUtils.waitForCondition(
       () => syncedTabsComponent.fullyUpdated,
       "Synced tabs component is fully updated."

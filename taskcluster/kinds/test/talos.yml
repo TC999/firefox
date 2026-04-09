@@ -784,7 +784,6 @@ talos-pdfpaint:
                     macosx(?!.*shippable).*: []
                     windows(?!.*shippable).*: []
                     default: [trunk]
-    max-run-time: 2100
     mozharness:
         extra-options:
             - --suite=pdfpaint

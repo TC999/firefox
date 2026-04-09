@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -9,6 +7,7 @@
 // happens when calling these functions. They don't do much inspection of
 // profiler internals.
 
+#include "mozilla/ProfilerPlatformMacros.h"
 #include "mozilla/ProfilerThreadPlatformData.h"
 #include "mozilla/ProfilerThreadRegistration.h"
 #include "mozilla/ProfilerThreadRegistrationInfo.h"
@@ -28,10 +27,10 @@
 
 #include <thread>
 
-#if defined(_MSC_VER) || defined(__MINGW32__)
+#if defined(GP_OS_windows)
 #  include <processthreadsapi.h>
 #  include <realtimeapiset.h>
-#elif defined(__APPLE__)
+#elif defined(GP_OS_darwin)
 #  include <mach/thread_act.h>
 #endif
 
@@ -258,7 +257,7 @@ static void TestConstUnlockedConstReader(
   EXPECT_EQ(aData.Info().ThreadId(), aThreadId);
   EXPECT_FALSE(aData.Info().IsMainThread());
 
-#if defined(_MSC_VER) || defined(__MINGW32__)
+#if defined(GP_OS_windows)
   HANDLE threadHandle = aData.PlatformDataCRef().ProfiledThread();
   EXPECT_NE(threadHandle, nullptr);
   EXPECT_EQ(ProfilerThreadId::FromNumber(::GetThreadId(threadHandle)),
@@ -267,7 +266,7 @@ static void TestConstUnlockedConstReader(
   // work, but at least it shouldn't crash.
   ULONG64 cycles;
   (void)QueryThreadCycleTime(threadHandle, &cycles);
-#elif defined(__APPLE__)
+#elif defined(GP_OS_darwin)
   // Test calling thread_info, we cannot assume that it will always work, but at
   // least it shouldn't crash.
   thread_basic_info_data_t threadBasicInfo;
@@ -275,7 +274,7 @@ static void TestConstUnlockedConstReader(
   (void)thread_info(
       aData.PlatformDataCRef().ProfiledThread(), THREAD_BASIC_INFO,
       reinterpret_cast<thread_info_t>(&threadBasicInfo), &basicCount);
-#elif defined(__linux__) || defined(__ANDROID__) || defined(__FreeBSD__)
+#elif (defined(GP_OS_linux) || defined(GP_OS_android) || defined(GP_OS_freebsd))
   // Test calling GetClockId, we cannot assume that it will always work, but at
   // least it shouldn't crash.
   Maybe<clockid_t> maybeClockId = aData.PlatformDataCRef().GetClockId();
@@ -2342,6 +2341,27 @@ class MockClassOfService final : public nsIClassOfService {
 
 NS_IMPL_ISUPPORTS(MockClassOfService, nsIClassOfService)
 
+// BaseMarkerType-based marker with Format::UniqueString payload fields.
+// Must be at file scope since local structs cannot have static data members.
+struct GtestBaseMarkerTypeUniqueString
+    : public mozilla::BaseMarkerType<GtestBaseMarkerTypeUniqueString> {
+  static constexpr const char* Name = "markers-gtest-base-unique-string";
+  using MS = mozilla::MarkerSchema;
+  static constexpr MS::Location Locations[] = {MS::Location::MarkerChart,
+                                               MS::Location::MarkerTable};
+  static constexpr MS::PayloadField PayloadFields[] = {
+      {"uniqueField", MS::InputType::CString, "Unique Field",
+       MS::Format::UniqueString},
+      {"plainField", MS::InputType::CString, "Plain Field",
+       MS::Format::String}};
+  static void StreamJSONMarkerData(
+      mozilla::baseprofiler::SpliceableJSONWriter& aWriter,
+      const mozilla::ProfilerString8View& aUniqueText,
+      const mozilla::ProfilerString8View& aPlainText) {
+    StreamJSONMarkerDataImpl(aWriter, aUniqueText, aPlainText);
+  }
+};
+
 TEST(GeckoProfiler, Markers)
 {
   uint32_t features = ProfilerFeature::StackWalk;
@@ -2461,6 +2481,7 @@ TEST(GeckoProfiler, Markers)
       aWriter.UniqueStringProperty("unique text", aUniqueText);
       aWriter.UniqueStringProperty("unique text again", aUniqueText);
       aWriter.TimeProperty("time", aTime);
+      aWriter.StringProperty("color", "green");
     }
     static mozilla::MarkerSchema MarkerTypeDisplay() {
       // Note: This is an test function that is not intended to actually output
@@ -2475,6 +2496,7 @@ TEST(GeckoProfiler, Markers)
       schema.SetChartLabel("chart label");
       schema.SetTooltipLabel("tooltip label");
       schema.SetTableLabel("table label");
+      schema.SetColorField("color");
       // All data functions, all formats.
       schema.AddKeyFormat("key with url", MS::Format::Url);
       schema.AddKeyLabelFormat("key with label filePath", "label filePath",
@@ -2498,6 +2520,8 @@ TEST(GeckoProfiler, Markers)
       schema.AddKeyLabelFormat("key with label hidden", "label",
                                MS::Format::String, MS::PayloadFlags::Hidden);
       schema.AddKeyFormat("key hidden", MS::Format::String,
+                          MS::PayloadFlags::Hidden);
+      schema.AddKeyFormat("color", MS::Format::String,
                           MS::PayloadFlags::Hidden);
 
       return schema;
@@ -2538,6 +2562,11 @@ TEST(GeckoProfiler, Markers)
 
   // Make sure the compiler doesn't complain about this unused struct.
   (void)GtestUnusedMarker{};
+
+  EXPECT_TRUE(profiler_add_marker_impl(
+      "Gtest base marker type unique string", geckoprofiler::category::OTHER,
+      {}, GtestBaseMarkerTypeUniqueString{}, "gtest unique field value",
+      "gtest plain field value"));
 
   // Test PROFILER_MARKER_SIMPLE_PAYLOAD with various data types.
   int testInt = 42;
@@ -2896,6 +2925,7 @@ TEST(GeckoProfiler, Markers)
     S_FirstMarker,
     S_CustomMarker,
     S_SpecialMarker,
+    S_BaseMarkerTypeUniqueString,
     S_SimplePayload_int,
     S_SimplePayload_double,
     S_SimplePayload_bool,
@@ -3165,7 +3195,7 @@ TEST(GeckoProfiler, Markers)
                   EXPECT_EQ(state, S_CustomMarker);
                   state = State(S_CustomMarker + 1);
                   EXPECT_EQ(typeString, "markers-gtest");
-                  EXPECT_EQ(payload.size(), 1u + 9u);
+                  EXPECT_EQ(payload.size(), 1u + 10u);
                   EXPECT_TRUE(payload["null"].isNull());
                   EXPECT_EQ_JSON(payload["bool-false"], Bool, false);
                   EXPECT_EQ_JSON(payload["bool-true"], Bool, true);
@@ -3187,6 +3217,21 @@ TEST(GeckoProfiler, Markers)
                   state = State(S_SpecialMarker + 1);
                   EXPECT_EQ(typeString, "markers-gtest-special");
                   EXPECT_EQ(payload.size(), 1u) << "Only 'type' in the payload";
+
+                } else if (nameString ==
+                           "Gtest base marker type unique string") {
+                  EXPECT_EQ(state, S_BaseMarkerTypeUniqueString);
+                  state = State(S_BaseMarkerTypeUniqueString + 1);
+                  EXPECT_EQ(typeString, "markers-gtest-base-unique-string");
+                  // uniqueField should be stored as a unique-string index.
+                  ASSERT_TRUE(payload["uniqueField"].isUInt());
+                  auto uniqueIndex = payload["uniqueField"].asUInt();
+                  GET_JSON(uniqueValue, stringTable[uniqueIndex], String);
+                  ASSERT_TRUE(uniqueValue.isString());
+                  EXPECT_EQ(uniqueValue.asString(), "gtest unique field value");
+                  // plainField should be stored as a regular string.
+                  EXPECT_EQ_JSON(payload["plainField"], String,
+                                 "gtest plain field value");
 
                 } else if (nameString == "SimplePayload with int") {
                   EXPECT_EQ(state, S_SimplePayload_int);
@@ -3615,8 +3660,9 @@ TEST(GeckoProfiler, Markers)
             EXPECT_EQ_JSON(schema["chartLabel"], String, "chart label");
             EXPECT_EQ_JSON(schema["tooltipLabel"], String, "tooltip label");
             EXPECT_EQ_JSON(schema["tableLabel"], String, "table label");
+            EXPECT_EQ_JSON(schema["colorField"], String, "color");
 
-            ASSERT_EQ(data.size(), 18u);
+            ASSERT_EQ(data.size(), 19u);
 
             ASSERT_TRUE(data[0u].isObject());
             EXPECT_EQ_JSON(data[0u]["key"], String, "key with url");
@@ -3709,6 +3755,29 @@ TEST(GeckoProfiler, Markers)
             EXPECT_TRUE(data[17u]["label"].isNull());
             EXPECT_EQ_JSON(data[17u]["format"], String, "string");
             EXPECT_EQ_JSON(data[17u]["hidden"], Bool, true);
+
+            ASSERT_TRUE(data[18u].isObject());
+            EXPECT_EQ_JSON(data[18u]["key"], String, "color");
+            EXPECT_TRUE(data[18u]["label"].isNull());
+            EXPECT_EQ_JSON(data[18u]["format"], String, "string");
+            EXPECT_EQ_JSON(data[18u]["hidden"], Bool, true);
+
+          } else if (nameString == "markers-gtest-base-unique-string") {
+            EXPECT_EQ(display.size(), 2u);
+            EXPECT_EQ(display[0u].asString(), "marker-chart");
+            EXPECT_EQ(display[1u].asString(), "marker-table");
+
+            ASSERT_EQ(data.size(), 2u);
+
+            ASSERT_TRUE(data[0u].isObject());
+            EXPECT_EQ_JSON(data[0u]["key"], String, "uniqueField");
+            EXPECT_EQ_JSON(data[0u]["label"], String, "Unique Field");
+            EXPECT_EQ_JSON(data[0u]["format"], String, "unique-string");
+
+            ASSERT_TRUE(data[1u].isObject());
+            EXPECT_EQ_JSON(data[1u]["key"], String, "plainField");
+            EXPECT_EQ_JSON(data[1u]["label"], String, "Plain Field");
+            EXPECT_EQ_JSON(data[1u]["format"], String, "string");
 
           } else if (nameString == "markers-gtest-special") {
             EXPECT_EQ(display.size(), 0u);

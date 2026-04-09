@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:set ts=2 sw=2 sts=2 et cindent: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -298,10 +296,9 @@ FFmpegAudioEncoder<LIBAV_VER>::EncodeOnePacket(Span<float> aSamples,
             aSamples.Length());
   } else {
     MOZ_ASSERT(mCodecContext->sample_fmt == AV_SAMPLE_FMT_FLTP);
-    for (uint32_t i = 0; i < mConfig.mNumberOfChannels; i++) {
-      DeinterleaveAndConvertBuffer(aSamples.data(), mFrame->nb_samples,
-                                   mConfig.mNumberOfChannels, mFrame->data);
-    }
+    DeinterleaveAndConvertBuffer(aSamples.data(), mFrame->nb_samples,
+                                 mConfig.mNumberOfChannels,
+                                 mFrame->extended_data);
   }
 
   // Now send the AVFrame to ffmpeg for encoding, same code for audio and video.

@@ -5,6 +5,7 @@
 package org.mozilla.fenix.tabstray.redux.middleware
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.mockk.mockk
 import junit.framework.TestCase.assertEquals
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -14,7 +15,14 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import mozilla.components.browser.state.action.TabListAction
 import mozilla.components.browser.state.state.createTab
+import mozilla.components.browser.state.store.BrowserStore
+import mozilla.components.feature.tabs.TabsUseCases
+import mozilla.components.feature.tabs.TabsUseCases.RemoveTabsUseCase
+import mozilla.components.support.utils.DateTimeProvider
+import mozilla.components.support.utils.FakeDateTimeProvider
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mozilla.fenix.tabgroups.fakes.FakeTabGroupRepository
@@ -23,12 +31,19 @@ import org.mozilla.fenix.tabgroups.storage.repository.TabGroupRepository
 import org.mozilla.fenix.tabstray.data.TabData
 import org.mozilla.fenix.tabstray.data.TabGroupTheme
 import org.mozilla.fenix.tabstray.data.TabsTrayItem
+import org.mozilla.fenix.tabstray.data.createTabGroup
+import org.mozilla.fenix.tabstray.redux.action.TabGroupAction
+import org.mozilla.fenix.tabstray.redux.state.TabGroupFormState
 import org.mozilla.fenix.tabstray.redux.state.TabsTrayState
+import org.mozilla.fenix.tabstray.redux.state.TabsTrayState.Mode
 import org.mozilla.fenix.tabstray.redux.store.TabsTrayStore
+import org.mozilla.fenix.tabstray.data.createTab as createTabsTrayItemTab
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
 class TabStorageMiddlewareTest {
+
+    private val fakeDateTimeProvider = FakeDateTimeProvider(currentTime = 10L)
 
     @Test
     fun `WHEN the selected tab ID is updated THEN transform the data and dispatch an update`() = runTest {
@@ -78,19 +93,26 @@ class TabStorageMiddlewareTest {
     }
 
     @Test
-    fun `WHEN inactive tabs has updated THEN transform the data and dispatch an update`() = runTest {
-        val expectedTab = createTab("test1", lastAccess = 0L, createdAt = 0L)
-        val initialState = TabData()
-        val expectedState = TabsTrayState(
-            selectedTabId = expectedTab.id,
-            inactiveTabs = listOf(TabsTrayItem.Tab(expectedTab)),
-        )
-        val tabFlow = MutableStateFlow(initialState)
-        val store = createStore(
-            inactiveTabsEnabled = true,
-            tabDataFlow = tabFlow,
-            scope = backgroundScope,
-        )
+    fun `WHEN inactive tabs has updated THEN transform the data and dispatch an update`() =
+        runTest {
+            val expectedTab = createTab("test1", lastAccess = 0L, createdAt = 0L)
+            val initialState = TabData()
+            val expectedState = TabsTrayState(
+                selectedTabId = expectedTab.id,
+                inactiveTabs = TabsTrayState.InactiveTabsState(
+                    tabs = listOf(
+                        TabsTrayItem.Tab(
+                            expectedTab,
+                        ),
+                    ),
+                ),
+            )
+            val tabFlow = MutableStateFlow(initialState)
+            val store = createStore(
+                inactiveTabsEnabled = true,
+                tabDataFlow = tabFlow,
+                scope = backgroundScope,
+            )
 
         tabFlow.emit(initialState.copy(selectedTabId = expectedTab.id, tabs = initialState.tabs + expectedTab))
 
@@ -106,7 +128,9 @@ class TabStorageMiddlewareTest {
         val initialState = TabData()
         val expectedState = TabsTrayState(
             selectedTabId = expectedTab.id,
-            privateTabs = listOf(TabsTrayItem.Tab(expectedTab)),
+            privateBrowsing = TabsTrayState.PrivateBrowsingState(
+                tabs = listOf(TabsTrayItem.Tab(expectedTab)),
+            ),
         )
         val tabFlow = MutableStateFlow(initialState)
         val store = createStore(
@@ -138,11 +162,12 @@ class TabStorageMiddlewareTest {
             id = tabGroup.id,
             title = tabGroup.title,
             theme = TabGroupTheme.valueOf(tabGroup.theme),
-            tabs = hashSetOf(expectedDisplayTab),
+            tabs = mutableListOf(expectedDisplayTab),
         )
         val expectedState = TabsTrayState(
             normalTabs = listOf(expectedTabGroup),
             tabGroups = listOf(expectedTabGroup),
+            config = TabsTrayState.TabsTrayConfig(tabGroupsEnabled = false),
         )
         val tabFlow = MutableStateFlow(initialState)
         val tabGroupFlow = MutableStateFlow(emptyList<StoredTabGroup>())
@@ -174,6 +199,7 @@ class TabStorageMiddlewareTest {
             tabGroupsEnabled = true,
             tabDataFlow = flowOf(),
             tabGroupRepository = createRepository(),
+            removeTabsUseCase = mockk(relaxed = true),
         )
         val actualTheme = with(middleware) {
             expectedTabGroupTheme.name.toTabGroupTheme()
@@ -190,12 +216,257 @@ class TabStorageMiddlewareTest {
             tabGroupsEnabled = true,
             tabDataFlow = flowOf(),
             tabGroupRepository = createRepository(),
+            removeTabsUseCase = mockk(relaxed = true),
         )
         val actualTheme = with(middleware) {
             "Rainbow123".toTabGroupTheme()
         }
 
         assertEquals(expectedTabGroupTheme, actualTheme)
+    }
+
+    @Test
+    fun `WHEN save is clicked in multiselect mode for a new group THEN create the group with selected tabs`() = runTest {
+        val testFlow = MutableStateFlow(emptyList<StoredTabGroup>())
+        val repository = createRepository(testFlow)
+        val selectedTabs = setOf(
+            createTabsTrayItemTab("https://mozilla.org"),
+            createTabsTrayItemTab("https://example.com"),
+        )
+        val expectedTitle = "Group 1"
+        val expectedTheme = TabGroupTheme.Red
+        val store = createStore(
+            initialState = TabsTrayState(
+                mode = Mode.Select(selectedTabs = selectedTabs),
+                tabGroupFormState = TabGroupFormState(
+                    name = expectedTitle,
+                    tabGroupId = null,
+                    theme = expectedTheme,
+                ),
+            ),
+            tabGroupRepository = repository,
+            dateTimeProvider = fakeDateTimeProvider,
+            scope = backgroundScope,
+        )
+
+        assertTrue(repository.fetchTabGroups().isEmpty())
+        assertTrue(repository.fetchTabGroupAssignments().isEmpty())
+
+        store.dispatch(TabGroupAction.SaveClicked)
+
+        runCurrent()
+        advanceUntilIdle()
+
+        assertEquals(1, repository.fetchTabGroups().size)
+        val storedGroup = repository.fetchTabGroups().first()
+        assertEquals(
+            StoredTabGroup(
+                id = storedGroup.id,
+                title = expectedTitle,
+                theme = expectedTheme.name,
+                lastModified = fakeDateTimeProvider.currentTimeMillis(),
+            ),
+            storedGroup,
+        )
+        assertEquals(
+            selectedTabs.associate { it.id to storedGroup.id },
+            repository.fetchTabGroupAssignments(),
+        )
+    }
+
+    @Test
+    fun `WHEN save is clicked with no existing tab group id or selected tabs THEN add new tab group`() = runTest {
+        val testFlow = MutableStateFlow(emptyList<StoredTabGroup>())
+        val repository = createRepository(testFlow)
+        val expectedTitle = "Group 1"
+        val expectedTheme = TabGroupTheme.Red
+        val store = createStore(
+            initialState = TabsTrayState(
+                tabGroupFormState = TabGroupFormState(
+                    name = expectedTitle,
+                    tabGroupId = null,
+                    theme = expectedTheme,
+                ),
+            ),
+            tabGroupRepository = repository,
+            dateTimeProvider = fakeDateTimeProvider,
+            scope = backgroundScope,
+        )
+
+        assertTrue(repository.fetchTabGroups().isEmpty())
+        assertTrue(repository.fetchTabGroupAssignments().isEmpty())
+
+        store.dispatch(TabGroupAction.SaveClicked)
+
+        runCurrent()
+        advanceUntilIdle()
+
+        assertEquals(1, repository.fetchTabGroups().size)
+        val storedGroup = repository.fetchTabGroups().first()
+        assertEquals(
+            StoredTabGroup(
+                id = storedGroup.id,
+                title = expectedTitle,
+                theme = expectedTheme.name,
+                lastModified = fakeDateTimeProvider.currentTimeMillis(),
+            ),
+            storedGroup,
+        )
+        assertTrue(repository.fetchTabGroupAssignments().isEmpty())
+    }
+
+    @Test
+    fun `WHEN save is clicked with existing tab group id THEN update existing tab group`() = runTest {
+        val existingId = "1"
+        val expectedTitle = "New name"
+        val expectedTheme = TabGroupTheme.Blue
+        val existingGroup = StoredTabGroup(
+            id = existingId,
+            title = "Old name",
+            theme = TabGroupTheme.Red.name,
+            lastModified = 0L,
+        )
+        val testFlow = MutableStateFlow(listOf(existingGroup))
+        val repository = createRepository(testFlow)
+        val store = createStore(
+            initialState = TabsTrayState(
+                tabGroupFormState = TabGroupFormState(
+                    tabGroupId = existingId,
+                    name = expectedTitle,
+                    theme = expectedTheme,
+                ),
+            ),
+            tabGroupRepository = repository,
+            dateTimeProvider = fakeDateTimeProvider,
+            scope = backgroundScope,
+        )
+
+        assertEquals(listOf(existingGroup), repository.fetchTabGroups())
+
+        store.dispatch(TabGroupAction.SaveClicked)
+
+        runCurrent()
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                StoredTabGroup(
+                    id = existingId,
+                    title = expectedTitle,
+                    theme = expectedTheme.name,
+                    lastModified = fakeDateTimeProvider.currentTimeMillis(),
+                ),
+            ),
+            repository.fetchTabGroups(),
+        )
+        assertTrue(repository.fetchTabGroupAssignments().isEmpty())
+    }
+
+    @Test
+    fun `WHEN save is clicked with no form state THEN no tab group writes occur`() = runTest {
+        val repository = createRepository()
+        val store = createStore(
+            initialState = TabsTrayState(),
+            tabGroupRepository = repository,
+            scope = backgroundScope,
+        )
+
+        store.dispatch(TabGroupAction.SaveClicked)
+
+        runCurrent()
+        advanceUntilIdle()
+
+        assertTrue(repository.fetchTabGroups().isEmpty())
+        assertTrue(repository.fetchTabGroupAssignments().isEmpty())
+    }
+
+    @Test
+    fun `WHEN tab group delete is confirmed THEN remove the tab group and its tabs`() = runTest {
+        val browserStore = BrowserStore()
+        val removeTabsUseCase = TabsUseCases(store = browserStore).removeTabs
+
+        val firstTab = createTab("https://mozilla.org")
+        browserStore.dispatch(TabListAction.AddTabAction(firstTab))
+
+        val secondTab = createTab("https://example.com")
+        browserStore.dispatch(TabListAction.AddTabAction(secondTab))
+
+        val title = "Group 1"
+        val theme = TabGroupTheme.Red
+        val storedGroup = StoredTabGroup(
+            title = title,
+            theme = theme.name,
+            lastModified = 0L,
+        )
+
+        val repository = FakeTabGroupRepository(
+            tabGroupFlow = MutableStateFlow(listOf(storedGroup)),
+        )
+        val store = createStore(
+            tabGroupRepository = repository,
+            removeTabsUseCase = removeTabsUseCase,
+            scope = backgroundScope,
+        )
+
+        val group = TabsTrayItem.TabGroup(
+            id = storedGroup.id,
+            title = title,
+            theme = theme,
+            tabs = mutableListOf(
+                TabsTrayItem.Tab(firstTab),
+                TabsTrayItem.Tab(secondTab),
+            ),
+        )
+
+        assertEquals(listOf(storedGroup), repository.fetchTabGroups())
+        assertEquals(2, browserStore.state.tabs.size)
+
+        store.dispatch(TabGroupAction.DeleteConfirmed(group))
+
+        runCurrent()
+        advanceUntilIdle()
+
+        assertTrue(repository.fetchTabGroups().isEmpty())
+        assertTrue(browserStore.state.tabs.isEmpty())
+    }
+
+    @Test
+    fun `GIVEN multiple tab groups exist WHEN delete is confirmed THEN remove the correct tab group`() = runTest {
+        val tabGroup1 = StoredTabGroup(
+            title = "Tab Group 1",
+            theme = TabGroupTheme.Red.name,
+            lastModified = 0L,
+        )
+        val tabGroup2 = StoredTabGroup(
+            title = "Tab Group 2",
+            theme = TabGroupTheme.Blue.name,
+            lastModified = 1L,
+        )
+        val repository = FakeTabGroupRepository(
+            tabGroupFlow = MutableStateFlow(listOf(tabGroup1, tabGroup2)),
+        )
+        val store = createStore(
+            tabGroupRepository = repository,
+            scope = backgroundScope,
+        )
+
+        assertEquals(listOf(tabGroup1, tabGroup2), repository.fetchTabGroups())
+
+        store.dispatch(
+            TabGroupAction.DeleteConfirmed(
+                group = TabsTrayItem.TabGroup(
+                    id = tabGroup1.id,
+                    title = tabGroup1.title,
+                    theme = TabGroupTheme.Red,
+                    tabs = mutableListOf(),
+                ),
+            ),
+        )
+
+        runCurrent()
+        advanceUntilIdle()
+
+        assertEquals(listOf(tabGroup2), repository.fetchTabGroups())
     }
 
     @Test
@@ -231,12 +502,164 @@ class TabStorageMiddlewareTest {
         assertEquals(expectedState, store.state)
     }
 
+    @Test
+    fun `GIVEN the user has selected tabs WHEN adding tabs to an existing group THEN the selected tabs are added to the specified group`() = runTest {
+        val tabs = MutableList(size = 10) { createTab(url = "") }
+        val selectedTabs = MutableList(size = 10) { TabsTrayItem.Tab(tabs[it]) }
+        val tabData = TabData(tabs = tabs)
+        val existingGroup = StoredTabGroup(
+            title = "Name",
+            theme = TabGroupTheme.Red.name,
+            lastModified = 0L,
+        )
+        val store = createStore(
+            initialState = TabsTrayState(
+                mode = Mode.Select(selectedTabs = selectedTabs.toSet()),
+            ),
+            tabGroupsEnabled = true,
+            tabDataFlow = flowOf(tabData),
+            tabGroupRepository = createRepository(tabGroupFlow = MutableStateFlow(listOf(existingGroup))),
+            scope = backgroundScope,
+        )
+        val expectedTabGroupList = listOf(
+            createTabGroup(
+                id = existingGroup.id,
+                title = existingGroup.title,
+                theme = TabGroupTheme.Red,
+                tabs = selectedTabs,
+            ),
+        )
+        val expectedState = TabsTrayState(
+            mode = Mode.Normal,
+            normalTabs = expectedTabGroupList,
+            tabGroups = expectedTabGroupList,
+        )
+
+        store.dispatch(TabGroupAction.TabsAddedToGroup(groupId = existingGroup.id))
+
+        runCurrent()
+        advanceUntilIdle()
+
+        assertEquals(expectedState, store.state)
+    }
+
+    @Test
+    fun `GIVEN the user has selected 10 ungrouped tabs and 3 tab groups WHEN adding tabs to an existing group THEN the selected tabs are added to the specified group and the selected groups are deleted`() = runTest {
+        val existingId = "12345"
+        val tabs = MutableList(size = 40) { createTab(url = "") }
+        val selectedTabs = MutableList(size = 40) { TabsTrayItem.Tab(tabs[it]) }
+        val tabData = TabData(tabs = tabs)
+        val destinationTabGroup = StoredTabGroup(
+            id = existingId,
+            title = "Name",
+            theme = TabGroupTheme.Red.name,
+            lastModified = 0L,
+        )
+        val tabGroups = List(size = 3) {
+            StoredTabGroup(
+                title = "Group $it",
+                theme = TabGroupTheme.Red.name,
+                lastModified = 0L,
+            )
+        }
+        val selectedTabGroups = tabGroups.map {
+            createTabGroup(
+                id = it.id,
+                title = it.title,
+                theme = TabGroupTheme.valueOf(it.theme),
+            )
+        }
+        // Assign tabs to the 3 multi-selected groups
+        selectedTabGroups[0].tabs.addAll(selectedTabs.subList(10, 20))
+        selectedTabGroups[1].tabs.addAll(selectedTabs.subList(20, 30))
+        selectedTabGroups[2].tabs.addAll(selectedTabs.subList(30, 40))
+        val initialTabAssignments = hashMapOf<String, String>()
+        selectedTabGroups.forEach { group ->
+            group.tabs.forEach { tab ->
+                initialTabAssignments[tab.id] = group.id
+            }
+        }
+        val store = createStore(
+            initialState = TabsTrayState(
+                mode = Mode.Select(
+                    selectedTabs = selectedTabs.toSet(),
+                    selectedTabGroups = selectedTabGroups.toSet(),
+                ),
+            ),
+            tabGroupsEnabled = true,
+            tabDataFlow = flowOf(tabData),
+            tabGroupRepository = createRepository(
+                tabGroupFlow = MutableStateFlow(tabGroups + destinationTabGroup),
+                tabGroupAssignmentFlow = MutableStateFlow(initialTabAssignments),
+            ),
+            scope = backgroundScope,
+        )
+        val expectedTabGroupList = listOf(
+            createTabGroup(
+                id = destinationTabGroup.id,
+                title = destinationTabGroup.title,
+                theme = TabGroupTheme.Red,
+                tabs = selectedTabs,
+            ),
+        )
+        val expectedState = TabsTrayState(
+            mode = Mode.Normal,
+            normalTabs = expectedTabGroupList,
+            tabGroups = expectedTabGroupList,
+        )
+
+        store.dispatch(TabGroupAction.TabsAddedToGroup(groupId = existingId))
+
+        runCurrent()
+        advanceUntilIdle()
+
+        assertEquals(expectedState, store.state)
+    }
+
+    @Test
+    fun `GIVEN the user has at least one tab and one tab group WHEN the user adds a tab to an existing tab group THEN the tab is added to the specified group`() = runTest {
+        val tab = createTab(url = "")
+        val tabData = TabData(tabs = listOf(tab))
+        val existingGroup = StoredTabGroup(
+            title = "Name",
+            theme = TabGroupTheme.Red.name,
+            lastModified = 0L,
+        )
+        val store = createStore(
+            tabGroupsEnabled = true,
+            tabDataFlow = flowOf(tabData),
+            tabGroupRepository = createRepository(tabGroupFlow = MutableStateFlow(listOf(existingGroup))),
+            scope = backgroundScope,
+        )
+        val expectedTabGroupList = listOf(
+            createTabGroup(
+                id = existingGroup.id,
+                title = existingGroup.title,
+                theme = TabGroupTheme.Red,
+                tabs = mutableListOf(TabsTrayItem.Tab(tab)),
+            ),
+        )
+        val expectedState = TabsTrayState(
+            normalTabs = expectedTabGroupList,
+            tabGroups = expectedTabGroupList,
+        )
+
+        store.dispatch(TabGroupAction.TabAddedToGroup(tabId = tab.id, groupId = existingGroup.id))
+
+        runCurrent()
+        advanceUntilIdle()
+
+        assertEquals(expectedState, store.state)
+    }
+
     private fun createStore(
         initialState: TabsTrayState = TabsTrayState(),
         inactiveTabsEnabled: Boolean = false,
         tabGroupsEnabled: Boolean = false,
         tabDataFlow: Flow<TabData> = flowOf(),
         tabGroupRepository: TabGroupRepository = createRepository(),
+        removeTabsUseCase: RemoveTabsUseCase = TabsUseCases(store = BrowserStore()).removeTabs,
+        dateTimeProvider: DateTimeProvider = fakeDateTimeProvider,
         scope: CoroutineScope,
     ) = TabsTrayStore(
         initialState = initialState,
@@ -246,6 +669,8 @@ class TabStorageMiddlewareTest {
                 tabGroupsEnabled = tabGroupsEnabled,
                 tabDataFlow = tabDataFlow,
                 tabGroupRepository = tabGroupRepository,
+                removeTabsUseCase = removeTabsUseCase,
+                dateTimeProvider = dateTimeProvider,
                 scope = scope,
                 mainScope = scope,
             ),
@@ -253,8 +678,8 @@ class TabStorageMiddlewareTest {
     )
 
     private fun createRepository(
-        tabGroupFlow: Flow<List<StoredTabGroup>> = flowOf(emptyList()),
-        tabGroupAssignmentFlow: Flow<Map<String, String>> = flowOf(mapOf()),
+        tabGroupFlow: MutableStateFlow<List<StoredTabGroup>> = MutableStateFlow(emptyList()),
+        tabGroupAssignmentFlow: MutableStateFlow<Map<String, String>> = MutableStateFlow(mapOf()),
     ) = FakeTabGroupRepository(
         tabGroupFlow = tabGroupFlow,
         tabGroupAssignmentFlow = tabGroupAssignmentFlow,

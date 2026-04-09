@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1254,10 +1252,10 @@ void GPUProcessManager::StopBatteryObserving() {
 }
 
 already_AddRefed<CompositorSession> GPUProcessManager::CreateTopLevelCompositor(
-    nsIWidget* aWidget, WebRenderLayerManager* aLayerManager,
-    CSSToLayoutDeviceScale aScale, const CompositorOptions& aOptions,
-    bool aUseExternalSurfaceSize, const gfx::IntSize& aSurfaceSize,
-    uint64_t aInnerWindowId, bool* aRetryOut) {
+    nsIWidget* aWidget, CSSToLayoutDeviceScale aScale,
+    const CompositorOptions& aOptions, bool aUseExternalSurfaceSize,
+    const gfx::IntSize& aSurfaceSize, uint64_t aInnerWindowId,
+    bool* aRetryOut) {
   MOZ_DIAGNOSTIC_ASSERT(IsGPUReady());
   MOZ_ASSERT(aRetryOut);
 
@@ -1269,9 +1267,9 @@ already_AddRefed<CompositorSession> GPUProcessManager::CreateTopLevelCompositor(
   LayersId layerTreeId = AllocateLayerTreeId();
   RefPtr<CompositorSession> session;
   if (mGPUChild) {
-    session = CreateRemoteSession(aWidget, aLayerManager, layerTreeId, aScale,
-                                  aOptions, aUseExternalSurfaceSize,
-                                  aSurfaceSize, aInnerWindowId);
+    session = CreateRemoteSession(aWidget, layerTreeId, aScale, aOptions,
+                                  aUseExternalSurfaceSize, aSurfaceSize,
+                                  aInnerWindowId);
     if (NS_WARN_IF(!session)) {
       // This may have failed for intermittent reasons, or perhaps indicates we
       // are fundamentally unable to use acceleration.
@@ -1285,9 +1283,8 @@ already_AddRefed<CompositorSession> GPUProcessManager::CreateTopLevelCompositor(
     }
   } else {
     session = InProcessCompositorSession::Create(
-        aWidget, aLayerManager, layerTreeId, aScale, aOptions,
-        aUseExternalSurfaceSize, aSurfaceSize, AllocateNamespace(),
-        aInnerWindowId);
+        aWidget, layerTreeId, aScale, aOptions, aUseExternalSurfaceSize,
+        aSurfaceSize, AllocateNamespace(), aInnerWindowId);
   }
 
 #if defined(MOZ_WIDGET_ANDROID)
@@ -1305,17 +1302,17 @@ already_AddRefed<CompositorSession> GPUProcessManager::CreateTopLevelCompositor(
 }
 
 RefPtr<CompositorSession> GPUProcessManager::CreateRemoteSession(
-    nsIWidget* aWidget, WebRenderLayerManager* aLayerManager,
-    const LayersId& aRootLayerTreeId, CSSToLayoutDeviceScale aScale,
-    const CompositorOptions& aOptions, bool aUseExternalSurfaceSize,
-    const gfx::IntSize& aSurfaceSize, uint64_t aInnerWindowId) {
+    nsIWidget* aWidget, const LayersId& aRootLayerTreeId,
+    CSSToLayoutDeviceScale aScale, const CompositorOptions& aOptions,
+    bool aUseExternalSurfaceSize, const gfx::IntSize& aSurfaceSize,
+    uint64_t aInnerWindowId) {
 #ifdef MOZ_WIDGET_SUPPORTS_OOP_COMPOSITING
   widget::CompositorWidgetInitData initData;
   aWidget->GetCompositorWidgetInitData(&initData);
 
   RefPtr<CompositorBridgeChild> child =
       CompositorManagerChild::CreateWidgetCompositorBridge(
-          mProcessToken, aLayerManager, AllocateNamespace(), aScale, aOptions,
+          mProcessToken, AllocateNamespace(), aScale, aOptions,
           aUseExternalSurfaceSize, aSurfaceSize, aInnerWindowId);
   if (!child) {
     gfxCriticalNote << "Failed to create CompositorBridgeChild";
@@ -1750,10 +1747,9 @@ void GPUProcessManager::RemoveListener(GPUProcessListener* aListener) {
   mListeners.RemoveElement(aListener);
 }
 
-bool GPUProcessManager::NotifyGpuObservers(const char* aTopic) {
+bool GPUProcessManager::FlushActiveCheckerboardReports() {
   if (mGPUChild) {
-    nsCString topic(aTopic);
-    mGPUChild->SendNotifyGpuObservers(topic);
+    mGPUChild->SendFlushActiveCheckerboardReports();
     return true;
   }
 
@@ -1762,7 +1758,7 @@ bool GPUProcessManager::NotifyGpuObservers(const char* aTopic) {
         mozilla::services::GetObserverService();
     MOZ_ASSERT(obsSvc);
     if (obsSvc) {
-      obsSvc->NotifyObservers(nullptr, aTopic, nullptr);
+      obsSvc->NotifyObservers(nullptr, "APZ:FlushActiveCheckerboard", nullptr);
     }
     return true;
   }

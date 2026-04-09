@@ -26,7 +26,7 @@ use std::mem;
 use std::os::fd::{FromRawFd, IntoRawFd, OwnedFd, RawFd};
 use std::os::raw::c_char;
 use std::ptr;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 #[allow(unused_imports)]
@@ -137,7 +137,9 @@ pub extern "C" fn wgpu_server_new(owner: WebGPUParentPtr) -> *mut Global {
         wgt::Backends::from_comma_list(&backends_pref)
     };
 
-    let mut instance_flags = wgt::InstanceFlags::from_build_config().with_env();
+    let mut instance_flags = (wgt::InstanceFlags::from_build_config()
+        | wgt::InstanceFlags::AUTOMATIC_TIMESTAMP_NORMALIZATION)
+        .with_env();
     if !static_prefs::pref!("dom.webgpu.hal-labels") {
         instance_flags.insert(wgt::InstanceFlags::DISCARD_HAL_LABELS);
     }
@@ -161,7 +163,7 @@ pub extern "C" fn wgpu_server_new(owner: WebGPUParentPtr) -> *mut Global {
                     shader_compiler: dx12_shader_compiler,
                     ..Default::default()
                 },
-                noop: wgt::NoopBackendOptions { enable: false },
+                noop: wgt::NoopBackendOptions::default(),
             },
             memory_budget_thresholds: wgt::MemoryBudgetThresholds {
                 for_resource_creation: Some(95),
@@ -358,7 +360,28 @@ fn support_use_shared_texture_in_swap_chain(
     false
 }
 
-static TRACE_IDX: AtomicU32 = AtomicU32::new(0);
+fn create_next_numbered_dir(dir: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
+    use std::fs;
+
+    loop {
+        let next = match fs::read_dir(dir) {
+            Ok(entries) => entries
+                .filter_map(|entry| entry.ok())
+                .filter_map(|entry| entry.file_name().to_str()?.parse::<u64>().ok())
+                .max()
+                .map(|n| n + 1),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e),
+        };
+
+        let path = dir.join(next.unwrap_or(0).to_string());
+        match fs::create_dir_all(&path) {
+            Ok(()) => return Ok(path),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+}
 
 unsafe fn adapter_request_device(
     global: &Global,
@@ -379,14 +402,9 @@ unsafe fn adapter_request_device(
     }
     desc.trace = wgt::Trace::Off;
     if let Some(env_dir) = std::env::var_os("WGPU_TRACE") {
-        let mut path = std::path::PathBuf::from(env_dir);
-        let idx = TRACE_IDX.fetch_add(1, Ordering::Relaxed);
-        path.push(idx.to_string());
-
-        if std::fs::create_dir_all(&path).is_err() {
-            log::warn!("Failed to create directory {:?} for wgpu recording.", path);
-        } else {
-            desc.trace = wgt::Trace::Directory(path);
+        match create_next_numbered_dir(&std::path::PathBuf::from(env_dir)) {
+            Ok(path) => desc.trace = wgt::Trace::Directory(path),
+            Err(err) => log::warn!("Failed to create directory for wgpu recording: {err:?}"),
         }
     }
 
@@ -550,7 +568,6 @@ pub struct DeviceLostClosure {
     pub cleanup_callback: unsafe extern "C" fn(user_data: *mut u8),
     pub user_data: *mut u8,
 }
-unsafe impl Send for DeviceLostClosure {}
 
 impl DeviceLostClosure {
     fn call(self, reason: wgt::DeviceLostReason, message: String) {
@@ -578,8 +595,31 @@ pub unsafe extern "C" fn wgpu_server_set_device_lost_callback(
     self_id: id::DeviceId,
     closure: DeviceLostClosure,
 ) {
-    let closure = Box::new(move |reason, message| closure.call(reason, message));
-    global.device_set_device_lost_closure(self_id, closure);
+    // Create a one-shot channel that the `wgpu_core` callback can use to report
+    // the device loss to the calling thread.
+    let (device_lost_sender, device_lost_receiver) = futures_channel::oneshot::channel();
+
+    // Spawn a task on the calling thread to wait for such a report.
+    moz_task::spawn_local("device lost callback", async move {
+        match device_lost_receiver.await {
+            Ok((reason, message)) => {
+                closure.call(reason, message);
+            }
+            Err(futures_channel::oneshot::Canceled) => {
+                // The device loss closure was never invoked, so
+                // `device_lost_sender` was dropped. Exit this task without
+                // doing anything.
+            }
+        }
+    })
+    .detach();
+
+    global.device_set_device_lost_closure(
+        self_id,
+        Box::new(move |reason, message| {
+            device_lost_sender.send((reason, message)).unwrap();
+        }),
+    );
 }
 
 impl ShaderModuleCompilationMessage {
@@ -716,12 +756,25 @@ impl From<Result<(), BufferAccessError>> for BufferMapAsyncStatus {
     }
 }
 
+impl From<Result<(), wgc::device::WaitIdleError>> for BufferMapAsyncStatus {
+    fn from(result: Result<(), wgc::device::WaitIdleError>) -> Self {
+        match result {
+            Ok(()) => BufferMapAsyncStatus::Success,
+            Err(err) => match err {
+                wgc::device::WaitIdleError::Device(_) => BufferMapAsyncStatus::ContextLost,
+                wgc::device::WaitIdleError::WrongSubmissionIndex(_, _)
+                | wgc::device::WaitIdleError::Timeout => BufferMapAsyncStatus::Error,
+                _ => BufferMapAsyncStatus::Error,
+            },
+        }
+    }
+}
+
 #[repr(C)]
 pub struct BufferMapClosure {
     pub callback: unsafe extern "C" fn(user_data: *mut u8, status: BufferMapAsyncStatus),
     pub user_data: *mut u8,
 }
-unsafe impl Send for BufferMapClosure {}
 
 /// # Safety
 ///
@@ -737,19 +790,103 @@ pub unsafe extern "C" fn wgpu_server_buffer_map(
     closure: BufferMapClosure,
     mut error_buf: ErrorBuffer,
 ) {
-    let closure = Box::new(move |result| {
-        let _ = &closure;
-        (closure.callback)(closure.user_data, BufferMapAsyncStatus::from(result))
-    });
+    // Create a one-shot channel to carry the map result from the
+    // `buffer_map_async` callback to this thread.
+    let (map_result_sender, map_result_receiver) = futures_channel::oneshot::channel();
+
+    // Spawn a task on this thread to wait for that map result.
+    moz_task::spawn_local("wgpu_server_buffer_map callback", async move {
+        let result = map_result_receiver.await.unwrap();
+        (closure.callback)(closure.user_data, BufferMapAsyncStatus::from(result));
+    })
+    .detach();
+
     let operation = wgc::resource::BufferMapOperation {
         host: map_mode,
-        callback: Some(closure),
+        callback: Some(Box::new(move |result| {
+            // Send the map result from whatever thread this callback is running
+            // on to the task we spawned above.
+            map_result_sender.send(result).unwrap();
+        })),
     };
     let result = global.buffer_map_async(buffer_id, start, Some(size), operation);
 
     if let Err(error) = result {
         error_buf.init(error, device_id);
     }
+}
+
+/// Map a buffer, blocking until it is ready for access.
+///
+/// Map the `size` bytes starting at `offset` in `buffer_id` to be accessed
+/// according to `map_mode`, blocking the calling thread until the mapping is
+/// ready.
+///
+/// This function actually blocks the calling thread until the GPU has completed
+/// all previously submitted work, even if the buffer is actually available
+/// right now. In practice, this function is generally used immediately after
+/// submitted work that writes data to the buffer, so this shouldn't be much of
+/// a problem.
+///
+/// All ids are looked up using `global`. The buffer `buffer_id` must belong to
+/// `device_id`.
+///
+/// Return a `BufferMapAsyncStatus` to indicate success or failure.
+#[no_mangle]
+pub extern "C" fn wgpu_server_buffer_map_blocking(
+    global: &Global,
+    device_id: id::DeviceId,
+    buffer_id: id::BufferId,
+    offset: wgt::BufferAddress,
+    size: wgt::BufferAddress,
+    map_mode: wgc::device::HostMap,
+) -> BufferMapAsyncStatus {
+    // Arrange to pass the map status back to this function. The whole Arc/OnceLock
+    // song and dance is required because `buffer_map_async` assumes that the
+    // poll might happen on another thread.
+    let status_passback = Arc::new(OnceLock::new());
+    let op = wgc::resource::BufferMapOperation {
+        host: map_mode,
+        callback: Some(Box::new({
+            let status_passback = Arc::clone(&status_passback);
+            move |status| {
+                // unwrap: This callback is the only place that initializes the
+                // `OnceLock`, and it should only be invoked once.
+                status_passback.set(status).unwrap();
+            }
+        })),
+    };
+
+    // Submit the map request, and note its submission index.
+    let submission_index;
+    match global.buffer_map_async(buffer_id, offset, Some(size), op) {
+        Ok(i) => {
+            submission_index = i;
+        }
+        Err(err) => {
+            return BufferMapAsyncStatus::from(Err(err));
+        }
+    }
+
+    // Wait until the map request submission is done.
+    let poll_type = wgt::PollType::Wait {
+        submission_index: Some(submission_index),
+        timeout: Some(Duration::from_secs(60)),
+    };
+    if let Err(err) = global.device_poll(device_id, poll_type) {
+        return BufferMapAsyncStatus::from(Err(err));
+    }
+
+    // We could just lock the mutex and unwrap the status, but let's take it
+    // step by step and check everything is as we expect.
+
+    // unwrap: `status_passback` should be the only owner of the `Arc`.
+    let status_oncelock = Arc::into_inner(status_passback).unwrap();
+
+    // unwrap: the `OnceLock` should have been initialized.
+    let status_result = status_oncelock.into_inner().unwrap();
+
+    BufferMapAsyncStatus::from(status_result)
 }
 
 #[repr(C)]
@@ -1019,10 +1156,8 @@ pub extern "C" fn wgpu_vkimage_create_with_dma_buf(
         let mut export_memory_alloc_info = vk::ExportMemoryAllocateInfo::default()
             .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
 
-        let flags = vk::ImageCreateFlags::empty();
-
         let vk_info = vk::ImageCreateInfo::default()
-            .flags(flags)
+            .flags(vk::ImageCreateFlags::ALIAS)
             .image_type(vk::ImageType::TYPE_2D)
             // Bug 1971883: Rather than hard-coding this format, we should use
             // whatever format was negotiated between `GPUCanvasContext.configure`
@@ -2466,24 +2601,29 @@ fn process_buffer_map(
     };
 
     let closure = unsafe {
-        let closure = wgpu_parent_build_buffer_map_closure(
-            global.owner,
-            device_id,
-            buffer_id,
-            mode,
-            offset,
-            size,
-        );
-
-        Box::new(move |result| {
-            let _ = &closure;
-            (closure.callback)(closure.user_data, BufferMapAsyncStatus::from(result))
-        })
+        wgpu_parent_build_buffer_map_closure(global.owner, device_id, buffer_id, mode, offset, size)
     };
+
+    // Create a one-shot channel to carry the map result from the
+    // `buffer_map_async` callback to this thread.
+    let (map_result_sender, map_result_receiver) = futures_channel::oneshot::channel();
+
+    // Spawn a task on this thread to wait for that map result.
+    moz_task::spawn_local("process_buffer_map callback", async move {
+        let result = map_result_receiver.await.unwrap();
+        unsafe {
+            (closure.callback)(closure.user_data, BufferMapAsyncStatus::from(result));
+        }
+    })
+    .detach();
 
     let operation = wgc::resource::BufferMapOperation {
         host: mode,
-        callback: Some(closure),
+        callback: Some(Box::new(move |result| {
+            // Send the map result from whatever thread this callback is running
+            // on to the task we spawned above.
+            map_result_sender.send(result).unwrap();
+        })),
     };
     let result = global.buffer_map_async(buffer_id, offset, Some(size), operation);
 
@@ -2555,6 +2695,7 @@ unsafe fn process_message(
                 power_preference,
                 force_fallback_adapter,
                 compatible_surface: None,
+                apply_limit_buckets: false,
             };
             if result.is_none() {
                 let created =
@@ -2581,6 +2722,7 @@ unsafe fn process_message(
                     device_pci_bus_id: _,
                     subgroup_min_size,
                     subgroup_max_size,
+                    limit_bucket: _,
                 } = global.adapter_get_info(adapter_id);
 
                 let is_hardware = match device_type {
@@ -2717,13 +2859,23 @@ unsafe fn process_message(
             external_texture_source_ids.as_ptr(),
             external_texture_source_ids.len(),
         ),
-        Message::QueueOnSubmittedWorkDone(queue_id) => {
+        Message::QueueOnSubmittedWorkDone {
+            device_id: _,
+            queue_id,
+        } => {
             let closure = wgpu_parent_build_submitted_work_done_closure(global.owner, queue_id);
-            let closure = Box::new(move || {
-                let _ = &closure;
+            let (work_done_sender, work_done_receiver) = futures_channel::oneshot::channel();
+            moz_task::spawn_local("WebGPU onSubmittedWorkDone callback", async move {
+                work_done_receiver.await.unwrap();
                 (closure.callback)(closure.user_data)
-            });
-            global.queue_on_submitted_work_done(queue_id, closure);
+            })
+            .detach();
+            global.queue_on_submitted_work_done(
+                queue_id,
+                Box::new(move || {
+                    work_done_sender.send(()).unwrap();
+                }),
+            );
         }
 
         Message::CreateSwapChain {
@@ -2930,7 +3082,6 @@ pub struct SubmittedWorkDoneClosure {
     pub callback: unsafe extern "C" fn(user_data: *mut u8),
     pub user_data: *mut u8,
 }
-unsafe impl Send for SubmittedWorkDoneClosure {}
 
 #[derive(Debug)]
 #[cfg(target_os = "linux")]

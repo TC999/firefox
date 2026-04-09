@@ -12,6 +12,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   DoHController: "moz-src:///toolkit/components/doh/DoHController.sys.mjs",
   EventDispatcher: "resource://gre/modules/Messaging.sys.mjs",
   PdfJs: "resource://pdf.js/PdfJs.sys.mjs",
+  GeckoViewPreferences: "resource://gre/modules/GeckoViewPreferences.sys.mjs",
 });
 
 const { debug, warn } = GeckoViewUtils.initLogging("Startup");
@@ -35,6 +36,12 @@ const JSPROCESSACTORS = {
         "PeerConnection:request",
       ],
     },
+  },
+  GeckoViewPush: {
+    parent: {
+      esModuleURI: "resource:///actors/GeckoViewPushParent.sys.mjs",
+    },
+    includeParent: true,
   },
 };
 
@@ -145,15 +152,13 @@ export class GeckoViewStartup {
           lazy.ActorManagerParent.addJSWindowActors(JSWINDOWACTORS);
           lazy.ActorManagerParent.addJSProcessActors(JSPROCESSACTORS);
 
-          if (Services.appinfo.sessionHistoryInParent) {
-            GeckoViewUtils.addLazyGetter(this, "GeckoViewSessionStore", {
-              module: "resource://gre/modules/GeckoViewSessionStore.sys.mjs",
-              observers: [
-                "browsing-context-did-set-embedder",
-                "browsing-context-discarded",
-              ],
-            });
-          }
+          GeckoViewUtils.addLazyGetter(this, "GeckoViewSessionStore", {
+            module: "resource://gre/modules/GeckoViewSessionStore.sys.mjs",
+            observers: [
+              "browsing-context-did-set-embedder",
+              "browsing-context-discarded",
+            ],
+          });
 
           GeckoViewUtils.addLazyGetter(this, "GeckoViewWebExtension", {
             module: "resource://gre/modules/GeckoViewWebExtension.sys.mjs",
@@ -204,6 +209,15 @@ export class GeckoViewStartup {
           ]);
         }
 
+        GeckoViewUtils.addLazyGetter(this, "GeckoViewAIFeatures", {
+          module: "resource://gre/modules/GeckoViewAIFeatures.sys.mjs",
+          ged: [
+            "GeckoView:AIFeature:ListFeatures",
+            "GeckoView:AIFeature:SetEnabled",
+            "GeckoView:AIFeature:MakeAvailable",
+          ],
+        });
+
         GeckoViewUtils.addLazyGetter(this, "GeckoViewTranslationsSettings", {
           module: "resource://gre/modules/GeckoViewTranslations.sys.mjs",
           ged: [
@@ -231,16 +245,18 @@ export class GeckoViewStartup {
           ged: ["GeckoView:Autofill:GetAddressStructure"],
         });
 
-        GeckoViewUtils.addLazyGetter(this, "GeckoViewPreferences", {
-          module: "resource://gre/modules/GeckoViewPreferences.sys.mjs",
-          ged: [
+        // We don't register this using the LazyGetter because it needs to be ready before
+        // the first call to the listener is received.
+        lazy.EventDispatcher.instance.registerListener(
+          lazy.GeckoViewPreferences,
+          [
             "GeckoView:Preferences:GetPref",
             "GeckoView:Preferences:SetPref",
             "GeckoView:Preferences:ClearPref",
             "GeckoView:Preferences:RegisterObserver",
             "GeckoView:Preferences:UnregisterObserver",
-          ],
-        });
+          ]
+        );
 
         break;
       }

@@ -230,14 +230,10 @@ fn convert_to_crash_stack_traces(
     metric: &ObjectMetric<glean_metrics::crash::StackTracesObject>,
     value: &serde_json::Value,
 ) -> anyhow::Result<()> {
-    let error = value["status"]
-        .as_str()
-        .and_then(|v| (v != "OK").then_some(v.to_owned()));
-    let crash_type = value["crash_info"]["type"].as_str().map(|s| s.to_owned());
-    let crash_address = value["crash_info"]["address"]
-        .as_str()
-        .map(|s| s.to_owned());
-    let crash_thread = value["crash_info"]["crashing_thread"].as_i64();
+    let error = value["error"].as_str().map(|s| s.to_owned());
+    let crash_type = value["crash_type"].as_str().map(|s| s.to_owned());
+    let crash_address = value["crash_address"].as_str().map(|s| s.to_owned());
+    let crash_thread = value["crash_thread"].as_i64();
     let main_module = value["main_module"].as_i64();
     let modules = value["modules"]
         .as_array()
@@ -245,8 +241,8 @@ fn convert_to_crash_stack_traces(
             modules
                 .iter()
                 .map(|m| glean_metrics::crash::StackTracesObjectModulesItem {
-                    base_address: m["base_addr"].as_str().map(|s| s.to_owned()),
-                    end_address: m["end_addr"].as_str().map(|s| s.to_owned()),
+                    base_address: m["base_address"].as_str().map(|s| s.to_owned()),
+                    end_address: m["end_address"].as_str().map(|s| s.to_owned()),
                     code_id: m["code_id"].as_str().map(|s| s.to_owned()),
                     debug_file: m["debug_file"].as_str().map(|s| s.to_owned()),
                     debug_id: m["debug_id"].as_str().map(|s| s.to_owned()),

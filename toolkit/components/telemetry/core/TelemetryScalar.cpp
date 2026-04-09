@@ -427,12 +427,12 @@ class ScalarUnsigned : public ScalarBase {
                     nsCOMPtr<nsIVariant>& aResult) final;
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const final;
 
- private:
-  nsTArray<uint32_t> mStorage;
-
   // Prevent copying.
   ScalarUnsigned(const ScalarUnsigned& aOther) = delete;
   void operator=(const ScalarUnsigned& aOther) = delete;
+
+ private:
+  nsTArray<uint32_t> mStorage;
 };
 
 void ScalarUnsigned::SetValue(uint32_t aValue) {
@@ -500,12 +500,12 @@ class ScalarString : public ScalarBase {
                     nsCOMPtr<nsIVariant>& aResult) final;
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const final;
 
- private:
-  nsTArray<nsString> mStorage;
-
   // Prevent copying.
   ScalarString(const ScalarString& aOther) = delete;
   void operator=(const ScalarString& aOther) = delete;
+
+ private:
+  nsTArray<nsString> mStorage;
 };
 
 ScalarResult ScalarString::SetValue(const nsAString& aValue) {
@@ -575,12 +575,12 @@ class ScalarBoolean : public ScalarBase {
                     nsCOMPtr<nsIVariant>& aResult) final;
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const final;
 
- private:
-  nsTArray<bool> mStorage;
-
   // Prevent copying.
   ScalarBoolean(const ScalarBoolean& aOther) = delete;
   void operator=(const ScalarBoolean& aOther) = delete;
+
+ private:
+  nsTArray<bool> mStorage;
 };
 
 void ScalarBoolean::SetValue(bool aValue) {
@@ -930,13 +930,13 @@ MOZ_RUNINIT ScalarMapType gScalarNameIDMap(kScalarCount);
 // The (Process Id -> (Scalar ID -> Scalar Object)) map. This is a
 // nsClassHashtable, it owns the scalar instances and takes care of deallocating
 // them when they are removed from the map.
-MOZ_RUNINIT ProcessesScalarsMapType gScalarStorageMap;
+constinit ProcessesScalarsMapType gScalarStorageMap;
 // As above, for the keyed scalars.
-MOZ_RUNINIT ProcessesKeyedScalarsMapType gKeyedScalarStorageMap;
+constinit ProcessesKeyedScalarsMapType gKeyedScalarStorageMap;
 // Provide separate storage for "dynamic builtin" plain and keyed scalars,
 // needed to support "build faster" in local developer builds.
-MOZ_RUNINIT ProcessesScalarsMapType gDynamicBuiltinScalarStorageMap;
-MOZ_RUNINIT ProcessesKeyedScalarsMapType gDynamicBuiltinKeyedScalarStorageMap;
+constinit ProcessesScalarsMapType gDynamicBuiltinScalarStorageMap;
+constinit ProcessesKeyedScalarsMapType gDynamicBuiltinKeyedScalarStorageMap;
 }  // namespace
 
 ////////////////////////////////////////////////////////////////////////
@@ -2421,7 +2421,7 @@ nsresult TelemetryScalar::RegisterScalars(const nsACString& aCategoryName,
       }
       // In the event of the usual case (just "main"), save the storage.
       if (stores.Length() == 1 && stores[0].EqualsLiteral("main")) {
-        stores.TruncateLength(0);
+        stores.ClearAndRetainStorage();
       }
     }
 

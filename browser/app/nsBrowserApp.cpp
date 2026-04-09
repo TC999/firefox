@@ -7,7 +7,7 @@
 #include "mozilla/XREAppData.h"
 #include "XREChildData.h"
 #include "XREShellData.h"
-#include "application.ini.h"
+#include "ApplicationData.h"
 #include "mozilla/Bootstrap.h"
 #include "mozilla/ProcessType.h"
 #include "mozilla/RuntimeExceptionModule.h"
@@ -246,7 +246,7 @@ static int do_main(int argc, char* argv[], char* envp[]) {
     config.appDataPath = appDataFile;
   } else {
     // no -app flag so we use the compiled-in app data
-    config.appData = &sAppData;
+    config.appData = kStaticAppData;
     config.appDataPath = kDesktopFolder;
   }
 

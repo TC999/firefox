@@ -95,7 +95,7 @@ trainhop-release:
     component: "Firefox::New Tab Page"
     suffix: "trainhop-rel"
     mozinfo: "trainhop"
-    expiration: None
+    expiration: "never"
     merge:
         worker:
             env:
@@ -139,7 +139,7 @@ trainhop-beta:
     component: "Firefox::New Tab Page"
     suffix: "trainhop-beta"
     mozinfo: "trainhop"
-    expiration: None
+    expiration: "never"
     merge:
         worker:
             env:
@@ -178,6 +178,21 @@ trainhop-beta:
                     index: gecko.v2.mozilla-beta.shippable.latest.firefox.win64-opt
                     name: build/target.zip
 
+
+standalone:
+    description: "{description} with browser restart after each test to identify test dependencies"
+    component: "Testing::General"
+    expiration: "never"
+    suffix: "standalone"
+    treeherder-suffix: "sa"
+    mozinfo: "standalone"
+    replace:
+        optimization:
+            skip-unless-backstop: null
+    merge:
+        mozharness:
+            extra-options:
+                - "--restart-between-tests"
 
 geckoview-no-fission:
     description: "{description} without fission enabled"
@@ -242,19 +257,6 @@ geckoview-zygote:
             extra-options:
                 - "--enable-isolated-zygote-process"
 
-geckoview-no-fission-no-ship:
-    description: "{description} with fission disabled and ship disabled"
-    component: "GeckoView::General"
-    expiration: "2026-09-01"
-    suffix: "nofis-noship"
-    when:
-        <<: *gv_e10s_filter
-    merge:
-        mozharness:
-            extra-options:
-                - "--disable-fission"
-                - "--setpref=fission.disableSessionHistoryInParent=true"
-
 xorigin:
     description: "{description} with cross-origin"
     component: "Core::DOM: Content Processes"
@@ -301,8 +303,6 @@ conditioned_profile:
         mozharness:
             extra-options:
                 - "--conditioned-profile"
-    replace:
-        chunks: 8
 
 socketprocess:
     description: "{description} with socket process enabled"

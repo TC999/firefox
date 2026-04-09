@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -16,6 +14,7 @@
 #include "mozilla/ScopeExit.h"
 #include "mozilla/ServoBindings.h"
 #include "mozilla/ServoStyleRuleMap.h"
+#include "mozilla/ServoStyleSet.h"
 #include "mozilla/StyleSheet.h"
 #include "mozilla/dom/BindContext.h"
 #include "mozilla/dom/CustomElementRegistry.h"
@@ -159,6 +158,15 @@ void ShadowRoot::CloneInternalDataFrom(ShadowRoot* aOther) {
   }
 
   CloneAdoptedSheetsFrom(*aOther);
+
+  // Clone built-in stylesheets that aren't associated to any node.
+  // Node-associated stylesheets get inserted when the node is cloned.
+  for (const auto& sheet : aOther->mStyleSheets) {
+    if (!sheet->GetOwnerNode()) [[unlikely]] {
+      RefPtr clone = sheet->Clone(nullptr, nullptr);
+      AppendStyleSheet(*clone);
+    }
+  }
 }
 
 nsresult ShadowRoot::Bind() {
@@ -212,15 +220,11 @@ void ShadowRoot::Unattach() {
 
 void ShadowRoot::InvalidateStyleAndLayoutOnSubtree(Element* aElement) {
   MOZ_ASSERT(aElement);
-  Document* doc = GetComposedDoc();
+  Document* doc = aElement->GetComposedDoc();
   if (!doc) {
-    return;
-  }
-
-  if (!aElement->IsInComposedDoc()) {
-    // If RemoveSlot is called from UnbindFromTree while we're moving
-    // (moveBefore) the slot elsewhere, invalidating styles and layout tree
-    // is done explicitly elsewhere.
+    // If not potentially in the flat tree, we don't need to invalidate, really.
+    // For tricky cases like moveBefore, invalidating styles and layout tree
+    // is done explicitly elsewhere as well.
     return;
   }
 

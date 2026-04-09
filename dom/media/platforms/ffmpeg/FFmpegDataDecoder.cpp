@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:set ts=2 sw=2 sts=2 et cindent: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -79,7 +77,7 @@ MediaResult FFmpegDataDecoder<LIBAV_VER>::AllocateExtraData() {
         FF_INPUT_BUFFER_PADDING_SIZE;
 #endif
     mCodecContext->extradata = static_cast<uint8_t*>(
-        mLib->av_malloc(mExtraData->Length() + padding_size));
+        mLib->av_mallocz(mExtraData->Length() + padding_size));
     if (!mCodecContext->extradata) {
       return MediaResult(NS_ERROR_OUT_OF_MEMORY,
                          RESULT_DETAIL("Couldn't init ffmpeg extradata"));

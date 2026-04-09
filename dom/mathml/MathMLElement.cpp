@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -42,7 +40,7 @@ static nsresult ReportLengthParseError(const nsString& aValue,
   AutoTArray<nsString, 1> arg = {aValue};
   return nsContentUtils::ReportToConsole(
       nsIScriptError::errorFlag, "MathML"_ns, aDocument,
-      nsContentUtils::eMATHML_PROPERTIES, "LengthParsingError", arg);
+      PropertiesFile::MATHML_PROPERTIES, "LengthParsingError", arg);
 }
 
 static nsresult ReportParseErrorNoTag(const nsString& aValue, nsAtom* aAtom,
@@ -50,7 +48,7 @@ static nsresult ReportParseErrorNoTag(const nsString& aValue, nsAtom* aAtom,
   AutoTArray<nsString, 2> argv = {aValue, nsDependentAtomString(aAtom)};
   return nsContentUtils::ReportToConsole(
       nsIScriptError::errorFlag, "MathML"_ns, &aDocument,
-      nsContentUtils::eMATHML_PROPERTIES, "AttributeParsingErrorNoTag", argv);
+      PropertiesFile::MATHML_PROPERTIES, "AttributeParsingErrorNoTag", argv);
 }
 
 MathMLElement::MathMLElement(
@@ -105,6 +103,15 @@ bool MathMLElement::ParseAttribute(int32_t aNamespaceID, nsAtom* aAttribute,
         aResult.ParseClampedNonNegativeInt(aValue, 1, 0, MAX_ROWSPAN);
         return true;
       }
+    }
+    if (!StaticPrefs::mathml_href_link_on_non_anchor_element_disabled() &&
+        aAttribute == nsGkAtoms::href && !mNodeInfo->Equals(nsGkAtoms::a)) {
+      AutoTArray<nsString, 1> params;
+      params.AppendElement(mNodeInfo->NodeName());
+      OwnerDoc()->WarnOnceAbout(
+          dom::DeprecatedOperations::
+              eMathML_DeprecatedHrefLinkOnNonAnchorElement,
+          /* asError */ false, params);
     }
   }
 
@@ -681,13 +688,16 @@ Focusable MathMLElement::IsFocusableWithoutStyle(IsFocusableFlags) {
 }
 
 already_AddRefed<nsIURI> MathMLElement::GetHrefURI() const {
+  if (!SupportsHrefAttribute()) {
+    return nullptr;
+  }
+
   // MathML href
-  // The REC says: "When user agents encounter MathML elements with both href
-  // and xlink:href attributes, the href attribute should take precedence."
   const nsAttrValue* href = mAttrs.GetAttr(nsGkAtoms::href, kNameSpaceID_None);
   if (!href) {
     return nullptr;
   }
+
   // Get absolute URI
   nsAutoString hrefStr;
   href->ToString(hrefStr);
@@ -726,7 +736,9 @@ void MathMLElement::AfterSetAttr(int32_t aNameSpaceID, nsAtom* aName,
   // that content states have changed will call IntrinsicState, which will try
   // to get updated information about the visitedness from Link.
   if (aName == nsGkAtoms::href && aNameSpaceID == kNameSpaceID_None) {
-    Link::ResetLinkState(aNotify, aValue || Link::ElementHasHref());
+    if (SupportsHrefAttribute()) {
+      Link::ResetLinkState(aNotify, aValue);
+    }
   }
 
   if (aNameSpaceID == kNameSpaceID_None) {
@@ -746,4 +758,16 @@ void MathMLElement::AfterSetAttr(int32_t aNameSpaceID, nsAtom* aName,
 JSObject* MathMLElement::WrapNode(JSContext* aCx,
                                   JS::Handle<JSObject*> aGivenProto) {
   return MathMLElement_Binding::Wrap(aCx, this, aGivenProto);
+}
+
+bool MathMLElement::SupportsHrefAttribute() const {
+  // In MathML Core, href is only supported on the <a> element.
+  // https://w3c.github.io/mathml-core/#the-a-element
+  if (StaticPrefs::mathml_href_link_on_non_anchor_element_disabled()) {
+    return mNodeInfo->Equals(nsGkAtoms::a);
+  }
+
+  // In MathML 3, href is supported by any element.
+  // https://www.w3.org/TR/MathML3/chapter2.html#fund.globatt
+  return true;
 }

@@ -249,12 +249,9 @@ void SessionStoreUtils::RestoreDocShellCapabilities(
   aDocShell->SetAllowContentRetargeting(true);
   aDocShell->SetAllowContentRetargetingOnChildren(true);
 
-  bool allowJavascript = true;
   for (const nsACString& token :
        nsCCharSeparatedTokenizer(aDisallowCapabilities, ',').ToRange()) {
-    if (token.EqualsLiteral("Javascript")) {
-      allowJavascript = false;
-    } else if (token.EqualsLiteral("MetaRedirects")) {
+    if (token.EqualsLiteral("MetaRedirects")) {
       aDocShell->SetAllowMetaRedirects(false);
     } else if (token.EqualsLiteral("Subframes")) {
       aDocShell->SetAllowSubframes(false);
@@ -276,12 +273,6 @@ void SessionStoreUtils::RestoreDocShellCapabilities(
     } else if (token.EqualsLiteral("ContentRetargetingOnChildren")) {
       aDocShell->SetAllowContentRetargetingOnChildren(false);
     }
-  }
-
-  if (!mozilla::SessionHistoryInParent()) {
-    // With SessionHistoryInParent, this is set from the parent process.
-    BrowsingContext* bc = aDocShell->GetBrowsingContext();
-    (void)bc->SetAllowJavascript(allowJavascript);
   }
 }
 
@@ -901,8 +892,7 @@ void SessionStoreUtils::CollectFromTextAreaElement(Document& aDocument,
                               eCaseMatters)) {
       continue;
     }
-    AppendValueToCollectedData(textArea, id, value, aGeneratedCount,
-                               std::forward<ArgsT>(args)...);
+    AppendValueToCollectedData(textArea, id, value, aGeneratedCount, args...);
   }
 }
 
@@ -950,8 +940,7 @@ void SessionStoreUtils::CollectFromInputElement(Document& aDocument,
       if (checked == input->DefaultChecked()) {
         continue;
       }
-      AppendValueToCollectedData(input, id, checked, aGeneratedCount,
-                                 std::forward<ArgsT>(args)...);
+      AppendValueToCollectedData(input, id, checked, aGeneratedCount, args...);
     } else if (input->ControlType() == FormControlType::InputFile) {
       IgnoredErrorResult rv;
       nsTArray<nsString> result;
@@ -960,7 +949,7 @@ void SessionStoreUtils::CollectFromInputElement(Document& aDocument,
         continue;
       }
       AppendValueToCollectedData(input, id, u"file"_ns, result, aGeneratedCount,
-                                 std::forward<ArgsT>(args)...);
+                                 args...);
     } else {
       nsString value;
       input->GetValue(value, CallerType::System);
@@ -974,7 +963,7 @@ void SessionStoreUtils::CollectFromInputElement(Document& aDocument,
         continue;
       }
       AppendValueToCollectedData(aDocument, input, id, value, aGeneratedCount,
-                                 std::forward<ArgsT>(args)...);
+                                 args...);
     }
   }
 }
@@ -1013,8 +1002,7 @@ void SessionStoreUtils::CollectFromSelectElement(Document& aDocument,
       CollectedNonMultipleSelectValue val;
       val.mSelectedIndex = select->SelectedIndex();
       val.mValue = selectVal.AsAString();
-      AppendValueToCollectedData(select, id, val, aGeneratedCount,
-                                 std::forward<ArgsT>(args)...);
+      AppendValueToCollectedData(select, id, val, aGeneratedCount, args...);
     } else {
       // <select>s with the multiple attribute are easier to determine the
       // default value since each <option> has a defaultSelected property
@@ -1071,7 +1059,7 @@ void SessionStoreUtils::CollectFromFormAssociatedCustomElement(
     }
 
     AppendValueToCollectedData(element, id, value, state, aGeneratedCount,
-                               std::forward<ArgsT>(args)...);
+                               args...);
   }
 }
 
@@ -1648,10 +1636,6 @@ SessionStoreUtils::ConstructSessionStoreRestoreData(
 already_AddRefed<Promise> SessionStoreUtils::InitializeRestore(
     const GlobalObject& aGlobal, CanonicalBrowsingContext& aContext,
     nsISessionStoreRestoreData* aData, ErrorResult& aError) {
-  if (!mozilla::SessionHistoryInParent()) {
-    MOZ_CRASH("why were we called?");
-  }
-
   MOZ_DIAGNOSTIC_ASSERT(aContext.IsTop());
 
   MOZ_DIAGNOSTIC_ASSERT(aData);
@@ -1686,7 +1670,6 @@ already_AddRefed<Promise> SessionStoreUtils::RestoreDocShellState(
     const GlobalObject& aGlobal, CanonicalBrowsingContext& aContext,
     const nsACString& aURL, const nsCString& aDocShellCaps,
     ErrorResult& aError) {
-  MOZ_RELEASE_ASSERT(mozilla::SessionHistoryInParent());
   MOZ_RELEASE_ASSERT(aContext.IsTop());
 
   WindowGlobalParent* wgp = aContext.GetCurrentWindowGlobal();

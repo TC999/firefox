@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1052,20 +1050,31 @@ class nsTextFrame : public nsIFrame {
    */
   gfxFloat ComputeDescentLimitForSelectionUnderline(
       nsPresContext* aPresContext, const gfxFont::Metrics& aFontMetrics);
+
+  struct SelectionColors {
+    nscolor mForeground = NS_RGBA(0, 0, 0, 0);
+    nscolor mBackground = NS_RGBA(0, 0, 0, 0);
+    // True if there is a visible background.
+    bool mHasBackground = false;
+    // True if this selection overrides the text foreground color.
+    // For highlights and ::target-text, this is true only if the color is
+    // explicitly specified by the author.
+    bool mOverridesForeground = false;
+    // True if this selection has any visual effect to paint.
+    bool mHasPaintImpact = false;
+    bool HasAnyColorImpact() const {
+      return mHasBackground || mOverridesForeground;
+    }
+    bool HasAnyPaintImpact() const { return mHasPaintImpact; }
+  };
+
   /**
    * This function encapsulates all knowledge of how selections affect
    * foreground and background colors.
-   * @param aForeground the foreground color to use
-   * @param aBackground the background color to use, or RGBA(0,0,0,0) if no
-   *                    background should be painted
-   * @return            true if the selection affects colors, false otherwise
    */
-  static bool GetSelectionTextColors(SelectionType aSelectionType,
-                                     nsAtom* aHighlightName,
-                                     nsTextPaintStyle& aTextPaintStyle,
-                                     const TextRangeStyle& aRangeStyle,
-                                     nscolor* aForeground,
-                                     nscolor* aBackground);
+  static SelectionColors GetSelectionTextColors(
+      SelectionType aSelectionType, nsAtom* aHighlightName,
+      nsTextPaintStyle& aTextPaintStyle, const TextRangeStyle& aRangeStyle);
   /**
    * ComputeSelectionUnderlineHeight() computes selection underline height of
    * the specified selection type from the font metrics.

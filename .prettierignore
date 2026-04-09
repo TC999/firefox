@@ -211,7 +211,6 @@ browser/components/textrecognition/textrecognition.html
 browser/components/urlbar/content/quicksuggestOnboarding.html
 browser/components/urlbar/tests/browser/dummy_page.html
 browser/components/urlbar/tests/browser/file_urlbar_edit_dos.html
-browser/extensions/webcompat/run.js
 browser/tools/mozscreenshots/mozscreenshots/extension/lib/controlCenter/mixed.html
 browser/tools/mozscreenshots/mozscreenshots/extension/lib/controlCenter/mixed_passive.html
 devtools/client/aboutdebugging/test/browser/test-tab-favicons.html
@@ -830,7 +829,6 @@ image/test/mochitest/test_mq_dynamic_svg.html
 image/test/mochitest/test_svg_animatedGIF.html
 intl/uconv/tests/test_big5_encoder.html
 intl/uconv/tests/test_bug335816.html
-js/src/README.html
 js/xpconnect/tests/chrome/file_bug618176.xhtml
 layout/base/tests/accessiblecaret_magnifier.html
 layout/base/tests/bug1263288-ref.html
@@ -1017,10 +1015,6 @@ browser/base/content/test/urlbar/file_blank_but_not_blank.html
 # Test files that are really json not js, and don't need to be linted.
 browser/components/sessionstore/test/unit/data/sessionstore_valid.js
 browser/components/sessionstore/test/unit/data/sessionstore_invalid.js
-# This file is split into two in order to keep it as a valid json file
-# for documentation purposes (policies.json) but to be accessed by the
-# code as a .sys.mjs (schema.sys.mjs)
-browser/components/enterprisepolicies/schemas/schema.sys.mjs
 # Include the Storybook config files.
 !browser/components/storybook/.storybook/
 !browser/components/storybook/.storybook/*.js
@@ -1265,6 +1259,7 @@ toolkit/components/uniffi-bindgen-gecko-js/tests/generated/*
 browser/components/aboutwelcome/**/*.css
 browser/components/asrouter/**/*.css
 browser/extensions/newtab/**/*.css
+browser/extensions/newtab/data/content/bundled-renderer-index.js
 
 # Note that the debugger has its own stylelint setup, but that currently
 # produces errors. Bug 1831302 tracks making this better
@@ -1570,6 +1565,7 @@ rlbox/rlbox_sandbox.hpp
 browser/components/aboutwelcome/content/aboutwelcome.bundle.js
 browser/components/aboutwelcome/logs/
 browser/components/aboutwelcome/node_modules/
+browser/components/aiwindow/models/PreferencesNavMap.sys.mjs
 browser/components/asrouter/node_modules/
 browser/components/asrouter/content/asrouter-admin.bundle.js
 browser/components/asrouter/logs/
@@ -1580,6 +1576,8 @@ browser/components/asrouter/tests/NimbusRolloutMessageProvider.sys.mjs
 browser/components/backup/tests/marionette/compat-files/backups
 browser/components/storybook/storybook-static/
 browser/extensions/newtab/data/content/activity-stream.bundle.js
+browser/extensions/newtab/data/content/vendor.bundle.js
+browser/extensions/newtab/test/vendor/react-dom-test-utils.js
 browser/extensions/newtab/logs/
 browser/extensions/newtab/node_modules/
 browser/extensions/newtab/prerendered/
@@ -1737,6 +1735,7 @@ mobile/android/android-components/components/service/firefox-relay/lint-baseline
 mobile/android/android-components/components/service/glean/lint-baseline.xml
 mobile/android/android-components/components/service/location/lint-baseline.xml
 mobile/android/android-components/components/service/mars/lint-baseline.xml
+mobile/android/android-components/components/service/merino-manifest/lint-baseline.xml
 mobile/android/android-components/components/service/nimbus/lint-baseline.xml
 mobile/android/android-components/components/service/pocket/lint-baseline.xml
 mobile/android/android-components/components/service/sync-autofill/lint-baseline.xml

@@ -4,13 +4,19 @@
 
 package mozilla.components.feature.summarize
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.launch
 import mozilla.components.concept.llm.CloudLlmProvider
 import mozilla.components.concept.llm.Llm
-import mozilla.components.concept.llm.Prompt
-import mozilla.components.feature.summarize.content.PageContentExtractor
+import mozilla.components.feature.summarize.content.ContentProvider
+import mozilla.components.feature.summarize.ext.fetchLlm
+import mozilla.components.feature.summarize.ext.mapToRichDocument
+import mozilla.components.feature.summarize.ext.prompt
+import mozilla.components.feature.summarize.settings.SummarizationSettings
 import mozilla.components.lib.state.Middleware
 import mozilla.components.lib.state.Store
 
@@ -18,9 +24,12 @@ import mozilla.components.lib.state.Store
 class SummarizationMiddleware(
     private val settings: SummarizationSettings,
     private val llmProvider: CloudLlmProvider,
-    private val pageContentExtractor: PageContentExtractor,
+    private val contentProvider: ContentProvider,
+    private val errorReporter: ErrorReporter,
     private val scope: CoroutineScope,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : Middleware<SummarizationState, SummarizationAction> {
+
     override fun invoke(
         store: Store<SummarizationState, SummarizationAction>,
         next: (SummarizationAction) -> Unit,
@@ -34,53 +43,45 @@ class SummarizationMiddleware(
                     observeCloudLlmProvider(store, llmProvider)
                 }
             }
+            OffDeviceSummarizationShakeConsentAction.CancelClicked -> scope.launch {
+                settings.incrementShakeConsentRejectedCount()
+            }
             OffDeviceSummarizationShakeConsentAction.AllowClicked -> scope.launch {
                 settings.setHasConsentedToShake(true)
                 observeCloudLlmProvider(store, llmProvider)
             }
-            LlmProviderAction.ProviderUnavailable -> scope.launch {
+            LlmProviderAction.ProviderAvailable -> scope.launch {
                 llmProvider.prepare()
             }
             is LlmProviderAction.ProviderInitialized -> scope.launch {
                 observePrompt(store, action.llm)
+            }
+            is SummarizationFailed -> scope.launch {
+                errorReporter.report(action.throwable)
             }
         }
 
         next(action)
     }
 
-    private suspend fun observePrompt(store: SummarizationStore, llm: Llm) {
-        pageContentExtractor.getPageContent().fold(
-            onSuccess = { result ->
-                llm.prompt(Prompt(systemPrompt + result))
-                    .collect { response ->
-                        store.dispatch(LlmAction.ReceivedResponse(response))
-                    }
-            },
-            onFailure = {
-                store.dispatch(SummarizationFailed(it))
-            },
-        )
-    }
+    private suspend fun observePrompt(store: SummarizationStore, llm: Llm) = runCatching {
+        val content = contentProvider.getContent().getOrThrow()
+
+        store.dispatch(ContentExtracted(content))
+
+        llm.prompt(content.prompt)
+            .mapToRichDocument(dispatcher)
+            .onCompletion { if (it == null) store.dispatch(SummarizationCompleted) }
+            .collect { store.dispatch(ReceivedParsedDocument(it)) }
+    }.onFailure { store.dispatch(SummarizationFailed(it)) }
 
     private suspend fun observeCloudLlmProvider(
         store: SummarizationStore,
         llmProvider: CloudLlmProvider,
-    ) {
-        store.dispatch(LlmAction.SummarizationRequested(llmProvider.info))
-        llmProvider.state.map { state ->
-            when (state) {
-                CloudLlmProvider.State.Available -> LlmProviderAction.ProviderUnavailable
-                CloudLlmProvider.State.Unavailable -> LlmProviderAction.ProviderFailed
-                is CloudLlmProvider.State.Ready -> LlmProviderAction.ProviderInitialized(state.llm)
-            }
-        }.collect { store.dispatch(it) }
-    }
+    ) = llmProvider.fetchLlm.collect { store.dispatch(it) }
 
     private suspend fun needsShakeConsent(state: SummarizationState): Boolean =
         state is SummarizationState.Inert &&
             state.initializedWithShake &&
-            !settings.hasConsentedToShake()
-
-    private val systemPrompt = "This is the system prompt: "
+            !settings.getHasConsentedToShake().first()
 }

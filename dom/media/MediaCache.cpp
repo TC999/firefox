@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:set ts=2 sw=2 sts=2 et cindent: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1078,9 +1076,9 @@ void MediaCache::SwapBlocks(AutoLock& aLock, int32_t aBlockIndex1,
 
   nsTHashSet<MediaCacheStream*> visitedStreams;
 
-  for (int32_t i = 0; i < 2; ++i) {
-    for (uint32_t j = 0; j < blocks[i]->mOwners.Length(); ++j) {
-      MediaCacheStream* stream = blocks[i]->mOwners[j].mStream;
+  for (auto& block : blocks) {
+    for (uint32_t j = 0; j < block->mOwners.Length(); ++j) {
+      MediaCacheStream* stream = block->mOwners[j].mStream;
       // Make sure that we don't update the same stream twice --- that
       // would result in swapping the block references back again!
       if (!visitedStreams.EnsureInserted(stream)) continue;
@@ -2490,7 +2488,7 @@ Result<uint32_t, nsresult> MediaCacheStream::ReadBlockFromCache(
   if (NS_FAILED(rv)) {
     nsCString name;
     GetErrorName(rv, name);
-    LOGE("Stream %p ReadCacheFile failed, rv=%s", this, name.Data());
+    LOGE("Stream %p ReadCacheFile failed, rv=%s", this, name.get());
     return mozilla::Err(rv);
   }
 

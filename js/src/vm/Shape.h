@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -243,8 +241,8 @@ class BaseShape : public gc::TenuredCellWithNonGCPointer<const JSClass> {
   const JSClass* clasp() const { return headerPtr(); }
 
  private:
-  JS::Realm* realm_;
-  GCPtr<TaggedProto> proto_;
+  JS::Realm* const realm_;
+  const GCPtr<TaggedProto> proto_;
 
   BaseShape(const BaseShape& base) = delete;
   BaseShape& operator=(const BaseShape& other) = delete;

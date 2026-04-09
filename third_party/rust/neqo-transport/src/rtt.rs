@@ -140,7 +140,7 @@ impl RttEstimate {
         );
         qlog::metrics_updated(
             qlog,
-            &[
+            [
                 qlog::Metric::LatestRtt(self.latest_rtt),
                 qlog::Metric::MinRtt(self.min_rtt),
                 qlog::Metric::SmoothedRtt(self.smoothed_rtt),
@@ -177,8 +177,7 @@ impl RttEstimate {
         self.first_sample_time
     }
 
-    #[cfg(test)]
-    pub const fn latest(&self) -> Duration {
+    pub const fn latest_rtt(&self) -> Duration {
         self.latest_rtt
     }
 

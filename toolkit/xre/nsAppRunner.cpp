@@ -20,6 +20,7 @@
 #include "mozilla/IOInterposer.h"
 #include "mozilla/ipc/UtilityProcessChild.h"
 #include "mozilla/Likely.h"
+#include "mozilla/Logging.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/PreferenceSheet.h"
 #include "mozilla/Printf.h"
@@ -54,6 +55,8 @@
 
 #ifdef XP_MACOSX
 #  include "nsVersionComparator.h"
+#  include "nsCocoaFeatures.h"
+#  include "mozilla/glean/WidgetCocoaMetrics.h"
 #  include "MacLaunchHelper.h"
 #  include "MacApplicationDelegate.h"
 #  include "MacAutoreleasePool.h"
@@ -385,6 +388,15 @@ using mozilla::dom::ContentParent;
 using mozilla::dom::quota::QuotaManager;
 using mozilla::intl::LocaleService;
 using mozilla::scache::StartupCache;
+
+struct AppRunnerTelemFlags {
+  uint8_t isBackgroundTaskModeRequested : 1;
+  uint8_t isBackgroundTaskMode : 1;
+  uint8_t hasRestartPidParameter : 1;
+  uint8_t isRestartPidNotInteger : 1;
+  uint8_t isRestartPidWaitTimeout : 1;
+  uint8_t isRestartPidFailure : 1;
+};
 
 #ifndef XP_WIN
 // Save the given word to the specified environment variable.
@@ -994,21 +1006,13 @@ bool FissionAutostart() {
 
 namespace mozilla {
 
-bool SessionHistoryInParent() {
-  return FissionAutostart() ||
-         !StaticPrefs::
-             fission_disableSessionHistoryInParent_AtStartup_DoNotUseDirectly();
-}
-
 bool SessionStorePlatformCollection() {
-  return SessionHistoryInParent() &&
-         !StaticPrefs::
-             browser_sessionstore_disable_platform_collection_AtStartup_DoNotUseDirectly();
+  return !StaticPrefs::
+      browser_sessionstore_disable_platform_collection_AtStartup_DoNotUseDirectly();
 }
 
 bool BFCacheInParent() {
-  return SessionHistoryInParent() &&
-         StaticPrefs::fission_bfcacheInParent_DoNotUseDirectly();
+  return StaticPrefs::fission_bfcacheInParent_DoNotUseDirectly();
 }
 
 }  // namespace mozilla
@@ -1392,12 +1396,6 @@ nsXULAppInfo::GetFissionDecisionStatusString(nsACString& aResult) {
     default:
       MOZ_ASSERT_UNREACHABLE("Unexpected enum value");
   }
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsXULAppInfo::GetSessionHistoryInParent(bool* aResult) {
-  *aResult = SessionHistoryInParent();
   return NS_OK;
 }
 
@@ -2294,6 +2292,9 @@ static void SetupAlteredPrefetchPref() {
                                 PREF_WIN_ALTERED_DLL_PREFETCH);
 }
 
+static LazyLogModule gSkeletonLog("PreXULSkeletonUI");
+#  define SKELETON_LOG(str, ...) \
+    MOZ_LOG(gSkeletonLog, LogLevel::Debug, (str, ##__VA_ARGS__))
 static void ReflectSkeletonUIPrefToRegistry(const char* aPref, void* aData) {
   (void)aPref;
   (void)aData;
@@ -2301,11 +2302,20 @@ static void ReflectSkeletonUIPrefToRegistry(const char* aPref, void* aData) {
   RefPtr<nsToolkitProfileService> mProfileSvc;
   mProfileSvc = NS_GetToolkitProfileService();
 
-  bool shouldBeEnabled =
-      !mProfileSvc->HasShowProfileSelector() &&
-      Preferences::GetBool(kPrefPreXulSkeletonUI, false) &&
-      Preferences::GetBool(kPrefBrowserStartupBlankWindow, false) &&
-      LookAndFeel::DrawInTitlebar();
+  bool hasShowProfileSelector = mProfileSvc->HasShowProfileSelector();
+  bool skeletonUIPref = StaticPrefs::browser_startup_preXulSkeletonUI();
+  bool startupBlankWindowPref = StaticPrefs::browser_startup_blankWindow();
+  bool drawInTitlebar = LookAndFeel::DrawInTitlebar();
+  SKELETON_LOG(
+      "ReflectSkeletonUIPrefToRegistry: hasShowProfileSelector %d, "
+      "skeletonUIPref %d, startupBlankWindowPref %d, drawInTitlebar %d",
+      hasShowProfileSelector ? 1 : 0, skeletonUIPref ? 1 : 0,
+      startupBlankWindowPref ? 1 : 0, drawInTitlebar ? 1 : 0);
+
+  bool shouldBeEnabled = !hasShowProfileSelector && skeletonUIPref &&
+                         startupBlankWindowPref && drawInTitlebar;
+  SKELETON_LOG("ReflectSkeletonUIPrefToRegistry: shouldBeEnabled %d",
+               shouldBeEnabled ? 1 : 0);
   if (shouldBeEnabled && Preferences::HasUserValue(kPrefThemeId)) {
     nsCString themeId;
     Preferences::GetCString(kPrefThemeId, themeId);
@@ -2316,16 +2326,25 @@ static void ReflectSkeletonUIPrefToRegistry(const char* aPref, void* aData) {
     } else if (themeId.EqualsLiteral("firefox-compact-light@mozilla.org")) {
       (void)SetPreXULSkeletonUIThemeId(ThemeMode::Light);
     } else {
+      SKELETON_LOG(
+          "ReflectSkeletonUIPrefToRegistry: clearing shouldBeEnabled "
+          "because of bad themeId %s",
+          themeId.get());
       shouldBeEnabled = false;
     }
   } else if (shouldBeEnabled) {
     (void)SetPreXULSkeletonUIThemeId(ThemeMode::Default);
   }
 
+  SKELETON_LOG(
+      "ReflectSkeletonUIPrefToRegistry: old enabled %d, new enabled "
+      "%d",
+      GetPreXULSkeletonUIEnabled() ? 1 : 0, shouldBeEnabled ? 1 : 0);
   if (GetPreXULSkeletonUIEnabled() != shouldBeEnabled) {
     (void)SetPreXULSkeletonUIEnabledIfAllowed(shouldBeEnabled);
   }
 }
+#  undef SKELETON_LOG
 
 class ShowProfileSelectorObserver final : public nsIObserver {
  public:
@@ -3125,6 +3144,17 @@ static nsresult SelectProfile(nsToolkitProfileService* aProfileSvc,
     return NS_ERROR_ABORT;
   }
 
+  // Block reset without migration for selectable profiles.
+  // Bug 2020801: Update this to allow resetting without migration
+  if (gDoProfileReset && !gDoMigration && *aProfile) {
+    nsCString storeID;
+    (*aProfile)->GetStoreID(storeID);
+    if (!storeID.IsVoid()) {
+      NS_WARNING("Selectable profiles cannot be reset without migration.");
+      return NS_ERROR_ABORT;
+    }
+  }
+
   // No profile could be found. This generally shouldn't happen, a new profile
   // should be created in all cases except for profile reset which is covered
   // above, but just in case...
@@ -3147,7 +3177,8 @@ struct FileWriteFunc final : public JSONWriteFunc {
 };
 
 static void SubmitDowngradeTelemetry(const nsCString& aLastVersion,
-                                     bool aHasSync, int32_t aButton) {
+                                     bool aHasSync, int32_t aButton,
+                                     AppRunnerTelemFlags appRunnerTelemFlags) {
   nsCOMPtr<nsIPrefService> prefSvc =
       do_GetService("@mozilla.org/preferences-service;1");
   NS_ENSURE_TRUE_VOID(prefSvc);
@@ -3192,6 +3223,15 @@ static void SubmitDowngradeTelemetry(const nsCString& aLastVersion,
       do_GetService("@mozilla.org/system-info;1");
   NS_ENSURE_TRUE_VOID(sysInfo);
   sysInfo->GetPropertyAsACString(u"arch"_ns, arch);
+
+  bool isMSIX = false;
+#  ifdef XP_WIN
+  rv = sysInfo->GetPropertyAsBool(u"hasWinPackageId"_ns, &isMSIX);
+  if (rv != NS_OK) {
+    // Don't early return.
+    NS_ERROR("Failed to get property: hasWinPackageId");
+  }
+#  endif
 
   time_t now;
   time(&now);
@@ -3289,6 +3329,19 @@ static void SubmitDowngradeTelemetry(const nsCString& aLastVersion,
       w.StringProperty("lastBuildId", PromiseFlatCString(lastBuildId));
       w.BoolProperty("hasSync", aHasSync);
       w.IntProperty("button", aButton);
+      w.BoolProperty("isMSIX", isMSIX);
+      w.BoolProperty("isBackgroundTaskModeRequested",
+                     appRunnerTelemFlags.isBackgroundTaskModeRequested);
+      w.BoolProperty("isBackgroundTaskMode",
+                     appRunnerTelemFlags.isBackgroundTaskMode);
+      w.BoolProperty("hasRestartPidParameter",
+                     appRunnerTelemFlags.hasRestartPidParameter);
+      w.BoolProperty("isRestartPidNotInteger",
+                     appRunnerTelemFlags.isRestartPidNotInteger);
+      w.BoolProperty("isRestartPidWaitTimeout",
+                     appRunnerTelemFlags.isRestartPidWaitTimeout);
+      w.BoolProperty("isRestartPidFailure",
+                     appRunnerTelemFlags.isRestartPidFailure);
     }
     w.EndObject();
   }
@@ -3323,10 +3376,10 @@ static void SubmitDowngradeTelemetry(const nsCString& aLastVersion,
 static const char kProfileDowngradeURL[] =
     "chrome://mozapps/content/profile/profileDowngrade.xhtml";
 
-static ReturnAbortOnError CheckDowngrade(nsIFile* aProfileDir,
-                                         nsINativeAppSupport* aNative,
-                                         nsIToolkitProfileService* aProfileSvc,
-                                         const nsCString& aLastVersion) {
+static ReturnAbortOnError HandleDetectedDowngrade(
+    nsIFile* aProfileDir, nsINativeAppSupport* aNative,
+    nsIToolkitProfileService* aProfileSvc, const nsCString& aLastVersion,
+    AppRunnerTelemFlags appRunnerTelemFlags) {
   int32_t result = 0;
   nsresult rv;
 
@@ -3405,7 +3458,8 @@ static ReturnAbortOnError CheckDowngrade(nsIFile* aProfileDir,
 
       paramBlock->GetInt(1, &result);
 
-      SubmitDowngradeTelemetry(aLastVersion, hasSync, result);
+      SubmitDowngradeTelemetry(aLastVersion, hasSync, result,
+                               appRunnerTelemFlags);
     }
   }
 
@@ -3789,8 +3843,9 @@ class XREMain {
   }
 
   int XRE_main(int argc, char* argv[], const BootstrapConfig& aConfig);
-  int XRE_mainInit(bool* aExitFlag);
-  int XRE_mainStartup(bool* aExitFlag);
+  int XRE_mainInit(bool* aExitFlag, AppRunnerTelemFlags& appRunnerTelemFlags);
+  int XRE_mainStartup(bool* aExitFlag,
+                      AppRunnerTelemFlags& appRunnerTelemFlags);
   nsresult XRE_mainRun();
 
   bool CheckLastStartupWasCrash();
@@ -3994,7 +4049,8 @@ static void SetupConsoleForBackgroundTask(
  * Main() will exit early if either return value != 0 or if aExitFlag is
  * true.
  */
-int XREMain::XRE_mainInit(bool* aExitFlag) {
+int XREMain::XRE_mainInit(bool* aExitFlag,
+                          AppRunnerTelemFlags& appRunnerTelemFlags) {
   if (!aExitFlag) return 1;
   *aExitFlag = false;
 
@@ -4039,7 +4095,7 @@ int XREMain::XRE_mainInit(bool* aExitFlag) {
   if (ARG_FOUND ==
       CheckArg("backgroundtask", &backgroundTaskName, CheckArgFlag::None)) {
     backgroundTask = Some(backgroundTaskName);
-
+    appRunnerTelemFlags.isBackgroundTaskModeRequested = 1;
     SetupConsoleForBackgroundTask(backgroundTask.ref());
   }
 
@@ -4246,6 +4302,11 @@ int XREMain::XRE_mainInit(bool* aExitFlag) {
 
   nsCOMPtr<nsIFile> xreBinDirectory;
   xreBinDirectory = mDirProvider.GetGREBinDir();
+
+  if ((mAppData->flags & NS_XRE_ENABLE_CRASH_REPORTER) &&
+      NS_FAILED(CrashReporter::OOPInit(xreBinDirectory))) {
+    NS_WARNING("Could not launch the crash helper");
+  }
 
   if ((mAppData->flags & NS_XRE_ENABLE_CRASH_REPORTER) &&
       NS_SUCCEEDED(CrashReporter::SetExceptionHandler(xreBinDirectory))) {
@@ -4711,7 +4772,8 @@ bool XREMain::CheckLastStartupWasCrash() {
  * Main() will exit early if either return value != 0 or if aExitFlag is
  * true.
  */
-int XREMain::XRE_mainStartup(bool* aExitFlag) {
+int XREMain::XRE_mainStartup(bool* aExitFlag,
+                             AppRunnerTelemFlags& appRunnerTelemFlags) {
   nsresult rv;
 
   if (!aExitFlag) return 1;
@@ -4840,6 +4902,9 @@ int XREMain::XRE_mainStartup(bool* aExitFlag) {
   bool isBackgroundTaskMode = false;
 #ifdef MOZ_BACKGROUNDTASKS
   isBackgroundTaskMode = BackgroundTasks::IsBackgroundTaskMode();
+  if (isBackgroundTaskMode) {
+    appRunnerTelemFlags.isBackgroundTaskMode = 1;
+  }
 #endif
 
 #ifdef MOZ_HAS_REMOTE
@@ -5106,6 +5171,7 @@ int XREMain::XRE_mainStartup(bool* aExitFlag) {
     // Ensure we keep -restart-pid if we are running tests
     if (ARG_FOUND == CheckArgExists("restart-pid") &&
         !CheckArg("test-only-automatic-restart-no-wait")) {
+      appRunnerTelemFlags.hasRestartPidParameter = 1;
       // We're not testing and can safely remove it now and read the pid.
       const char* restartPidString = nullptr;
       CheckArg("restart-pid", &restartPidString, CheckArgFlag::RemoveArg);
@@ -5115,12 +5181,19 @@ int XREMain::XRE_mainStartup(bool* aExitFlag) {
         printf_stderr(
             "*** MaybeWaitForProcessExit: launched pidDWORD = %u ***\n", pid);
         RefPtr<nsUpdateProcessor> updater = new nsUpdateProcessor();
-        if (NS_FAILED(
-                updater->WaitForProcessExit(pid, MAYBE_WAIT_TIMEOUT_MS))) {
-          NS_WARNING("Failed to MaybeWaitForProcessExit.");
+        rv = updater->WaitForProcessExit(pid, MAYBE_WAIT_TIMEOUT_MS);
+        if (NS_FAILED(rv)) {
+          NS_WARNING("Failure in nsUpdateProcessor::WaitForProcessExit.");
+          // Is this a timeout?
+          if (rv == NS_ERROR_ABORT) {
+            appRunnerTelemFlags.isRestartPidWaitTimeout = 1;
+          } else {
+            appRunnerTelemFlags.isRestartPidFailure = 1;
+          }
         }
       } else {
         NS_WARNING("Failed to parse pid from -restart-pid.");
+        appRunnerTelemFlags.isRestartPidNotInteger = 1;
       }
     }
   }
@@ -5321,7 +5394,8 @@ int XREMain::XRE_mainStartup(bool* aExitFlag) {
 #  ifdef XP_MACOSX
     InitializeMacApp();
 #  endif
-    rv = CheckDowngrade(mProfD, mNativeApp, mProfileSvc, lastVersion);
+    rv = HandleDetectedDowngrade(mProfD, mNativeApp, mProfileSvc, lastVersion,
+                                 appRunnerTelemFlags);
     if (rv == NS_ERROR_LAUNCHED_CHILD_PROCESS || rv == NS_ERROR_ABORT) {
       *aExitFlag = true;
       return 0;
@@ -5366,6 +5440,13 @@ int XREMain::XRE_mainStartup(bool* aExitFlag) {
 
   CrashReporter::RecordAnnotationBool(
       CrashReporter::Annotation::StartupCacheValid, cachesOK && versionOK);
+
+#ifdef XP_MACOSX
+  static bool status = nsCocoaFeatures::ProcessIsRosettaTranslated();
+  CrashReporter::RecordAnnotationBool(CrashReporter::Annotation::RosettaStatus,
+                                      status);
+  mozilla::glean::widget::rosetta_status.Set(status);
+#endif
 
   // Every time a profile is loaded by a build with a different version,
   // it updates the compatibility.ini file saying what version last wrote
@@ -5588,18 +5669,38 @@ nsresult XREMain::XRE_mainRun() {
             do_CreateInstance(NS_PROFILEMIGRATOR_CONTRACTID));
         if (pm) {
           nsAutoCString aKey;
-          nsAutoCString aName;
+          nsAutoCString aProfilePath;
           if (gDoProfileReset) {
             // Automatically migrate from the current application if we just
             // reset the profile.
-            aKey = MOZ_APP_NAME;
-            gResetOldProfile->GetName(aName);
+            nsCOMPtr<nsIFile> rootDir = gResetOldProfile->GetRootDir();
+            nsAutoString path;
+            rootDir->GetPath(path);
+            CopyUTF16toUTF8(path, aProfilePath);
+
+            nsCString storeID;
+            gResetOldProfile->GetStoreID(storeID);
+            if (!storeID.IsVoid()) {
+              aKey = "firefox-selectable-profile";
+              // In the case that Firefox is launched with --reset-profile,
+              // the storeID and path env variables won't be set, so we set
+              // them here if we are in a profile with a storeID.
+              nsAutoCString envStoreID("SELECTABLE_PROFILE_RESET_STORE_ID=");
+              envStoreID.Append(storeID);
+              SaveToEnv(envStoreID.get());
+
+              nsAutoCString envProfilePath("SELECTABLE_PROFILE_RESET_PATH=");
+              envProfilePath.Append(aProfilePath);
+              SaveToEnv(envProfilePath.get());
+            } else {
+              aKey = MOZ_APP_NAME;
+            }
           }
 #ifdef XP_MACOSX
           // Necessary for migration wizard to be accessible.
           InitializeMacApp();
 #endif
-          pm->Migrate(&mDirProvider, aKey, aName);
+          pm->Migrate(&mDirProvider, aKey, aProfilePath);
         }
       }
 
@@ -5963,6 +6064,7 @@ static already_AddRefed<nsIFile> GreOmniPath(int argc, char** argv) {
 int XREMain::XRE_main(int argc, char* argv[], const BootstrapConfig& aConfig) {
   gArgc = argc;
   gArgv = argv;
+  AppRunnerTelemFlags appRunnerTelemFlags{};
 
   ScopedLogging log;
 
@@ -6115,8 +6217,11 @@ int XREMain::XRE_main(int argc, char* argv[], const BootstrapConfig& aConfig) {
   // detect hangs -- they show up as crashes.  We do this as late as possible.
   // In particular, after ProcessRuntime is destroyed on Windows.
   auto unsetExceptionHandler = MakeScopeExit([&] {
-    if (mAppData->flags & NS_XRE_ENABLE_CRASH_REPORTER)
-      return CrashReporter::UnsetExceptionHandler();
+    if (mAppData->flags & NS_XRE_ENABLE_CRASH_REPORTER) {
+      nsresult rv = CrashReporter::UnsetExceptionHandler();
+      CrashReporter::OOPDeinit();
+      return rv;
+    }
     return NS_OK;
   });
 
@@ -6137,7 +6242,7 @@ int XREMain::XRE_main(int argc, char* argv[], const BootstrapConfig& aConfig) {
 
   // init
   bool exit = false;
-  int result = XRE_mainInit(&exit);
+  int result = XRE_mainInit(&exit, appRunnerTelemFlags);
   if (result != 0 || exit) return result;
 
   // If we exit gracefully, remove the startup crash canary file.
@@ -6150,7 +6255,7 @@ int XREMain::XRE_main(int argc, char* argv[], const BootstrapConfig& aConfig) {
   });
 
   // startup
-  result = XRE_mainStartup(&exit);
+  result = XRE_mainStartup(&exit, appRunnerTelemFlags);
   if (result != 0 || exit) return result;
 
   // Start the real application. We use |aInitJSContext = false| because

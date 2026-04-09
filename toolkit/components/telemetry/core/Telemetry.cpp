@@ -182,8 +182,8 @@ class TelemetryImpl final : public nsITelemetry,
   friend class nsFetchTelemetryData;
 };
 
-MOZ_RELEASE_CONSTINIT StaticDataMutex<TelemetryImpl*> TelemetryImpl::sTelemetry(
-    nullptr, nullptr);
+constinit StaticDataMutex<TelemetryImpl*> TelemetryImpl::sTelemetry(nullptr,
+                                                                    nullptr);
 
 MOZ_DEFINE_MALLOC_SIZE_OF(TelemetryMallocSizeOf)
 
@@ -506,7 +506,7 @@ bool TelemetryImpl::ReflectSQL(const SlowSQLEntryType* entry, const Stat* stat,
                                JSContext* cx, JS::Handle<JSObject*> obj) {
   if (stat->hitCount == 0) return true;
 
-  const nsACString& sql = entry->GetKey();
+  nsPromiseFlatCString sql(entry->GetKey());
 
   JS::Rooted<JSObject*> arrayObj(cx, JS::NewArrayObject(cx, 0));
   if (!arrayObj) {
@@ -515,8 +515,7 @@ bool TelemetryImpl::ReflectSQL(const SlowSQLEntryType* entry, const Stat* stat,
   return (
       JS_DefineElement(cx, arrayObj, 0, stat->hitCount, JSPROP_ENUMERATE) &&
       JS_DefineElement(cx, arrayObj, 1, stat->totalTime, JSPROP_ENUMERATE) &&
-      JS_DefineProperty(cx, obj, sql.BeginReading(), arrayObj,
-                        JSPROP_ENUMERATE));
+      JS_DefineProperty(cx, obj, sql.get(), arrayObj, JSPROP_ENUMERATE));
 }
 
 bool TelemetryImpl::ReflectMainThreadSQL(SlowSQLEntryType* entry, JSContext* cx,

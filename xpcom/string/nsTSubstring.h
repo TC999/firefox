@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -35,13 +33,6 @@ template <typename T>
 class nsTString;
 template <typename T>
 class nsTSubstring;
-
-template <typename T>
-struct type_identity {
-  using type = T;
-};
-template <typename T>
-using type_identity_t = typename type_identity<T>::type;
 
 namespace mozilla {
 
@@ -400,6 +391,15 @@ class nsTSubstring : public mozilla::detail::nsTStringRepr<T> {
   int64_t ToInteger64(nsresult* aErrorCode, uint32_t aRadix = 10) const;
 
   /**
+   * Perform string to 64-bit uint conversion.
+   * @param   aErrorCode will contain error if one occurs
+   * @param   aRadix is the radix to use. Only 10 and 16 are supported.
+   * @return  64-bit uint rep of string value, and possible (out) error code
+   */
+  uint64_t ToUnsignedInteger64(nsresult* aErrorCode,
+                               uint32_t aRadix = 10) const;
+
+  /**
    * assignment
    */
 
@@ -427,12 +427,11 @@ class nsTSubstring : public mozilla::detail::nsTStringRepr<T> {
     aBuffer->AddRef();
     Assign(already_AddRefed<mozilla::StringBuffer>(aBuffer), aLength);
   }
-  void NS_FASTCALL Assign(already_AddRefed<mozilla::StringBuffer> aBuffer,
-                          size_type aLength) {
+  void Assign(already_AddRefed<mozilla::StringBuffer> aBuffer,
+              size_type aLength) {
     mozilla::StringBuffer* buffer = aBuffer.take();
     auto* data = reinterpret_cast<char_type*>(buffer->Data());
-    MOZ_DIAGNOSTIC_ASSERT(data[aLength] == char_type(0),
-                          "data should be null terminated");
+    MOZ_ASSERT(data[aLength] == char_type(0), "data should be null terminated");
     Finalize();
     SetData(data, aLength, DataFlags::REFCOUNTED | DataFlags::TERMINATED);
   }
@@ -743,7 +742,8 @@ class nsTSubstring : public mozilla::detail::nsTStringRepr<T> {
 
   template <typename... Args>
   void AppendFmt(
-      fmt::basic_format_string<char_type, type_identity_t<Args>...> aFormatStr,
+      fmt::basic_format_string<char_type, std::type_identity_t<Args>...>
+          aFormatStr,
       Args&&... aArgs) {
     AppendVfmt(
         aFormatStr,
@@ -1186,8 +1186,8 @@ class nsTSubstring : public mozilla::detail::nsTStringRepr<T> {
 
  protected:
   constexpr void AssertValid() {
-    MOZ_DIAGNOSTIC_ASSERT(!(this->mClassFlags & ClassFlags::INVALID_MASK));
-    MOZ_DIAGNOSTIC_ASSERT(!(this->mDataFlags & DataFlags::INVALID_MASK));
+    MOZ_ASSERT(!(this->mClassFlags & ClassFlags::INVALID_MASK));
+    MOZ_ASSERT(!(this->mDataFlags & DataFlags::INVALID_MASK));
     MOZ_ASSERT(!(this->mClassFlags & ClassFlags::NULL_TERMINATED) ||
                    (this->mDataFlags & DataFlags::TERMINATED),
                "String classes whose static type guarantees a null-terminated "

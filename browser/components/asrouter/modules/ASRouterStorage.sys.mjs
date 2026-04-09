@@ -50,6 +50,7 @@ export class ASRouterStorage {
         setSharedMessageImpressions:
           this.setSharedMessageImpressions.bind(this),
         setSharedMessageBlocked: this.setSharedMessageBlocked.bind(this),
+        resetSharedMessageStorage: this.resetSharedMessageStorage.bind(this),
       };
     }
 
@@ -223,9 +224,8 @@ export class ASRouterStorage {
         );
       }
 
-      // If impressions is falsy, delete the row (an empty array may indicate a custom
-      // frequency cap; we still want to track the message ID in that case.)
-      if (!impressions) {
+      // If impressions is falsy or empty, delete the row.
+      if (!impressions?.length) {
         await conn.executeBeforeShutdown(
           "ASRouter: setSharedMessageImpressions",
           async () => {
@@ -349,6 +349,41 @@ export class ASRouterStorage {
         }
         success = false;
       }
+    }
+
+    lazy.ProfilesDatastoreService.notify();
+    return success;
+  }
+
+  async resetSharedMessageStorage() {
+    let success = true;
+    try {
+      const conn = await lazy.ProfilesDatastoreService.getConnection();
+      if (!conn) {
+        return false;
+      }
+      await conn.executeBeforeShutdown(
+        "ASRouter: resetSharedMessageBlocklist",
+        async () => {
+          await conn.executeCached(
+            `DELETE FROM MessagingSystemMessageBlocklist;`
+          );
+          await conn.executeCached(
+            `DELETE FROM MessagingSystemMessageImpressions;`
+          );
+        }
+      );
+    } catch (e) {
+      lazy.ASRouterPreferences.console.error(
+        `ASRouterStorage: Failed resetting MessagingSystemMessageBlocklist and MessagingSystemMessageImpressions`,
+        e
+      );
+      if (this.telemetry) {
+        this.telemetry.handleUndesiredEvent({
+          event: "SHARED_DB_WRITE_FAILED",
+        });
+      }
+      success = false;
     }
 
     lazy.ProfilesDatastoreService.notify();

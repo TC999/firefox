@@ -26,28 +26,110 @@ const Template = ({ messageData }) => html`
       margin-block: 0 var(--space-xlarge);
       margin-inline: auto;
       overflow: hidden;
-      max-width: 960px;
+      max-width: 904px;
     }
   </style>
   <div class="asrouter-newtab-message-wrapper">
     <asrouter-newtab-message
       .messageData=${messageData}
       .cssOverride=${cssFile}
+      .handleBlock=${() =>
+        console.warn("handleBlock called — message permanently blocked")}
+      .handleDismiss=${() =>
+        console.warn(
+          "handleDismiss called — DISMISS telemetry sent, message closed"
+        )}
+      .handleClose=${() => console.warn("handleClose called — message closed")}
+      .handleClick=${source =>
+        console.warn(
+          `handleClick called — CLICK telemetry sent, source: ${source}`
+        )}
     ></asrouter-newtab-message>
   </div>
 `;
 
+const BASE_MESSAGE = {
+  id: "TEST_ASROUTER_NEWTAB_MESSAGE",
+  template: "newtab_message",
+  content: {
+    messageType: "ASRouterNewTabMessage",
+    // eslint-disable-next-line mozilla/no-newtab-refs-outside-newtab
+    imageSrc: "chrome://newtab/content/data/content/assets/kit-in-circle.svg",
+    heading: "Test Heading",
+    body: "This is a test message body.",
+    primaryButton: {
+      label: "Primary Action",
+      action: {
+        type: "OPEN_URL",
+        data: { args: "https://www.mozilla.org/" },
+      },
+    },
+  },
+  trigger: {
+    id: "newtabMessageCheck",
+  },
+  groups: [],
+};
+
 export const Default = Template.bind({});
 Default.args = {
+  messageData: BASE_MESSAGE,
+};
+
+export const WithSecondaryButton = Template.bind({});
+WithSecondaryButton.args = {
   messageData: {
-    id: "TEST_ASROUTER_NEWTAB_MESSAGE",
-    template: "newtab_message",
+    ...BASE_MESSAGE,
     content: {
-      messageType: "ASRouterNewTabMessage",
+      ...BASE_MESSAGE.content,
+      secondaryButton: {
+        label: "Not now",
+        action: { type: "CANCEL" },
+      },
     },
-    trigger: {
-      id: "newtabMessageCheck",
+  },
+};
+
+export const WithoutDismissButton = Template.bind({});
+WithoutDismissButton.args = {
+  messageData: {
+    ...BASE_MESSAGE,
+    content: {
+      ...BASE_MESSAGE.content,
+      hideDismissButton: true,
     },
-    groups: [],
+  },
+};
+
+export const DismissOnSecondaryButton = Template.bind({});
+DismissOnSecondaryButton.args = {
+  messageData: {
+    ...BASE_MESSAGE,
+    content: {
+      ...BASE_MESSAGE.content,
+      secondaryButton: {
+        label: "Not Now",
+        action: {
+          dismiss: true,
+        },
+      },
+    },
+  },
+};
+
+export const BlockOnSecondaryButton = Template.bind({});
+BlockOnSecondaryButton.args = {
+  messageData: {
+    ...BASE_MESSAGE,
+    content: {
+      ...BASE_MESSAGE.content,
+      secondaryButton: {
+        label: "No Thanks",
+        action: {
+          type: "BLOCK_MESSAGE",
+          data: { id: "TEST_ASROUTER_NEWTAB_MESSAGE" },
+        },
+      },
+    },
   },
 };

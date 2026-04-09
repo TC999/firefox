@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -311,10 +309,7 @@ XMLHttpRequestMainThread::~XMLHttpRequestMainThread() {
     Abort();
   }
 
-  if (mParseEndListener) {
-    mParseEndListener->SetIsStale();
-    mParseEndListener = nullptr;
-  }
+  mParseEndListener = nullptr;
 
   MOZ_ASSERT(!mFlagSyncLooping, "we rather crash than hang");
   mFlagSyncLooping = false;
@@ -511,7 +506,7 @@ static void LogMessage(
     doc = aWindow->GetExtantDoc();
   }
   nsContentUtils::ReportToConsole(nsIScriptError::warningFlag, "DOM"_ns, doc,
-                                  nsContentUtils::eDOM_PROPERTIES, aWarning,
+                                  PropertiesFile::DOM_PROPERTIES, aWarning,
                                   aParams);
 }
 
@@ -1198,8 +1193,8 @@ bool XMLHttpRequestMainThread::IsSafeHeader(
   const char* kCrossOriginSafeHeaders[] = {
       "cache-control", "content-language", "content-type", "content-length",
       "expires",       "last-modified",    "pragma"};
-  for (uint32_t i = 0; i < std::size(kCrossOriginSafeHeaders); ++i) {
-    if (aHeader.LowerCaseEqualsASCII(kCrossOriginSafeHeaders[i])) {
+  for (auto& kCrossOriginSafeHeader : kCrossOriginSafeHeaders) {
+    if (aHeader.LowerCaseEqualsASCII(kCrossOriginSafeHeader)) {
       return true;
     }
   }
@@ -2510,6 +2505,7 @@ void XMLHttpRequestMainThread::ChangeStateToDone(bool aWasSync) {
 
 void XMLHttpRequestMainThread::ChangeStateToDoneInternal() {
   DEBUG_WORKERREFS;
+  RefPtr<XMLHttpRequestMainThread> kungfuDeathGrip(this);
   DisconnectDoneNotifier();
   StopProgressEventTimer();
 
@@ -3121,6 +3117,16 @@ void XMLHttpRequestMainThread::SendInternal(const BodyExtractorBase* aBody,
     mFlagSend = true;  // so CloseRequestWithError sets us to DONE.
     aRv = MaybeSilentSendFailure(mErrorLoadDetail);
     return;
+  }
+
+  // https://fetch.spec.whatwg.org/#concept-fetch
+  // XHR uses the Fetch algorithm; MIME sniffing does not apply to fetch
+  // requests, only to browsing contexts.
+  // Exception: when responseType is "document", XHR needs the content type
+  // to parse the response as HTML/XML, so allow sniffing as a fallback.
+  if (mResponseType != XMLHttpRequestResponseType::Document) {
+    nsCOMPtr<nsILoadInfo> loadInfo = mChannel->LoadInfo();
+    loadInfo->SetSkipContentSniffing(true);
   }
 
   // XXX We should probably send a warning to the JS console

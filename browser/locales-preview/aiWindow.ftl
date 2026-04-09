@@ -5,11 +5,11 @@
 ## Chrome
 
 appmenuitem-new-ai-window =
-    .label = New smart window
-    .value = New smart window
+    .label = New Smart Window
+    .value = New Smart Window
 
 appmenuitem-new-classic-window =
-    .label = New classic window
+    .label = New Classic Window
 
 menu-file-new-ai-window =
     .label = New Smart Window
@@ -30,7 +30,7 @@ smartwindow-document-title = New Tab
 ## Smart Window Toggle Button
 
 toolbar-button-ai-window-toggle =
-    .label = Smart window
+    .label = Window Type
     .tooltiptext = Switch between Smart and Classic windows.
 
 ai-window-toggleview-switch-classic =
@@ -68,6 +68,7 @@ smartbar-placeholder =
 
 ## Mentions
 
+smartbar-mention-typing-placeholder = Tag a tab or site
 smartbar-mentions-list-no-results-label = No results found
 smartbar-mentions-list-recent-tabs-label = Recent tabs
 
@@ -80,6 +81,7 @@ smartbar-context-menu-button =
 ## Website Chip
 
 aiwindow-website-chip-placeholder = Tag a tab or site
+aiwindow-website-chip-history-deleted = History deleted
 aiwindow-website-chip-remove-button =
     .aria-label = Remove
 
@@ -90,6 +92,9 @@ aiwindow-firstrun-model-title = What’s important to you?
 aiwindow-firstrun-model-subtitle = Pick a model to power Smart Window. Switch anytime.
 aiwindow-firstrun-model-fast-label = Fast
 aiwindow-firstrun-model-fast-body = Answers quickly
+# $modelName (string) - The name of the AI model
+# $ownerName (string) - The name of the model owner/provider
+aiwindow-firstrun-model-chip-subtitle = Model { $modelName } by { $ownerName }
 aiwindow-firstrun-model-allpurpose-label = Flexible
 aiwindow-firstrun-model-allpurpose-body = Solid fit for most needs
 aiwindow-firstrun-model-personal-label = Personal
@@ -104,10 +109,10 @@ smartwindow-ask-button =
 ## Memories toggle button
 
 aiwindow-memories-on =
-    .tooltiptext = Memories on
+    .tooltiptext = Use memories in responses when helpful
     .aria-label = Memories on
 aiwindow-memories-off =
-    .tooltiptext = Memories off
+    .tooltiptext = Don’t use memories in responses
     .aria-label = Memories off
 
 ## New Chat Button
@@ -177,3 +182,11 @@ firefoxview-search-chat-results-count = { $count ->
   [one] { $count } chat
  *[other] { $count } chats
 }
+
+## Clear browsing data dialog
+
+item-history-downloads-and-chat =
+    .label = Browsing, download, & chat history
+    .accesskey = B
+
+item-history-downloads-and-chat-description = Clears site, download, and chat history

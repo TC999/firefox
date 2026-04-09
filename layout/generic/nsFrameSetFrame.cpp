@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1296,9 +1294,7 @@ nsHTMLFramesetBorderFrame::nsHTMLFramesetBorderFrame(
   mNextNeighbor = 0;
 }
 
-nsHTMLFramesetBorderFrame::~nsHTMLFramesetBorderFrame() {
-  // printf("nsHTMLFramesetBorderFrame destructor %p \n", this);
-}
+nsHTMLFramesetBorderFrame::~nsHTMLFramesetBorderFrame() = default;
 
 NS_QUERYFRAME_HEAD(nsHTMLFramesetBorderFrame)
   NS_QUERYFRAME_ENTRY(nsHTMLFramesetBorderFrame)
@@ -1490,9 +1486,7 @@ NS_QUERYFRAME_TAIL_INHERITING(nsLeafFrame)
 
 NS_IMPL_FRAMEARENA_HELPERS(nsHTMLFramesetBlankFrame)
 
-nsHTMLFramesetBlankFrame::~nsHTMLFramesetBlankFrame() {
-  // printf("nsHTMLFramesetBlankFrame destructor %p \n", this);
-}
+nsHTMLFramesetBlankFrame::~nsHTMLFramesetBlankFrame() = default;
 
 void nsHTMLFramesetBlankFrame::Reflow(nsPresContext* aPresContext,
                                       ReflowOutput& aDesiredSize,

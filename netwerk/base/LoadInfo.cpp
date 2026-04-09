@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1422,10 +1420,9 @@ already_AddRefed<nsIPrincipal> CreateTruncatedPrincipal(
     // identifiers, and similar bits of information that these subcomponents may
     // contain.
     nsAutoCString scheme;
-    nsAutoCString separator("://");
     nsAutoCString hostPort;
     nsAutoCString path;
-    nsAutoCString uriString("");
+    nsAutoCString uriString;
     if (aPrincipal->SchemeIs("view-source")) {
       // The path portion of the view-source URI will be the URI whose source is
       // being viewed, so we create a new URI object with a truncated form of
@@ -1455,7 +1452,10 @@ already_AddRefed<nsIPrincipal> CreateTruncatedPrincipal(
       aPrincipal->GetHostPort(hostPort);
       aPrincipal->GetFilePath(path);
     }
-    uriString += scheme + separator + hostPort + path;
+    uriString.Append(scheme);
+    uriString.AppendLiteral("://");
+    uriString.Append(hostPort);
+    uriString.Append(path);
 
     nsCOMPtr<nsIURI> truncatedURI;
     nsresult rv = NS_NewURI(getter_AddRefs(truncatedURI), uriString);
@@ -1500,7 +1500,7 @@ already_AddRefed<nsIPrincipal> CreateTruncatedPrincipal(
       nsCOMPtr<nsIPrincipal> truncatedPrincipal =
           CreateTruncatedPrincipal(allowedPrincipal);
 
-      truncatedAllowList.AppendElement(truncatedPrincipal);
+      truncatedAllowList.AppendElement(std::move(truncatedPrincipal));
     }
 
     return ExpandedPrincipal::Create(truncatedAllowList,

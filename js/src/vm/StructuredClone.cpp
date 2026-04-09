@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -610,11 +608,10 @@ struct JSStructuredCloneWriter {
   void extractBuffer(JSStructuredCloneData* newData) {
     out.extractBuffer(newData);
   }
-
- private:
   JSStructuredCloneWriter() = delete;
   JSStructuredCloneWriter(const JSStructuredCloneWriter&) = delete;
 
+ private:
   JSContext* context() { return out.context(); }
 
   bool writeHeader();
@@ -1595,6 +1592,7 @@ bool JSStructuredCloneWriter::writeSharedWasmMemory(HandleObject obj) {
 
   Rooted<WasmMemoryObject*> memoryObj(context(),
                                       &obj->unwrapAs<WasmMemoryObject>());
+  JSAutoRealm ar(context(), memoryObj);
 
   if (!out.writePair(SCTAG_SHARED_WASM_MEMORY_OBJECT, 0) ||
       !out.writePair(SCTAG_BOOLEAN, memoryObj->isHuge())) {
@@ -3029,6 +3027,12 @@ bool JSStructuredCloneReader::readSharedWasmMemory(uint32_t nbytes,
   if (!startRead(&isHuge)) {
     return false;
   }
+  if (!isHuge.isBoolean()) {
+    JS_ReportErrorNumberASCII(context(), GetErrorMessage, nullptr,
+                              JSMSG_SC_BAD_SERIALIZED_DATA,
+                              "isHuge must be a boolean");
+    return false;
+  }
 
   // Read the SharedArrayBuffer object.
   RootedValue payload(cx);
@@ -3901,7 +3905,13 @@ JSObject* JSStructuredCloneReader::readErrorHeader(uint32_t type) {
   if (!startRead(&val)) {
     return nullptr;
   }
-  bool hasCause = ToBoolean(val);
+  if (!val.isBoolean()) {
+    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                              JSMSG_SC_BAD_SERIALIZED_DATA,
+                              "hasCause must be a boolean");
+    return nullptr;
+  }
+  bool hasCause = val.toBoolean();
   Rooted<Maybe<Value>> cause(cx, mozilla::Nothing());
   if (hasCause) {
     cause = mozilla::Some(BooleanValue(true));
@@ -3967,6 +3977,12 @@ bool JSStructuredCloneReader::readErrorFields(Handle<ErrorObject*> errorObj,
   }
 
   if (errorObj->type() == JSEXN_AGGREGATEERR) {
+    if (!errors.isObject() || !errors.toObject().is<ArrayObject>()) {
+      JS_ReportErrorNumberASCII(
+          cx, GetErrorMessage, nullptr, JSMSG_SC_BAD_SERIALIZED_DATA,
+          "AggregateError 'errors' field must be an Array");
+      return false;
+    }
     if (!DefineDataProperty(context(), errorObj, cx->names().errors, errors,
                             0)) {
       return false;

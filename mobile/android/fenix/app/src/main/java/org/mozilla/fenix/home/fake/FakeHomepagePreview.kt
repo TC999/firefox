@@ -80,10 +80,6 @@ internal object FakeHomepagePreview {
             PrivacyNoticeBannerInteractor by PrivacyNoticeBannerInteractorNoOp {
             override fun reportSessionMetrics(state: AppState) { /* no op */ }
 
-            override fun onPasteAndGo(clipboardText: String) { /* no op */ }
-
-            override fun onPaste(clipboardText: String) { /* no op */ }
-
             override fun onNavigateSearch() { /* no op */ }
 
             override fun onMessageClicked(message: Message) { /* no op */ }
@@ -99,6 +95,8 @@ internal object FakeHomepagePreview {
             override fun onChecklistItemClicked(item: ChecklistItem) { /* no op */ }
 
             override fun onRemoveChecklistButtonClicked() { /* no op */ }
+
+            override fun onLogoClicked() { /* no op */ }
         }
 
     internal val storiesInteractor
@@ -417,7 +415,6 @@ internal object FakeHomepagePreview {
         categoryColors = FilterChipDefaults.filterChipColors(),
         textColor = MaterialTheme.colorScheme.onSurface,
         linkTextColor = MaterialTheme.colorScheme.tertiary,
-        showDiscoverMoreButton = false,
     )
 
     internal fun contentRecommendation(index: Int = Random.nextInt(until = 5)): ContentRecommendation =
